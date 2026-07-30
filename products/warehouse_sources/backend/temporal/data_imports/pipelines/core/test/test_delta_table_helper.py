@@ -12,6 +12,7 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
+import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _first_per_pk_table,
     _realign_decimal_buffers,
     is_transient_delta_maintenance_error,
+    is_transient_object_store_error,
 )
 
 
@@ -283,12 +285,13 @@ class TestCompactIfFragmented:
         expected_ran: bool,
     ):
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
-        mock_delta = MagicMock()
         file_uris = [f"s3://bucket/table/f{i}.parquet" for i in range(file_count)]
+        mock_delta = MagicMock()
+        mock_delta.file_uris = MagicMock(return_value=file_uris)
         with (
             patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
-            patch.object(helper, "get_file_uris", AsyncMock(return_value=file_uris)),
-            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+            patch.object(helper, "_compact", AsyncMock()) as mock_compact,
+            patch.object(helper, "_vacuum", AsyncMock()) as mock_vacuum,
         ):
             kwargs: dict = {"partition_count": partition_count}
             if threshold_kw is not None:
@@ -297,9 +300,11 @@ class TestCompactIfFragmented:
 
         assert ran is expected_ran
         if expected_ran:
-            mock_compact.assert_called_once()
+            mock_compact.assert_called_once_with(mock_delta)
+            mock_vacuum.assert_called_once_with(mock_delta)
         else:
             mock_compact.assert_not_called()
+            mock_vacuum.assert_not_called()
 
     # (case_name, files_per_dir, dir_count, expected_ran)
     _DERIVATION_CASES: list[tuple[str, int, int, bool]] = [
@@ -325,18 +330,43 @@ class TestCompactIfFragmented:
             for d in range(dir_count)
             for i in range(files_per_dir)
         ]
+        mock_delta = MagicMock()
+        mock_delta.file_uris = MagicMock(return_value=file_uris)
         with (
-            patch.object(helper, "get_delta_table", AsyncMock(return_value=MagicMock())),
-            patch.object(helper, "get_file_uris", AsyncMock(return_value=file_uris)),
-            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "_compact", AsyncMock()) as mock_compact,
+            patch.object(helper, "_vacuum", AsyncMock()) as mock_vacuum,
         ):
             ran = await helper.compact_if_fragmented(partition_count=None)
 
         assert ran is expected_ran
         if expected_ran:
-            mock_compact.assert_called_once()
+            mock_compact.assert_called_once_with(mock_delta)
+            mock_vacuum.assert_called_once_with(mock_delta)
         else:
             mock_compact.assert_not_called()
+            mock_vacuum.assert_not_called()
+
+
+class TestCompactTable:
+    @pytest.mark.asyncio
+    async def test_does_not_refetch_table_for_the_vacuum_step(self, helper: DeltaTableHelper):
+        # Regression: compact_table used to finish its own compact, then call vacuum_table(),
+        # which called get_delta_table() again instead of reusing the table already in hand.
+        # get_delta_table() is cached only opportunistically (a concurrent sync of a different
+        # table can evict this table's cache entry), so that second call could come back None
+        # and raise "Deltatable not found" right after a successful compact. Asserting a single
+        # get_delta_table() call locks in that the vacuum step reuses the resolved table instead
+        # of re-deriving it.
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(return_value={})
+        mock_delta.vacuum = MagicMock(return_value=[])
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)) as mock_get:
+            await helper.compact_table()
+
+        mock_get.assert_called_once()
+        mock_delta.optimize.compact.assert_called_once()
+        mock_delta.vacuum.assert_called_once()
 
 
 class TestGetDeltaTableUnrecoverableErrors:
@@ -1134,13 +1164,15 @@ class TestVacuumIfStale:
         table.version = MagicMock(return_value=150)
         with (
             patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
-            patch.object(helper, "vacuum_table", new=AsyncMock()) as vacuum,
+            patch.object(helper, "_vacuum", new=AsyncMock()) as vacuum,
             patch(f"{module}.posthoganalytics") as ph,
         ):
             result = await helper.vacuum_if_stale(last_version, 100)
 
         assert result == expected_return
         assert vacuum.await_count == (1 if expect_vacuum else 0)
+        if expect_vacuum:
+            vacuum.assert_awaited_once_with(table)
         # The observability event fires exactly when a vacuum runs — not on seed/skip — so the cadence is measurable.
         assert ph.capture.call_count == (1 if expect_vacuum else 0)
         if expect_vacuum:
@@ -1237,3 +1269,30 @@ class TestIsTransientDeltaMaintenanceError:
     )
     def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
         assert is_transient_delta_maintenance_error(error) is expected
+
+
+class TestIsTransientObjectStoreError:
+    @parameterized.expand(
+        [
+            (
+                "credential_provider_not_enabled_os_error",
+                OSError(
+                    "Operation not supported: the credential provider was not enabled: "
+                    "no providers in chain provided credentials"
+                ),
+                True,
+            ),
+            ("unrelated_os_error", OSError("Permission denied: bucket policy forbids this operation"), False),
+            (
+                # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
+                # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
+                # hitting our own instance-role-authenticated bucket, different client library.
+                "bare_no_credentials_error",
+                botocore.exceptions.NoCredentialsError(),
+                True,
+            ),
+            ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+        ]
+    )
+    def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_object_store_error(error) is expected

@@ -337,18 +337,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        # Mock the teams queryset to return a count of 1500 non-demo projects
+        # Mock the teams queryset to return a count of 2000 non-demo projects
         mock_qs = MagicMock()
-        mock_qs.exclude.return_value.distinct.return_value.count.return_value = 1500
+        mock_qs.exclude.return_value.distinct.return_value.count.return_value = 2000
         mock_teams.return_value = mock_qs
-        mock_teams.exclude.return_value.distinct.return_value.count.return_value = 1500
+        mock_teams.exclude.return_value.distinct.return_value.count.return_value = 2000
 
         # Should not be able to create another project
         response = self.client.post("/api/projects/", {"name": "Project 1001"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json()["detail"],
-            "You have reached the maximum limit of 1500 projects per organization. Contact support if you'd like access to more projects.",
+            "You have reached the maximum limit of 2000 projects per organization. Contact support if you'd like access to more projects.",
         )
 
     def test_demo_projects_not_counted_toward_limit(self):

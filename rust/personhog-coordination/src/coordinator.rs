@@ -36,12 +36,11 @@ pub struct CoordinatorConfig {
     /// rapid pod registrations into a single rebalance.
     pub rebalance_debounce_interval: Duration,
     /// How often to re-evaluate in-flight handoffs regardless of watch
-    /// events. Phase advancement is normally event-driven, but some state
-    /// changes produce no watched event at all — a router departing
-    /// (nothing watches router registrations) can newly satisfy a freeze
-    /// quorum. The tick backstops those so handoffs cannot stall
-    /// indefinitely, and doubles as defense-in-depth for anything else
-    /// that slips through the event-driven paths.
+    /// events. Phase advancement is event-driven — acks, handoff writes,
+    /// and router departures are all watched — so the tick is pure
+    /// defense-in-depth: it catches a dropped stream or an event lost in
+    /// a coordinator failover window, keeping a handoff from stalling
+    /// indefinitely on a missed delivery.
     pub reconcile_interval: Duration,
     /// How long a handoff may sit in Freezing or Draining before the
     /// coordinator cancels it — by atomic replacement with whatever
@@ -275,6 +274,7 @@ impl Coordinator {
         let freeze_acks_stream = self.store.watch_freeze_acks_from(anchor).await?;
         let drained_acks_stream = self.store.watch_drained_acks_from(anchor).await?;
         let warmed_acks_stream = self.store.watch_warmed_acks_from(anchor).await?;
+        let routers_stream = self.store.watch_routers_from(anchor).await?;
 
         let mut tasks = tokio::task::JoinSet::new();
 
@@ -350,6 +350,14 @@ impl Coordinator {
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::run_ack_watch("warmed", warmed_acks_stream, &store, token).await
+            });
+        }
+
+        {
+            let store = Arc::clone(&self.store);
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::run_router_departure_watch(routers_stream, &store, token).await
             });
         }
 
@@ -522,13 +530,47 @@ impl Coordinator {
         }
     }
 
+    /// React to router departures. The freeze quorum's required set is
+    /// the handoff's creation snapshot intersected with the live
+    /// registry, so a router leaving — deregistering at shutdown, or its
+    /// lease expiring after a crash — can newly satisfy the quorum of
+    /// every in-flight freeze. Nothing else fires an event for that:
+    /// without this watch, such handoffs wait for the reconcile tick.
+    /// Registrations (Put events) are ignored — a router that joins
+    /// after a handoff's creation is never added to its quorum, so a Put
+    /// can't change any evaluation.
+    async fn run_router_departure_watch(
+        mut stream: WatchStream,
+        store: &PersonhogStore,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                msg = stream.message() => {
+                    let resp = msg?.ok_or_else(|| {
+                        Error::invalid_state("router watch stream ended".to_string())
+                    })?;
+                    let departed = resp
+                        .events()
+                        .iter()
+                        .any(|e| e.event_type() == EventType::Delete);
+                    if departed {
+                        for handoff in store.list_handoffs().await? {
+                            Self::check_phase_advance(store, handoff.partition).await?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Periodically re-evaluate every in-flight handoff, mirroring what
-    /// the ack watches do on events. This is the liveness backstop for
-    /// state changes that fire no watched event — a router departing
-    /// (nothing watches router registrations) can newly satisfy a freeze
-    /// quorum. All the work it drives is idempotent: phase transitions
-    /// use CAS and completed-handoff cleanup tolerates already-deleted
-    /// records.
+    /// the ack and router-departure watches do on events. This is the
+    /// liveness backstop for anything the watches miss — a dropped
+    /// stream, an event lost in a coordinator failover window. All the
+    /// work it drives is idempotent: phase transitions use CAS and
+    /// completed-handoff cleanup tolerates already-deleted records.
     async fn reconcile_tick_loop(
         store: Arc<PersonhogStore>,
         interval: Duration,
@@ -626,6 +668,18 @@ impl Coordinator {
                             "freeze quorum reached, advanced from Freezing"
                         );
                     }
+                } else {
+                    // Evaluations are event-driven (acks, router
+                    // departures, the reconcile tick), so this names the
+                    // blocker a handful of times per stalled handoff
+                    // rather than spamming.
+                    tracing::info!(
+                        partition,
+                        handoff_id = %handoff.handoff_id,
+                        missing_freeze_ackers =
+                            ?missing_freeze_ackers(&routers, &freeze_acks, &handoff),
+                        "freeze quorum not yet met"
+                    );
                 }
             }
             HandoffPhase::Draining => {
@@ -949,6 +1003,19 @@ impl Coordinator {
             // event or the final sweep.
             tracing::info!("concurrent plan won handoff creation; standing down");
             return Ok(());
+        }
+        for handoff in creations
+            .iter()
+            .chain(replacements.iter().map(|r| &r.handoff))
+        {
+            tracing::info!(
+                partition = handoff.partition,
+                handoff_id = %handoff.handoff_id,
+                old_owner = ?handoff.old_owner,
+                new_owner = %handoff.new_owner,
+                phase = ?handoff.phase,
+                "handoff created"
+            );
         }
         for disposition in &replaced_dispositions {
             counter!(

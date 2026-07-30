@@ -288,7 +288,7 @@ export const getMcpAnalyticsSessionsIntentDigestUrl = (projectId: string) => {
 }
 
 /**
- * Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Content-addressed cache: only regenerates when new intents arrive. Powers the dashboard's low-volume activity stage.
+ * Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions: a one-sentence summary plus semantic themes, each sized and attributed to tools from the intents themselves. Cached by intent corpus and by recency, so repeated calls are cheap and a busy server regenerates at a bounded rate. Powers the dashboard's activity tab.
  */
 export const mcpAnalyticsSessionsIntentDigest = async (
     projectId: string,
