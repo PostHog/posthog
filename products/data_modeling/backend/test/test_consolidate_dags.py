@@ -316,6 +316,23 @@ class TestConsolidateDags(BaseTest):
         self.assertTrue(Edge.objects.filter(dag=target, source=events, target=good_node).exists())
         self.assertIn("adopted bad_view without edges", output)
 
+    def test_adopt_unresolvable_does_not_adopt_non_resolution_failures(self):
+        # The flag exists for SQL that cannot resolve. A sync that fails for operational reasons
+        # (DB blip, programming error) must stay a failed move — adopting it would delete the
+        # source DAG and report success on a query a plain retry would have moved intact.
+        target = DAG.get_or_create_default(self.team)
+        source = DAG.objects.create(team=self.team, name="posthog_team")
+        moved = self._query("only_in_source", "SELECT 1")
+        self._node(source, moved)
+
+        with _temporal_boundary():
+            with mock.patch(f"{COMMAND}.sync_saved_query_to_dag", side_effect=RuntimeError("db down")):
+                with self.assertRaisesRegex(CommandError, "incomplete"):
+                    self._run("--adopt-unresolvable", apply=True)
+
+        self.assertTrue(DAG.objects.filter(id=source.id).exists())
+        self.assertFalse(Node.objects.filter(dag=target, saved_query=moved).exists())
+
     def test_adoption_failure_rolls_back_the_node(self):
         # If the marker save fails after get_or_create committed the node, an unmarked edge-less
         # node would survive; the re-run would then classify the query as DROP instead of

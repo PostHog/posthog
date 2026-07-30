@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 from django.utils import timezone
@@ -12,6 +13,8 @@ from django.utils import timezone
 import structlog
 from temporalio.client import Client
 from temporalio.service import RPCError, RPCStatusCode
+
+from posthog.hogql.errors import BaseHogQLError
 
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import delete_schedule
@@ -39,6 +42,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.modeling import UnknownParentError
 from products.data_modeling.backend.models.node import Node, NodeType
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +51,13 @@ logger = structlog.get_logger(__name__)
 MODE_TIERED = "tiered"  # per-cadence tier schedules ({dag_id}:{seconds})
 MODE_LEGACY_V2 = "legacy-v2"  # single whole-DAG execute-dag schedule (id == dag_id)
 MODE_V1 = "v1-only"  # no execute-dag schedule; queries run on per-query v1 schedules
+
+# The sync failures --adopt-unresolvable may adopt: the query's SQL failing to parse or resolve
+# (BaseHogQLError covers parse errors and the BoundedResolver family), a parent that is not a
+# known table or view, or a parent whose node lives in a DAG the resolver cannot see (surfaces
+# as Node/SavedQuery DoesNotExist). Operational failures (DB errors, ManagedDAGError, a query
+# with no SQL at all) stay failed moves — a retry could still move those intact.
+ADOPTABLE_SYNC_ERRORS = (BaseHogQLError, UnknownParentError, ObjectDoesNotExist)
 
 
 @dataclasses.dataclass
@@ -528,7 +539,8 @@ class Command(BaseCommand):
             try:
                 node = sync_saved_query_to_dag(item.saved_query, dag=target, reconcile=False)
             except Exception as error:
-                node = self._adopt_without_edges(item.saved_query, target, error) if adopt_unresolvable else None
+                adoptable = adopt_unresolvable and isinstance(error, ADOPTABLE_SYNC_ERRORS)
+                node = self._adopt_without_edges(item.saved_query, target, error) if adoptable else None
                 if node is None:
                     failed_moves.append(item.saved_query.name)
                     logger.exception(
