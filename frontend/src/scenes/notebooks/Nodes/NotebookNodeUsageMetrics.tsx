@@ -1,10 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
 import { usageMetricsConfigLogic } from 'scenes/settings/environment/usageMetricsConfigLogic'
 
@@ -24,7 +26,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAttributes>): JSX.Element | null => {
     const { expanded, notebookLogic } = useValues(notebookNodeLogic)
-    const { setActions, setMenuItems } = useActions(notebookNodeLogic)
+    const { setMenuItems } = useActions(notebookNodeLogic)
     const { personId, groupKey, groupTypeIndex, tabId } = attributes
     const dataNodeLogicProps = personId
         ? {
@@ -55,19 +57,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
 
     useOnMountEffect(() => {
         const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.UsageMetrics)
-        setActions([
-            {
-                text: 'Add metric',
-                icon: <IconPlusSmall />,
-                onClick: openModal,
-            },
-            {
-                text: 'Refresh',
-                icon: <IconRefresh />,
-                onClick: loadData,
-            },
-        ])
-
         const addMetricMenuItem = {
             label: 'Add metric',
             sideIcon: <IconPlusSmall />,
@@ -113,7 +102,10 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     return (
         <BindLogic logic={usageMetricsConfigLogic} props={usageMetricsConfigLogicProps}>
             <div className="@container">
-                <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
+                <div className="flex justify-end px-4 pt-2">
+                    <AddUsageMetricButton />
+                </div>
+                <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 px-4 pb-4 pt-2">
                     {results.map((metric) => (
                         <UsageMetricCard key={metric.id} metric={metric} />
                     ))}
@@ -121,6 +113,26 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 <UsageMetricsModal />
             </div>
         </BindLogic>
+    )
+}
+
+function AddUsageMetricButton(): JSX.Element {
+    const { openModal } = useActions(usageMetricsConfigLogic)
+    const { reportUsageMetricsCreateButtonClicked } = useActions(eventUsageLogic)
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconPlusSmall />}
+            data-attr="usage-metrics-node-add-metric"
+            onClick={() => {
+                reportUsageMetricsCreateButtonClicked()
+                openModal()
+            }}
+        >
+            Add metric
+        </LemonButton>
     )
 }
 
