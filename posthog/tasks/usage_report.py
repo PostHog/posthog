@@ -76,6 +76,8 @@ logging.getLogger(__name__).setLevel(logging.INFO)
 AI_EVENTS = [event.value for event in AIEventType]
 GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE = 20
 GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE = 20
+# Gateway generations are emitted after provider completion. The default gateway
+# provider timeout bounds how far the caller's spans can precede that event.
 GATEWAY_SPONSORSHIP_BACKDATE = timedelta(minutes=5)
 GATEWAY_SPONSORSHIP_LOOKAROUND = timedelta(days=1)
 
@@ -105,6 +107,7 @@ class TableSizes(TypedDict):
 
 CH_BILLING_SETTINGS = {
     "max_execution_time": 5 * 60,  # 5 minutes
+    "max_memory_usage": 4 * 1024 * 1024 * 1024,
 }
 
 QUERY_RETRIES = 3
@@ -1474,11 +1477,7 @@ def get_teams_with_ai_event_count_in_period(
                             team_id,
                             trace_id,
                             allowance_kind,
-                            if(
-                                allowance_kind = 0,
-                                sponsor_timestamp - toIntervalSecond(%(backdate_seconds)s),
-                                sponsor_timestamp
-                            ) AS ledger_timestamp,
+                            sponsor_timestamp - toIntervalSecond(%(backdate_seconds)s) AS ledger_timestamp,
                             0 AS entry_kind,
                             request_id AS entry_id,
                             if(

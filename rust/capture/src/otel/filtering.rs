@@ -9,7 +9,7 @@ use crate::event_restrictions::{
     AppliedRestrictions, EventContext, EventRestrictionService, Pipeline,
 };
 use crate::prometheus::report_dropped_events;
-use crate::quota_limiters::CaptureQuotaLimiter;
+use crate::quota_limiters::{CaptureQuotaLimiter, QuotaResource};
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
 
 use super::fan_out::SpanEvent;
@@ -29,9 +29,11 @@ pub async fn check_quota(
     let count = span_events.len();
 
     if gateway_verified {
-        // Direct AI events remain accepted at the global event limit because
-        // the scoped AI limiter retains them. Verified relays must not be
-        // stricter than the equivalent direct-ingestion path.
+        // Match direct AI ingestion's global lookup while bypassing only the
+        // scoped LLM restriction. Direct AI events are retained at this limit.
+        limiter
+            .is_quota_limited_v1(token, &QuotaResource::Events)
+            .await;
         return Ok(());
     }
 
