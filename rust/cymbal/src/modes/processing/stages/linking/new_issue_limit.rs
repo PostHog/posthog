@@ -114,7 +114,13 @@ mod tests {
         replies: Vec<Result<Vec<i64>, CustomRedisError>>,
         enforced: bool,
     ) -> NewIssueLimiter {
-        NewIssueLimiter::new(FakeRunner::returning(replies), "test".into(), 1, 60, enforced)
+        NewIssueLimiter::new(
+            FakeRunner::returning(replies),
+            "test".into(),
+            1,
+            60,
+            enforced,
+        )
     }
 
     #[tokio::test]
@@ -124,8 +130,11 @@ mod tests {
 
     #[tokio::test]
     async fn blocks_an_over_budget_team_only_when_enforcement_is_on() {
-        assert!(!limiter(vec![Ok(vec![1, 0])], true).admit_new_issue(7).await);
-        assert!(limiter(vec![Ok(vec![1, 0])], false).admit_new_issue(7).await);
+        let enforcing = limiter(vec![Ok(vec![1, 0])], true);
+        let observing = limiter(vec![Ok(vec![1, 0])], false);
+
+        assert!(!enforcing.admit_new_issue(7).await);
+        assert!(observing.admit_new_issue(7).await);
     }
 
     #[tokio::test]
