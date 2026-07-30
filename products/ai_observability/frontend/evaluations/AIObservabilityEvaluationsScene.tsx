@@ -205,7 +205,13 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 if (evaluation.status === 'error') {
                     return (
                         <Tooltip title={`${statusReasonLabel(evaluation.status_reason)}. Open to fix.`}>
-                            <LemonTag type="danger" icon={<IconWarning />} data-attr="evaluation-status-error">
+                            <LemonTag
+                                type="danger"
+                                icon={<IconWarning />}
+                                forceClickable
+                                onClick={() => push(evaluationUrl(evaluation.id))}
+                                data-attr="evaluation-status-error"
+                            >
                                 Error
                             </LemonTag>
                         </Tooltip>
@@ -217,9 +223,15 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         <Tooltip
                             title={`Paused because API key ${providerKeyIssue.name} ${providerKeyStateIssueDescription(
                                 providerKeyIssue.state
-                            )}.`}
+                            )}. Open settings to fix.`}
                         >
-                            <LemonTag type="warning" icon={<IconWarning />} data-attr="evaluation-status-key-issue">
+                            <LemonTag
+                                type="warning"
+                                icon={<IconWarning />}
+                                forceClickable
+                                onClick={() => push(settingsUrl)}
+                                data-attr="evaluation-status-key-issue"
+                            >
                                 Key issue
                             </LemonTag>
                         </Tooltip>
