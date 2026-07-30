@@ -48,7 +48,11 @@ class TestBatchReconcileTeams(BaseTest):
             ),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
-            mock.patch(f"{BATCH}.list_existing_schedule_ids", return_value=verify_listing or set()),
+            mock.patch(f"{BATCH}.async_connect", new=mock.AsyncMock()),
+            mock.patch(
+                f"{BATCH}.a_schedule_exists",
+                new=mock.AsyncMock(side_effect=lambda _t, sid: sid in (verify_listing or set())),
+            ),
         ):
             call_command("batch_reconcile_teams", "--team-ids", team_ids, *extra_args, stdout=out, stderr=StringIO())
         report = json.loads(out.getvalue().split(REPORT_MARKER, 1)[1])
@@ -102,7 +106,7 @@ class TestBatchReconcileTeams(BaseTest):
         report, _create, _delete = self._run(str(self.team.pk), "--apply", existing=[str(dag.id)], verify_listing=set())
 
         assert report["halted"] is True
-        assert "live schedule set" in report["halt_reason"]
+        assert "missing planned schedule" in report["halt_reason"]
         assert report["teams"][0]["status"] == "anomaly"
 
     def test_invalid_declared_targets_are_reported_but_do_not_halt(self):

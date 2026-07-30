@@ -6,15 +6,17 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 import structlog
+from asgiref.sync import async_to_sync
 
 from posthog.models.team import Team
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.schedule import a_schedule_exists
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import schedulable_nodes
 from products.data_modeling.backend.logic.schedule_reconcile import (
     convert_dag_to_tiers,
     delete_v1_saved_query_schedules,
-    list_existing_schedule_ids,
     null_saved_query_intervals,
     preview_dag_schedules,
     tiered_schedules_enabled,
@@ -32,6 +34,17 @@ class Anomaly(Exception):
 
 def _seconds(interval: timedelta) -> int:
     return int(interval.total_seconds())
+
+
+@async_to_sync
+async def _verify_schedules(expected: list[str], deleted: list[str]) -> tuple[list[str], list[str]]:
+    """Point-read every id: planned schedules must exist, swept ones must be gone. Listing
+    would go through the eventually-consistent visibility store and can return a pre-apply
+    snapshot, halting the batch on a conversion that actually succeeded."""
+    temporal = await async_connect()
+    missing = [sid for sid in expected if not await a_schedule_exists(temporal, sid)]
+    lingering = [sid for sid in deleted if await a_schedule_exists(temporal, sid)]
+    return missing, lingering
 
 
 class Command(BaseCommand):
@@ -165,9 +178,10 @@ class Command(BaseCommand):
                 raise Anomaly(f"DAG {dag.name}: {len(failed)} v1 schedule(s) failed to delete")
 
         for dag, preview, dag_record in plans:
-            expected = {tier_schedule_id(str(dag.id), interval) for interval in preview.desired_tiers}
-            actual = list_existing_schedule_ids(str(dag.id))
-            dag_record["live_schedules"] = sorted(actual)
-            if actual != expected:
-                raise Anomaly(f"DAG {dag.name}: live schedule set {sorted(actual)} != planned {sorted(expected)}")
-            dag_record["verified"] = True
+            expected = sorted(tier_schedule_id(str(dag.id), interval) for interval in preview.desired_tiers)
+            missing, lingering = _verify_schedules(expected, sorted(preview.plan.to_delete))
+            dag_record["verified"] = not missing and not lingering
+            if missing or lingering:
+                raise Anomaly(
+                    f"DAG {dag.name}: missing planned schedule(s) {missing}; lingering swept schedule(s) {lingering}"
+                )
