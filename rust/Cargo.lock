@@ -8466,6 +8466,7 @@ dependencies = [
  "assignment-coordination",
  "async-trait",
  "etcd-client",
+ "futures",
  "k8s-awareness",
  "k8s-openapi",
  "kube",

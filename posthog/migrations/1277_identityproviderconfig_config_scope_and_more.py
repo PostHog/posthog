@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1271_add_pardot_integration_kind"),
+        ("posthog", "1276_untrack_legacy_provisioning_columns"),
     ]
 
     operations = [
