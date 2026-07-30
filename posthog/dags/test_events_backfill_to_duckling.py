@@ -1608,18 +1608,30 @@ class TestExportClickhouseRetries:
     itself — must retry transient failures. (Guards against the @retry decorator drifting
     onto the pure _compute_fanout arithmetic, which can never raise.)"""
 
+    @parameterized.expand(
+        [
+            ("socket_timeout", TimeoutError("transient")),
+            ("server_closed_connection", EOFError("Unexpected EOF while reading bytes")),
+        ]
+    )
     @patch("tenacity.nap.time.sleep")
-    def test_row_count_estimate_retries_then_succeeds(self, _sleep):
+    def test_row_count_estimate_retries_then_succeeds(self, _name, error, _sleep):
         client = MagicMock()
-        client.execute.side_effect = [TimeoutError("transient"), [(123,)]]
+        client.execute.side_effect = [error, [(123,)]]
 
         assert _estimate_export_row_count(client, "SELECT count() FROM events", {}) == 123
         assert client.execute.call_count == 2
 
+    @parameterized.expand(
+        [
+            ("socket_timeout", TimeoutError("transient")),
+            ("server_closed_connection", EOFError("Unexpected EOF while reading bytes")),
+        ]
+    )
     @patch("tenacity.nap.time.sleep")
-    def test_export_retries_then_succeeds(self, _sleep):
+    def test_export_retries_then_succeeds(self, _name, error, _sleep):
         client = MagicMock()
-        client.execute.side_effect = [TimeoutError("transient"), None]
+        client.execute.side_effect = [error, None]
 
         _execute_export_with_retry(client, "INSERT INTO FUNCTION s3(...)", {}, "info")
         assert client.execute.call_count == 2

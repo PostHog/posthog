@@ -102,6 +102,11 @@ DUCKLAKE_ALIAS = "ducklake"
 
 MAX_RETRY_ATTEMPTS = 3
 
+# clickhouse_driver raises a bare EOFError when the server closes the socket mid-query
+# (restart, OOM kill, dropped connection). EOFError is not an OSError subclass, so
+# retrying on OSError alone lets a transient disconnect fail the whole partition.
+CLICKHOUSE_TRANSIENT_ERRORS = (ClickHouseError, OSError, TimeoutError, EOFError)
+
 ONE_HOUR_IN_SECONDS = 60 * 60
 ONE_GB_IN_BYTES = 1024 * 1024 * 1024
 
@@ -1288,7 +1293,7 @@ def _compute_fanout(row_count: int, target_rows_per_file: int, max_fanout: int) 
 @retry(
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=1, min=4, max=60),
-    retry=retry_if_exception_type((ClickHouseError, OSError, TimeoutError)),
+    retry=retry_if_exception_type(CLICKHOUSE_TRANSIENT_ERRORS),
     reraise=True,
 )
 def _estimate_export_row_count(client: Client, count_sql: str, settings: dict[str, Any]) -> int:
@@ -1306,7 +1311,7 @@ def _estimate_export_row_count(client: Client, count_sql: str, settings: dict[st
 @retry(
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential(multiplier=1, min=4, max=60),
-    retry=retry_if_exception_type((ClickHouseError, OSError, TimeoutError)),
+    retry=retry_if_exception_type(CLICKHOUSE_TRANSIENT_ERRORS),
     reraise=True,
 )
 def _execute_export_with_retry(
