@@ -675,6 +675,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     await api.tasks.run(task.id, {
                         run_source: RunSourceEnumApi.Manual,
                         mode: TaskExecutionModeEnumApi.Interactive,
+                        // The agent-server self-delivers `pending_user_message` from run state on boot,
+                        // and interactive runs skip the workflow's forwarding path. Nothing falls back to
+                        // the task description on the ACP runtime, so without this the sandbox boots with
+                        // no first turn and the run just idles.
+                        pending_user_message: prompt,
                     })
                 } catch (error: any) {
                     // The task exists and its page has a Run button, so strand nobody — say what

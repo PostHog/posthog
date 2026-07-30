@@ -116,6 +116,10 @@ async function createReportTask(
         // agent-server only relays AskUserQuestion (and other approval prompts) to the client on
         // non-background runs — a background run's questions are parked and never rendered as a form.
         mode: TaskExecutionModeEnumApi.Interactive,
+        // The agent-server self-delivers `pending_user_message` from run state on boot, and interactive
+        // runs skip the workflow's forwarding path. Nothing falls back to the task description on the
+        // ACP runtime, so without this the sandbox boots with no first turn and the run just idles.
+        pending_user_message: prompt,
     }
     await api.tasks.run(task.id, runtimeSelection ? { ...runOptions, ...runtimeSelection } : runOptions)
 

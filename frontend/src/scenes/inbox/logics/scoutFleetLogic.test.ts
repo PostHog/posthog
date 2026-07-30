@@ -182,6 +182,8 @@ describe('scoutFleetLogic', () => {
         expect(run).toHaveBeenCalledWith('task-1', {
             run_source: RunSourceEnumApi.Manual,
             mode: TaskExecutionModeEnumApi.Interactive,
+            // Without the prompt as the first turn, an interactive run boots the agent idle.
+            pending_user_message: SCOUT_AUTHOR_PROMPT,
         })
         expect(router.values.location.pathname).toContain('task-1')
         // Pinning a repo would make the run clone it in full, and these prompts never touch code.
