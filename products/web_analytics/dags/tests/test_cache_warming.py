@@ -8,6 +8,7 @@ import dagster
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
@@ -463,6 +464,57 @@ class TestWarmQueriesOp(BaseTest):
             )
 
         self.assertEqual(runner.run.call_count, expected_runs)
+
+    @parameterized.expand(
+        [
+            # The dagster CH user's simultaneous-query cap is shared with other
+            # Dagster jobs, so co-tenant bursts hit the warmer as AtCapacity for
+            # a few seconds. A transient burst must be retried (deferring the
+            # shape a whole hour cost ~13k shapes in one run), while sustained
+            # saturation must still fail after the bounded retries — unbounded
+            # retrying would wedge every worker thread against a hard cap.
+            ("transient_202_recovers", [ClickHouseAtCapacity(), None], 2, False),
+            (
+                "persistent_202_fails",
+                [ClickHouseAtCapacity(), ClickHouseAtCapacity(), ClickHouseAtCapacity()],
+                3,
+                True,
+            ),
+        ]
+    )
+    def test_at_capacity_retries_bounded(
+        self, _name: str, run_side_effect: list, expected_runs: int, expect_failure: bool
+    ) -> None:
+        runner = MagicMock()
+        runner.get_cache_key.return_value = f"key-{_name}"
+        runner.run.side_effect = run_side_effect
+        with (
+            patch(
+                "products.web_analytics.dags.cache_warming.build_replay_runner",
+                return_value=(runner, {}, True),
+            ),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+            patch("products.web_analytics.dags.cache_warming.time.sleep") as mock_sleep,
+            patch("products.web_analytics.dags.cache_warming.capture_exception") as mock_capture,
+        ):
+            mock_cm.return_value.lookup.return_value.entry = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": 10,
+                        "representative_query_count": 10,
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, expected_runs)
+        self.assertEqual(mock_sleep.call_count, expected_runs - 1)
+        self.assertEqual(mock_capture.called, expect_failure)
 
     @parameterized.expand(
         [
