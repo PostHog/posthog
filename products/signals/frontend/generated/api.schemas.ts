@@ -214,7 +214,7 @@ export interface SignalReportApi {
      */
     readonly actionability: string | null
     /**
-     * Whether the issue appears already fixed, from the actionability judgment artefact.
+     * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
      * @nullable
      */
     readonly already_addressed: boolean | null
@@ -3046,7 +3046,7 @@ export interface EmitReportRequestApi {
      * * `requires_human_input` - requires_human_input
      * * `not_actionable` - not_actionable */
     actionability: ActionabilityEnumApi
-    /** Whether the issue already appears fixed in recent changes (tracked separately). */
+    /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
      * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
