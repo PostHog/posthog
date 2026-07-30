@@ -91,7 +91,7 @@ _IS_OVER_BUDGET = (
 _CREDIT_LIMITED_EMAIL = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
 
 
-def test_subscription_workflows_accept_legacy_previous_target_payload() -> None:
+async def test_subscription_workflows_accept_legacy_previous_target_payload() -> None:
     payload = '{"subscription_id": 1, "previous_value": "old@example.com"}'
 
     process_inputs = ProcessSubscriptionWorkflow.parse_inputs([payload])
