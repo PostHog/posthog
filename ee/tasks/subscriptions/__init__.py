@@ -4,6 +4,7 @@ from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.temporal.subscriptions.types import NoExportableInsightsContext
 
 logger = structlog.get_logger(__name__)
 
@@ -66,7 +67,7 @@ SUPPORTED_TARGET_TYPES = frozenset(["email", "slack"])
 
 
 def _capture_delivery_failed_event(
-    subscription: Subscription, e: Exception, properties: dict[str, int | str] | None = None
+    subscription: Subscription, e: Exception, properties: NoExportableInsightsContext | None = None
 ) -> None:
     distinct_id = (subscription.created_by.distinct_id if subscription.created_by else None) or subscription.team_id
     posthoganalytics.capture(

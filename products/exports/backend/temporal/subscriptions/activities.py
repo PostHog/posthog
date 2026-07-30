@@ -34,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
     SubscriptionAbortInfo,
@@ -238,7 +239,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     total_insight_count = len(tile_insight_pairs)
 
     if not tile_insight_pairs:
-        failure_context = {
+        failure_context: NoExportableInsightsContext = {
             "reason": no_exportable_reason,
             "resource_type": "dashboard" if dashboard else "insight" if subscription.insight_id else "unknown",
             "available_insight_count": available_insight_count,
