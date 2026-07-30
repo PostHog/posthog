@@ -91,12 +91,14 @@ export interface inboxOnboardingLogicValues {
     sourceConfigs: SignalSourceConfig[] | null // signalSourcesLogic
     activeWorkflowId: string | null // wizardActiveSessionDetectorLogic
     hasResolvedSessionState: boolean // wizardActiveSessionDetectorLogic
+    watchedWorkflows: string[] // wizardActiveSessionDetectorLogic
     areCountsResolved: boolean
     bannerDismissed: boolean
     hasExistingWork: boolean
     isSelfDrivingSetUp: boolean
     isSetupLoaded: boolean
     isWizardRunning: boolean
+    isWizardStateResolved: boolean
     onboardingMode: InboxOnboardingMode
 }
 
@@ -173,7 +175,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             ['count as reportsCount', 'countLoading as reportsCountLoading'],
             // Already mounted app-wide by the sync widget; connecting here just reads its verdict.
             wizardActiveSessionDetectorLogic,
-            ['activeWorkflowId', 'hasResolvedSessionState'],
+            ['activeWorkflowId', 'hasResolvedSessionState', 'watchedWorkflows'],
         ],
         actions: [wizardActiveSessionDetectorLogic, ['check as checkWizardSession']],
     })),
@@ -227,6 +229,15 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             (s) => [s.activeWorkflowId],
             (activeWorkflowId: string | null): boolean => activeWorkflowId === SELF_DRIVING_WORKFLOW_ID,
         ],
+        // Trivially resolved when the detector isn't watching the self-driving program (control
+        // variant, no surface registered): its verdict could never flip `isWizardRunning`, so
+        // waiting on it — or polling eagerly for it — would cost every inbox user something for
+        // nothing.
+        isWizardStateResolved: [
+            (s) => [s.hasResolvedSessionState, s.watchedWorkflows],
+            (hasResolvedSessionState: boolean, watchedWorkflows: string[]): boolean =>
+                hasResolvedSessionState || !watchedWorkflows.includes(SELF_DRIVING_WORKFLOW_ID),
+        ],
         onboardingMode: [
             (s) => [
                 s.isSetupLoaded,
@@ -235,7 +246,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 s.hasExistingWork,
                 s.bannerDismissed,
                 s.isWizardRunning,
-                s.hasResolvedSessionState,
+                s.isWizardStateResolved,
             ],
             (
                 isSetupLoaded: boolean,
@@ -260,8 +271,12 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
 
     // The detector's own first poll is jittered up to 30s to spread deploy-reload herds; someone
     // landing in the inbox straight from onboarding can't wait that out with the takeover verdict
-    // hanging on the answer. One targeted poll on mount settles it in a request.
-    afterMount(({ actions }) => {
-        actions.checkWizardSession()
+    // hanging on the answer. One targeted poll on mount settles it in a request — gated on the
+    // verdict actually being pending, so the herd the jitter protects against (every inbox-parked
+    // tab reloading on a deploy) isn't reintroduced for users whose takeover can't be suppressed.
+    afterMount(({ actions, values }) => {
+        if (!values.isWizardStateResolved) {
+            actions.checkWizardSession()
+        }
     }),
 ])

@@ -48,6 +48,26 @@ const TERMINAL_GRACE_MS = 30 * 1000
 // INC-886 at single-user scale.
 const MAX_SESSION_LIFETIME_MS = 60 * 60 * 1000
 
+/**
+ * Keep the detector mounted and watching a program until the returned cleanup runs. The one way to
+ * hold a watch open, so the mount/watch pairing (and its teardown order: unwatch before unmount,
+ * settling the refcount while the logic is still alive) can't be reassembled wrong at call sites.
+ * The always-watched default program needs no registration, so it's skipped.
+ */
+export function watchWorkflowWhileMounted(workflowId: string): () => void {
+    const unmount = wizardActiveSessionDetectorLogic.mount()
+    const needsWatch = workflowId !== WORKFLOW_ID
+    if (needsWatch) {
+        wizardActiveSessionDetectorLogic.actions.watchWorkflow(workflowId)
+    }
+    return () => {
+        if (needsWatch) {
+            wizardActiveSessionDetectorLogic.actions.unwatchWorkflow(workflowId)
+        }
+        unmount()
+    }
+}
+
 export function isSessionActive(session: WizardSessionDTOApi | null | undefined): session is WizardSessionDTOApi {
     if (!session) {
         return false
@@ -98,6 +118,9 @@ export interface wizardActiveSessionDetectorLogicActions {
         value: true
     }
     markPermanentlyDisabled: () => {
+        value: true
+    }
+    resetSessionState: () => {
         value: true
     }
     scheduleMarkInactive: () => {
@@ -159,6 +182,9 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         unwatchWorkflow: (workflowId: string) => ({ workflowId }),
         markActive: (workflowId: string) => ({ workflowId }),
         markInactive: true,
+        // Back to "nobody knows" — for context changes (project switch) where the previous verdict
+        // no longer describes anything. Distinct from markInactive, which is a verdict.
+        resetSessionState: true,
         scheduleMarkInactive: true,
         cancelScheduledMarkInactive: true,
         setLastError: (error: string | null) => ({ error }),
@@ -176,6 +202,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 markActive: (_, { workflowId }) => workflowId,
                 markInactive: () => null,
                 markPermanentlyDisabled: () => null,
+                resetSessionState: () => null,
             },
         ],
         // Refcounted: several instances can watch the same program, and the last one out removes it.
@@ -207,6 +234,8 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 // Access denial means there will never be a verdict; "resolved, not running" is the
                 // only answer consumers can act on.
                 markPermanentlyDisabled: () => true,
+                // A verdict about the previous project says nothing about the new one.
+                resetSessionState: () => false,
             },
         ],
         lastError: [
@@ -332,6 +361,10 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             cache.markInactiveAt = undefined
             cache.disposables.dispose('mark-inactive-grace')
         },
+        resetSessionState: () => {
+            cache.markInactiveAt = undefined
+            cache.disposables.dispose('mark-inactive-grace')
+        },
         scheduleMarkInactive: () => {
             // Idempotent: if a teardown timer is already scheduled, keep the
             // existing one rather than resetting the 30s clock. Without this,
@@ -358,7 +391,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             cache.disposables.dispose('mark-inactive-grace')
         },
     })),
-    subscriptions(({ actions, cache }) => ({
+    subscriptions(({ actions }) => ({
         // Project switching mid-session: drop any stale "active" state from the
         // previous project and force a fresh poll against the new project id.
         currentProjectId: (projectId: number | null, prev: number | null | undefined) => {
@@ -372,8 +405,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             if (prev === undefined) {
                 return
             }
-            cache.disposables.dispose('mark-inactive-grace')
-            actions.markInactive()
+            actions.resetSessionState()
             if (projectId !== null) {
                 actions.check()
             }

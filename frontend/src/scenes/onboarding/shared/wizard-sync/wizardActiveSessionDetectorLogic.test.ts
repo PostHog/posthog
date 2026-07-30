@@ -131,6 +131,63 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ permanentlyDisabled: false })
     })
 
+    describe('hasResolvedSessionState', () => {
+        it('starts unresolved and resolves on a settled poll, in either direction', async () => {
+            expect(logic.values.hasResolvedSessionState).toBe(false)
+
+            mockLatestRetrieve.mockResolvedValue(null)
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            })
+                .toDispatchActions(['markInactive'])
+                .toMatchValues({ hasResolvedSessionState: true })
+        })
+
+        // Without this, an access-denied user would leave every consumer waiting on a verdict that
+        // can never arrive (the inbox takeover would never show).
+        it('resolves on a permanent access denial', async () => {
+            mockLatestRetrieve.mockRejectedValue(new ApiError('unauthorized', 401))
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            })
+                .toDispatchActions(['markPermanentlyDisabled'])
+                .toMatchValues({ hasResolvedSessionState: true, hasActiveSession: false })
+        })
+
+        // The regression this guards: markInactive doubling as the project-switch reset, which
+        // stamped the new project "resolved, not running" before its first poll answered.
+        it('goes back to unresolved on resetSessionState', () => {
+            logic.actions.markActive('self-driving')
+            expect(logic.values.hasResolvedSessionState).toBe(true)
+
+            logic.actions.resetSessionState()
+            expect(logic.values.hasResolvedSessionState).toBe(false)
+            expect(logic.values.activeWorkflowId).toBeNull()
+        })
+    })
+
+    describe('workflow watch refcounting', () => {
+        it('keeps watching while any registration is open, stops after the last', () => {
+            logic.actions.watchWorkflow('self-driving')
+            logic.actions.watchWorkflow('self-driving')
+            expect(logic.values.watchedWorkflows).toContain('self-driving')
+
+            logic.actions.unwatchWorkflow('self-driving')
+            expect(logic.values.watchedWorkflows).toContain('self-driving')
+
+            logic.actions.unwatchWorkflow('self-driving')
+            expect(logic.values.watchedWorkflows).not.toContain('self-driving')
+        })
+
+        // An unbalanced release must not poison the next registration (a negative count would make
+        // one watchWorkflow insufficient to start watching again).
+        it('an extra unwatch does not drive the count negative', () => {
+            logic.actions.unwatchWorkflow('self-driving')
+            logic.actions.watchWorkflow('self-driving')
+            expect(logic.values.watchedWorkflows).toContain('self-driving')
+        })
+    })
+
     it('defers teardown (scheduleMarkInactive) when an active session goes terminal', async () => {
         logic.actions.markActive('posthog-integration')
         await expectLogic(logic).toMatchValues({ hasActiveSession: true })
