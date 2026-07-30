@@ -199,6 +199,27 @@ export function extractBreakdownValues(
         .sort(buildAssignmentRankComparator(collectValueTileStats(tileBreakdownValues)))
 }
 
+export type BreakdownValueSections = {
+    /** Values on two or more insights, in assignment rank order; these get dashboard-wide colors. */
+    shared: BreakdownValueAndType[]
+    /** Values on a single insight, which keep that insight's own colors. */
+    single: BreakdownValueAndType[]
+}
+
+/** Ranked breakdown values split by whether multiple insights share them. Only shared
+ * values receive a dashboard-wide color, so the colors modal leads with those and tucks
+ * single-insight values into a collapsed section. */
+export function extractBreakdownValueSections(
+    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
+): BreakdownValueSections {
+    const isShared = buildSharedBreakdownValueLookup(extractBreakdownValuesByTile(insightTiles))
+    const ranked = extractBreakdownValues(insightTiles)
+    return {
+        shared: ranked.filter((value) => isShared(value)),
+        single: ranked.filter((value) => !isShared(value)),
+    }
+}
+
 /** Sentinel rows keep their built-in muted/fixed treatment instead of an assigned palette color. */
 export function isAutoAssignableBreakdownValue(breakdownValue: string): boolean {
     return (

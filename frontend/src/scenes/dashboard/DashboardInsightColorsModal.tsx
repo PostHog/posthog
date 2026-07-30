@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonLabel, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonLabel, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -13,12 +13,17 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { DashboardMode } from '~/types'
 
-import { BreakdownColorConfig, denormalizeBreakdownValue, findBreakdownColorConfig } from './dashboardBreakdownColors'
+import {
+    BreakdownColorConfig,
+    BreakdownValueAndType,
+    denormalizeBreakdownValue,
+    findBreakdownColorConfig,
+} from './dashboardBreakdownColors'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardInsightColorsModal(): JSX.Element {
-    const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
+    const { isOpen, insightTilesLoading, breakdownValueSections } = useValues(dashboardInsightColorsModalLogic)
     const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
 
     const { themes: _themes, themesLoading } = useValues(dataColorThemesLogic)
@@ -34,6 +39,19 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const ensureEditMode = (): void => {
         if (dashboardMode !== DashboardMode.Edit) {
             setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardInsightColorsModal)
+        }
+    }
+
+    const toRow = (breakdownValue: BreakdownValueAndType): BreakdownColorConfig => {
+        const config = findBreakdownColorConfig(
+            effectiveBreakdownColors,
+            breakdownValue.breakdownValue,
+            breakdownValue.breakdownType
+        )
+        return {
+            ...breakdownValue,
+            colorToken: config?.colorToken || null,
+            source: config?.source,
         }
     }
 
@@ -128,20 +146,23 @@ export function DashboardInsightColorsModal(): JSX.Element {
             </p>
             <LemonTable
                 columns={columns}
-                dataSource={breakdownValues.map((breakdownValue) => {
-                    const config = findBreakdownColorConfig(
-                        effectiveBreakdownColors,
-                        breakdownValue.breakdownValue,
-                        breakdownValue.breakdownType
-                    )
-                    return {
-                        ...breakdownValue,
-                        colorToken: config?.colorToken || null,
-                        source: config?.source,
-                    }
-                })}
+                dataSource={breakdownValueSections.shared.map(toRow)}
                 loading={insightTilesLoading || undefined}
             />
+            {breakdownValueSections.single.length > 0 ? (
+                <LemonCollapse
+                    className="mt-4"
+                    panels={[
+                        {
+                            key: 'single-insight-values',
+                            header: `Values on a single insight (${breakdownValueSections.single.length})`,
+                            content: (
+                                <LemonTable columns={columns} dataSource={breakdownValueSections.single.map(toRow)} />
+                            ),
+                        },
+                    ]}
+                />
+            ) : null}
             {insightTilesLoading ? (
                 <p className="text-muted-alt mt-2">Tiles are still loading. More breakdown values may appear.</p>
             ) : null}

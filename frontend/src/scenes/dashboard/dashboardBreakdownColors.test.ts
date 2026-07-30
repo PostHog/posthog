@@ -7,6 +7,7 @@ import {
     applyAutoBreakdownColors,
     buildSharedBreakdownValueLookup,
     computeTileFallbackTokens,
+    extractBreakdownValueSections,
     extractBreakdownValues,
     extractBreakdownValuesByTile,
     findBreakdownColorConfig,
@@ -276,6 +277,31 @@ describe('dashboardBreakdownColors', () => {
                 { breakdownValue: '3', breakdownType: 'cohort' },
                 { breakdownValue: '2', breakdownType: 'cohort' },
             ])
+        })
+    })
+
+    describe('extractBreakdownValueSections', () => {
+        it('splits ranked values into shared and single-insight sections, preserving rank order', () => {
+            const tiles = [
+                trendsTile([
+                    { action: { order: 0 }, breakdown_value: ['Beta'] },
+                    { action: { order: 0 }, breakdown_value: ['Alpha'] },
+                    { action: { order: 0 }, breakdown_value: ['Kiwi'] },
+                ]),
+                trendsTile([
+                    { action: { order: 0 }, breakdown_value: ['Beta'] },
+                    { action: { order: 0 }, breakdown_value: ['Alpha'] },
+                ]),
+            ]
+
+            // Beta leads both charts, so it stays ahead of Alpha within the shared section
+            expect(extractBreakdownValueSections(tiles)).toEqual({
+                shared: [
+                    { breakdownValue: 'Beta', breakdownType: 'event' },
+                    { breakdownValue: 'Alpha', breakdownType: 'event' },
+                ],
+                single: [{ breakdownValue: 'Kiwi', breakdownType: 'event' }],
+            })
         })
     })
 
