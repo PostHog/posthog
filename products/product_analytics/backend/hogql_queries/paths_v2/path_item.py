@@ -44,14 +44,32 @@ def resolve_cleaning_rules(paths_filter: PathsV2Filter | None, team: Team) -> li
     insight-local rules. The runner and the funnel converter both resolve rules through here, so a
     displayed item and its funnel steps always clean labels identically. Rules without a regex have
     nothing to match and are skipped; a missing alias strips the match."""
-    apply_team = paths_filter.applyTeamPathCleaning if paths_filter is not None else None
-    team_rules = (
-        team.path_cleaning_filter_models()
-        if (apply_team if apply_team is not None else DEFAULT_APPLY_TEAM_PATH_CLEANING)
-        else []
-    )
-    local_rules = paths_filter.localPathCleaningFilters or [] if paths_filter is not None else []
+    paths_filter = paths_filter or PathsV2Filter()
+    apply_team = paths_filter.applyTeamPathCleaning
+    if apply_team is None:
+        apply_team = DEFAULT_APPLY_TEAM_PATH_CLEANING
+    # team.path_cleaning_filters is a nullable JSONField; path_cleaning_filter_models() iterates it
+    # unguarded, so the truthiness check doubles as the None guard.
+    team_rules = team.path_cleaning_filter_models() if apply_team and team.path_cleaning_filters else []
+    local_rules = paths_filter.localPathCleaningFilters or []
     return [(rule.regex, rule.alias or "") for rule in [*team_rules, *local_rules] if rule.regex]
+
+
+def _raw_source_label_expr(source: PathsV2StepSource) -> ast.Expr:
+    """A source's label before cleaning: the naming property as a string, NULL both when the
+    property is missing and for sources without a naming property."""
+    if source.namingProperty is None:
+        return ast.Constant(value=None)
+    return ast.Call(name="toString", args=[ast.Field(chain=["properties", source.namingProperty])])
+
+
+def _cleaned_label_expr(raw_label: ast.Expr, cleaning_rules: list[tuple[str, str]]) -> ast.Expr:
+    """Apply the cleaning rules to a raw label and coalesce to ''. A NULL raw label stays NULL
+    through every replaceRegexpAll, so cleaning cannot invent a label where none exists."""
+    label = raw_label
+    for regex, alias in cleaning_rules:
+        label = ast.Call(name="replaceRegexpAll", args=[label, ast.Constant(value=regex), ast.Constant(value=alias)])
+    return ast.Call(name="ifNull", args=[label, ast.Constant(value="")])
 
 
 def source_label_expr(source: PathsV2StepSource, cleaning_rules: list[tuple[str, str]]) -> ast.Expr:
@@ -60,10 +78,7 @@ def source_label_expr(source: PathsV2StepSource, cleaning_rules: list[tuple[str,
     where the event alone identifies the item."""
     if source.namingProperty is None:
         return ast.Constant(value="")
-    label: ast.Expr = ast.Call(name="toString", args=[ast.Field(chain=["properties", source.namingProperty])])
-    for regex, alias in cleaning_rules:
-        label = ast.Call(name="replaceRegexpAll", args=[label, ast.Constant(value=regex), ast.Constant(value=alias)])
-    return ast.Call(name="ifNull", args=[label, ast.Constant(value="")])
+    return _cleaned_label_expr(_raw_source_label_expr(source), cleaning_rules)
 
 
 def path_item_expr(sources: list[PathsV2StepSource], cleaning_rules: list[tuple[str, str]]) -> ast.Expr:
@@ -71,6 +86,8 @@ def path_item_expr(sources: list[PathsV2StepSource], cleaning_rules: list[tuple[
 
     The runner groups journeys by this expression and the funnel converter reuses it verbatim in
     step filters and the item-strict exclusion, so both sides derive identical items by construction.
+    The cleaning chain applies once to the multiIf-selected raw label, so the expression grows with
+    sources plus rules rather than sources times rules.
     """
     label_args: list[ast.Expr] = []
     for source in sources:
@@ -81,9 +98,10 @@ def path_item_expr(sources: list[PathsV2StepSource], cleaning_rules: list[tuple[
                 right=ast.Constant(value=source.event),
             )
         )
-        label_args.append(source_label_expr(source, cleaning_rules))
-    label_args.append(ast.Constant(value=""))
-    return ast.Tuple(exprs=[ast.Field(chain=["event"]), ast.Call(name="multiIf", args=label_args)])
+        label_args.append(_raw_source_label_expr(source))
+    label_args.append(ast.Constant(value=None))
+    raw_label = ast.Call(name="multiIf", args=label_args)
+    return ast.Tuple(exprs=[ast.Field(chain=["event"]), _cleaned_label_expr(raw_label, cleaning_rules)])
 
 
 def source_events_filter_expr(sources: list[PathsV2StepSource]) -> ast.Expr:
@@ -114,26 +132,29 @@ def item_tuple_expr(item: PathsV2Item, source: PathsV2StepSource) -> ast.Expr:
 
 def excluded_item_tuples(paths_filter: PathsV2Filter | None) -> list[tuple[str, str]]:
     """The `(event, label)` identities of the excluded items. A missing label means '' here, which
-    for a source without a naming property is the item itself; for a source with one, the label is
-    required by validation, so '' only ever means the item whose naming property is missing."""
+    for a source without a naming property is the item itself, and for a source with one is the item
+    whose naming property is missing. Tuples no derivable item can equal are inert."""
     if paths_filter is None or not paths_filter.excludedItems:
         return []
     return [(item.event, item.label or "") for item in paths_filter.excludedItems]
 
 
-def excluded_items_filter_expr(item_expr: ast.Expr, excluded: list[tuple[str, str]]) -> ast.Expr | None:
-    """Filter dropping events whose derived path item is excluded. The runner applies it to the
-    event base and the converter to the item-strict exclusion universe, so an excluded item is
-    invisible to both sides, exactly like an event outside the step sources."""
+def item_universe_filter_expr(
+    sources: list[PathsV2StepSource], paths_filter: PathsV2Filter | None, item_expr: ast.Expr
+) -> ast.Expr:
+    """Whether an event is part of the item universe: its event matches a step source and its
+    derived item is not excluded. The runner's event base and the converter's item-strict exclusion
+    universe both come from here, so an excluded item is invisible to both sides by construction,
+    exactly like an event outside the step sources."""
+    universe: ast.Expr = source_events_filter_expr(sources)
+    excluded = excluded_item_tuples(paths_filter)
     if not excluded:
-        return None
-    return ast.And(
-        exprs=[
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=item_expr,
-                right=ast.Tuple(exprs=[ast.Constant(value=event), ast.Constant(value=label)]),
-            )
-            for event, label in excluded
-        ]
+        return universe
+    not_excluded = ast.CompareOperation(
+        op=ast.CompareOperationOp.NotIn,
+        left=item_expr,
+        right=ast.Tuple(
+            exprs=[ast.Tuple(exprs=[ast.Constant(value=event), ast.Constant(value=label)]) for event, label in excluded]
+        ),
     )
+    return ast.And(exprs=[universe, not_excluded])

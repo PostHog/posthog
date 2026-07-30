@@ -44,12 +44,12 @@ from products.product_analytics.backend.hogql_queries.paths_v2.path_item import 
     DEFAULT_MAX_STEPS,
     PATHS_V2_OTHER,
     excluded_item_tuples,
-    excluded_items_filter_expr,
+    item_label,
     item_tuple_expr,
+    item_universe_filter_expr,
     path_item_expr,
     resolve_cleaning_rules,
     resolve_step_sources,
-    source_events_filter_expr,
     step_source_for_event,
 )
 
@@ -143,32 +143,29 @@ class ValidateAnchor:
 
 
 class ValidateExcludedItems:
-    """Excluding an item of a naming-property source needs a label, since a bare event does not pin
-    which item to drop. Excluding the anchor would empty the chart for a reason the config does not
-    reveal. Exclusions whose event is not a step source are allowed and inert, so switching sources
-    never invalidates a saved exclude list."""
+    """Excluding the anchor would empty the chart for a reason the config does not reveal. Everything
+    else on the exclude list is permitted: an exclusion pins the concrete item (event, label or ''),
+    and exclusions no derivable item can equal are inert, so editing step sources never invalidates a
+    saved exclude list."""
 
     code = "paths_v2_excluded_items_invalid"
 
     def validate(self, context: QueryValidationContext[PathsV2Query]) -> None:
         paths_filter = context.query.pathsV2Filter
-        if paths_filter is None or not paths_filter.excludedItems:
+        if paths_filter is None or not paths_filter.excludedItems or paths_filter.anchor is None:
             return
-        sources_by_event = {source.event: source for source in resolve_step_sources(context.query)}
-        for item in paths_filter.excludedItems:
-            source = sources_by_event.get(item.event)
-            if source is not None and source.namingProperty is not None and item.label is None:
-                raise ValidationError(
-                    f"The excluded item for event {item.event!r} needs a label, as its source has a naming property.",
-                    code=self.code,
-                )
-        if paths_filter.anchor is not None:
-            anchor_item = paths_filter.anchor.item
-            if (anchor_item.event, anchor_item.label or "") in excluded_item_tuples(paths_filter):
-                raise ValidationError(
-                    "The anchor cannot be an excluded item, as no journey could ever reach it.",
-                    code=self.code,
-                )
+        anchor_item = paths_filter.anchor.item
+        source = next((s for s in resolve_step_sources(context.query) if s.event == anchor_item.event), None)
+        if source is None or (source.namingProperty is not None and anchor_item.label is None):
+            # ValidateAnchor rejects these configurations with the more precise message.
+            return
+        # item_label, not the raw label: a spurious label on a source without a naming property must
+        # not hide that the query anchors on (event, ''), which may be the excluded item.
+        if (anchor_item.event, item_label(anchor_item, source)) in excluded_item_tuples(paths_filter):
+            raise ValidationError(
+                "The anchor cannot be an excluded item, as no journey could ever reach it.",
+                code=self.code,
+            )
 
 
 class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
@@ -311,14 +308,8 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
                 left=ast.Field(chain=["timestamp"]),
                 right=self.query_date_range.date_to_as_hogql(),
             ),
-            source_events_filter_expr(self.step_sources),
+            item_universe_filter_expr(self.step_sources, self.query.pathsV2Filter, ast.Field(chain=["path_item"])),
         ]
-
-        excluded_filter = excluded_items_filter_expr(
-            ast.Field(chain=["path_item"]), excluded_item_tuples(self.query.pathsV2Filter)
-        )
-        if excluded_filter is not None:
-            event_filters.append(excluded_filter)
 
         if self.query.properties is not None and self.query.properties != []:
             event_filters.append(property_to_expr(self.query.properties, self.team))
