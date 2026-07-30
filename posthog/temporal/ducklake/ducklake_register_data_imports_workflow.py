@@ -36,9 +36,16 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.ducklake.metrics import (
+    get_ducklake_register_data_imports_bytes_metric,
     get_ducklake_register_data_imports_duration_metric,
+    get_ducklake_register_data_imports_files_metric,
     get_ducklake_register_data_imports_finished_metric,
+    get_ducklake_register_data_imports_last_success_metric,
+    get_ducklake_register_data_imports_rows_metric,
+    get_ducklake_register_data_imports_stale_metric,
+    get_ducklake_register_data_imports_started_metric,
 )
 
 from products.data_warehouse.backend.facade.api import get_s3_client
@@ -47,6 +54,15 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 LOGGER = get_logger(__name__)
 DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
+DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
+
+
+def _stage_timer(stage: str) -> ExecutionTimeRecorder:
+    return ExecutionTimeRecorder(
+        DUCKLAKE_REGISTER_STAGE_DURATION_METRIC,
+        "Execution duration of one post-gate DuckLake data import registration stage.",
+        {"stage": stage},
+    )
 
 
 @dataclasses.dataclass
@@ -131,41 +147,44 @@ async def prepare_ducklake_data_imports_registration_activity(
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(schema_id=str(inputs.schema_id), job_id=inputs.job_id)
 
-    if not _is_valid_queryable_folder(inputs.prepared_queryable_folder):
-        raise ApplicationError(
-            f"Invalid prepared queryable folder '{inputs.prepared_queryable_folder}'",
-            non_retryable=True,
-        )
+    with _stage_timer("prepare") as timer:
+        if not _is_valid_queryable_folder(inputs.prepared_queryable_folder):
+            raise ApplicationError(
+                f"Invalid prepared queryable folder '{inputs.prepared_queryable_folder}'",
+                non_retryable=True,
+            )
 
-    schema = await database_sync_to_async(ExternalDataSchema.objects.select_related("table", "source").get)(
-        id=inputs.schema_id,
-        team_id=inputs.team_id,
-    )
-    if schema.table is None or schema.table.queryable_folder != inputs.prepared_queryable_folder:
-        await logger.ainfo(
-            "Skipping stale prepared Parquet generation before registration",
+        schema = await database_sync_to_async(ExternalDataSchema.objects.select_related("table", "source").get)(
+            id=inputs.schema_id,
+            team_id=inputs.team_id,
+        )
+        if schema.table is None or schema.table.queryable_folder != inputs.prepared_queryable_folder:
+            timer.set_status("STALE")
+            get_ducklake_register_data_imports_stale_metric(stage="prepare").add(1)
+            await logger.ainfo(
+                "Skipping stale prepared Parquet generation before registration",
+                prepared_queryable_folder=inputs.prepared_queryable_folder,
+            )
+            return None
+
+        prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
+        ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
+        ducklake_table_name = duckgres_data_imports_table_name(schema)
+        landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
+            team_id=inputs.team_id,
+            ducklake_schema_name=ducklake_schema_name,
+            ducklake_table_name=ducklake_table_name,
+            source_schema_id=str(inputs.schema_id),
+            job_id=inputs.job_id,
+        )
+        return DuckLakeRegisterDataImportsMetadata(
+            source_schema_id=str(schema.id),
             prepared_queryable_folder=inputs.prepared_queryable_folder,
+            prepared_source_uri=prepared_source_uri,
+            landing_uri=landing_uri,
+            ducklake_schema_name=ducklake_schema_name,
+            ducklake_table_name=ducklake_table_name,
         )
-        return None
-
-    prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
-    ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
-    ducklake_table_name = duckgres_data_imports_table_name(schema)
-    landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
-        team_id=inputs.team_id,
-        ducklake_schema_name=ducklake_schema_name,
-        ducklake_table_name=ducklake_table_name,
-        source_schema_id=str(inputs.schema_id),
-        job_id=inputs.job_id,
-    )
-    return DuckLakeRegisterDataImportsMetadata(
-        source_schema_id=str(schema.id),
-        prepared_queryable_folder=inputs.prepared_queryable_folder,
-        prepared_source_uri=prepared_source_uri,
-        landing_uri=landing_uri,
-        ducklake_schema_name=ducklake_schema_name,
-        ducklake_table_name=ducklake_table_name,
-    )
 
 
 @activity.defn
@@ -183,20 +202,27 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
         logger=logger,
     )
     with heartbeater:
-        landing_paths = _copy_prepared_parquet_files(
-            inputs.metadata.prepared_source_uri,
-            inputs.metadata.landing_uri,
-        )
+        with _stage_timer("copy"):
+            landing_paths, copied_bytes = _copy_prepared_parquet_files(
+                inputs.metadata.prepared_source_uri,
+                inputs.metadata.landing_uri,
+            )
         if not _prepared_generation_is_current(inputs):
+            get_ducklake_register_data_imports_stale_metric(stage="post_copy").add(1)
             logger.info("Skipping stale prepared Parquet generation after object copy")
             return False
 
         try:
             with _connect_to_duckgres_for_team(inputs.team_id) as conn:
-                _register_prepared_parquet_files(inputs, conn, landing_paths)
+                registered_rows = _register_prepared_parquet_files(inputs, conn, landing_paths)
         except _StalePreparedGenerationError:
+            get_ducklake_register_data_imports_stale_metric(stage="publish").add(1)
             logger.info("Skipping stale prepared Parquet generation before catalog swap")
             return False
+
+    get_ducklake_register_data_imports_files_metric().record(float(len(landing_paths)))
+    get_ducklake_register_data_imports_rows_metric().record(float(registered_rows))
+    get_ducklake_register_data_imports_bytes_metric().record(float(copied_bytes))
 
     logger.info(
         "Copied, verified, and registered prepared Parquet files in DuckLake",
@@ -271,11 +297,11 @@ def _resolve_data_imports_landing_uri(
     )
 
 
-def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> list[str]:
+def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[list[str], int]:
     source_prefix = source_uri.removeprefix("s3://").rstrip("/")
     landing_prefix = landing_uri.removeprefix("s3://").rstrip("/")
     s3 = get_s3_client()
-    found = s3.find(source_prefix)
+    found = s3.find(source_prefix, detail=True)
     source_paths = list(found.keys()) if isinstance(found, dict) else list(found)
     parquet_paths = sorted(str(path) for path in source_paths if str(path).lower().endswith(".parquet"))
     if not parquet_paths:
@@ -291,7 +317,15 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> list[str]
         s3.copy(source_path, landing_path)
         landing_paths.append(f"s3://{landing_path}")
 
-    return landing_paths
+    copied_bytes = 0
+    if isinstance(found, dict):
+        copied_bytes = sum(
+            int(details.get("Size", 0))
+            for path, details in found.items()
+            if str(path).lower().endswith(".parquet") and isinstance(details, dict)
+        )
+
+    return landing_paths, copied_bytes
 
 
 def _prepared_generation_is_current(inputs: DuckLakeRegisterDataImportsActivityInputs) -> bool:
@@ -324,7 +358,7 @@ def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
     landing_paths: list[str],
-) -> None:
+) -> int:
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
     shadow_name = _data_imports_shadow_table_name(inputs)
@@ -333,80 +367,90 @@ def _register_prepared_parquet_files(
 
     setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
     with conn.transaction():
-        conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
-        conn.execute(
-            psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                psql.Identifier(schema_name),
-                psql.Identifier(shadow_name),
-            )
-        )
-        conn.execute(
-            psql.SQL(
-                "CREATE TABLE {}.{} AS SELECT * FROM "
-                "read_parquet({}, union_by_name=true, hive_partitioning=true) LIMIT 0"
-            ).format(
-                psql.Identifier(schema_name),
-                psql.Identifier(shadow_name),
-                parquet_paths,
-            )
-        )
-        if partition_columns:
+        with _stage_timer("register"):
+            conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
             conn.execute(
-                psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
+                psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
                     psql.Identifier(schema_name),
                     psql.Identifier(shadow_name),
-                    psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
                 )
             )
-        for landing_path in landing_paths:
             conn.execute(
                 psql.SQL(
-                    "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
-                    "allow_missing => true, hive_partitioning => true)"
+                    "CREATE TABLE {}.{} AS SELECT * FROM "
+                    "read_parquet({}, union_by_name=true, hive_partitioning=true) LIMIT 0"
                 ).format(
-                    psql.Literal("ducklake"),
-                    psql.Literal(shadow_name),
-                    psql.Literal(landing_path),
-                    psql.Literal(schema_name),
+                    psql.Identifier(schema_name),
+                    psql.Identifier(shadow_name),
+                    parquet_paths,
                 )
             )
+            if partition_columns:
+                conn.execute(
+                    psql.SQL("ALTER TABLE {}.{} SET PARTITIONED BY ({})").format(
+                        psql.Identifier(schema_name),
+                        psql.Identifier(shadow_name),
+                        psql.SQL(", ").join(psql.Identifier(column) for column in partition_columns),
+                    )
+                )
+            for landing_path in landing_paths:
+                conn.execute(
+                    psql.SQL(
+                        "CALL ducklake_add_data_files({}, {}, {}, schema => {}, "
+                        "allow_missing => true, hive_partitioning => true)"
+                    ).format(
+                        psql.Literal("ducklake"),
+                        psql.Literal(shadow_name),
+                        psql.Literal(landing_path),
+                        psql.Literal(schema_name),
+                    )
+                )
 
-        source_row = conn.execute(
-            psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
-                parquet_paths
-            )
-        ).fetchone()
-        registered_row = conn.execute(
-            psql.SQL("SELECT count(*) FROM {}.{}").format(
-                psql.Identifier(schema_name),
-                psql.Identifier(shadow_name),
-            )
-        ).fetchone()
-        source_count = int(source_row[0]) if source_row else 0
-        registered_count = int(registered_row[0]) if registered_row else 0
-        if source_count != registered_count:
-            raise ApplicationError(
-                "DuckLake prepared-file registration row count mismatch: "
-                f"source={source_count}, registered={registered_count}",
-                non_retryable=True,
-            )
+        with _stage_timer("verify"):
+            source_row = conn.execute(
+                psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
+                    parquet_paths
+                )
+            ).fetchone()
+            registered_row = conn.execute(
+                psql.SQL("SELECT count(*) FROM {}.{}").format(
+                    psql.Identifier(schema_name),
+                    psql.Identifier(shadow_name),
+                )
+            ).fetchone()
+            source_count = int(source_row[0]) if source_row else 0
+            registered_count = int(registered_row[0]) if registered_row else 0
+            if source_count != registered_count:
+                raise ApplicationError(
+                    "DuckLake prepared-file registration row count mismatch: "
+                    f"source={source_count}, registered={registered_count}",
+                    non_retryable=True,
+                )
 
-        if not _prepared_generation_is_current(inputs):
+        generation_is_stale = False
+        with _stage_timer("publish") as timer:
+            if _prepared_generation_is_current(inputs):
+                conn.execute(
+                    psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
+                        psql.Identifier(schema_name),
+                        psql.Identifier(table_name),
+                    )
+                )
+                conn.execute(
+                    psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
+                        psql.Identifier(schema_name),
+                        psql.Identifier(shadow_name),
+                        psql.Identifier(table_name),
+                    )
+                )
+            else:
+                timer.set_status("STALE")
+                generation_is_stale = True
+
+        if generation_is_stale:
             raise _StalePreparedGenerationError
 
-        conn.execute(
-            psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
-                psql.Identifier(schema_name),
-                psql.Identifier(table_name),
-            )
-        )
-        conn.execute(
-            psql.SQL("ALTER TABLE {}.{} RENAME TO {}").format(
-                psql.Identifier(schema_name),
-                psql.Identifier(shadow_name),
-                psql.Identifier(table_name),
-            )
-        )
+    return registered_count
 
 
 def _data_imports_shadow_table_name(inputs: DuckLakeRegisterDataImportsActivityInputs) -> str:
@@ -456,6 +500,7 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             logger.info("DuckLake data imports registration workflow disabled by feature flag")
             return
 
+        get_ducklake_register_data_imports_started_metric().add(1)
         status = "failed"
         try:
             metadata = await workflow.execute_activity(
@@ -488,7 +533,8 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
 
             status = "completed"
         finally:
-            duration_seconds = (workflow.now() - workflow_started_at).total_seconds()
+            finished_at = workflow.now()
+            duration_seconds = (finished_at - workflow_started_at).total_seconds()
             logger.info(
                 "Finished DuckLakeRegisterDataImportsWorkflow",
                 status=status,
@@ -496,3 +542,5 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             )
             get_ducklake_register_data_imports_finished_metric(status=status).add(1)
             get_ducklake_register_data_imports_duration_metric(status=status).record(duration_seconds)
+            if status == "completed":
+                get_ducklake_register_data_imports_last_success_metric().set(finished_at.timestamp())

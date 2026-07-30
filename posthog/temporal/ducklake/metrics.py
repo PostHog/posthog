@@ -1,5 +1,9 @@
-from temporalio import workflow
-from temporalio.common import MetricCounter, MetricHistogramFloat
+from temporalio import activity, workflow
+from temporalio.common import MetricCounter, MetricGaugeFloat, MetricHistogramFloat, MetricMeter
+
+
+def _activity_meter() -> MetricMeter:
+    return activity.metric_meter() if activity.in_activity() else MetricMeter.noop
 
 
 def get_ducklake_copy_data_modeling_finished_metric(status: str) -> MetricCounter:
@@ -66,4 +70,52 @@ def get_ducklake_register_data_imports_duration_metric(status: str) -> MetricHis
             "End-to-end duration of DuckLake prepared data import registration workflows that passed the feature flag gate.",
             "s",
         )
+    )
+
+
+def get_ducklake_register_data_imports_started_metric() -> MetricCounter:
+    return workflow.metric_meter().create_counter(
+        "ducklake_register_data_imports_started",
+        "Number of DuckLake prepared data import registration workflows that passed the feature flag gate.",
+    )
+
+
+def get_ducklake_register_data_imports_last_success_metric() -> MetricGaugeFloat:
+    return workflow.metric_meter().create_gauge_float(
+        "ducklake_register_data_imports_last_success_timestamp_seconds",
+        "Unix timestamp of the last successful DuckLake prepared data import registration workflow.",
+        "s",
+    )
+
+
+def get_ducklake_register_data_imports_stale_metric(stage: str) -> MetricCounter:
+    return (
+        _activity_meter()
+        .with_additional_attributes({"stage": stage})
+        .create_counter(
+            "ducklake_register_data_imports_stale",
+            "Number of post-gate DuckLake registrations skipped because their prepared generation became stale.",
+        )
+    )
+
+
+def get_ducklake_register_data_imports_files_metric() -> MetricHistogramFloat:
+    return _activity_meter().create_histogram_float(
+        "ducklake_register_data_imports_files_registered",
+        "Number of Parquet files in a successful DuckLake data import registration.",
+    )
+
+
+def get_ducklake_register_data_imports_rows_metric() -> MetricHistogramFloat:
+    return _activity_meter().create_histogram_float(
+        "ducklake_register_data_imports_rows_registered",
+        "Number of rows in a successful DuckLake data import registration.",
+    )
+
+
+def get_ducklake_register_data_imports_bytes_metric() -> MetricHistogramFloat:
+    return _activity_meter().create_histogram_float(
+        "ducklake_register_data_imports_bytes_copied",
+        "Number of prepared Parquet bytes copied by a successful DuckLake data import registration.",
+        "By",
     )
