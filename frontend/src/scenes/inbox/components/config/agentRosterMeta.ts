@@ -93,7 +93,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
         ],
     },
     {
-        label: 'Connected tools',
+        label: 'External sources',
         agents: [
             {
                 source: 'github',
