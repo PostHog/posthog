@@ -84,6 +84,22 @@ TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS = 2 * 60 * 60
 TRACE_EVAL_MIN_MAX_AGE_SECONDS = 60
 TRACE_EVAL_MAX_MAX_AGE_SECONDS = 2 * 60 * 60
 
+# Session-target bounds. Sessions are long and bursty (mean 2.66h, p99 duration 48h), and the
+# premature-settle rate barely improves past a day of quiet (23.6% at 5m, 2.1% at 24h), so the
+# ceilings are session-sized rather than trace-sized. The 7-day max_age ceiling stays well inside
+# ai_events retention (30 days) so a settled session is still fetchable.
+SESSION_EVAL_DEFAULT_WINDOW_SECONDS = 30 * 60
+SESSION_EVAL_MIN_WINDOW_SECONDS = 10
+SESSION_EVAL_MAX_WINDOW_SECONDS = 7 * 24 * 60 * 60
+
+SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS = 60 * 60
+SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS = 10
+SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS = 24 * 60 * 60
+
+SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60
+SESSION_EVAL_MIN_MAX_AGE_SECONDS = 60
+SESSION_EVAL_MAX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+
 
 class FixedWindowSettleConfig(BaseModel):
     """Wait a fixed window after the first matching generation, then evaluate."""
@@ -130,22 +146,85 @@ SettleConfig = Annotated[FixedWindowSettleConfig | InactivitySettleConfig, Field
 _SETTLE_CONFIG_ADAPTER: TypeAdapter[FixedWindowSettleConfig | InactivitySettleConfig] = TypeAdapter(SettleConfig)
 
 
+class SessionFixedWindowSettleConfig(BaseModel):
+    """Wait a fixed window after the first matching generation, then evaluate the session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: Literal["fixed_window"] = "fixed_window"
+    window_seconds: int = Field(
+        default=SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
+        ge=SESSION_EVAL_MIN_WINDOW_SECONDS,
+        le=SESSION_EVAL_MAX_WINDOW_SECONDS,
+        description="Seconds to wait after the first matching generation before evaluating.",
+    )
+
+
+class SessionInactivitySettleConfig(BaseModel):
+    """Evaluate once the session has had no new activity for the quiet period."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    strategy: Literal["inactivity"] = "inactivity"
+    quiet_period_seconds: int = Field(
+        default=SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+        ge=SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+        le=SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+        description="Seconds without new session activity before the unit counts as settled.",
+    )
+    max_age_seconds: int = Field(
+        default=SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
+        ge=SESSION_EVAL_MIN_MAX_AGE_SECONDS,
+        le=SESSION_EVAL_MAX_MAX_AGE_SECONDS,
+        description="Hard cap on the total wait from the first matching generation.",
+    )
+
+    @model_validator(mode="after")
+    def validate_max_age_covers_quiet_period(self) -> "SessionInactivitySettleConfig":
+        if self.max_age_seconds < self.quiet_period_seconds:
+            raise ValueError("max_age_seconds must be greater than or equal to quiet_period_seconds")
+        return self
+
+
+SessionSettleConfig = Annotated[
+    SessionFixedWindowSettleConfig | SessionInactivitySettleConfig, Field(discriminator="strategy")
+]
+
+_SESSION_SETTLE_CONFIG_ADAPTER: TypeAdapter[SessionFixedWindowSettleConfig | SessionInactivitySettleConfig] = (
+    TypeAdapter(SessionSettleConfig)
+)
+
+# Membership here is what makes a target an aggregate target. `validate_target_config` looks the
+# adapter up rather than checking a separate list of names, so the two can't drift apart.
+_SETTLE_CONFIG_ADAPTERS: dict[str, TypeAdapter[Any]] = {
+    "trace": _SETTLE_CONFIG_ADAPTER,
+    "session": _SESSION_SETTLE_CONFIG_ADAPTER,
+}
+
+# Traces default to fixed_window because rows saved before strategies existed have no `strategy`
+# key and meant exactly that. Sessions have no such legacy, and a fixed window measured from the
+# first matching generation is unrelated to when a session ends, so they default to inactivity.
+DEFAULT_SETTLE_STRATEGY_BY_TARGET: dict[str, str] = {"trace": "fixed_window", "session": "inactivity"}
+
+
 def validate_target_config(target: str, target_config: dict) -> dict:
     """Validate target_config based on target.
 
-    Trace targets carry a settle config discriminated on `strategy`; rows saved before
-    strategies existed have no `strategy` key and mean fixed_window. Every other target
-    (generation today) carries no config, so its bag is normalized to empty — this also
-    strips a stale settle config if a user switches a trace eval back to generation.
+    Aggregate targets (trace, session) carry a settle config discriminated on `strategy`, with
+    per-target bounds. Trace rows saved before strategies existed have no `strategy` key and mean
+    fixed_window. Every other target (generation today) carries no config, so its bag is
+    normalized to empty — this also strips a stale settle config when a user switches an
+    aggregate eval back to generation.
     """
-    if target != "trace":
+    adapter = _SETTLE_CONFIG_ADAPTERS.get(target)
+    if adapter is None:
         return {}
     try:
         config = {**(target_config or {})}
-        config.setdefault("strategy", "fixed_window")
-        return _SETTLE_CONFIG_ADAPTER.validate_python(config).model_dump()
+        config.setdefault("strategy", DEFAULT_SETTLE_STRATEGY_BY_TARGET[target])
+        return adapter.validate_python(config).model_dump()
     except Exception as e:
-        raise ValueError(f"Invalid target_config for trace: {str(e)}") from e
+        raise ValueError(f"Invalid target_config for {target}: {str(e)}") from e
 
 
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)
@@ -165,6 +244,7 @@ REPORTABLE_OUTPUT_TYPES: tuple[str, ...] = (OutputType.BOOLEAN.value, OutputType
 REPORTABLE_OUTPUT_TYPES_BY_TARGET: dict[str, tuple[str, ...]] = {
     "generation": REPORTABLE_OUTPUT_TYPES,
     "trace": (OutputType.BOOLEAN.value,),
+    "session": (OutputType.BOOLEAN.value,),
 }
 
 
