@@ -37,7 +37,6 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.models import Filter, Team
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
@@ -342,6 +341,10 @@ def validate_actors_query_for_cohort(query_dict: dict) -> None:
     insight = source.get("source")
     if not isinstance(insight, dict) or insight.get("kind") != "TrendsQuery":
         return
+
+    from posthog.hogql_queries.insights.trends.display import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
+        TrendsDisplay,
+    )
 
     trends_filter = insight.get("trendsFilter")
     raw_display = trends_filter.get("display") if isinstance(trends_filter, dict) else None
