@@ -131,7 +131,7 @@ def bulk_file_system_access_levels(
     entries: Sequence[FileSystemAccessEntry],
     user_access_control: UserAccessControl,
     project_id: int,
-) -> dict[tuple[str, str], Optional[AccessControlLevel]]:
+) -> dict[tuple[str, str, int], Optional[AccessControlLevel]]:
     """Resolve the user's access level for the objects behind file system entries, in bulk.
 
     Pass created_by_id=None when the caller doesn't know the underlying object's creator
@@ -149,10 +149,14 @@ def bulk_file_system_access_levels(
     value for "doesn't exist" would let members probe guessed refs to learn whether a
     protected object exists.
 
-    Final resolution runs per entry's own team_id (see `_user_access_controls_by_team`) - the
-    ref->pk translation above stays project-wide since it carries no auth decision.
+    Final resolution runs per entry's own team_id (see `_user_access_controls_by_team`), and
+    results are keyed by (type, ref, team_id), not just (type, ref): `ref` is caller-supplied
+    when a tree row is created, so nothing stops the same (type, ref) pair from appearing under
+    two different teams in one batch - e.g. a row planted in the caller's own team pointing at
+    another team's object. Collapsing those into one (type, ref) entry would let whichever
+    team's level was resolved last silently override the other's.
     """
-    results: dict[tuple[str, str], Optional[AccessControlLevel]] = {}
+    results: dict[tuple[str, str, int], Optional[AccessControlLevel]] = {}
     user_id = user_access_control.user.id
 
     entries_by_type: dict[str, dict[str, Optional[int]]] = {}
@@ -233,7 +237,7 @@ def bulk_file_system_access_levels(
         # control preload, no extra query beyond the one bulk fetch per distinct team
         levels = access_controls_by_team[team_id].bulk_object_access_levels(resource, objects)
         for pk, level in levels.items():
-            results[(entry_type, ref_by_pk[pk])] = level
+            results[(entry_type, ref_by_pk[pk], team_id)] = level
 
     return results
 
@@ -270,8 +274,8 @@ def entries_missing_access_level(
     )
     return [
         (entry_type, ref)
-        for entry_type, ref, _team_id in controlled
-        if (level := levels.get((entry_type, ref))) is None
+        for entry_type, ref, team_id in controlled
+        if (level := levels.get((entry_type, ref, team_id))) is None
         or not access_level_satisfied_for_resource(cast(APIScopeObject, entry_type), level, required_level)
     ]
 
@@ -345,7 +349,7 @@ class FileSystemAccessLevelSerializerMixin(serializers.Serializer):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._access_levels_by_type_ref: Optional[dict[tuple[str, str], Optional[AccessControlLevel]]] = None
+        self._access_levels_by_type_ref: Optional[dict[tuple[str, str, int], Optional[AccessControlLevel]]] = None
 
     def _entry_user_access_control(self) -> Optional[UserAccessControl]:
         request = self.context.get("request")
@@ -356,7 +360,7 @@ class FileSystemAccessLevelSerializerMixin(serializers.Serializer):
 
     def _compute_access_levels(
         self, entries: Sequence[FileSystemAccessEntry], user_access_control: UserAccessControl
-    ) -> dict[tuple[str, str], Optional[AccessControlLevel]]:
+    ) -> dict[tuple[str, str, int], Optional[AccessControlLevel]]:
         team = self.context["get_team"]()
         return bulk_file_system_access_levels(entries, user_access_control, team.project_id)
 
@@ -375,7 +379,10 @@ class FileSystemAccessLevelSerializerMixin(serializers.Serializer):
             ]
             self._access_levels_by_type_ref = self._compute_access_levels(entries, user_access_control)
 
-        key = (obj.type, obj.ref)
+        # Keyed by team_id too: `ref` is caller-supplied, so the same (type, ref) pair could
+        # otherwise collapse two different teams' objects onto one resolved level - see
+        # bulk_file_system_access_levels.
+        key = (obj.type, obj.ref, obj.team_id)
         if key not in self._access_levels_by_type_ref:
             # Object wasn't part of the preloaded batch (e.g. freshly created) - resolve it alone
             self._access_levels_by_type_ref.update(

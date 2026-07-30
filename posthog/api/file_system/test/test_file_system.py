@@ -1550,6 +1550,36 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_does_not_collapse_access_levels_across_teams_sharing_a_ref(self, mock_flag):
+        """`ref` is caller-supplied at row creation, so nothing stops a row filed in the
+        requester's own team from pointing at another team's real object via the same (type,
+        ref) pair - both rows can land in one folder-cascade delete, since the tree spans every
+        environment in the project. Resolving each team's level correctly and then storing both
+        under one (type, ref) key would let whichever team was resolved last silently override
+        the other, letting the requester's own-team default (editor) clear a viewer-only grant
+        made in the victim's team."""
+        team2 = self._create_sibling_team()
+        dashboard = Dashboard.objects.create(team=team2, name="Victim", created_by=self.other_user)
+        self._grant_to_user("dashboard", str(dashboard.pk), "viewer", team=team2)
+        self._sole_entry_for(file_type="dashboard", ref=str(dashboard.pk), path="Shared/Victim", team=team2)
+        # Planted in the requester's own team, pointing at the victim's object via a caller-supplied ref
+        FileSystem.objects.create(
+            team=self.team,
+            path="Shared/Planted",
+            depth=2,
+            type="dashboard",
+            ref=str(dashboard.pk),
+            created_by=self.user,
+        )
+        folder = FileSystem.objects.create(team=self.team, path="Shared", depth=1, type="folder", created_by=self.user)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_destroy_locks_the_reference_count_only_once(self, mock_flag):
         """_delete_file_system_entry must act on the reference count _ensure_can_delete already
         locked and authorized against, not recompute an unlocked count of its own - two
