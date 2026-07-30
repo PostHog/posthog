@@ -14,7 +14,7 @@ from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import InterfaceError, OperationalError, models, transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
@@ -30,6 +30,8 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
+from posthog.db_errors import is_transient_db_error
+from posthog.exceptions import TransientDatabaseError
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
@@ -246,7 +248,6 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return key_with_source[0] if key_with_source is not None else None
 
     @classmethod
-    @transaction.atomic
     def validate_key(cls, personal_api_key_with_source):
         from posthog.models import PersonalAPIKey
 
@@ -286,9 +287,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if mode_used != "sha256":
             with tracer.start_as_current_span("posthog.auth.personal_api_key.mode_upgrade") as upgrade_span:
                 upgrade_span.set_attribute("auth.hash_mode_used", mode_used or "")
-                key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
-                key_to_update.secure_value = hash_key_value(personal_api_key)
-                key_to_update.save(update_fields=["secure_value"])
+                # Only the upgrade write needs a transaction. Wrapping the whole routine would
+                # pin a pooled server connection across the CPU-bound PBKDF2 hashing above.
+                with transaction.atomic():
+                    key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
+                    key_to_update.secure_value = hash_key_value(personal_api_key)
+                    key_to_update.save(update_fields=["secure_value"])
 
         if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
@@ -304,15 +308,25 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             _, source = personal_api_key_with_source
             span.set_attribute("auth.source", source)
 
-            personal_api_key_object = self.validate_key(personal_api_key_with_source)
+            try:
+                personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
-            now = timezone.now()
-            key_last_used_at = personal_api_key_object.last_used_at
-            # Only updating last_used_at if the hour's changed
-            # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
-            if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
-                personal_api_key_object.last_used_at = now
-                personal_api_key_object.save(update_fields=["last_used_at"])
+                now = timezone.now()
+                key_last_used_at = personal_api_key_object.last_used_at
+                # Only updating last_used_at if the hour's changed
+                # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+                if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
+                    personal_api_key_object.last_used_at = now
+                    personal_api_key_object.save(update_fields=["last_used_at"])
+            except (OperationalError, InterfaceError) as e:
+                # Key auth is the first DB query of every bearer-token request, so pool
+                # saturation surfaces here first. Tell the client to retry instead of
+                # letting it escape as an unhandled 500.
+                if not is_transient_db_error(e):
+                    raise
+                structlog_logger.warning("personal_api_key_auth_db_pool_pressure", error=str(e))
+                raise TransientDatabaseError()
+
             assert personal_api_key_object.user is not None
 
             # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.

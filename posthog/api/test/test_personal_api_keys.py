@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.db import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -438,6 +439,29 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             "detail": "Authentication credentials were not provided.",
             "type": "authentication_error",
         }
+
+    @patch("posthog.auth.PersonalAPIKeyAuthentication.validate_key")
+    def test_transient_db_error_during_key_auth_is_a_retryable_503(self, mock_validate_key):
+        mock_validate_key.side_effect = OperationalError(
+            "connection failed: ERROR: query_wait_timeout\nSERVER: closing connection"
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
+        )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.headers["Retry-After"] == "1"
+        assert response.json()["code"] == "transient_database_error"
+
+    @patch("posthog.auth.PersonalAPIKeyAuthentication.validate_key")
+    def test_non_transient_db_error_during_key_auth_is_not_translated(self, mock_validate_key):
+        mock_validate_key.side_effect = OperationalError('relation "posthog_personalapikey" does not exist')
+
+        with self.assertRaises(OperationalError):
+            self.client.get(
+                f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
+            )
 
     def test_header_resilient(self):
         key_before = PersonalAPIKey.objects.get(id=self.key.id).secure_value

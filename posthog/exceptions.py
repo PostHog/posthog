@@ -96,6 +96,19 @@ class ClickHouseQueryMemoryLimitExceeded(APIException):
     is_per_query_limit = False
 
 
+class TransientDatabaseError(APIException):
+    """Retryable 503 for transient database failures, e.g. connection-pool saturation.
+
+    Clients see a 503 with `Retry-After` and back off, instead of a 500 that reads as a
+    permanent failure.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "transient_database_error"
+    default_detail = "The database is temporarily unavailable. Please retry in a moment."
+    retry_after_seconds = 1
+
+
 class ExceptionContext(TypedDict):
     request: HttpRequest
 
@@ -139,7 +152,7 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     """
     Wraps drf-exceptions-hog and, on 401, advertises the OAuth protected resource
     metadata document via WWW-Authenticate per RFC 9728, so that MCP-style agents
-    can bootstrap from a stock 401.
+    can bootstrap from a stock 401. Also attaches Retry-After to transient 503s.
     """
     # Imported lazily: exceptions_hog calls a non-lazy gettext at module import time,
     # which raises AppRegistryNotReady when posthog.exceptions is imported during
@@ -150,6 +163,8 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     from posthog.utils import absolute_uri
 
     response = _exceptions_hog_handler(exc, context)
+    if response is not None and isinstance(exc, TransientDatabaseError):
+        response["Retry-After"] = str(exc.retry_after_seconds)
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
         # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
