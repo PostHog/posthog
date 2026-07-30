@@ -43,6 +43,7 @@ pub mod throttle;
 
 use std::time::Duration;
 
+use common_kafka::error::error_code_tag;
 use common_kafka::kafka_producer::ThreadedKafkaContext;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
@@ -70,8 +71,9 @@ pub use throttle::{ThrottleDecision, WarningThrottle};
 /// both stages.
 pub const INGESTION_WARNINGS_TOTAL: &str = "ingestion_warnings_total";
 
-/// Counter of delivery failures by cause: labels `source` and `error` (the
-/// [`RDKafkaErrorCode`] variant name). Separates a bad topic from an
+/// Counter of delivery failures by cause: labels `source`, `path`, and `error`
+/// (a [`common_kafka::error::error_code_tag`] tag, shared with capture's sink
+/// metrics so the two can be queried together). Separates a bad topic from an
 /// unreachable broker, which `delivery_failed` alone cannot.
 ///
 /// Its own metric because an `error` label on only one outcome of
@@ -339,16 +341,6 @@ pub struct WarningDelivery {
     pub source: WarningSource,
 }
 
-/// Metric label for a delivery failure: the [`RDKafkaErrorCode`] variant name
-/// (`MessageTimedOut`, ...), or `unknown` when the error carries no code. The
-/// variant name rather than `Display`, which is prose and unbounded.
-pub fn delivery_error_label(err: &KafkaError) -> String {
-    match err.rdkafka_error_code() {
-        Some(code) => format!("{code:?}"),
-        None => "unknown".to_string(),
-    }
-}
-
 /// Delivery-report callback for the warnings `ThreadedProducer`. Runs on
 /// rdkafka's poll thread for every produced message and ticks the
 /// `delivered`/`delivery_failed` outcome — the async half of the `emitted`
@@ -365,7 +357,11 @@ pub fn observe_delivery(result: &DeliveryResult, delivery: WarningDelivery) {
             counter!(
                 INGESTION_WARNINGS_DELIVERY_ERRORS_TOTAL,
                 "source" => delivery.source.service,
-                "error" => delivery_error_label(err),
+                "path" => delivery.source.path,
+                "error" => err
+                    .rdkafka_error_code()
+                    .map(error_code_tag)
+                    .unwrap_or("unknown"),
             )
             .increment(1);
             "delivery_failed"
@@ -386,7 +382,6 @@ mod tests {
     use common_kafka::config::KafkaConfig;
     use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
     use common_liveness::SyncLivenessReporter;
-    use rstest::rstest;
 
     use super::*;
 
@@ -418,24 +413,6 @@ mod tests {
         };
         create_threaded_kafka_producer_no_ping(&config, AlwaysHealthy, observe_delivery)
             .expect("client config is valid, so creation cannot fail without a broker round-trip")
-    }
-
-    // Guards against switching to `KafkaError`'s `Display`, which is prose and
-    // would blow up label cardinality.
-    #[rstest]
-    #[case::timed_out(
-        KafkaError::MessageProduction(RDKafkaErrorCode::MessageTimedOut),
-        "MessageTimedOut"
-    )]
-    #[case::unknown_topic(
-        KafkaError::MessageProduction(RDKafkaErrorCode::UnknownTopicOrPartition),
-        "UnknownTopicOrPartition"
-    )]
-    #[case::carries_no_code(KafkaError::Canceled, "unknown")]
-    fn delivery_error_label_is_a_bare_error_code(#[case] err: KafkaError, #[case] expected: &str) {
-        let label = delivery_error_label(&err);
-        assert_eq!(label, expected);
-        assert!(!label.contains(' '), "not metric-safe: {label:?}");
     }
 
     #[test]
