@@ -1101,7 +1101,7 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             None, // global_rate_limiter_token_distinctid
             quota_limiter,
             TokenDropper::default(),
-            Arc::new(TokenValidator::disabled()), // token_validator
+            Arc::new(TokenValidator::disabled()),
             None, // event_restriction_service
             false,
             mode,

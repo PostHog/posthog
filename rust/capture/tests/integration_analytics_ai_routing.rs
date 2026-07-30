@@ -123,7 +123,7 @@ fn setup_router_for_mode(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
-        Arc::new(TokenValidator::disabled()), // token_validator
+        Arc::new(TokenValidator::disabled()),
         None, // event_restriction_service
         false,
         capture_mode,

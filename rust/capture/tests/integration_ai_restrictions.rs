@@ -175,7 +175,7 @@ async fn setup_ai_router_with_restriction(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
-        Arc::new(TokenValidator::disabled()), // token_validator
+        Arc::new(TokenValidator::disabled()),
         Some(service),
         false,
         CaptureMode::Events,
@@ -499,7 +499,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
-        Arc::new(TokenValidator::disabled()), // token_validator
+        Arc::new(TokenValidator::disabled()),
         Some(service),
         false,
         CaptureMode::Events,
@@ -582,7 +582,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         None,
         quota_limiter,
         TokenDropper::default(),
-        Arc::new(TokenValidator::disabled()), // token_validator
+        Arc::new(TokenValidator::disabled()),
         Some(service),
         false,
         CaptureMode::Events,

@@ -164,7 +164,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
-        Arc::new(TokenValidator::disabled()), // token_validator
+        Arc::new(TokenValidator::disabled()),
         options.event_restriction_service,
         false, // metrics
         CaptureMode::Events,

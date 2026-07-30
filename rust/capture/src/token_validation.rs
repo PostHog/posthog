@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use common_database::{Client as _, PostgresReader};
+use common_database::PostgresReader;
 use common_hypercache::{HyperCacheError, HyperCacheReader, KeyType};
 use metrics::counter;
 use moka::future::Cache;

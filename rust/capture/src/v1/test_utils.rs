@@ -662,6 +662,7 @@ use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
 use crate::sinks;
 use crate::time::TimeSource;
+use crate::token_validation::TokenValidator;
 use crate::v1::sinks::kafka::mock::MockProducer;
 use crate::v1::sinks::kafka::sink::KafkaSink;
 use crate::v1::sinks::sink::Sink;
@@ -882,6 +883,7 @@ impl TestStateBuilder {
             global_rate_limiter_token_distinctid: self.global_rate_limiter,
             quota_limiter: Arc::new(quota_limiter),
             token_dropper: Arc::new(TokenDropper::default()),
+            token_validator: Arc::new(TokenValidator::disabled()),
             event_restriction_service: self.restriction_service,
             event_payload_size_limit: 20 * 1024 * 1024,
             historical_cfg,

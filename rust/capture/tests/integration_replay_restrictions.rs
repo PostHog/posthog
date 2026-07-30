@@ -111,7 +111,7 @@ async fn setup_recordings_router_with_restriction(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
-        Arc::new(TokenValidator::disabled()), // token_validator
+        Arc::new(TokenValidator::disabled()),
         Some(service),
         false,
         CaptureMode::Recordings,
@@ -486,7 +486,7 @@ async fn setup_recordings_router_with_redirect_to_topic(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
-        Arc::new(TokenValidator::disabled()), // token_validator
+        Arc::new(TokenValidator::disabled()),
         Some(service),
         false,
         CaptureMode::Recordings,
