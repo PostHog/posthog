@@ -239,6 +239,7 @@ class TestRecalculationActivities(BaseTest):
             ("sweep_leaves_completed_at_null", False),
         ]
     )
+    @freeze_time("2026-06-23T05:00:00Z")
     def test_mark_started_does_not_revive_a_force_failed_run(self, name: str, set_completed_at: bool):
         recalc = self._recalc(self._experiment(flag_key=f"progress-start-force-failed-{name}"))
         completed_at = timezone.now() if set_completed_at else None
@@ -266,6 +267,7 @@ class TestRecalculationActivities(BaseTest):
         # fails the run non-retryably instead of proceeding to calc activities on a dead run.
         assert returned is None
 
+    @freeze_time("2026-06-23T05:00:00Z")
     def test_mark_started_returns_none_when_force_failed_after_query_to_pinned(self):
         # mark_started ran first and pinned query_to (run went IN_PROGRESS), then an admin force-failed it.
         # A retried mark_started loses the guard, but the read-back must NOT hand back the pinned query_to as a
