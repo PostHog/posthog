@@ -51391,11 +51391,6 @@ export namespace Schemas {
       pinned?: boolean;
     }
 
-    export interface PinnedTaskIdsResponse {
-      /** Visible task IDs pinned by the requester, newest pin first. */
-      task_ids: string[];
-    }
-
     export interface PatchedPinnedSceneTabs {
       /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
@@ -55268,6 +55263,11 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
+    }
+
+    export interface PinnedTaskIdsResponse {
+      /** Visible task IDs pinned by the requester, newest pin first. */
+      task_ids: string[];
     }
 
     export interface PlainThreadSignalExtra {
@@ -68501,16 +68501,6 @@ export namespace Schemas {
       runtime?: RuntimeEnum;
     }
 
-    /**
-     * Request body for the presence beacon and beacon-leave endpoints.
-     *
-     * `device_id` is the UUID of the caller's `UserPushToken` row, which the
-     * client received when it registered for push via `/api/users/@me/push_tokens/`.
-     * The client is expected to use the same identifier on the beacon and leave
-     * calls; if the user has unregistered the underlying push token, the value
-     * won't resolve and the call returns 404 — at which point pushes were
-     * already not going there anyway.
-     */
     export interface TaskPinRequest {
       /** Whether the task should be pinned for the requester. */
       pinned: boolean;
@@ -68523,6 +68513,16 @@ export namespace Schemas {
       pinned: boolean;
     }
 
+    /**
+     * Request body for the presence beacon and beacon-leave endpoints.
+     *
+     * `device_id` is the UUID of the caller's `UserPushToken` row, which the
+     * client received when it registered for push via `/api/users/@me/push_tokens/`.
+     * The client is expected to use the same identifier on the beacon and leave
+     * calls; if the user has unregistered the underlying push token, the value
+     * won't resolve and the call returns 404 — at which point pushes were
+     * already not going there anyway.
+     */
     export interface TaskPresenceBeaconRequest {
       /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
       device_id: string;
