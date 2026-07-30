@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Mapping
-from typing import cast
+from typing import Any, cast
 
 from django.db.models import Q
 
@@ -1173,19 +1173,22 @@ class PullRequestMergeRequestSerializer(serializers.Serializer):
         help_text="'merge' merges now; 'auto_merge' arms merge-when-checks-pass; 'cancel_auto_merge' disarms "
         "it; 'approve' records an approving review (used before merging when a review is the only blocker).",
     )
-    node_id = serializers.CharField(
-        required=False, allow_null=True, help_text="PR GraphQL node id (required for auto_merge / cancel_auto_merge)."
-    )
     sha = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Head SHA the client last saw, guarding a direct merge against a branch that moved.",
+        help_text="Head SHA the client last saw. Required for 'merge', which is the only mode that can "
+        "land a branch that moved since the client last looked.",
     )
     merge_method = serializers.ChoiceField(
         choices=["squash", "merge", "rebase"],
         required=False,
         help_text="Merge method; defaults to the repo's preferred method when omitted.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs["merge_mode"] == "merge" and not attrs.get("sha"):
+            raise serializers.ValidationError({"sha": "A head SHA is required to merge now."})
+        return attrs
 
 
 class PullRequestMergeResponseSerializer(serializers.Serializer):

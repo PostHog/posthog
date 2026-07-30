@@ -60,11 +60,12 @@ export const SignalsReportPrMergeBody = /* @__PURE__ */ zod
             .describe(
                 "'merge' merges now; 'auto_merge' arms merge-when-checks-pass; 'cancel_auto_merge' disarms it; 'approve' records an approving review (used before merging when a review is the only blocker).\n\n\* `merge` - merge\n\* `auto_merge` - auto_merge\n\* `cancel_auto_merge` - cancel_auto_merge\n\* `approve` - approve"
             ),
-        node_id: zod.string().nullish().describe('PR GraphQL node id (required for auto_merge \/ cancel_auto_merge).'),
         sha: zod
             .string()
             .nullish()
-            .describe('Head SHA the client last saw, guarding a direct merge against a branch that moved.'),
+            .describe(
+                "Head SHA the client last saw. Required for 'merge', which is the only mode that can land a branch that moved since the client last looked."
+            ),
         merge_method: zod
             .enum(['squash', 'merge', 'rebase'])
             .describe('\* `squash` - squash\n\* `merge` - merge\n\* `rebase` - rebase')

@@ -2588,28 +2588,14 @@ class TestSignalReportPrMergeAuth(APIBaseTest):
     def _merge_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_merge/"
 
-    def _authenticate_as_sandbox_token(self) -> None:
-        for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
-            OAuthApplication.objects.get_or_create(
-                client_id=client_id,
-                defaults={
-                    "name": "Array Test App",
-                    "client_type": OAuthApplication.CLIENT_PUBLIC,
-                    "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                    "redirect_uris": "https://app.posthog.com/callback",
-                    "algorithm": "RS256",
-                },
-            )
-        token = create_oauth_access_token_for_user(self.user, self.team.id, scopes=["task:read", "task:write"])
-        self.client.logout()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
-
     def test_sandbox_oauth_token_cannot_merge(self):
         # A sandbox/agent token carries task:write and is minted as the task actor; it must not be able
         # to merge/approve as the human, even though its scope would otherwise satisfy the endpoint.
         report = self._create_report()
-        self._authenticate_as_sandbox_token()
-        response = self.client.post(self._merge_url(str(report.id)), {"merge_mode": "merge"}, format="json")
+        authenticate_as_sandbox_token(self)
+        response = self.client.post(
+            self._merge_url(str(report.id)), {"merge_mode": "merge", "sha": "abc123"}, format="json"
+        )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "signed-in user" in response.json()["error"]
 
@@ -2617,5 +2603,14 @@ class TestSignalReportPrMergeAuth(APIBaseTest):
         # The guard is OAuth-token-specific: a signed-in user clears it and reaches PR resolution, so a
         # report without an implementation PR returns 404 (not the 403 the sandbox token gets).
         report = self._create_report()
-        response = self.client.post(self._merge_url(str(report.id)), {"merge_mode": "merge"}, format="json")
+        response = self.client.post(
+            self._merge_url(str(report.id)), {"merge_mode": "merge", "sha": "abc123"}, format="json"
+        )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_merge_now_requires_the_head_sha_it_saw(self):
+        # Without a SHA GitHub merges whatever the head is at that moment, so a branch that moved after
+        # the user reviewed it would land silently. Only 'merge' needs it; auto-merge re-checks at merge time.
+        report = self._create_report()
+        response = self.client.post(self._merge_url(str(report.id)), {"merge_mode": "merge"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

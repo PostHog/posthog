@@ -333,8 +333,8 @@ export function InboxDetailFrame({
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
-    // standard `LemonMenu` on narrow ones. Copy link and Open in GitHub are compact icon buttons at the
-    // very left instead (see the header); the primary action (merge) stays rightmost.
+    // standard `LemonMenu` on narrow ones. Open in GitHub is a compact icon button at the very left
+    // instead (see the header); the primary action (merge) stays rightmost.
     const detailActions = useReportDetailActions(report)
     const overflowMenuItems: LemonMenuItem[] = detailActions.map((action) => ({
         label: action.label,
@@ -461,14 +461,6 @@ export function InboxDetailFrame({
                         </div>
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            icon={<IconLink />}
-                            tooltip="Copy a link to this report"
-                            aria-label="Copy link"
-                            onClick={() => void copyToClipboard(reportUrl, 'report link')}
-                        />
                         {openInGithub}
                         {/* Discuss is always available and stays inline as its own dropdown button. */}
                         <DiscussReportButton report={report} reportUrl={reportUrl} />

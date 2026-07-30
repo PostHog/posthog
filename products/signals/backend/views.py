@@ -2522,23 +2522,15 @@ class SignalReportViewSet(
     )
     @action(detail=True, methods=["post"], url_path="pr_merge", required_scopes=["task:write"])
     def pr_merge(self, request: Request, *args, **kwargs) -> Response:
-        # Merging/approving acts on GitHub as the human via their personal connection — a consequential,
-        # human-authority action. Sandbox agent tokens carry task:write and are minted as the task actor,
-        # so a prompt-injected run could otherwise merge as the user. Require a first-party human caller
-        # (session or personal API key) and reject OAuth access tokens (the sandbox/agent surface).
-        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
-            return Response(
-                {"error": "Merging a pull request must be done by a signed-in user, not an automated token."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
         report = cast(SignalReport, self.get_object())
         serializer = PullRequestMergeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         params = serializer.validated_data
         mode = params["merge_mode"]
 
-        resolved = self._resolve_user_github_and_pr(report, cast(User, request.user))
+        # Resolving here also enforces the human-caller check every GitHub write under a personal
+        # connection shares, so a sandbox agent token can't merge or approve as the user.
+        resolved = self._resolve_user_github_and_pr(report, request)
         if isinstance(resolved, Response):
             return resolved
         user_github, repository, pr_number = resolved

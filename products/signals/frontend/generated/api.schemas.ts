@@ -475,12 +475,7 @@ export interface PullRequestMergeRequestApi {
      * * `approve` - approve */
     merge_mode: MergeModeEnumApi
     /**
-     * PR GraphQL node id (required for auto_merge / cancel_auto_merge).
-     * @nullable
-     */
-    node_id?: string | null
-    /**
-     * Head SHA the client last saw, guarding a direct merge against a branch that moved.
+     * Head SHA the client last saw. Required for 'merge', which is the only mode that can land a branch that moved since the client last looked.
      * @nullable
      */
     sha?: string | null

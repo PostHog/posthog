@@ -1370,16 +1370,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             try {
                 await signalsReportPrMerge(String(teamId), props.reportId, {
                     merge_mode: 'approve',
-                    node_id: readiness.node_id,
                 })
                 const method = (readiness.merge_method as MergeMethodEnumApi | null) ?? undefined
                 if (readiness.ci_status === 'pending' && readiness.auto_merge_allowed) {
                     await signalsReportPrMerge(String(teamId), props.reportId, {
                         merge_mode: 'auto_merge',
-                        node_id: readiness.node_id,
                         merge_method: method,
                     })
-                    lemonToast.success('Approved. Auto-merge armed — this PR will merge once checks pass')
+                    lemonToast.success('Approved. Auto-merge armed. This PR will merge once checks pass')
                 } else {
                     await signalsReportPrMerge(String(teamId), props.reportId, {
                         merge_mode: 'merge',
@@ -1407,10 +1405,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             try {
                 await signalsReportPrMerge(String(teamId), props.reportId, {
                     merge_mode: 'auto_merge',
-                    node_id: readiness.node_id,
                     merge_method: (readiness.merge_method as MergeMethodEnumApi | null) ?? undefined,
                 })
-                lemonToast.success('Auto-merge armed — this PR will merge once checks pass')
+                lemonToast.success('Auto-merge armed. This PR will merge once checks pass')
             } catch (error: any) {
                 lemonToast.error(reviewCommentError(error, "Couldn't arm auto-merge"))
             } finally {
@@ -1429,7 +1426,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             try {
                 await signalsReportPrMerge(String(teamId), props.reportId, {
                     merge_mode: 'cancel_auto_merge',
-                    node_id: readiness.node_id,
                 })
                 lemonToast.success('Auto-merge cancelled')
             } catch (error: any) {
