@@ -97,6 +97,53 @@ class ValidationVerdict(BaseModel):
         return v
 
 
+class FindingOutcomeArtefact(BaseModel):
+    """Content for a `finding_outcome` artefact: the classified fate of one published finding.
+
+    Written by the outcome-telemetry batch after the PR merged, one row per published finding,
+    *before* the finding's event is emitted. Presence means the outcome is decided and is never
+    re-decided: an interrupted sweep re-emits from these rows, and the report only leaves the sweep
+    once `ReviewReport.outcomes_emitted_at` (the emission completion marker) is stamped.
+    """
+
+    issue_key: str = Field(description="The `ReviewIssueFinding.issue_key` this outcome rules on.")
+    run_index: int = Field(description="The review turn whose published head was compared against the merge.")
+    outcome: Literal["addressed", "reacted", "ignored"] = Field(description="The finding's classified fate.")
+    method: Literal[
+        "judge_confirmed",
+        "judge_rejected",
+        "comment_reply",
+        # A reply from an agent other than ReviewHog itself. Engagement like `comment_reply`, kept
+        # apart so "a human responded" stays answerable as agents take over more of the replying.
+        "comment_reply_agent",
+        "comment_reaction",
+        "no_signal",
+        # A line-proximity candidate the judge never ruled on: the report exhausted its per-report
+        # judge budget. Counts as `ignored` like `no_signal` (no evidence it was addressed), but is
+        # named apart so consumers can tell "nothing touched it" from "we did not look".
+        "judge_budget_exhausted",
+        # The judge was asked and errored. Also `ignored`, and also named apart: a rate of these is
+        # a health signal about the judge, not about how the PR's authors respond to review.
+        "judge_failed",
+    ] = Field(description="Which signal decided the outcome.")
+    reviewed_head: str = Field(description="The head the finding was published at (the compare base).")
+    final_head: str = Field(description="The PR branch tip at merge (the compare head).")
+    judge_reasoning: str | None = Field(
+        default=None,
+        description="The judge's stated reason for its ruling, kept so a classification can be explained later.",
+    )
+    judge_model: str | None = Field(
+        default=None, description="Model that judged whether the change addressed the finding, when the judge ran."
+    )
+
+    @field_validator("issue_key", "reviewed_head", "final_head")
+    @classmethod
+    def fields_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
 class ChunkSetArtefact(BaseModel):
     """Content for a `chunk_set` artefact: the PR's chunking computed for ONE review turn.
 
@@ -158,12 +205,19 @@ ReviewLogArtefactContent = TaskRunArtefact | Commit | CodeReference | NoteArtefa
 ReviewWorkingStateContent = (
     ChunkSetArtefact | PerspectiveSelectionArtefact | PerspectiveResultArtefact | PRSnapshotArtefact
 )
-ReviewArtefactContent = ReviewIssueFinding | ValidationVerdict | ReviewLogArtefactContent | ReviewWorkingStateContent
+ReviewArtefactContent = (
+    ReviewIssueFinding
+    | ValidationVerdict
+    | FindingOutcomeArtefact
+    | ReviewLogArtefactContent
+    | ReviewWorkingStateContent
+)
 
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
 ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "issue_finding": ReviewIssueFinding,
     "validation_verdict": ValidationVerdict,
+    "finding_outcome": FindingOutcomeArtefact,
     "task_run": TaskRunArtefact,
     "commit": Commit,
     "code_reference": CodeReference,
