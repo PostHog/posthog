@@ -19,7 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
@@ -28,6 +28,7 @@ from products.signals.backend.scout_harness.prompt import (
     build_run_prompt,
 )
 from products.signals.backend.scout_harness.skill_loader import (
+    SIGNALS_SCOUT_SKILL_PREFIX,
     LoadedSkill,
     load_skill_for_run,
     resolve_report_channel_variant,
@@ -50,6 +51,10 @@ logger = logging.getLogger(__name__)
 # Reuse the report-research sandbox env. Same posture: full repo on disk, restricted
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
 SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
+
+# Every scout `ai_stage` starts with this, so `ai_stage LIKE 'scout:%'` rolls the whole fleet
+# up as one stage even though the tag names the individual scout.
+SCOUT_AI_STAGE_PREFIX = "scout:"
 
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
@@ -532,11 +537,12 @@ async def _spawn_and_run(
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-        # Tag every scout $ai_generation with a coarse pipeline stage so scout spend is
-        # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id).
-        # Constant 'scout' keeps ai_stage a low-cardinality stage enum (peer of research /
-        # repo_selection / implementation); per-scout granularity comes from scout_name (task_title).
-        ai_stage="scout",
+        # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
+        # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
+        # and attributable to one scout. `ai_stage` is the only run-shaped value the harness
+        # controls that reaches $ai_generation — the rest of the properties there are stamped
+        # by the agent server off the task row. Team attribution rides along as `team_id`.
+        ai_stage=_ai_stage(skill),
         on_task_run_created=_create_bridge_row,
         # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
         # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
@@ -943,3 +949,18 @@ def _step_name(skill: LoadedSkill) -> str:
     # Surfaces in the Task title and S3 log prefix. Keep terse — the sandbox truncates.
     safe = skill.name.replace(" ", "_")[:40]
     return f"signals_scout:{safe}"
+
+
+def _ai_stage(skill: LoadedSkill) -> str:
+    """The `ai_stage` tag every $ai_generation of this run carries.
+
+    `scout:<skill>` so LLM-analytics cost is breakdown-able per scout while the whole fleet
+    stays selectable by the `scout:` prefix. Only canonical skill *names* go in the tag — a
+    custom scout's name is team-authored, so admitting it would grow the cardinality of a
+    stage tag with the fleet's teams. The gate is the name, not `skill.origin`: a canonical
+    scout a team has edited in place is still one named scout across the fleet.
+    """
+    if skill.name not in canonical_skill_names():
+        return f"{SCOUT_AI_STAGE_PREFIX}custom"
+    short = skill.name.removeprefix(SIGNALS_SCOUT_SKILL_PREFIX)
+    return f"{SCOUT_AI_STAGE_PREFIX}{short}"
