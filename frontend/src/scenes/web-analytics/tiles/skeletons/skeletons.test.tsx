@@ -59,6 +59,7 @@ describe('web analytics tile skeletons', () => {
                 filtersOverride,
                 variablesOverride,
                 limitContext: 'posthog_ai',
+                autoRetryTransientFailures: true,
             })
         })
 
@@ -96,6 +97,7 @@ describe('web analytics tile skeletons', () => {
                 refresh: 'force_async',
                 maxPaginationLimit: 50,
                 limitContext: 'posthog_ai',
+                autoRetryTransientFailures: true,
             })
         })
     })

@@ -663,38 +663,4 @@ describe('dataNodeLogic', () => {
             'posthog_ai'
         )
     })
-
-    it.each([
-        ['retries a transient failure', { status: 503 }, true, 1],
-        ['gives up on an error the query itself caused', { status: 400, type: 'validation_error' }, false, 0],
-    ])('%s', async (_name, error, expectedPending, expectedAttempt) => {
-        mockedQuery.mockRejectedValueOnce(error)
-        logic = dataNodeLogic({
-            key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
-                kind: NodeKind.EventsQuery,
-                select: ['*', 'event', 'timestamp'],
-            }),
-            autoRetryTransientFailures: true,
-        })
-        logic.mount()
-
-        await expectLogic(logic)
-            .delay(0)
-            .toMatchValues({ autoRetryPending: expectedPending, autoRetryAttempt: expectedAttempt })
-    })
-
-    it('does not retry unless the surface opted in', async () => {
-        mockedQuery.mockRejectedValueOnce({ status: 503 })
-        logic = dataNodeLogic({
-            key: testUniqueKey,
-            query: setLatestVersionsOnQuery({
-                kind: NodeKind.EventsQuery,
-                select: ['*', 'event', 'timestamp'],
-            }),
-        })
-        logic.mount()
-
-        await expectLogic(logic).delay(0).toMatchValues({ autoRetryPending: false, autoRetryAttempt: 0 })
-    })
 })

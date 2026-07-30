@@ -30,9 +30,9 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { AUTO_RETRY_DELAYS_MS, isTransientQueryFailure } from '~/queries/nodes/DataNode/autoRetry'
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { AUTO_RETRY_DELAYS_MS, isTransientQueryFailure } from '~/queries/nodes/DataNode/autoRetry'
 import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
@@ -327,11 +327,11 @@ export interface dataNodeLogicActions {
     abortAnyRunningQuery: () => {
         value: true
     }
-    autoRetryQuery: () => {
-        value: true
-    }
     abortQuery: (payload: { queryId: string }) => {
         queryId: string
+    }
+    autoRetryQuery: () => {
+        value: true
     }
     cancelQuery: () => {
         value: true

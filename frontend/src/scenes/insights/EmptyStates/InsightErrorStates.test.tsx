@@ -50,6 +50,7 @@ describe('insight error states', () => {
             error_type: 'server',
             query_kind: null,
             query_id: 'test-query-id',
+            auto_retry_attempts: 0,
         })
     })
 
