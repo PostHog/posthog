@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from clickhouse_connect.datatypes.registry import get_from_name
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
@@ -180,6 +181,20 @@ class TestClickHouseRowCap(SimpleTestCase):
         self.assertEqual(rows, [(1,), (2,), (3,)])
         self.assertEqual(column_names, ["n"])
         self.assertEqual(column_types, ["Int64"])
+
+    def test_renders_clickhouse_connect_types_by_name(self):
+        # clickhouse_connect's ClickHouseType has no __str__, so str() would hand back an object
+        # repr, which then fails HogQL type mapping when the result is saved as a view.
+        stream = MagicMock()
+        stream.source.column_names = ["n", "s"]
+        stream.source.column_types = [get_from_name("Int64"), get_from_name("Nullable(String)")]
+        stream.__iter__.return_value = iter([[(1, "a")]])
+        client = MagicMock()
+        client.query_row_block_stream.return_value.__enter__.return_value = stream
+        client.query_row_block_stream.return_value.__exit__.return_value = False
+
+        _, _, column_types = _fetch_capped_clickhouse_rows(client, "SELECT n, s FROM t", None, 600)
+        self.assertEqual(column_types, ["Int64", "Nullable(String)"])
 
     def test_raises_when_result_exceeds_cap(self):
         # The streaming guard trips one row past the cap — the memory-exhaustion path a raw

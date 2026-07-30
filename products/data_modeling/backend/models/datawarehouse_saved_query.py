@@ -361,14 +361,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         if result is None or isinstance(result, int):
             raise Exception("No columns types provided by clickhouse in get_columns")
 
-        columns = {
-            str(item[0]): {
-                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                "clickhouse": item[1],
-                "valid": True,
-            }
-            for item in result
-        }
+        columns: dict[str, dict[str, Any]] = {}
+        for item in result:
+            hogql_type = CLICKHOUSE_HOGQL_MAPPING.get(clean_type(str(item[1])))
+            if hogql_type is None:
+                raise Exception(f"Unsupported column type {item[1]} for column {item[0]} in get_columns")
+            columns[str(item[0])] = {"hogql": hogql_type.__name__, "clickhouse": item[1], "valid": True}
 
         return columns
 

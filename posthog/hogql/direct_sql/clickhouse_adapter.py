@@ -218,7 +218,12 @@ def _fetch_capped_clickhouse_rows(
     started = perf_counter()
     with client.query_row_block_stream(sql, parameters=parameters) as stream:
         column_names = list(stream.source.column_names)
-        column_types = [str(column_type) for column_type in stream.source.column_types]
+        # clickhouse_connect's ClickHouseType has no __str__, so str() yields an object repr. Its
+        # `name` is the ClickHouse type expression ("Nullable(Int64)") the frontend and view column
+        # inference expect.
+        column_types = [
+            getattr(column_type, "name", None) or str(column_type) for column_type in stream.source.column_types
+        ]
         for block in stream:
             if perf_counter() - started > deadline_seconds:
                 raise ExposedHogQLError(DIRECT_CLICKHOUSE_TIMEOUT_ERROR)

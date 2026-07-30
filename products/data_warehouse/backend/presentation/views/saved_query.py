@@ -470,6 +470,23 @@ class DataWarehouseSavedQuerySerializer(
                 saved_query=view, column_name=""
             ).delete()
 
+    def _set_columns(self, view: DataWarehouseSavedQuery, client_types: Any) -> None:
+        """Apply the client-supplied column types, falling back to inference when they aren't usable.
+
+        ``types`` is unvalidated client input, so an entry we can't map to a HogQL type must not
+        escape as a raw KeyError — re-inferring from the query is always a correct answer.
+        """
+        columns: dict[str, dict[str, Any]] = {}
+        for item in client_types or []:
+            hogql_type = CLICKHOUSE_HOGQL_MAPPING.get(clean_type(str(item[1])))
+            if hogql_type is None:
+                logger.warning("Unmappable client column type %s for view %s", item[1], view.name)
+                columns = {}
+                break
+            columns[str(item[0])] = {"hogql": hogql_type.__name__, "clickhouse": item[1], "valid": True}
+
+        view.set_columns(columns or view.get_columns(user=self.context["request"].user))
+
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
         # First check if we have an activity log from a recent creation/update
@@ -502,19 +519,7 @@ class DataWarehouseSavedQuerySerializer(
         if not soft_update:
             try:
                 # The columns will be inferred from the query
-                client_types = self.context["request"].data.get("types", [])
-                if len(client_types) == 0:
-                    view.set_columns(view.get_columns(user=self.context["request"].user))
-                else:
-                    columns = {
-                        str(item[0]): {
-                            "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                            "clickhouse": item[1],
-                            "valid": True,
-                        }
-                        for item in client_types
-                    }
-                    view.set_columns(columns)
+                self._set_columns(view, self.context["request"].data.get("types", []))
 
                 view.external_tables = view.s3_tables
             except Exception as e:
@@ -680,19 +685,7 @@ class DataWarehouseSavedQuerySerializer(
             if "query" in validated_data:
                 try:
                     # The columns will be inferred from the query
-                    client_types = self.context["request"].data.get("types", [])
-                    if len(client_types) == 0:
-                        view.set_columns(view.get_columns(user=self.context["request"].user))
-                    else:
-                        columns = {
-                            str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                                "clickhouse": item[1],
-                                "valid": True,
-                            }
-                            for item in client_types
-                        }
-                        view.set_columns(columns)
+                    self._set_columns(view, self.context["request"].data.get("types", []))
 
                     view.external_tables = view.s3_tables
                 except RecursionError:
