@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
-import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
+import { DashboardLoadAction, dashboardAddWidgetUrl, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
 export function getAddTileMenuItems({
@@ -70,7 +70,9 @@ export function getAddTileMenuItems({
                   label: 'Widget',
                   tag: 'beta' as const,
                   tooltip: 'Opens settings to enable the Dashboard widgets beta',
-                  onClick: withBeforeSelect(() => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
+                  onClick: withBeforeSelect(() =>
+                      push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS, dashboardAddWidgetUrl(dashboardId)))
+                  ),
                   'data-attr': 'dashboard-add-widget-preview',
               },
     ]

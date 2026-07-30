@@ -67,7 +67,6 @@ export function Settings({
     const {
         selectedSectionId,
         selectedSection,
-        selectedLevel,
         selectedSettingId,
         settings,
         isCompactNavigationOpen,
@@ -165,12 +164,10 @@ export function Settings({
         return () => clearTimeout(timer)
     }, [selectedSectionId, isSearching])
 
-    // Environment and project settings don't require periodic re-authentication by default,
-    // so we avoid a needless re-authentication modal (see https://github.com/posthog/posthog/pull/22421).
-    // The exception is sections that opt in via `requiresReauthentication` — e.g. credential
-    // management — which prompt on navigation like user- and organization-level settings do.
-    const requiresReauthentication =
-        (selectedLevel !== 'environment' && selectedLevel !== 'project') || !!selectedSection?.requiresReauthentication
+    // Re-authentication is opt-in per section via `requiresReauthentication`, so pages holding
+    // nothing sensitive (feature previews, customization, notifications) don't put a password
+    // prompt in the way (see https://github.com/posthog/posthog/pull/22421).
+    const requiresReauthentication = !!selectedSection?.requiresReauthentication
     const AuthenticationAreaComponent = requiresReauthentication ? TimeSensitiveAuthenticationArea : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar

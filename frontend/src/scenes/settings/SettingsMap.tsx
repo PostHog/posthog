@@ -1716,6 +1716,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'authentication-domains',
@@ -1732,12 +1733,14 @@ export const SETTINGS_MAP: SettingSection[] = [
         hideSelfHost: true,
         title: 'Billing',
         to: urls.organizationBilling(),
+        requiresReauthentication: true,
         settings: [],
     },
     {
         level: 'organization',
         id: 'organization-cimd-verification-tokens',
         title: 'CIMD verification tokens',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'organization-cimd-verification-tokens-list',
@@ -1789,6 +1792,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-members',
         title: 'Members',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'invites',
@@ -1810,6 +1814,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-oauth-apps',
         title: 'OAuth applications',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'organization-oauth-apps-list',
@@ -1824,6 +1829,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-roles',
         title: 'Roles',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'organization-roles',
@@ -1849,6 +1855,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'organization-security',
         title: 'Security',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'organization-security',
@@ -1881,6 +1888,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'organization-delete',
@@ -1897,6 +1905,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-profile',
         title: 'Profile',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'details',
@@ -1937,6 +1946,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-connected-apps',
         title: 'Connected applications',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'connected-apps',
@@ -2102,6 +2112,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-api-keys',
         title: 'Personal API keys',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'personal-api-keys',
@@ -2156,6 +2167,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-danger-zone',
         title: 'Danger zone',
+        requiresReauthentication: true,
         settings: [
             {
                 id: 'user-delete',

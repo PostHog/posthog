@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { EarlyAccessFeature, posthog } from 'posthog-js'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -31,6 +32,8 @@ const search = createFeaturePreviewSearch<EnrichedEarlyAccessFeature>()
 export interface featurePreviewsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     user: UserType | null // userLogic
+    location: { pathname: string; search: string; hash: string } // router
+    searchParams: Record<string, any> // router
     activeFeedbackFlagKey: string | null
     activeFeedbackFlagKeyLoading: boolean
     conceptEnrollments: Record<string, boolean>
@@ -40,6 +43,8 @@ export interface featurePreviewsLogicValues {
     rawEarlyAccessFeatures: EarlyAccessFeature[]
     rawEarlyAccessFeaturesLoading: boolean
     searchTerm: string
+    returnTo: string | null
+    returnToFlagKey: string | null
     waitlistSurveysEnabled: boolean
 }
 
@@ -142,7 +147,7 @@ export type featurePreviewsLogicType = MakeLogicType<
 export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user'], router, ['searchParams', 'location']],
         actions: [supportLogic, ['submitSupportTicket'], teamLogic, ['addProductIntentForCrossSell']],
     })),
     actions({
@@ -349,6 +354,25 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             (earlyAccessFeatures: EnrichedEarlyAccessFeature[], searchTerm: string): EnrichedEarlyAccessFeature[] => {
                 return search(earlyAccessFeatures, searchTerm)
             },
+        ],
+
+        // A CTA elsewhere in the app can link here with `?returnTo=<path>#<flagKey>`, so the
+        // matching card can offer a way back instead of leaving the user in settings.
+        returnTo: [
+            (s) => [s.searchParams],
+            (searchParams: Record<string, any>): string | null => {
+                const returnTo = searchParams.returnTo
+                // Only in-app paths, so a crafted link can't redirect off PostHog.
+                if (typeof returnTo !== 'string' || !returnTo.startsWith('/') || returnTo.startsWith('//')) {
+                    return null
+                }
+                return returnTo
+            },
+        ],
+
+        returnToFlagKey: [
+            (s) => [s.location],
+            (location: { hash: string }): string | null => location.hash.replace(/^#/, '') || null,
         ],
 
         // When enabled, concept-stage ("Coming Soon") items collect an email via their

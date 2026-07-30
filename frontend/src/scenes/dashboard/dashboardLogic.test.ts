@@ -2201,6 +2201,17 @@ describe('dashboardLogic', () => {
             fetchRunWidgetsMock.mockRestore()
         })
 
+        it('opens the add-widget modal once when returning from the beta CTA', async () => {
+            router.actions.push('/dashboard/5', { addWidget: 'true' })
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.addWidgetModalOpen).toBe(true)
+            // The param is dropped so navigating back here later doesn't reopen the modal
+            expect(router.values.searchParams.addWidget).toBeUndefined()
+        })
+
         it('refreshDashboardWidgets fetches run_widgets for widget tiles', async () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()

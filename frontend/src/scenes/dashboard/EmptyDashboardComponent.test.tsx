@@ -14,7 +14,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardType, QueryBasedInsightModel } from '~/types'
 
-import { dashboardLogic } from './dashboardLogic'
+import { dashboardAddWidgetUrl, dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 jest.mock('./emptyDashboardAiStarterPrompts', () => ({
@@ -96,7 +96,9 @@ describe('EmptyDashboardComponent', () => {
         await openGetStartedDropdown()
         await userEvent.click(screen.getByText('Add widget'))
 
-        expect(pushSpy).toHaveBeenCalledWith(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
+        expect(pushSpy).toHaveBeenCalledWith(
+            urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS, dashboardAddWidgetUrl(MOCK_DASHBOARD.id))
+        )
         expect(logic.values.addWidgetModalOpen).toBe(false)
 
         pushSpy.mockRestore()

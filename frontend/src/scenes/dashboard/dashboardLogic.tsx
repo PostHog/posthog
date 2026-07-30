@@ -16,7 +16,7 @@ import {
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, combineUrl, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import uniqBy from 'lodash.uniqby'
 import { ResponsiveLayouts } from 'react-grid-layout'
@@ -1118,6 +1118,14 @@ export interface dashboardLogicMeta {
             dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         ) => MaxContextInput[]
     }
+}
+
+/**
+ * Deep link back to a dashboard with the add-widget flow open. Used by the widgets beta CTA so
+ * enabling the preview continues what the user was doing instead of stranding them in settings.
+ */
+export function dashboardAddWidgetUrl(dashboardId: number): string {
+    return combineUrl(urls.dashboard(dashboardId), { addWidget: 'true' }).url
 }
 
 export type dashboardLogicType = MakeLogicType<
@@ -4501,12 +4509,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
 
-        '/dashboard/:id': () => {
+        '/dashboard/:id': (_, searchParams) => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             actions.setButtonTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
                 actions.setDashboardMode(null, DashboardEventSource.Browser)
+            }
+            // Arriving from the widgets beta CTA — pick the flow back up, then drop the param so
+            // the modal doesn't reopen on every back-navigation to this dashboard.
+            if (searchParams.addWidget && values.dashboardWidgetsEnabled) {
+                actions.setAddWidgetModalOpen(true)
+                const { addWidget: _addWidget, ...rest } = searchParams
+                router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
             }
         },
         '/dashboard/:id/sharing': () => {

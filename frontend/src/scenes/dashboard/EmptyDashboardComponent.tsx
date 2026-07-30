@@ -24,7 +24,7 @@ import {
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
-import { dashboardLogic } from './dashboardLogic'
+import { dashboardAddWidgetUrl, dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
 
 const HedgehogChart = pngHoggie(chartPng)
@@ -94,7 +94,13 @@ function DashboardEmptyActions({
                                               onClick={
                                                   dashboardWidgetsEnabled
                                                       ? onAddWidget
-                                                      : () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
+                                                      : () =>
+                                                            push(
+                                                                urls.featurePreview(
+                                                                    FEATURE_FLAGS.DASHBOARD_WIDGETS,
+                                                                    dashboardAddWidgetUrl(dashboard.id)
+                                                                )
+                                                            )
                                               }
                                               data-attr={
                                                   dashboardWidgetsEnabled

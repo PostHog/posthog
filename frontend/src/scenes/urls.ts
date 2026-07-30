@@ -164,7 +164,9 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
-    featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
+    /** `returnTo` is the in-app path the preview card links back to once the flag is enabled. */
+    featurePreview: (flagKey: string, returnTo?: string): string =>
+        combineUrl('/settings/user-feature-previews', returnTo ? { returnTo } : {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
     site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,

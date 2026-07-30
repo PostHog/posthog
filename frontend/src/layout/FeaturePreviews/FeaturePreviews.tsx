@@ -41,7 +41,8 @@ const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_
 // Feature previews can be linked to by using hash in the url
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 export function FeaturePreviews(): JSX.Element {
-    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading, searchTerm } = useValues(featurePreviewsLogic)
+    const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading, searchTerm, returnTo, returnToFlagKey } =
+        useValues(featurePreviewsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
 
@@ -97,6 +98,7 @@ export function FeaturePreviews(): JSX.Element {
                                 <FeaturePreview
                                     feature={feature}
                                     warning={FEATURE_PREVIEW_WARNINGS[feature.flagKey]?.resolve(hasAvailableFeature)}
+                                    returnTo={returnToFlagKey === feature.flagKey ? returnTo : null}
                                 />
                             </div>
                         ))
@@ -258,9 +260,11 @@ interface FeaturePreviewProps {
     feature: EnrichedEarlyAccessFeature
     /** Optional warning rendered under the description (e.g. plan/add-on requirements). */
     warning?: React.ReactNode
+    /** Where the user came from, so enabling the preview doesn't strand them in settings. */
+    returnTo?: string | null
 }
 
-function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element {
+function FeaturePreview({ feature, warning, returnTo }: FeaturePreviewProps): JSX.Element {
     const { activeFeedbackFlagKey, activeFeedbackFlagKeyLoading } = useValues(featurePreviewsLogic)
     const {
         beginEarlyAccessFeatureFeedback,
@@ -314,6 +318,11 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
             }
             actions={
                 <div className="flex flex-col gap-2">
+                    {returnTo && enabled && (
+                        <LemonButton type="primary" size="small" className="w-fit" to={returnTo}>
+                            Continue where you left off
+                        </LemonButton>
+                    )}
                     <div className="whitespace-nowrap">
                         {documentationUrl && (
                             <Link to={documentationUrl} target="_blank">
