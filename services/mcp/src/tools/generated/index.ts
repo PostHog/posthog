@@ -15,7 +15,6 @@ import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_catalog } from './data_catalog'
-import { GENERATED_TOOLS as data_management } from './data_management'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as docs } from './docs'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
@@ -44,9 +43,11 @@ import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
+import { GENERATED_TOOLS as review_hog } from './review_hog'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as skills } from './skills'
 import { GENERATED_TOOLS as stamphog } from './stamphog'
+import { GENERATED_TOOLS as streamlit_apps } from './streamlit_apps'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
@@ -72,7 +73,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...customer_analytics,
     ...dashboards,
     ...data_catalog,
-    ...data_management,
     ...data_warehouse,
     ...docs,
     ...early_access_features,
@@ -101,9 +101,11 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...reminders,
     ...replay,
     ...replay_vision,
+    ...review_hog,
     ...signals,
     ...skills,
     ...stamphog,
+    ...streamlit_apps,
     ...subscriptions,
     ...surveys,
     ...tasks,

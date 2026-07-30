@@ -71,6 +71,7 @@ from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
+from products.logs.backend.presentation.views.retention_api import LogsRetentionRuleViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
 from products.logs.backend.presentation.views.views_api import LogsViewViewSet
 from products.logs.backend.services_query_runner import ServicesQueryRunner
@@ -81,6 +82,7 @@ __all__ = [
     "LogExplainViewSet",
     "LogsAlertViewSet",
     "LogsMetricRuleViewSet",
+    "LogsRetentionRuleViewSet",
     "LogsSamplingRuleViewSet",
     "LogsViewViewSet",
 ]

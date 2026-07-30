@@ -194,7 +194,6 @@ function SignupAuthPanel(): JSX.Element {
         signupPanelEmail,
         isSignupPanelAuthSubmitting,
         validatedPassword,
-        passkeySignupEnabled,
         passkeyRegistered,
         isPasskeyRegistering,
         passkeyError,
@@ -240,26 +239,25 @@ function SignupAuthPanel(): JSX.Element {
                     <span>{passkeyError}</span>
                 </div>
             )}
-            {passkeySignupEnabled &&
-                (passkeyRegistered ? (
-                    <div className="PaperDesk__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
-                        Passkey registered. Continue below.
-                    </div>
-                ) : (
-                    <LemonButton
-                        type="secondary"
-                        size="large"
-                        fullWidth
-                        icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
-                        onClick={registerPasskey}
-                        loading={isPasskeyRegistering}
-                        disabled={isPasskeyRegistering}
-                        data-attr="signup-passkey"
-                        center
-                    >
-                        Sign up with a passkey
-                    </LemonButton>
-                ))}
+            {passkeyRegistered ? (
+                <div className="PaperDesk__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                    Passkey registered. Continue below.
+                </div>
+            ) : (
+                <LemonButton
+                    type="secondary"
+                    size="large"
+                    fullWidth
+                    icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+                    onClick={registerPasskey}
+                    loading={isPasskeyRegistering}
+                    disabled={isPasskeyRegistering}
+                    data-attr="signup-passkey"
+                    center
+                >
+                    Sign up with a passkey
+                </LemonButton>
+            )}
             {!passkeyRegistered && (
                 <div className="my-4 flex gap-3 items-center">
                     <span className="flex-1 h-px bg-[#e0e1d9]" />

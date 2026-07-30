@@ -200,6 +200,7 @@ export interface taskRunStreamLogicValues {
     connectionStatus: TaskRunConnectionStatus
     isComplete: boolean
     isStalled: boolean
+    lastActivityAt: number | null
     lastError: string | null
     progressSteps: TaskRunProgressStep[]
     taskRunState: TaskRunStreamState | null
@@ -327,6 +328,20 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     }
                     return { ...state, output }
                 },
+            },
+        ],
+        // When the stream last delivered anything about the run, on the client's clock. Deliberately
+        // not derived from the run's own `updated_at`, which the backend only moves on status and
+        // stage transitions, so a reconnect replaying an old state would read as fresh news. Nor
+        // from connection events, or a stream that reconnects forever without ever saying anything
+        // would keep looking healthy. Note this goes quiet on a perfectly healthy run: the pipeline
+        // publishes nothing through the agent phase, so silence alone is never enough to judge a run
+        // dead (see isRunStale, which also requires the transport to be down).
+        lastActivityAt: [
+            null as number | null,
+            {
+                taskRunStateUpdated: () => Date.now(),
+                progressStepUpdated: () => Date.now(),
             },
         ],
         // Last-write-wins per (group, step), kept in arrival order so the UI renders a stable timeline.

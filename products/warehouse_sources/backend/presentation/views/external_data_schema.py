@@ -156,9 +156,12 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         instance.save(update_fields=["status"])
 
 
-# Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
-CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
-NON_CDC_FLOOR_SYNC_FREQUENCY = "5min"
+# Sync frequencies below the 5-minute floor. No longer accepted as input (dropped from the
+# serializer's choices), but rows written before the floor may still carry one until the
+# migrate_sub_5min_sync_frequencies command bumps them — so the interval mappings keep parsing
+# "1min" and the update path clamps instead of erroring.
+LEGACY_SUB_FLOOR_SYNC_FREQUENCIES = {"1min"}
+FLOOR_SYNC_FREQUENCY = "5min"
 
 
 @extend_schema_field(
@@ -273,7 +276,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     sync_frequency = serializers.ChoiceField(
         choices=[
             ("never", "never"),
-            ("1min", "1min"),
             ("5min", "5min"),
             ("15min", "15min"),
             ("30min", "30min"),
@@ -286,7 +288,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ],
         required=False,
         allow_null=True,
-        help_text="How often to sync.",
+        help_text="How often to sync. The fastest sync frequency is 5 minutes.",
+        error_messages={
+            "invalid_choice": '"{input}" is not a valid sync frequency. The fastest sync frequency is 5 minutes.'
+        },
     )
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
@@ -351,9 +356,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
     source = serializers.SerializerMethodField(  # type: ignore[assignment]
         read_only=True,
-        help_text="Lightweight parent-source summary (id, source_type, column-selection support, the requesting "
-        "user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so "
-        "read-only views can render without fetching the full source and all its schemas.",
+        help_text="Lightweight parent-source summary (id, source_type, access_method, column-selection support, "
+        "the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` "
+        "elsewhere — so read-only views can render without fetching the full source and all its schemas.",
     )
 
     class Meta:
@@ -446,6 +451,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "properties": {
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
+                "access_method": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
@@ -476,6 +482,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return {
             "id": str(source.id),
             "source_type": source.source_type,
+            # The schema page hides sync-history UI for direct-query sources, which have no jobs.
+            "access_method": source.access_method,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
@@ -876,27 +884,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         was_sync_time_of_day_updated = False
         source = instance.source
 
-        # Sub-5-minute cadence is only valid for CDC. Enforce server-side so API/MCP callers (not
-        # just the UI) can't drop a non-CDC schema below the allowed floor. We validate the
-        # frequency the schema will actually end up with — the new value if one is supplied, else
-        # the existing interval — against the sync type it will end up with. This also catches
-        # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
+        # "1min" is rejected at the field level, but a schema whose stored interval predates the
+        # 5-minute floor keeps working until migrated. When such a schema stops being CDC (the only
+        # type that ever allowed 1min), clamp the inherited cadence to the floor so the switch
+        # doesn't dead-end. The clamp flows through the sync_frequency handling below.
         resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
-        if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
-            if sync_frequency:
-                # The caller explicitly asked for a CDC-only cadence on a non-CDC schema — a direct
-                # contradiction, so reject it.
-                raise ValidationError(
-                    "A 1-minute sync frequency is only available for CDC schemas. "
-                    "The fastest frequency for other sync types is 5 minutes."
-                )
-            # Switching a CDC schema to a non-CDC type while it still carries a CDC-only cadence:
-            # clamp to the non-CDC floor instead of dead-ending the switch. The clamp flows through
-            # the sync_frequency handling below.
-            sync_frequency = NON_CDC_FLOOR_SYNC_FREQUENCY
+        if (
+            resulting_frequency in LEGACY_SUB_FLOOR_SYNC_FREQUENCIES
+            and resulting_sync_type != ExternalDataSchema.SyncType.CDC
+        ):
+            sync_frequency = FLOOR_SYNC_FREQUENCY
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)

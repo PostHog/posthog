@@ -83,7 +83,8 @@ export interface ConfigurationTabProps {
     source: SchemaSceneSource | null
     section: SchemaConfigurationSection
     onConfigureSyncMethod: () => void
-    onViewSyncHistory: () => void
+    /** Omitted when the source has no sync history to link to. */
+    syncHistoryUrl?: string
 }
 
 export function ConfigurationTab({
@@ -92,7 +93,7 @@ export function ConfigurationTab({
     source,
     section,
     onConfigureSyncMethod,
-    onViewSyncHistory,
+    syncHistoryUrl,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
@@ -109,7 +110,7 @@ export function ConfigurationTab({
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
                     onConfigureSyncMethod={onConfigureSyncMethod}
-                    onViewSyncHistory={onViewSyncHistory}
+                    syncHistoryUrl={syncHistoryUrl}
                 />
             )
         case 'sync-method':
@@ -175,14 +176,14 @@ function DetailsSection({
     cancelSchema,
     updateSchema,
     onConfigureSyncMethod,
-    onViewSyncHistory,
+    syncHistoryUrl,
 }: {
     schema: ExternalDataSourceSchema
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
     onConfigureSyncMethod: () => void
-    onViewSyncHistory: () => void
+    syncHistoryUrl?: string
 }): JSX.Element {
     const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
 
@@ -342,9 +343,11 @@ function DetailsSection({
                         )}
                     </SchemaEditorAction>
                 )}
-                <LemonButton type="secondary" onClick={onViewSyncHistory}>
-                    View sync history
-                </LemonButton>
+                {syncHistoryUrl && (
+                    <LemonButton type="secondary" to={syncHistoryUrl}>
+                        View sync history
+                    </LemonButton>
+                )}
             </div>
         </div>
     )
@@ -851,9 +854,10 @@ function ScheduleSection({
 }): JSX.Element {
     const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const isCdc = schema.sync_type === 'cdc'
-    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = allowedSyncFrequencies(
-        schema.sync_type
-    ).map((value) => ({ value, label: SyncFrequencyLabelMap[value] }))
+    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval>[] = allowedSyncFrequencies().map((value) => ({
+        value,
+        label: SyncFrequencyLabelMap[value],
+    }))
 
     const [draftFrequency, setDraftFrequency] = useState<DataWarehouseSyncInterval>(
         schema.sync_frequency || (isCdc ? '5min' : '6hour')

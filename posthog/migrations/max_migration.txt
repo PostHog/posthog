@@ -1,1 +1,1 @@
-1265_delete_duckgresserverteam
+1277_drop_duckgresserverteam_hot_table_fks

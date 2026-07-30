@@ -136,6 +136,7 @@ export interface accessControlLogicValues {
         | 'query_performance'
         | 'replay_scanner'
         | 'revenue_analytics'
+        | 'review_hog'
         | 'session_recording'
         | 'session_recording_playlist'
         | 'sharing_configuration'
@@ -357,6 +358,7 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
@@ -379,6 +381,7 @@ export interface accessControlLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -483,6 +486,7 @@ export interface accessControlLogicMeta {
             | 'query_performance'
             | 'replay_scanner'
             | 'revenue_analytics'
+            | 'review_hog'
             | 'session_recording'
             | 'session_recording_playlist'
             | 'sharing_configuration'
@@ -568,6 +572,7 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
@@ -590,6 +595,7 @@ export interface accessControlLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -678,6 +684,7 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
@@ -700,6 +707,7 @@ export interface accessControlLogicMeta {
                 | 'query_performance'
                 | 'replay_scanner'
                 | 'revenue_analytics'
+                | 'review_hog'
                 | 'session_recording'
                 | 'session_recording_playlist'
                 | 'sharing_configuration'
@@ -981,6 +989,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'query_performance'
                     | 'replay_scanner'
                     | 'revenue_analytics'
+                    | 'review_hog'
                     | 'session_recording'
                     | 'session_recording_playlist'
                     | 'sharing_configuration'
@@ -1090,6 +1099,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'query_performance'
                     | 'replay_scanner'
                     | 'revenue_analytics'
+                    | 'review_hog'
                     | 'session_recording'
                     | 'session_recording_playlist'
                     | 'sharing_configuration'
@@ -1125,6 +1135,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
                     warehouse_view: 'warehouse_saved_queries',
                     early_access_feature: 'early_access_feature',
+                    ticket: 'conversations/tickets',
                     heatmap: 'saved',
                     replay_scanner: 'vision/scanners',
                 }
@@ -1213,6 +1224,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'query_performance'
                     | 'replay_scanner'
                     | 'revenue_analytics'
+                    | 'review_hog'
                     | 'session_recording'
                     | 'session_recording_playlist'
                     | 'sharing_configuration'

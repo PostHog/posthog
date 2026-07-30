@@ -717,6 +717,9 @@ const scoutEditReport = (): ToolBase<typeof ScoutEditReportSchema, Schemas.EditR
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
         }
+        if (params.charts !== undefined) {
+            body['charts'] = params.charts
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -765,6 +768,9 @@ const scoutEmitReport = (): ToolBase<typeof ScoutEmitReportSchema, Schemas.EmitR
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        if (params.charts !== undefined) {
+            body['charts'] = params.charts
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
@@ -1285,6 +1291,9 @@ const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema,
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
         }
+        if (params.charts !== undefined) {
+            body['charts'] = params.charts
+        }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
@@ -1333,6 +1342,9 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        if (params.charts !== undefined) {
+            body['charts'] = params.charts
         }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
