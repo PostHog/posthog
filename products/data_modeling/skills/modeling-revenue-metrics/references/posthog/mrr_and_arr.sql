@@ -2,7 +2,7 @@
 -- The managed `mrr` view is only a live snapshot, so derive the time series from recurring revenue_item rows.
 --
 -- Before creating the view, replace <revenue_item_view> with the real name for your project:
---   SELECT name FROM system.information_schema.tables WHERE name ILIKE '%revenue_item%';
+--   SELECT table_name FROM system.information_schema.tables WHERE table_name ILIKE '%revenue_item%';
 -- e.g. `revenue_analytics.all.revenue_item_revenue_view` (cross-source) or `stripe.<prefix>.…`.
 --
 -- `amount` is already in the project base currency. Every output column is aliased (required by view-create).

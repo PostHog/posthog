@@ -1,5 +1,6 @@
 -- Warehouse-agnostic funnel: compute each person's first timestamp per step, then apply the
--- conversion-window rule (each step within N days of step 1) using plain SQL — no windowFunnel.
+-- conversion-window rule AND step ordering (signup <= activated <= purchased, all within N days of
+-- signup) using plain SQL — matching what windowFunnel enforces on the PostHog side.
 -- 14-day window shown; adjust the interval literal to your warehouse's syntax.
 {{ config(materialized='table') }}
 
@@ -15,9 +16,15 @@ with steps as (
 flags as (
     select
         person_id,
-        t_signup is not null                                                        as entered,
-        t_activated is not null and t_activated between t_signup and t_signup + interval '14 day' as reached_activated,
-        t_purchased is not null and t_purchased between t_signup and t_signup + interval '14 day' as reached_purchased
+        t_signup is not null as entered,
+        -- step 2 must land in [signup, signup + window]
+        (t_activated is not null
+         and t_activated between t_signup and t_signup + interval '14 day') as reached_activated,
+        -- step 3 must come AFTER step 2 (ordering) and still inside the window from signup
+        (t_activated is not null
+         and t_activated between t_signup and t_signup + interval '14 day'
+         and t_purchased is not null
+         and t_purchased between t_activated and t_signup + interval '14 day') as reached_purchased
     from steps
     where t_signup is not null
 )

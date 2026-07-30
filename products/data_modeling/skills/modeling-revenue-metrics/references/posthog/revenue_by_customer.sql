@@ -3,7 +3,7 @@
 -- to a chosen reporting currency (here EUR) from the ORIGINAL amount as charged.
 --
 -- Replace the two managed view names with the discovered ones:
---   SELECT name FROM system.information_schema.tables WHERE name ILIKE '%revenue_analytics%';
+--   SELECT table_name FROM system.information_schema.tables WHERE table_name ILIKE '%revenue_analytics%';
 SELECT
     c.id                                                          AS customer_id,
     any(c.name)                                                   AS customer_name,

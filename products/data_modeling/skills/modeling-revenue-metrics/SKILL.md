@@ -42,7 +42,7 @@ Discover the exact names (they're prefixed by source, e.g. `stripe.<prefix>.…`
 `revenue_analytics.all.…`):
 
 ```sql
-SELECT name FROM system.information_schema.tables WHERE name ILIKE '%revenue_analytics%'
+SELECT table_name FROM system.information_schema.tables WHERE table_name ILIKE '%revenue_analytics%'
 ```
 
 | Managed view                    | Grain                        | Use for                                                                                                               |
