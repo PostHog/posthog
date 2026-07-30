@@ -13,11 +13,11 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition as repartition_module
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
-    append_partition_key_to_table,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     _PURGE_S3_PREFIX_MAX_ATTEMPTS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
