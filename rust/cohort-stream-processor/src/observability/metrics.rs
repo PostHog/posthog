@@ -484,6 +484,11 @@ pub const PERSON_SEEDS_SKIPPED_TOTAL: &str = "cohort_person_seeds_skipped_total"
 /// Person seeds dropped without a write, labelled by `reason`
 /// (`team_absent`|`no_effective_hashes`) (counter).
 pub const PERSON_SEEDS_DROPPED_TOTAL: &str = "cohort_person_seeds_dropped_total";
+/// Person seeds whose stored record existed but did not decode (counter). The apply then rebuilds
+/// from an absent baseline, dropping whatever the unreadable row held outside the seed's evaluated
+/// set. **Any non-zero value is a real record-codec failure, not a dormant person** — the event
+/// path's `stage1_person_record_total{result="corrupt"}` is the same signal for live traffic.
+pub const PERSON_SEED_PRIOR_CORRUPT_TOTAL: &str = "cohort_person_seed_prior_corrupt_total";
 /// Hashes dropped from a person seed's effective set, labelled by `reason`
 /// (`unknown_hash`|`variant_mismatch`) (counter). **Sustained non-zero means the run's pinned
 /// conditions have drifted from the live catalog.**
@@ -814,6 +819,10 @@ mod tests {
         assert_eq!(
             PERSON_SEEDS_DROPPED_TOTAL,
             "cohort_person_seeds_dropped_total"
+        );
+        assert_eq!(
+            PERSON_SEED_PRIOR_CORRUPT_TOTAL,
+            "cohort_person_seed_prior_corrupt_total",
         );
         assert_eq!(
             PERSON_SEED_HASHES_DROPPED_TOTAL,

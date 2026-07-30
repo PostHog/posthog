@@ -22,9 +22,9 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::merge::tombstone_redirect::{self, MAX_CROSS_PARTITION_REDIRECT_HOPS};
 use crate::observability::metrics::{
     PERSON_SEEDS_APPLIED_TOTAL, PERSON_SEEDS_DROPPED_TOTAL, PERSON_SEEDS_SKIPPED_TOTAL,
-    PERSON_SEEDS_UNCHANGED_TOTAL, PERSON_SEED_HASHES_DROPPED_TOTAL, PERSON_SEED_REKEYED_TOTAL,
-    PERSON_SEED_REKEY_HOP_CAPPED_TOTAL, PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL,
-    STAGE1_TRANSITIONS,
+    PERSON_SEEDS_UNCHANGED_TOTAL, PERSON_SEED_HASHES_DROPPED_TOTAL,
+    PERSON_SEED_PRIOR_CORRUPT_TOTAL, PERSON_SEED_REKEYED_TOTAL, PERSON_SEED_REKEY_HOP_CAPPED_TOTAL,
+    PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
 };
 use crate::producer::{map_transition, CohortMembershipChange, MembershipSink};
 use crate::stage1::key::LeafStateKey;
@@ -150,12 +150,15 @@ impl Apply<'_> {
             return Ok(());
         };
 
-        let Target::Local(person) = self.resolve_target().await? else {
+        // Ahead of the tombstone resolution: the catalog is team-wide, so a seed nothing backs is
+        // dropped identically on the survivor's partition, and resolving first would spend a store
+        // read and possibly a cross-partition re-produce on a message already doomed.
+        let Some(effective) = effective_hashes(filters, self.seed) else {
+            counter!(PERSON_SEEDS_DROPPED_TOTAL, "reason" => "no_effective_hashes").increment(1);
             return Ok(());
         };
 
-        let Some(effective) = effective_hashes(filters, self.seed) else {
-            counter!(PERSON_SEEDS_DROPPED_TOTAL, "reason" => "no_effective_hashes").increment(1);
+        let Target::Local(person) = self.resolve_target().await? else {
             return Ok(());
         };
 
@@ -168,11 +171,7 @@ impl Apply<'_> {
             self.merge.person_seed.live_margin_ms,
             filters.catalog_fingerprint,
         );
-        // A live-fresh skip writes nothing but still falls through to `emit`. An earlier attempt may
-        // have committed stage 1 and then failed its produce, leaving the stage-2 bits unwritten,
-        // and a live event that re-derives the same matched set mints no transition and so composes
-        // nothing. Committing this offset without recomposing would strand that person outside
-        // every composed cohort, with no later event and no reconcile scan able to find them.
+        // A live-fresh skip is not merged at all: the stored state already subsumes the seed.
         let update = match verdict {
             PersonSeedVerdict::SkipLiveFresh => RecordUpdate::Unchanged,
             _ => record_update(
@@ -187,10 +186,15 @@ impl Apply<'_> {
         let now_ms = Utc::now().timestamp_millis();
         self.commit_stage1(filters, &record_key, &update, now_ms)
             .await?;
-        // Counted after the stage-1 commit so a held redelivery cannot double-count it.
+        if recomposes(&update, verdict, &prior) {
+            self.emit(filters, &effective.leaves(person), &update, now_ms)
+                .await?;
+        }
+        // Counted last: an emit failure holds the offset, and the redelivery re-derives the verdict
+        // against the record this attempt already wrote, so counting any earlier counts one seed
+        // twice under two different arms.
         update.record_metric(verdict);
-        self.emit(filters, &effective.leaves(person), &update, now_ms)
-            .await
+        Ok(())
     }
 
     /// A gate-off run is one message per scanned person, so this stays off `warn!` and leans on
@@ -246,8 +250,14 @@ impl Apply<'_> {
         Ok(Target::HandedOff)
     }
 
-    /// Apply at the best-known target once the hop budget is spent, matching the event path:
-    /// orphaned-but-bounded state beats a silent seed loss.
+    /// Apply at the best-known target once the hop budget is spent, matching the tile and event
+    /// paths: an orphaned row beats a silent seed loss, and holding the offset instead would stall
+    /// every later seed on the partition behind a tombstone cycle that will never resolve.
+    ///
+    /// The row lands under this worker's partition prefix, which the survivor's own worker never
+    /// reads. Unlike the tile path's orphan, no sweep owns it — only the `cf_person_records` TTL
+    /// reclaims it, and `apply_person_seed` floors `last_seen_ms` at the scan instant so it does age
+    /// out wherever `COHORT_PERSON_RECORD_TTL_DAYS` is set.
     fn degrade_to(&self, person: Uuid) -> Target {
         counter!(PERSON_SEED_REKEY_HOP_CAPPED_TOTAL).increment(1);
         warn!(
@@ -261,13 +271,21 @@ impl Apply<'_> {
     }
 
     /// Maintenance lane: backfill must not contend with live event reads.
+    ///
+    /// A row that exists but does not decode is counted here, the way the event path counts it: the
+    /// apply rebuilds from an absent baseline, so without the counter a real codec failure is
+    /// indistinguishable from a dormant person that never had a record.
     async fn read_record(&self, key: &PersonRecordKey) -> Result<PriorRecord, SeedHold> {
         let stored = self
             .handle
             .get_person_record(key, ReadLane::Maintenance)
             .await
             .map_err(SeedHold::store("person record read"))?;
-        Ok(PriorRecord::decode(stored.as_deref()))
+        let prior = PriorRecord::decode(stored.as_deref());
+        if matches!(prior, PriorRecord::Corrupt) {
+            counter!(PERSON_SEED_PRIOR_CORRUPT_TOTAL).increment(1);
+        }
+        Ok(prior)
     }
 
     /// One batch, so a register is never stranded without the matched set that justifies it.
@@ -305,9 +323,10 @@ impl Apply<'_> {
             .map_err(SeedHold::store("person record commit"))
     }
 
-    /// Recomposes every evaluated leaf, changed or not, so a crash between the two commits heals on
-    /// replay. The stage-2 bits land only after both produces ack, which keeps a composed flip
-    /// re-derivable instead of lost against a flipped bit.
+    /// Recomposes every evaluated leaf, not just the ones this seed flipped, so a crash between the
+    /// two commits heals on replay ([`recomposes`] is what admits the healing pass). The stage-2 bits
+    /// land only after both produces ack, which keeps a composed flip re-derivable instead of lost
+    /// against a flipped bit.
     ///
     /// Single-leaf changes are not re-derivable that way: the replay merges to `Unchanged` and
     /// mints no transition, so a failed membership produce drops them. Their register row did
@@ -413,8 +432,33 @@ impl RecordUpdate {
     }
 }
 
+/// Whether stage 2 has to be recomposed for this seed.
+///
+/// A merge that changed nothing leaves stage 2 already consistent with stage 1, and skipping the
+/// recompose keeps a non-matching dormant person to a single point read instead of a composition
+/// over every cohort its hashes touch — the dominant message shape of a scan that emits
+/// non-matchers. Two outcomes still have to recompose:
+///
+/// - `SkipLiveFresh` may be the redelivery of an attempt that committed stage 1 and then failed its
+///   produce. The replay merges to `Unchanged` and mints no transition, and a live event that
+///   re-derives the same matched set mints none either, so nothing else would ever write those
+///   stage-2 bits and the person would sit outside every composed cohort.
+/// - A corrupt prior's stage-1 truth is unreadable, so the stored bits cannot be assumed to match
+///   it.
+///
+/// Residue: once a live event has overwritten a held attempt's zeroed fingerprints *and* the catalog
+/// has since rotated, the replay reads as an ordinary catalog-uncovered no-op and the composed bit
+/// is the reconcile snapshot's to repair — the same surface that already owns single-leaf changes
+/// lost to a failed produce.
+fn recomposes(update: &RecordUpdate, verdict: PersonSeedVerdict, prior: &PriorRecord) -> bool {
+    matches!(update, RecordUpdate::Changed { .. })
+        || verdict == PersonSeedVerdict::SkipLiveFresh
+        || matches!(prior, PriorRecord::Corrupt)
+}
+
 /// An absent or corrupt prior folds from the absent baseline rather than skipping: freezing
-/// membership on an unreadable row would be a silent correctness hole.
+/// membership on an unreadable row would be a silent correctness hole. What the unreadable row held
+/// outside `evaluated` is lost with it, and mints no `Left` — hence the corrupt counter at the read.
 fn record_update(
     prior: &PriorRecord,
     seed: &PersonSeed,
@@ -1021,6 +1065,17 @@ mod tests {
         assert_eq!(shell.committable(partition_id), Some(5));
     }
 
+    /// A merged-away person and a survivor on the same partition, so the tombstone resolves inline.
+    fn same_partition_pair() -> (Uuid, u16, Uuid) {
+        let p_old = Uuid::from_u128(0xA11CE);
+        let partition_id = partition_of(TEAM, &p_old, COHORT_PARTITION_COUNT) as u16;
+        let p_new = (10u128..)
+            .map(Uuid::from_u128)
+            .find(|p| partition_of(TEAM, p, COHORT_PARTITION_COUNT) as u16 == partition_id)
+            .expect("some uuid hashes onto p_old's partition");
+        (p_old, partition_id, p_new)
+    }
+
     fn cross_partition_pair() -> (Uuid, u16, Uuid) {
         let p_old = Uuid::from_u128(1);
         let partition_id = partition_of(TEAM, &p_old, COHORT_PARTITION_COUNT) as u16;
@@ -1048,6 +1103,81 @@ mod tests {
                 )
             })
             .unwrap();
+    }
+
+    /// The resolved survivor feeds the record key, the transition's person, and the recomposed
+    /// leaves. Should any of the three regress to the seed's own merged-away person, the record would
+    /// land on one person and its membership on another.
+    #[tokio::test]
+    async fn an_inline_redirect_applies_the_seed_at_the_survivor() {
+        let (p_old, partition_id, p_new) = same_partition_pair();
+        let mut shell = Shell::new(mixed_cohorts());
+        write_tombstone(&shell.store, partition_id, p_old, p_new);
+        shell.live_pageview(partition_id, p_new, None);
+
+        let seed = seed_for(p_old, &[PERSON_HASH], &[PERSON_HASH], now_ms());
+        shell.run(partition_id, &seed, 0).await;
+
+        assert!(
+            shell.record(partition_id, p_old).is_none(),
+            "nothing is written for the merged-away person",
+        );
+        assert!(shell
+            .record(partition_id, p_new)
+            .expect("the survivor gets the record")
+            .matched
+            .contains(&hash(PERSON_HASH).as_bytes()));
+        let changes = shell.sink.changes();
+        assert_eq!(
+            changes.len(),
+            2,
+            "single-leaf cohort 1 and composed cohort 2"
+        );
+        assert!(changes
+            .iter()
+            .all(|change| change.person_id == p_new.to_string()));
+        assert!(
+            shell.stage2(partition_id, p_new, 2).unwrap().in_cohort,
+            "the composed bit follows the survivor too",
+        );
+        assert_eq!(shell.committable(partition_id), Some(1));
+    }
+
+    /// A capped redirect applies inline rather than dropping the seed or holding forever: the chain
+    /// is corrupt, so a hold would stall every later seed on the partition behind it. The write lands
+    /// under this worker's prefix, which is the accepted orphan — see `Apply::degrade_to`.
+    #[tokio::test]
+    async fn a_hop_capped_seed_applies_inline_and_orphans_the_row_on_this_partition() {
+        let (p_old, partition_id, p_new) = cross_partition_pair();
+        let mut shell = Shell::new(mixed_cohorts());
+        write_tombstone(&shell.store, partition_id, p_old, p_new);
+
+        // Exhaust the hop budget on the wire, then deliver: rekeyed_to returns None at the cap.
+        let mut seed = seed_for(p_old, &[PERSON_HASH], &[PERSON_HASH], now_ms());
+        for _ in 0..MAX_CROSS_PARTITION_REDIRECT_HOPS {
+            seed = seed
+                .rekeyed_to(p_old, MAX_CROSS_PARTITION_REDIRECT_HOPS)
+                .unwrap();
+        }
+        shell.run(partition_id, &seed, 0).await;
+
+        assert!(
+            shell.seed_sink.person_seeds().is_empty(),
+            "the hop budget is spent: no further re-produce",
+        );
+        let changes = shell.sink.changes();
+        assert_eq!(changes.len(), 1, "cohort 1 applied inline instead");
+        assert_eq!(changes[0].person_id, p_new.to_string());
+        assert!(
+            shell.record(partition_id, p_new).is_some(),
+            "the record lands under the delivering partition's prefix",
+        );
+        let survivor_partition = partition_of(TEAM, &p_new, COHORT_PARTITION_COUNT) as u16;
+        assert!(
+            shell.record(survivor_partition, p_new).is_none(),
+            "and not under the survivor's own, which is what makes it an orphan",
+        );
+        assert_eq!(shell.committable(partition_id), Some(1));
     }
 
     #[tokio::test]

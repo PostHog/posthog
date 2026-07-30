@@ -215,6 +215,12 @@ impl PersonRecord {
         }
     }
 
+    /// Whether the stored fingerprints came from a live evaluation. [`apply_person_seed`] zeroes
+    /// both, so a seed-written record carries no evidence of what any catalog covered.
+    fn is_live_evaluated(&self) -> bool {
+        self.props_fingerprint != PropsFingerprint(0)
+    }
+
     /// Origin-aware replay check, sharing the row-level implementation so the two cannot drift.
     pub fn is_replay_for(&self, origin: Option<&Uuid>, sp: i32, so: i64) -> bool {
         dedup_is_replay(&self.applied_offsets, &self.redirect_dedup, origin, sp, so)
@@ -483,7 +489,8 @@ pub enum PersonSeedVerdict {
     /// Live-fresh, but evaluated against a different catalog, so it cannot have covered the seed's
     /// hashes.
     ApplyCatalogUncovered,
-    /// Live-fresh and catalog-covered: the live evaluation subsumes the seed.
+    /// The stored state already subsumes the seed: a catalog-covered live evaluation, or another
+    /// seed's write this scan does not beat.
     SkipLiveFresh,
 }
 
@@ -510,6 +517,10 @@ impl PersonSeedVerdict {
 /// the strength of an edit it had nothing to do with. What survives the test is the window between
 /// the two clocks, where a record can carry a newer stamp than the scan and still have been
 /// evaluated against a catalog that predates the seed's conditions.
+///
+/// Seed-over-seed ordering is [`ApplySeedNewer`](PersonSeedVerdict::ApplySeedNewer)'s alone: a seed
+/// installs [`seed_stamp_floor`], so the margin cancels and the test reduces to "this scan ran after
+/// the one that wrote this record".
 pub fn person_seed_verdict(
     prior: &PriorRecord,
     scanned_at: ScannedAtMs,
@@ -522,7 +533,13 @@ pub fn person_seed_verdict(
     if scanned_at.0.saturating_sub(live_margin_ms) > record.stamp.ms {
         return PersonSeedVerdict::ApplySeedNewer;
     }
-    if record.catalog_fingerprint != catalog_fp && scanned_at.0 >= record.stamp.ms {
+    // Only a live evaluation's fingerprint mismatch proves the record missed the seed's hashes. A
+    // seed zeroed its own, so admitting on that would re-admit every seed scanned within a margin of
+    // an earlier one's floor, letting the older scan retract what the newer one matched.
+    if record.is_live_evaluated()
+        && record.catalog_fingerprint != catalog_fp
+        && scanned_at.0 >= record.stamp.ms
+    {
         return PersonSeedVerdict::ApplyCatalogUncovered;
     }
     PersonSeedVerdict::SkipLiveFresh
@@ -1293,12 +1310,20 @@ mod tests {
     fn person_seed_verdict_truth_table() {
         let catalog = CatalogFingerprint::of_sorted(&[hash(1), hash(2)]);
         let other = CatalogFingerprint::of_sorted(&[hash(1)]);
-        // What a seed scanned at 1_000_000 leaves behind: fingerprints zeroed, stamp at the floor.
-        let seed_written = PriorRecord::Present(PersonRecord {
-            stamp: seed_stamp_floor(at(1_000_000), MARGIN),
-            catalog_fingerprint: CatalogFingerprint(0),
-            ..sample_record()
-        });
+        // What a seed scanned at 1_000_000 leaves behind: both fingerprints zeroed, stamp at the
+        // floor. Built through the merge so the fixture cannot drift from what a seed really writes.
+        let seed_written = |scanned_at: ScannedAtMs| {
+            let PersonSeedOutcome::Changed { record, .. } = apply_person_seed(
+                &PersonRecord::absent(),
+                &[hash(1)],
+                &MatchedSet::from_iter([hash(1)]),
+                scanned_at,
+                MARGIN,
+            ) else {
+                panic!("a seed matching a hash on an absent record writes");
+            };
+            PriorRecord::Present(record)
+        };
 
         let cases = [
             (
@@ -1356,11 +1381,24 @@ mod tests {
                 "the margin subtraction must saturate, not overflow",
             ),
             (
-                seed_written,
+                seed_written(at(1_000_000)),
                 at(1_000_000),
-                PersonSeedVerdict::ApplyCatalogUncovered,
-                "the stamp a seed installs sits a margin below its own scan, so a replay re-admits \
-                 and converges on Unchanged",
+                PersonSeedVerdict::SkipLiveFresh,
+                "a seed's own replay adds nothing: the zeroed fingerprints are its write, not an \
+                 uncovered live evaluation",
+            ),
+            (
+                seed_written(at(1_000_000)),
+                at(1_000_000 - MARGIN + 1),
+                PersonSeedVerdict::SkipLiveFresh,
+                "an older overlapping scan sits above the floor a newer seed installed, and must \
+                 not retract what that scan matched",
+            ),
+            (
+                seed_written(at(1_000_000)),
+                at(1_000_001),
+                PersonSeedVerdict::ApplySeedNewer,
+                "the floor cancels the margin between two seeds, so a later scan still wins",
             ),
         ];
 

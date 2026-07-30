@@ -200,6 +200,10 @@ impl TryFrom<PersonSeedWire> for PersonSeed {
             wire.run_id,
             wire.claim_epoch,
         )?;
+        // Reinstated outside the constructor, which only ever mints hop 0. The cap belongs to the
+        // re-keying caller (`rekeyed_to`), so validating it here would fork a second copy of a
+        // constant this crate does not own; an over-cap value is already unrepresentable as a
+        // further re-produce and degrades to an inline apply.
         Ok(Self {
             redirect_hops: wire.redirect_hops,
             ..seed
