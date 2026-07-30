@@ -178,6 +178,60 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "resolved")
 
+    def test_delete_ticket(self, mock_on_commit):
+        # perform_destroy is custom: it removes the ticket, cleans up its comments (linked by
+        # scope/item_id, not a FK, so they'd otherwise be orphaned), and logs a "deleted" activity.
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="a customer message",
+        )
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Ticket.objects.filter(id=self.ticket.id).exists())
+        self.assertFalse(TicketAssignment.objects.filter(ticket_id=self.ticket.id).exists())
+        self.assertFalse(Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists())
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Ticket", activity="deleted", item_id=str(self.ticket.id)
+            ).exists()
+        )
+
+    def test_cannot_delete_other_teams_ticket(self, mock_on_commit):
+        other_team = Team.objects.create(organization=self.organization)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-session",
+            distinct_id="other-user",
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/conversations/tickets/{other_ticket.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(Ticket.objects.filter(id=other_ticket.id).exists())
+
+    def test_delete_ticket_requires_write_scope(self, mock_on_commit):
+        # Guards the scope-gap fix: "destroy" is in scope_object_write_actions, so a read-only
+        # token can no longer delete tickets (it previously required no scope at all).
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="ticket-read",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["ticket:read"],
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Ticket.objects.filter(id=self.ticket.id).exists())
+
     def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
         self.ticket.save()

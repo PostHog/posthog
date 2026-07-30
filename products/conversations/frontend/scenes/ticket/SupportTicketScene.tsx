@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonDialog, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -106,6 +106,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         emailReplyBlockedReason,
         latestAiMessage,
         feedbackByMessageId,
+        ticketDeleting,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -120,6 +121,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setSnoozedUntil,
         sendMessage,
         updateTicket,
+        deleteTicket,
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
@@ -213,6 +215,39 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={ticketListBackTo(searchParams)}
+                actions={
+                    !isNewTicket && ticket ? (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Ticket}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={ticket.user_access_level}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                size="small"
+                                icon={<IconTrash />}
+                                loading={ticketDeleting}
+                                onClick={() =>
+                                    LemonDialog.open({
+                                        title: 'Delete this ticket?',
+                                        description:
+                                            'This permanently deletes the ticket and all its messages. This cannot be undone.',
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            type: 'primary',
+                                            status: 'danger',
+                                            onClick: () => deleteTicket(),
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }
+                            >
+                                Delete
+                            </LemonButton>
+                        </AccessControlAction>
+                    ) : undefined
+                }
             />
 
             <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">

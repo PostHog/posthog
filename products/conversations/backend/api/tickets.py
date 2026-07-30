@@ -367,7 +367,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "compose",
+        "reply",
+        "ai_feedback",
+        "destroy",
+    ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -662,6 +671,40 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "Use posthog.conversations.sendMessage() from the JavaScript SDK. "
             "See https://posthog.com/docs/support/javascript-api for details.",
         )
+
+    def perform_destroy(self, instance: Ticket) -> None:
+        ticket_id = str(instance.id)
+        ticket_number = instance.ticket_number
+
+        with transaction.atomic():
+            # Comments are linked to the ticket by (scope, item_id), not a foreign key, so they
+            # aren't cascade-deleted with the row. Remove them here to avoid orphaned messages
+            # (the assignment IS a FK and cascades on its own).
+            Comment.objects.filter(
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=ticket_id,
+            ).delete()
+            instance.delete()
+
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=self.request.user,
+                was_impersonated=is_impersonated(self.request),
+                item_id=ticket_id,
+                scope="Ticket",
+                activity="deleted",
+                detail=Detail(name=f"Ticket #{ticket_number}"),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": ticket_id})
+
+        try:
+            report_user_action(self.request.user, "support ticket deleted", {"ticket_id": ticket_id})
+        except Exception as e:
+            capture_exception(e, {"ticket_id": ticket_id})
 
     def _attach_persons_to_tickets(self, tickets: Sequence[Ticket]) -> None:
         """Batch-fetch persons by distinct_id and attach to tickets."""
