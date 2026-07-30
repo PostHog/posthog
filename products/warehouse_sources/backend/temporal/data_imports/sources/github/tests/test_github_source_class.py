@@ -274,6 +274,24 @@ class TestGithubSource:
 
         assert "GitHub access token not found" in self.source.get_non_retryable_errors()
 
+    def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
+        # Webhook cleanup runs on source deletion, after the OAuth integration may already be gone;
+        # get_oauth_integration then raises "Integration not found". delete_webhook must report the
+        # skip rather than let it escape and be captured as error-tracking noise, and its message
+        # must not echo the integration id back to the caller (it surfaces in the API response).
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=42, selection="oauth", personal_access_token=""),
+            repository="owner/repo",
+        )
+
+        with mock.patch.object(
+            self.source, "get_oauth_integration", side_effect=ValueError("Integration not found: 42")
+        ):
+            result = self.source.delete_webhook(config, "https://ph.example/webhook", self.team_id)
+
+        assert result.success is False
+        assert "42" not in (result.error or "")
+
     @pytest.mark.parametrize(
         "selection,expected_message",
         [

@@ -411,8 +411,8 @@ export const getDataWarehouseOnboardTeamCreateUrl = (projectId: string) => {
 /**
  * Onboard this project onto the organization's existing managed warehouse.
  *
- * Requires a schema name; records the project's membership both in duckgres and in the
- * Django backfill state. Restricted to organization admins.
+ * Requires a schema name and records the project's membership in the Duckgres control plane.
+ * Restricted to organization admins.
  */
 export const dataWarehouseOnboardTeamCreate = async (
     projectId: string,
