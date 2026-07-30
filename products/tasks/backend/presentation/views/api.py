@@ -61,6 +61,7 @@ from products.tasks.backend.facade.streams import (
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
+    PinnedTaskIdsResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
     SandboxCustomImageBuildSerializer,
@@ -77,6 +78,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskAutomationWriteSerializer,
     TaskCreateSerializer,
     TaskListQuerySerializer,
+    TaskPinRequestSerializer,
+    TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
     TaskRunAppendLogRequestSerializer,
@@ -363,6 +366,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         repositories = tasks_facade.list_task_repositories(self.team_id, self._user_id())
         serializer = TaskRepositoriesResponseSerializer({"repositories": repositories})
         return Response(serializer.data)
+
+    @extend_schema(
+        responses={200: PinnedTaskIdsResponseSerializer},
+        summary="List pinned tasks",
+        description="Return the visible tasks pinned by the requester in the current project.",
+    )
+    @action(detail=False, methods=["get"], url_path="pinned", required_scopes=["task:read"])
+    def pinned(self, request, **kwargs):
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        return Response({"task_ids": tasks_facade.list_pinned_task_ids(self.team_id, user_id)})
+
+    @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
+    @action(detail=True, methods=["post"], url_path="pin", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskPinRequestSerializer)
+    def pin(self, request, pk=None, **kwargs):
+        user_id = self._user_id()
+        if user_id is None:
+            raise NotFound()
+        pinned = tasks_facade.set_task_pinned(pk, self.team_id, user_id, pinned=request.validated_data["pinned"])
+        if pinned is None:
+            raise NotFound()
+        return Response({"task_id": pk, "pinned": pinned})
 
     @extend_schema(
         responses={
