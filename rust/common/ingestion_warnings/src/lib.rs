@@ -341,6 +341,16 @@ pub struct WarningDelivery {
     pub source: WarningSource,
 }
 
+/// Metric label for a delivery failure: capture's shared [`error_code_tag`]
+/// vocabulary, or `unknown` when the error carries no rdkafka code (a cancel or
+/// purge during flush, for one). `&'static str`, so the poll thread never
+/// allocates to label a failure.
+fn delivery_error_tag(err: &KafkaError) -> &'static str {
+    err.rdkafka_error_code()
+        .map(error_code_tag)
+        .unwrap_or("unknown")
+}
+
 /// Delivery-report callback for the warnings `ThreadedProducer`. Runs on
 /// rdkafka's poll thread for every produced message and ticks the
 /// `delivered`/`delivery_failed` outcome — the async half of the `emitted`
@@ -358,10 +368,7 @@ pub fn observe_delivery(result: &DeliveryResult, delivery: WarningDelivery) {
                 INGESTION_WARNINGS_DELIVERY_ERRORS_TOTAL,
                 "source" => delivery.source.service,
                 "path" => delivery.source.path,
-                "error" => err
-                    .rdkafka_error_code()
-                    .map(error_code_tag)
-                    .unwrap_or("unknown"),
+                "error" => delivery_error_tag(err),
             )
             .increment(1);
             "delivery_failed"
@@ -382,6 +389,7 @@ mod tests {
     use common_kafka::config::KafkaConfig;
     use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
     use common_liveness::SyncLivenessReporter;
+    use rstest::rstest;
 
     use super::*;
 
@@ -413,6 +421,22 @@ mod tests {
         };
         create_threaded_kafka_producer_no_ping(&config, AlwaysHealthy, observe_delivery)
             .expect("client config is valid, so creation cannot fail without a broker round-trip")
+    }
+
+    // Errors reaching a delivery report don't all carry an rdkafka code. Without
+    // the fallback they'd land as an empty label, merging every one of them into
+    // a single anonymous series.
+    #[rstest]
+    #[case::has_code(
+        KafkaError::MessageProduction(RDKafkaErrorCode::MessageTimedOut),
+        "message_timed_out"
+    )]
+    #[case::carries_no_code(KafkaError::Canceled, "unknown")]
+    fn delivery_error_tag_names_the_code_or_falls_back(
+        #[case] err: KafkaError,
+        #[case] expected: &str,
+    ) {
+        assert_eq!(delivery_error_tag(&err), expected);
     }
 
     #[test]
