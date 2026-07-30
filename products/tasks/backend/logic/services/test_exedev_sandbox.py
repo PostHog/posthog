@@ -7,7 +7,13 @@ from products.tasks.backend.exceptions import (
     SandboxProvisionError,
     SnapshotCreationError,
 )
-from products.tasks.backend.logic.services.exedev_sandbox import AGENT_SERVER_PORT, ExeDevSandbox, _exec_cli
+from products.tasks.backend.logic.services.exedev_sandbox import (
+    AGENT_SERVER_PORT,
+    ExeDevSandbox,
+    _exec_cli,
+    _extract_vm_token,
+    _find_vm,
+)
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
@@ -21,6 +27,10 @@ def _config(**overrides) -> SandboxConfig:
     base: dict = {"name": "posthog-task-abc", "environment_variables": None}
     base.update(overrides)
     return SandboxConfig(**base)
+
+
+def _running_vm(name: str) -> str:
+    return f'{{"vms":[{{"vm_name":"{name}","status":"running"}}]}}'
 
 
 def _ok(stdout: str = "", exit_code: int = 0) -> ExecutionResult:
@@ -54,6 +64,21 @@ class TestProviderSelection:
     def test_get_sandbox_class_for_backend_exedev(self):
         assert get_sandbox_class_for_backend("exedev") is ExeDevSandbox
         assert get_sandbox_class_for_backend("EXEDEV") is ExeDevSandbox
+
+
+class TestFindVm:
+    def test_parses_vms_envelope_and_running_status(self):
+        assert _find_vm('{"vms":[{"vm_name":"bloggy","status":"running"}]}', "bloggy") == "running"
+
+    def test_returns_none_for_missing_vm(self):
+        assert _find_vm('{"vms":[]}', "missing") is None
+        assert _find_vm("", "missing") is None
+
+    def test_returns_status_for_stopped_vm(self):
+        assert _find_vm('{"vms":[{"vm_name":"bloggy","status":"stopped"}]}', "bloggy") == "stopped"
+
+    def test_tolerates_bare_object(self):
+        assert _find_vm('{"vm_name":"bloggy","status":"running"}', "bloggy") == "running"
 
 
 class TestCreate:
@@ -100,14 +125,54 @@ class TestCreate:
 
 class TestGetById:
     def test_get_by_id_found(self, mock_exec):
-        mock_exec.return_value = _ok('[{"name":"vm-1"}]')
+        mock_exec.return_value = _ok(_running_vm("vm-1"))
         sb = ExeDevSandbox.get_by_id("vm-1")
         assert sb.id == "vm-1"
 
-    def test_get_by_id_missing(self, mock_exec):
+    def test_get_by_id_missing_empty_list(self, mock_exec):
+        mock_exec.return_value = _ok('{"vms":[]}')
+        with pytest.raises(SandboxNotFoundError):
+            ExeDevSandbox.get_by_id("vm-missing")
+
+    def test_get_by_id_missing_nonzero_exit(self, mock_exec):
         mock_exec.return_value = _ok("", exit_code=1)
         with pytest.raises(SandboxNotFoundError):
             ExeDevSandbox.get_by_id("vm-missing")
+
+
+class TestGetConnectCredentials:
+    def test_mints_vm_token_and_returns_it(self, mock_exec):
+        # 1st call: is_running's ls. 2nd: generate-api-key.
+        mock_exec.side_effect = [_ok(_running_vm("vm-1")), _ok('{"token":"exe1.abc"}')]
+        sb = ExeDevSandbox(vm_name="vm-1", config=_config())
+        creds = sb.get_connect_credentials()
+        assert creds.url == f"https://vm-1.exe.xyz:{AGENT_SERVER_PORT}"
+        assert creds.token == "exe1.abc"
+        gen_cmd = mock_exec.call_args_list[1].args[0]
+        assert gen_cmd.startswith("ssh-key generate-api-key --vm=vm-1")
+
+    def test_raises_when_token_mint_returns_nothing(self, mock_exec):
+        # ls succeeds, mint returns no token, and the VM is left for the workflow
+        # to clean up (never destroyed inside the credential helper).
+        mock_exec.side_effect = [_ok(_running_vm("vm-1")), _ok("")]
+        sb = ExeDevSandbox(vm_name="vm-1", config=_config())
+        with pytest.raises(SandboxProvisionError):
+            sb.get_connect_credentials()
+        # Only the ls + mint calls; no `rm` issued.
+        assert all(not c.args[0].startswith("rm ") for c in mock_exec.call_args_list)
+
+
+class TestExtractVmToken:
+    def test_extracts_from_json(self):
+        assert _extract_vm_token('{"token":"exe1.abc"}') == "exe1.abc"
+        assert _extract_vm_token('{"api_key":"k"}') == "k"
+
+    def test_bare_string(self):
+        assert _extract_vm_token("exe1.abc") == "exe1.abc"
+
+    def test_none_when_empty(self):
+        assert _extract_vm_token("") is None
+        assert _extract_vm_token("   ") is None
 
 
 class TestExecCliErrorMapping:
@@ -127,23 +192,31 @@ class TestExecCliErrorMapping:
 
 
 class TestStatus:
-    def test_running_when_vm_listed(self, mock_exec):
-        mock_exec.return_value = _ok('[{"name":"vm-1"}]')
+    def test_running_when_vm_running(self, mock_exec):
+        mock_exec.return_value = _ok(_running_vm("vm-1"))
         sb = ExeDevSandbox(vm_name="vm-1", config=_config())
         assert sb.get_status() == SandboxStatus.RUNNING
         assert sb.is_running()
 
-    def test_shutdown_when_vm_gone(self, mock_exec):
-        mock_exec.return_value = _ok("", exit_code=1)
+    def test_shutdown_when_vm_stopped(self, mock_exec):
+        mock_exec.return_value = _ok('{"vms":[{"vm_name":"vm-1","status":"stopped"}]}')
         sb = ExeDevSandbox(vm_name="vm-1", config=_config())
         assert sb.get_status() == SandboxStatus.SHUTDOWN
-        assert not sb.is_running()
+
+    def test_shutdown_when_vm_absent_from_list(self, mock_exec):
+        mock_exec.return_value = _ok('{"vms":[]}')
+        sb = ExeDevSandbox(vm_name="vm-1", config=_config())
+        assert sb.get_status() == SandboxStatus.SHUTDOWN
+
+    def test_shutdown_on_gateway_error(self, mock_exec):
+        mock_exec.side_effect = SandboxExecutionError("boom", {}, cause=RuntimeError("x"))
+        sb = ExeDevSandbox(vm_name="vm-1", config=_config())
+        assert sb.get_status() == SandboxStatus.SHUTDOWN
 
 
 class TestExecute:
     def test_execute_wraps_in_ssh_bash(self, mock_exec):
-        # First call is is_running's `ls`; second is the actual ssh exec.
-        mock_exec.side_effect = [_ok('[{"name":"vm-1"}]'), _ok("hello\n")]
+        mock_exec.side_effect = [_ok(_running_vm("vm-1")), _ok("hello\n")]
         sb = ExeDevSandbox(vm_name="vm-1", config=_config())
         result = sb.execute("echo hello")
         ssh_cmd = mock_exec.call_args_list[1].args[0]
@@ -151,7 +224,7 @@ class TestExecute:
         assert result.stdout == "hello\n"
 
     def test_execute_raises_when_not_running(self, mock_exec):
-        mock_exec.return_value = _ok("", exit_code=1)
+        mock_exec.return_value = _ok('{"vms":[]}')
         sb = ExeDevSandbox(vm_name="vm-1", config=_config())
         with pytest.raises(SandboxExecutionError):
             sb.execute("echo hi")

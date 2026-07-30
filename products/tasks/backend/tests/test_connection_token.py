@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from products.tasks.backend.logic.services.connection_token import (
+    apply_sandbox_connect_token,
     SANDBOX_CONNECTION_AUDIENCE,
     SANDBOX_EVENT_INGEST_AUDIENCE,
     SANDBOX_JWT_STATE_KID_KEY,
@@ -291,3 +292,32 @@ def test_stream_read_token_validates_with_public_key_only():
     assert claims.run_id == _RUN_ID
     assert claims.team_id == 7
     reset_sandbox_jwt_key_cache()
+
+
+class TestApplySandboxConnectToken(SimpleTestCase):
+    def test_exedev_url_uses_dedicated_header_and_leaves_params(self) -> None:
+        headers: dict[str, str] = {"Authorization": "Bearer agent-jwt"}
+        params: dict[str, str] = {}
+        apply_sandbox_connect_token(
+            sandbox_url="https://my-vm.exe.xyz:8080",
+            connect_token="exedev-vm-token",
+            headers=headers,
+            params=params,
+        )
+        self.assertEqual(headers["X-Exedev-Authorization"], "Bearer exedev-vm-token")
+        # The agent server's own JWT on Authorization is untouched, and no Modal
+        # query param is added for an exe.dev host.
+        self.assertEqual(headers["Authorization"], "Bearer agent-jwt")
+        self.assertEqual(params, {})
+
+    def test_modal_url_uses_query_param_and_leaves_headers(self) -> None:
+        headers: dict[str, str] = {"Authorization": "Bearer agent-jwt"}
+        params: dict[str, str] = {}
+        apply_sandbox_connect_token(
+            sandbox_url="https://abc.modal.host",
+            connect_token="modal-token",
+            headers=headers,
+            params=params,
+        )
+        self.assertEqual(params["_modal_connect_token"], "modal-token")
+        self.assertEqual(headers, {"Authorization": "Bearer agent-jwt"})

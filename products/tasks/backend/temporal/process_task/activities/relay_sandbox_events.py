@@ -20,7 +20,10 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
-from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.connection_token import (
+    apply_sandbox_connect_token,
+    create_sandbox_connection_token,
+)
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
@@ -152,7 +155,15 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     }
     params: dict[str, str] = {}
     if input.sandbox_connect_token:
-        params["_modal_connect_token"] = input.sandbox_connect_token
+        # Modal and exe.dev front their sandboxes with an auth layer whose
+        # credentials collide with the agent server's JWT (carried on
+        # Authorization), so the connect token is delivered out-of-band.
+        apply_sandbox_connect_token(
+            sandbox_url=input.sandbox_url,
+            connect_token=input.sandbox_connect_token,
+            headers=headers,
+            params=params,
+        )
 
     events_url = f"{input.sandbox_url.rstrip('/')}/events"
 

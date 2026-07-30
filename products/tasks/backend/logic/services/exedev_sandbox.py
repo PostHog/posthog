@@ -72,6 +72,51 @@ EXEC_TIMEOUT_SECONDS = 660  # Slightly above the 10-minute default execution tim
 EXEC_MAX_BODY_CHARS = 60_000  # Stay under the /exec 64KB request limit with room to spare
 
 
+# exe.dev's `ls --json` wraps results in a {"vms": [...]} envelope; each entry has a
+# "status" field ("running", plus non-running/terminal states). A pattern arg filters
+# by name, so an unknown VM yields HTTP 200 with an empty list, not a 404.
+def _find_vm(stdout: str, vm_name: str) -> str | None:
+    """Return the VM's status if `vm_name` appears in `ls --json` output, else None."""
+    try:
+        payload = json.loads(stdout) if stdout.strip() else {}
+    except (ValueError, TypeError):
+        payload = {}
+    entries: list = []
+    if isinstance(payload, dict):
+        vms = payload.get("vms")
+        entries = vms if isinstance(vms, list) else [payload]
+    elif isinstance(payload, list):
+        entries = payload
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("vm_name") == vm_name:
+            status = entry.get("status")
+            return status if isinstance(status, str) else "running"
+    return None
+
+
+_VM_TOKEN_KEYS = ("token", "api_key", "key", "apiKey")
+
+
+def _extract_vm_token(stdout: str) -> str | None:
+    """Pull the VM-scoped API token out of `ssh-key generate-api-key --json` output."""
+    data = stdout.strip()
+    if not data:
+        return None
+    try:
+        payload = json.loads(data)
+    except (ValueError, TypeError):
+        payload = None
+    if isinstance(payload, dict):
+        for key in _VM_TOKEN_KEYS:
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    elif isinstance(payload, str) and payload.strip():
+        return payload.strip()
+    # Fallback: the gateway sometimes returns the bare token as text.
+    return data if data and "\n" not in data and len(data) < 4096 else None
+
+
 def _api_token() -> str:
     token = getattr(settings, "SANDBOX_EXEDEV_API_TOKEN", None)
     if not token:
@@ -232,7 +277,7 @@ class ExeDevSandbox(SandboxBase):
     @staticmethod
     def get_by_id(sandbox_id: str) -> ExeDevSandbox:
         result = _exec_cli(f"ls --json {shlex.quote(sandbox_id)}", timeout_seconds=30)
-        if result.exit_code != 0 or not result.stdout.strip():
+        if result.exit_code != 0 or _find_vm(result.stdout, sandbox_id) is None:
             raise SandboxNotFoundError(
                 f"exe.dev VM {sandbox_id} not found",
                 {"sandbox_id": sandbox_id, "error": result.stderr[:500]},
@@ -251,8 +296,10 @@ class ExeDevSandbox(SandboxBase):
     def get_status(self) -> SandboxStatus:
         try:
             result = _exec_cli(f"ls --json {shlex.quote(self.id)}", timeout_seconds=30)
-            running = result.exit_code == 0 and bool(result.stdout.strip())
-            return SandboxStatus.RUNNING if running else SandboxStatus.SHUTDOWN
+            status = _find_vm(result.stdout, self.id)
+            # Only an explicit "running" state counts; a missing VM (empty list),
+            # a stopped/errored VM, or any gateway failure all report SHUTDOWN.
+            return SandboxStatus.RUNNING if status == "running" else SandboxStatus.SHUTDOWN
         except Exception:
             return SandboxStatus.SHUTDOWN
 
@@ -350,8 +397,30 @@ class ExeDevSandbox(SandboxBase):
         url = self.sandbox_url
         if url is None:
             raise RuntimeError("Sandbox URL is not available.")
+        # exe.dev's HTTPS auth proxy is default-private: it only forwards requests
+        # carrying a VM-scoped token (sent as X-Exedev-Authorization). Mint one for
+        # this VM; it rides TaskRun.state as sandbox_connect_token (like Modal's
+        # connect token) and the proxy layer sends it on the dedicated header,
+        # leaving Authorization: Bearer free for the agent server's own JWT.
+        token = self._mint_vm_token()
         logger.info(f"Got connect credentials for exe.dev sandbox {self.id}: {url}")
-        return AgentServerResult(url=url, token=None)
+        return AgentServerResult(url=url, token=token)
+
+    def _mint_vm_token(self) -> str:
+        result = _exec_cli(
+            f"ssh-key generate-api-key --vm={shlex.quote(self.id)} --label=posthog-sandbox --json",
+            timeout_seconds=60,
+        )
+        token = _extract_vm_token(result.stdout)
+        if token is None:
+            # Don't destroy the VM here: the caller may hold it across retries, and
+            # sandbox_state cleanup belongs to the workflow, not a credential helper.
+            raise SandboxProvisionError(
+                "Failed to mint an exe.dev VM access token; the sandbox is unreachable over HTTPS",
+                {"sandbox_id": self.id, "stdout": result.stdout[:500], "stderr": result.stderr[:500]},
+                cause=RuntimeError(result.stderr or result.stdout or "no api key in response"),
+            )
+        return token
 
     def _build_agent_server_command(
         self,

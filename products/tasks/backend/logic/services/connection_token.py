@@ -311,3 +311,29 @@ def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
         raise jwt.InvalidTokenError("Stream read token has invalid claims")
 
     return StreamReadTokenPayload(run_id=run_id, task_id=task_id, team_id=team_id)
+
+
+def apply_sandbox_connect_token(
+    *,
+    sandbox_url: str,
+    connect_token: str,
+    headers: dict[str, str],
+    params: dict[str, str],
+) -> None:
+    """Deliver a sandbox connect token via the auth mechanism its sandbox host expects.
+
+    Modal's connect tunnel and exe.dev's HTTPS auth proxy both expect auth that
+    would collide with the agent server's own JWT on the Authorization header,
+    so the connect token is carried out-of-band:
+
+    - exe.dev hosts (*.exe.xyz): the `X-Exedev-Authorization` header, which the
+      exe.dev proxy consumes before forwarding to the VM.
+    - everything else (Modal): the `_modal_connect_token` query param.
+    """
+    from urllib.parse import urlparse
+
+    hostname = urlparse(sandbox_url).hostname or ""
+    if hostname.endswith(".exe.xyz"):
+        headers["X-Exedev-Authorization"] = f"Bearer {connect_token}"
+    else:
+        params["_modal_connect_token"] = connect_token

@@ -1892,13 +1892,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         command_url = f"{sandbox_url.rstrip('/')}/command"
 
-        # Modal connect tokens use Authorization: Bearer for tunnel auth,
-        # which conflicts with the JWT auth the agent server expects.
-        # Pass the Modal token as a query parameter instead so both
-        # auth mechanisms can coexist.
-        params = {}
+        # Modal and exe.dev front their sandboxes with an auth layer whose
+        # credentials collide with the agent server's JWT on Authorization, so
+        # the connect token is delivered out-of-band (Modal: query param;
+        # exe.dev: X-Exedev-Authorization header).
+        params: dict[str, str] = {}
         if sandbox_connect_token:
-            params["_modal_connect_token"] = sandbox_connect_token
+            from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+                apply_sandbox_connect_token,
+            )
+
+            apply_sandbox_connect_token(
+                sandbox_url=sandbox_url,
+                connect_token=sandbox_connect_token,
+                headers=headers,
+                params=params,
+            )
 
         return http_requests.post(
             command_url,
