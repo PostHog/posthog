@@ -23988,7 +23988,15 @@
                 "SideShift",
                 "DuckLake",
                 "Starburst",
-                "Easybill"
+                "Easybill",
+                "Bexio",
+                "Umami",
+                "Manychat",
+                "Kickstarter",
+                "Typesense",
+                "FirstPromoter",
+                "Zero",
+                "Inth"
             ],
             "type": "string"
         },
@@ -26470,6 +26478,10 @@
                     "type": "string"
                 },
                 "timings": {
+                    "type": "boolean"
+                },
+                "typeAwareCastSimplification": {
+                    "description": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
                     "type": "boolean"
                 },
                 "useMaterializedViews": {

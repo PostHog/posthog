@@ -922,7 +922,11 @@ class EmitReportRequestSerializer(serializers.Serializer):
     already_addressed = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Whether the issue already appears fixed in recent changes (tracked separately).",
+        help_text=(
+            "Whether the issue is already being handled — fixed in recent changes, or with a fix in "
+            "flight (an open PR, a recently active branch, an assigned / in-progress issue or agent "
+            "task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately."
+        ),
     )
     repository = serializers.CharField(
         required=False,
