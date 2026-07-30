@@ -262,11 +262,13 @@ def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
     )
 
 
-_WORKFLOW_ID_SCOPE = {
-    "team_id": 473662,
-    "schema_id": "019ef5df-e4c7-0000-b543-8ef7f13b5f15",
-    "job_id": "019fb012-26e7-0000-2959-704b254131bd",
-}
+def _workflow_id(prepared_queryable_folder: str) -> str:
+    return build_register_data_imports_workflow_id(
+        team_id=473662,
+        schema_id="019ef5df-e4c7-0000-b543-8ef7f13b5f15",
+        job_id="019fb012-26e7-0000-2959-704b254131bd",
+        prepared_queryable_folder=prepared_queryable_folder,
+    )
 
 
 @parameterized.expand(
@@ -284,8 +286,8 @@ _WORKFLOW_ID_SCOPE = {
     ]
 )
 def test_workflow_id_differs_per_prepared_generation(_name, earlier_folder, later_folder):
-    earlier = build_register_data_imports_workflow_id(**_WORKFLOW_ID_SCOPE, prepared_queryable_folder=earlier_folder)
-    later = build_register_data_imports_workflow_id(**_WORKFLOW_ID_SCOPE, prepared_queryable_folder=later_folder)
+    earlier = _workflow_id(earlier_folder)
+    later = _workflow_id(later_folder)
 
     assert earlier != later
 
@@ -293,7 +295,7 @@ def test_workflow_id_differs_per_prepared_generation(_name, earlier_folder, late
 def test_workflow_id_is_stable_for_one_prepared_generation():
     folder = "customer_balance_transaction__query_1785365530_d3277966"
 
-    first = build_register_data_imports_workflow_id(**_WORKFLOW_ID_SCOPE, prepared_queryable_folder=folder)
-    second = build_register_data_imports_workflow_id(**_WORKFLOW_ID_SCOPE, prepared_queryable_folder=folder)
+    first = _workflow_id(folder)
+    second = _workflow_id(folder)
 
     assert first == second
