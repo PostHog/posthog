@@ -619,6 +619,7 @@ async fn spawn_instance(
             scan_page: 1,
             backlog: reconcile_backlog.clone(),
         },
+        person_seed: cohort_stream_processor::workers::PersonSeedDeps::default(),
     });
 
     let dispatcher = Arc::new(EventDispatcher::new(

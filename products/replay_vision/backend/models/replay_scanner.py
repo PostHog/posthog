@@ -43,7 +43,7 @@ class ScannerModel(models.TextChoices):
     Google supersedes a model, swap the member and remap existing scanners in a migration (see 0052)."""
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
-    GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash (preview)"
+    GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
     GEMINI_3_6_FLASH = "gemini-3.6-flash", "Gemini 3.6 Flash"
 
 
