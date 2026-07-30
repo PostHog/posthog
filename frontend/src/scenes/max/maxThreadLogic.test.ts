@@ -388,6 +388,7 @@ describe('maxThreadLogic', () => {
                     content: 'hello',
                     status: 'completed',
                     trace_id: expect.any(String),
+                    created_at: expect.any(String),
                 },
                 partial({
                     type: AssistantMessageType.Assistant,

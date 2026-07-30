@@ -79,6 +79,7 @@ describe('Max Logics Integration Tests', () => {
                     status: 'completed',
                     type: AssistantMessageType.Human,
                     trace_id: expect.any(String),
+                    created_at: expect.any(String),
                 },
                 partial({
                     type: AssistantMessageType.Assistant,
