@@ -106,8 +106,20 @@ class TestWebCalendarHeatmapLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_dispatch_routes_wa_tagged_heatmap_queries(self) -> None:
         tagged = self._build_query().model_dump()
         tagged["tags"] = {"productKey": "web_analytics"}
-        assert isinstance(get_query_runner(tagged, self.team), WebCalendarHeatmapTrendsQueryRunner)
+        with override_settings(WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert isinstance(get_query_runner(tagged, self.team), WebCalendarHeatmapTrendsQueryRunner)
 
-        runner = get_query_runner(self._build_query(), self.team)
+        # Flag off: even tagged queries stay on the untouched vanilla wrapper.
+        flag_off = patch(
+            "products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute.posthoganalytics.feature_enabled",
+            return_value=False,
+        )
+        with flag_off:
+            runner = get_query_runner(tagged, self.team)
+            assert isinstance(runner, CalendarHeatmapTrendsQueryRunner)
+            assert not isinstance(runner, WebCalendarHeatmapTrendsQueryRunner)
+
+        with override_settings(WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            runner = get_query_runner(self._build_query(), self.team)
         assert isinstance(runner, CalendarHeatmapTrendsQueryRunner)
         assert not isinstance(runner, WebCalendarHeatmapTrendsQueryRunner)
