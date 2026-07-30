@@ -249,7 +249,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ]
 
     @cached_property
-    def _denied_short_id_refs(self) -> dict[str, builtins.list[str]]:
+    def _denied_short_id_refs(self) -> dict[tuple[str, int], builtins.list[str]]:
         if not self.user_access_control:
             return {}
         return denied_short_id_refs(self.user_access_control, self.team.project_id)
@@ -261,11 +261,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset, extra_denied_refs=self._denied_short_id_refs
         )
 
-    def _ensure_can_delete_objects(self, objects: builtins.list[tuple[str, str]]) -> None:
+    def _ensure_can_delete_objects(self, objects: builtins.list[tuple[str, str, int]]) -> None:
         """Require editor access on every backing object the delete would reach.
 
         The tree row itself has no access controls, so without this a delete routed through the
-        file system would bypass the level the object's own resource model requires.
+        file system would bypass the level the object's own resource model requires. `objects` is
+        (type, ref, team_id) - team_id is each row's own team, since the tree can list rows from
+        sibling environments and the check has to run against the object's real team.
         """
         if not objects or not self.user_access_control:
             return
@@ -572,7 +574,17 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         return False
 
-    def _ensure_can_delete(self, entry: FileSystem) -> None:
+    def _ensure_can_delete(self, entry: FileSystem) -> dict[UUID, bool]:
+        """Decide, and authorize, which of `entry`'s leaf rows carry the delete through to their
+        backing object - and lock that decision so a concurrent request can't change it before
+        `_delete_file_system_entry` acts on it (see the locking note below).
+
+        Returns a `{row_id: reaches_backing_object}` map that `destroy()` passes straight into
+        `_delete_file_system_entry`, so the actual delete reuses this locked decision instead of
+        recomputing an unlocked count of its own - two independent unlocked counts would let a
+        second concurrent delete of a sibling row change the answer in between, deleting the
+        backing object without ever having been through the editor check above.
+        """
         stack: list[FileSystem] = [entry]
         seen: set[str] = set()
         entries_to_check: list[FileSystem] = []
@@ -597,17 +609,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             entries_to_check.append(current)
 
         if not entries_to_check:
-            return None
+            return {}
 
-        ids_to_remove = [entry.id for entry in entries_to_check]
-        objects_to_delete: builtins.list[tuple[str, str]] = []
+        ids_to_remove = {entry.id for entry in entries_to_check}
+        objects_to_delete: builtins.list[tuple[str, str, int]] = []
+        reaches_backing_object: dict[UUID, bool] = {}
 
         for current in entries_to_check:
-            remaining = (
-                FileSystem.objects.filter(team=current.team, type=current.type, ref=current.ref, shortcut=False)
-                .exclude(id__in=ids_to_remove)
-                .count()
-            )
+            # Lock every row referencing this object (not just the ones outside ids_to_remove) so
+            # a concurrent request deleting a sibling row locks the same row set in the same
+            # order and blocks on it, rather than each request locking a different subset and
+            # deadlocking against the other.
+            sibling_ids = {
+                row.id
+                for row in FileSystem.objects.select_for_update()
+                .filter(team=current.team, type=current.type, ref=current.ref, shortcut=False)
+                .order_by("id")
+            }
+            remaining = len(sibling_ids - ids_to_remove)
+            reaches_backing_object[current.id] = remaining == 0
 
             if not is_file_system_type_registered(current.type):
                 continue
@@ -620,13 +640,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Only the last row referencing an object carries the deletion through to the object
             # itself; removing one of several rows leaves it untouched.
             if remaining == 0 and current.ref:
-                objects_to_delete.append((current.type, current.ref))
+                objects_to_delete.append((current.type, current.ref, current.team_id))
 
         self._ensure_can_delete_objects(objects_to_delete)
 
-        return None
+        return reaches_backing_object
 
-    def _delete_file_system_entry(self, entry: FileSystem) -> builtins.list[dict[str, Any]]:
+    def _delete_file_system_entry(
+        self, entry: FileSystem, reaches_backing_object: dict[UUID, bool]
+    ) -> builtins.list[dict[str, Any]]:
         deleted_objects: list[dict[str, Any]] = []
 
         if entry.shortcut:
@@ -638,20 +660,17 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             descendants = self._scope_by_project_and_environment(descendants)
             descendants = self._filter_by_access_control(descendants)
             for child in descendants.order_by("depth", "path"):
-                deleted_objects.extend(self._delete_file_system_entry(child))
+                deleted_objects.extend(self._delete_file_system_entry(child, reaches_backing_object))
             entry.delete()
             return deleted_objects
-
-        remaining = (
-            FileSystem.objects.filter(team=entry.team, type=entry.type, ref=entry.ref, shortcut=False)
-            .exclude(id=entry.id)
-            .count()
-        )
 
         if not is_file_system_type_registered(entry.type):
             raise serializers.ValidationError({"detail": f"Cannot delete resources with type '{entry.type}'."})
 
-        if remaining > 0:
+        # Reuses the locked decision from _ensure_can_delete rather than recounting - a row this
+        # method discovers on its own (e.g. created after that pass ran) defaults to "leave the
+        # backing object alone", the same safe outcome an unauthorized delete would get.
+        if not reaches_backing_object.get(entry.id, False):
             entry.delete()
             return deleted_objects
 
@@ -689,8 +708,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         deleted_objects: list[dict[str, Any]]
 
         with transaction.atomic():
-            self._ensure_can_delete(instance)
-            deleted_objects = self._delete_file_system_entry(instance)
+            reaches_backing_object = self._ensure_can_delete(instance)
+            deleted_objects = self._delete_file_system_entry(instance, reaches_backing_object)
 
         if instance.type == "folder":
             leftovers = self._scope_by_project(FileSystem.objects.filter(path__startswith=f"{original_path}/"))

@@ -410,11 +410,19 @@ def undo_delete(
     except ObjectDoesNotExist as exc:
         raise ValueError(f"Unable to restore {type_string} with ref '{ref}'") from exc
 
+    # Re-check the soft-delete flag here rather than trusting the caller's earlier check
+    # (get_restorable_object): that check and this restore run as separate queries, so a
+    # concurrent change to this object in between must not be silently overwritten by an
+    # unconditional restore - e.g. reviving a feature flag someone deliberately disabled in the
+    # gap between the check and this call.
+    assert capabilities.soft_delete_field is not None
+    if not getattr(instance, capabilities.soft_delete_field):
+        raise ValueError(f"{type_string} with ref '{ref}' is not currently deleted")
+
     pre_hook = _PRE_RESTORE_HOOKS.get(type_string)
     if pre_hook:
         pre_hook(context, instance)
 
-    assert capabilities.soft_delete_field is not None
     setattr(instance, capabilities.soft_delete_field, False)
 
     if restore_path and hasattr(instance, "_create_in_folder"):

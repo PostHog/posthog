@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
+from posthog.api.file_system.deletion import undo_delete
 from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -1151,18 +1152,26 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             created_by=self.user,
         )
 
-    def _create_access_control(self, resource, resource_id, access_level, organization_member=None, role=None):
+    def _create_access_control(
+        self, resource, resource_id, access_level, organization_member=None, role=None, team=None
+    ):
         """
-        Helper to create an AccessControl row. Ensures 'team' is set.
+        Helper to create an AccessControl row. Defaults to self.team.
         """
         return AccessControl.objects.create(
-            team=self.team,
+            team=team or self.team,
             resource=resource,
             resource_id=resource_id,
             access_level=access_level,
             organization_member=organization_member,
             role=role,
         )
+
+    def _create_sibling_team(self) -> Team:
+        """A second team (environment) in the same project as self.team - the tree lists rows
+        from every environment in a project, so access resolution has to be proven correct
+        across that boundary too, not just within self.team."""
+        return Team.objects.create(project=self.project, organization=self.organization, name="Env-2")
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
@@ -1405,23 +1414,27 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # The warm request skips the short_id->pk translation query the cold request had to run
         self.assertLess(len(warm_ctx), len(cold_ctx))
 
-    def _grant_to_user(self, resource: str, resource_id: str, access_level: str) -> AccessControl:
+    def _grant_to_user(
+        self, resource: str, resource_id: str, access_level: str, team: Team | None = None
+    ) -> AccessControl:
         membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
         return self._create_access_control(
             resource=resource,
             resource_id=resource_id,
             access_level=access_level,
             organization_member=membership,
+            team=team,
         )
 
-    def _sole_entry_for(self, *, file_type: str, ref: str, path: str) -> FileSystem:
+    def _sole_entry_for(self, *, file_type: str, ref: str, path: str, team: Team | None = None) -> FileSystem:
         """Replace the auto-filed tree rows for an object with a single entry at `path`.
 
         Deleting an entry only reaches the backing object once it is the last row referencing it.
         """
-        FileSystem.objects.filter(team=self.team, type=file_type, ref=ref).delete()
+        team = team or self.team
+        FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
         return FileSystem.objects.create(
-            team=self.team,
+            team=team,
             path=path,
             depth=len(path.split("/")),
             type=file_type,
@@ -1494,6 +1507,82 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         dashboard.refresh_from_db()
         self.assertTrue(dashboard.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_requires_editor_access_in_the_objects_own_environment(self, mock_flag):
+        """The tree lists rows from every environment in the project, so resolving access has to
+        run against the row's own team - not the team in the request URL, where no grant for
+        this object exists and resolution would fall through to the "editor" default."""
+        team2 = self._create_sibling_team()
+        dashboard = Dashboard.objects.create(team=team2, name="Sibling env, viewer only", created_by=self.other_user)
+        entry = self._sole_entry_for(
+            file_type="dashboard", ref=str(dashboard.pk), path="Docs/Sibling env viewer", team=team2
+        )
+        self._grant_to_user("dashboard", str(dashboard.pk), "viewer", team=team2)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        dashboard.refresh_from_db()
+        self.assertFalse(dashboard.deleted)
+        self.assertTrue(FileSystem.objects.filter(pk=entry.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_none_access_hides_short_id_entries_from_a_sibling_environment(self, mock_flag):
+        """denied_short_id_refs only resolved 'none' grants against the request's own team; a
+        grant made in a sibling environment - which the tree still lists rows from - has to hide
+        that row too, keyed to its own team rather than leaking because it was checked against
+        the wrong one."""
+        team2 = self._create_sibling_team()
+        insight = Insight.objects.create(team=team2, name="Sibling env, denied", created_by=self.other_user)
+        entry = self._sole_entry_for(
+            file_type="insight", ref=insight.short_id, path="Docs/Sibling env denied", team=team2
+        )
+        # AccessControl rows are always keyed by pk, while insight entries reference the short_id
+        self._create_access_control(resource="insight", resource_id=str(insight.pk), access_level="none", team=team2)
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.content)
+        paths = {item["path"] for item in list_response.json()["results"]}
+        self.assertNotIn("Docs/Sibling env denied", paths)
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_locks_the_reference_count_only_once(self, mock_flag):
+        """_delete_file_system_entry must act on the reference count _ensure_can_delete already
+        locked and authorized against, not recompute an unlocked count of its own - two
+        independent counts would let a sibling row deleted in between change the answer,
+        deleting the backing object without the editor check the first count gated on ever
+        having run for it. One locking query per sibling group is the observable signature of a
+        single, shared count backing both decisions - this deletes one object, so one lock query
+        is the expected total; a folder cascade over N objects would lock once per object.
+        """
+        dashboard = Dashboard.objects.create(team=self.team, name="Locked once", created_by=self.other_user)
+        entry = self._sole_entry_for(file_type="dashboard", ref=str(dashboard.pk), path="Docs/Locked once")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        lock_queries = [q for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+        self.assertEqual(len(lock_queries), 1, lock_queries)
+
+    def test_undo_delete_function_refuses_to_restore_a_live_object(self):
+        """undo_delete's own soft-delete check - not the view's earlier _ensure_can_restore - is
+        what stops it from reviving an object whose state changed between the two, e.g. a
+        feature flag someone deliberately disabled in that gap. Calling the function directly
+        bypasses the view's pre-check, so this guard is what actually refuses it here."""
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="live-flag", name="Live flag", created_by=self.other_user, deleted=False
+        )
+
+        with self.assertRaises(ValueError):
+            undo_delete(type_string="feature_flag", ref=str(flag.pk), user=self.user, team=self.team)
+
+        flag.refresh_from_db()
+        self.assertFalse(flag.deleted)
 
     def test_created_at_filters(self):
         """

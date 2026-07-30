@@ -541,6 +541,13 @@ class UserAccessControl:
         return self._user
 
     @property
+    def team(self) -> Optional[Team]:
+        """The team this instance's checks are scoped to. Callers resolving access for objects
+        that may live outside this team (e.g. a cross-environment listing) need it to tell
+        whether they can reuse this instance or must build one scoped to the object's own team."""
+        return self._team
+
+    @property
     def rbac_supported(self) -> bool:
         if not self._organization:
             return False
@@ -1200,14 +1207,17 @@ class UserAccessControl:
         return denied
 
     def filter_and_annotate_file_system_queryset(
-        self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[str, list[str]]] = None
+        self, queryset: QuerySet["FileSystem"], extra_denied_refs: Optional[dict[tuple[str, int], list[str]]] = None
     ) -> QuerySet["FileSystem"]:
         """
         Annotate each FileSystem with the effective_access_level (either 'none' or 'some')
         and exclude items that end up with 'none', unless the user is the creator or project-admin or org-admin/staff.
 
-        `extra_denied_refs` maps a file system type to refs denied by a grant this queryset's own
-        `ref`-to-`resource_id` comparison can't see, because the ref isn't the object's primary key.
+        `extra_denied_refs` maps a (file system type, team_id) pair to refs denied by a grant this
+        queryset's own `ref`-to-`resource_id` comparison can't see, because the ref isn't the
+        object's primary key. Keyed by team_id, like the rest of this method, because the queryset
+        can span every environment in a project - a denial made in one team must not hide a
+        same-valued ref that happens to belong to a different team.
         """
         user = self._user
 
@@ -1275,9 +1285,9 @@ class UserAccessControl:
         # 4) Exclude items that are "none" if the user is not the creator,
         #    not a project admin, and not an org-admin/staff (already handled in step #1).
         denied = Q(effective_access_level="none")
-        for entry_type, refs in (extra_denied_refs or {}).items():
+        for (entry_type, team_id), refs in (extra_denied_refs or {}).items():
             if refs:
-                denied |= Q(type=entry_type, ref__in=refs)
+                denied |= Q(team_id=team_id, type=entry_type, ref__in=refs)
 
         queryset = queryset.exclude(denied & Q(is_project_admin=False) & ~Q(created_by=user))
 
