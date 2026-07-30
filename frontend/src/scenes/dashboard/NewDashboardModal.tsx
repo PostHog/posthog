@@ -80,7 +80,7 @@ export function NewDashboardModal(): JSX.Element {
             open={newDashboardModalVisible}
             onOpenChange={(open) => !open && hideNewDashboardModal()}
             className={cn(
-                'w-[min(100vw-3rem,1200px)] max-h-[calc(var(--visual-viewport-height)-4rem)] top-[calc(var(--visual-viewport-offset-top)+2rem)]',
+                'w-[min(100vw-3rem,1200px)] max-h-[calc(100vh-4rem-var(--keyboard-inset-bottom))] top-[calc(2rem+var(--keyboard-inset-top))]',
                 'bg-surface-primary',
                 // Variable selectors in ActionFilter portal to the popover layer; keep this modal just below
                 // that layer so dropdown options render above the dialog instead of behind it.

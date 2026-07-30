@@ -6,11 +6,12 @@
 // Set variables
 :root,
 :host {
-    // Geometry of the part of the page the user can actually see. `dvh` handles collapsible mobile
-    // browser chrome; the on-screen keyboard is invisible to CSS, so `useVisualViewportBounds`
-    // overwrites these from `window.visualViewport` while a modal is open.
-    --visual-viewport-height: 100dvh;
-    --visual-viewport-offset-top: 0px;
+    // How much of the layout viewport the on-screen keyboard is covering. `dvh` handles collapsible
+    // mobile browser chrome, but the keyboard is invisible to CSS, so `useKeyboardInsets`
+    // publishes it while a modal is open. Both stay 0 unless a keyboard is genuinely up, so the
+    // expressions using them reduce to plain viewport math the rest of the time.
+    --keyboard-inset-bottom: 0px;
+    --keyboard-inset-top: 0px;
     --color-red-50: oklch(0.971 0.013 17.38deg);
     --color-red-100: oklch(0.936 0.032 17.717deg);
     --color-red-200: oklch(0.885 0.062 18.334deg);
@@ -1704,7 +1705,6 @@
         #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
             // Fix for stories of fixed modals - otherwise body would be zero-sized
             position: static !important;
-            height: auto !important; // Un-pin from the viewport, so the story is only as tall as the modal
         }
     }
 

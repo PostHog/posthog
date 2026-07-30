@@ -3,7 +3,7 @@ import { Suspense } from 'react'
 
 import { IconX } from '@posthog/icons'
 
-import { useVisualViewportBounds } from 'lib/hooks/useVisualViewportBounds'
+import { useKeyboardInsets } from 'lib/hooks/useKeyboardInsets'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -26,7 +26,7 @@ function DialogPrimitive({
     className?: string
     disablePointerDismissal?: boolean
 }): JSX.Element {
-    useVisualViewportBounds(open)
+    useKeyboardInsets(open)
 
     return (
         <Dialog.Root
@@ -40,12 +40,12 @@ function DialogPrimitive({
                     <Dialog.Popup
                         className={cn(
                             '@container fixed left-1/2 w-[400px] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col min-h-0 overflow-hidden overscroll-contain z-[var(--z-force-modal-above-popovers)]',
-                            // Sized and positioned against the visible viewport, not the layout one: on
-                            // mobile the latter reaches behind the browser chrome and the on-screen
-                            // keyboard, which would push the scroll pane below the fold. Above `sm` the
-                            // popup stays a compact overlay rather than filling the window.
-                            'top-[calc(var(--visual-viewport-offset-top)+1rem)] max-h-[calc(var(--visual-viewport-height)-2rem)]',
-                            'sm:max-h-[min(60dvh,calc(var(--visual-viewport-height)-2rem))]',
+                            // Subtract whatever the on-screen keyboard covers, which no CSS unit sees,
+                            // so the scroll pane can't end up below the fold. Both insets are 0 without
+                            // a keyboard. Below `sm` the popup uses the full height rather than 60dvh —
+                            // a phone has no room to spare for a compact overlay.
+                            'top-[calc(1rem+var(--keyboard-inset-top))] max-h-[calc(100dvh-2rem-var(--keyboard-inset-bottom))]',
+                            'sm:max-h-[calc(60dvh-var(--keyboard-inset-bottom))]',
                             className
                         )}
                     >

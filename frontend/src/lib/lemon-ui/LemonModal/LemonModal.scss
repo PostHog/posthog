@@ -1,15 +1,14 @@
 .LemonModal__overlay {
     // `position: fixed` resolves against the layout viewport, which on mobile extends behind the
-    // browser chrome and the on-screen keyboard. Pinning the overlay to the visible viewport
-    // instead keeps the modal's scroll pane and footer above the fold; scrolling the overlay is
-    // the last resort for a modal that still can't fit.
+    // on-screen keyboard. Insetting the overlay by whatever the keyboard covers keeps the modal's
+    // scroll pane and footer above the fold; scrolling the overlay is the last resort for a modal
+    // that still can't fit. The insets are 0 without a keyboard, leaving this as `inset: 0`.
     position: fixed;
-    inset: var(--visual-viewport-offset-top) 0 auto;
+    inset: var(--keyboard-inset-top) 0 var(--keyboard-inset-bottom);
     z-index: var(--z-modal);
     display: flex;
     align-items: flex-start;
     justify-content: center;
-    height: var(--visual-viewport-height);
     overflow-y: auto;
     overscroll-behavior: contain;
     transition:
@@ -46,7 +45,7 @@
     max-width: 90%;
 
     // Always give toasts some space at the bottom
-    max-height: calc(var(--visual-viewport-height) - 60px - 2rem);
+    max-height: calc(100dvh - 60px - 2rem - var(--keyboard-inset-bottom));
     margin: 1rem auto;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border-bold);
