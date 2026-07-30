@@ -79,5 +79,7 @@ class TestRepartitionActivityDeltaFolder:
 
         assert mock_helper_cls.call_args.kwargs["resource_name"] == expected_resource_name
         assert mock_repartition.await_count == 1
-        assert mock_repartition.await_args.kwargs["helper"] is mock_helper_cls.return_value
+        await_args = mock_repartition.await_args
+        assert await_args is not None
+        assert await_args.kwargs["helper"] is mock_helper_cls.return_value
         assert mock_job_model.objects.get.call_args.kwargs == {"id": JOB_ID}
