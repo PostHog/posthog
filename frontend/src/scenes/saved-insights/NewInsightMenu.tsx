@@ -16,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
+import { INSIGHT_TYPES_METADATA, isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -190,12 +190,7 @@ function useNewInsightCards(): {
     const byType: Partial<Record<InsightType, NewInsightCardSpec>> = {}
     const ordered: NewInsightCardSpec[] = []
     for (const [insightType, metadata] of Object.entries(INSIGHT_TYPES_METADATA)) {
-        if (
-            !metadata.inMenu ||
-            insightType === InsightType.JSON ||
-            (!featureFlags[FEATURE_FLAGS.HOG] && insightType === InsightType.HOG) ||
-            (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2] && insightType === InsightType.JOURNEYS)
-        ) {
+        if (!isInsightTypeCreatable(metadata, featureFlags) || insightType === InsightType.JSON) {
             continue
         }
         const spec: NewInsightCardSpec = {
@@ -478,10 +473,7 @@ function useControlMenuItems(): LemonMenuItems {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
-        ([insightType]) =>
-            insightType !== InsightType.JSON &&
-            (featureFlags[FEATURE_FLAGS.HOG] || insightType !== InsightType.HOG) &&
-            (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2] || insightType !== InsightType.JOURNEYS)
+        ([insightType, metadata]) => insightType !== InsightType.JSON && isInsightTypeCreatable(metadata, featureFlags)
     )
     return [
         {
@@ -499,22 +491,20 @@ function useControlMenuItems(): LemonMenuItems {
         },
         {
             title: 'Insight types',
-            items: insightEntries
-                .filter(([, metadata]) => metadata.inMenu)
-                .map(([insightType, metadata]) => ({
-                    icon: metadata.icon ? <metadata.icon /> : undefined,
-                    label: (
-                        <div className="flex flex-col text-sm py-1">
-                            <strong>{metadata.name}</strong>
-                            <span className="text-xs font-normal">{metadata.description}</span>
-                        </div>
-                    ),
-                    to: INSIGHT_TYPE_URLS[insightType as InsightType],
-                    'data-attr': `new-insight-menu-${insightType.toLowerCase()}`,
-                    onClick: () => {
-                        reportNewInsightClicked(insightType as InsightType)
-                    },
-                })),
+            items: insightEntries.map(([insightType, metadata]) => ({
+                icon: metadata.icon ? <metadata.icon /> : undefined,
+                label: (
+                    <div className="flex flex-col text-sm py-1">
+                        <strong>{metadata.name}</strong>
+                        <span className="text-xs font-normal">{metadata.description}</span>
+                    </div>
+                ),
+                to: INSIGHT_TYPE_URLS[insightType as InsightType],
+                'data-attr': `new-insight-menu-${insightType.toLowerCase()}`,
+                onClick: () => {
+                    reportNewInsightClicked(insightType as InsightType)
+                },
+            })),
         },
     ]
 }

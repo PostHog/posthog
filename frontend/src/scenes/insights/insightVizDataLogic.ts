@@ -2838,6 +2838,7 @@ const handleQuerySourceUpdateSideEffects = (
     if (
         !isRetentionQuery(currentState) &&
         !isPathsQuery(currentState) && // TODO: Apply side logic more elegantly
+        !isPathsV2Query(currentState) && // PathsV2Query has no interval field, and the backend rejects unknown fields
         update.dateRange &&
         update.dateRange.date_from &&
         (update.dateRange.date_from !== currentState.dateRange?.date_from ||
