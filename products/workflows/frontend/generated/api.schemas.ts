@@ -1058,6 +1058,119 @@ export interface WorkflowStatsRowApi {
 }
 
 /**
+ * * `healthy` - healthy
+ * * `warning` - warning
+ * * `critical` - critical
+ * * `suspended` - suspended
+ */
+export type AwsTenantReputationHealthEnumApi =
+    (typeof AwsTenantReputationHealthEnumApi)[keyof typeof AwsTenantReputationHealthEnumApi]
+
+export const AwsTenantReputationHealthEnumApi = {
+    Healthy: 'healthy',
+    Warning: 'warning',
+    Critical: 'critical',
+    Suspended: 'suspended',
+} as const
+
+/**
+ * * `ENABLED` - ENABLED
+ * * `REINSTATED` - REINSTATED
+ * * `DISABLED` - DISABLED
+ */
+export type SendingStatusEnumApi = (typeof SendingStatusEnumApi)[keyof typeof SendingStatusEnumApi]
+
+export const SendingStatusEnumApi = {
+    Enabled: 'ENABLED',
+    Reinstated: 'REINSTATED',
+    Disabled: 'DISABLED',
+} as const
+
+/**
+ * * `DKIM` - DKIM
+ * * `DMARC` - DMARC
+ * * `SPF` - SPF
+ * * `BIMI` - BIMI
+ * * `COMPLAINT` - COMPLAINT
+ * * `BOUNCE` - BOUNCE
+ * * `FEEDBACK_3P` - FEEDBACK_3P
+ * * `IP_LISTING` - IP_LISTING
+ */
+export type FindingTypeEnumApi = (typeof FindingTypeEnumApi)[keyof typeof FindingTypeEnumApi]
+
+export const FindingTypeEnumApi = {
+    Dkim: 'DKIM',
+    Dmarc: 'DMARC',
+    Spf: 'SPF',
+    Bimi: 'BIMI',
+    Complaint: 'COMPLAINT',
+    Bounce: 'BOUNCE',
+    Feedback3p: 'FEEDBACK_3P',
+    IpListing: 'IP_LISTING',
+} as const
+
+/**
+ * * `LOW` - LOW
+ * * `HIGH` - HIGH
+ */
+export type ImpactEnumApi = (typeof ImpactEnumApi)[keyof typeof ImpactEnumApi]
+
+export const ImpactEnumApi = {
+    Low: 'LOW',
+    High: 'HIGH',
+} as const
+
+/**
+ * An open reputation finding AWS SES raised for this project's email sending.
+ */
+export interface AwsTenantFindingApi {
+    /** What the finding is about: authentication setup (DKIM/DMARC/SPF/BIMI), recipient signals (COMPLAINT/BOUNCE/FEEDBACK_3P), or a blocklist listing (IP_LISTING).
+     *
+     * * `DKIM` - DKIM
+     * * `DMARC` - DMARC
+     * * `SPF` - SPF
+     * * `BIMI` - BIMI
+     * * `COMPLAINT` - COMPLAINT
+     * * `BOUNCE` - BOUNCE
+     * * `FEEDBACK_3P` - FEEDBACK_3P
+     * * `IP_LISTING` - IP_LISTING */
+    readonly finding_type: FindingTypeEnumApi
+    /** AWS's impact rating. HIGH-impact findings can pause the project's sending automatically.
+     *
+     * * `LOW` - LOW
+     * * `HIGH` - HIGH */
+    readonly impact: ImpactEnumApi
+    /** AWS's description of the finding, including its remediation guidance. */
+    readonly description: string
+    /**
+     * When AWS last updated this finding.
+     * @nullable
+     */
+    readonly last_updated_at: string | null
+}
+
+/**
+ * Authoritative reputation for this project's SES tenant, as judged and enforced by AWS.
+ */
+export interface AwsTenantReputationApi {
+    /** Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact findings), critical (high-impact findings — sending may be paused), suspended (AWS or PostHog paused this project's sending).
+     *
+     * * `healthy` - healthy
+     * * `warning` - warning
+     * * `critical` - critical
+     * * `suspended` - suspended */
+    readonly health: AwsTenantReputationHealthEnumApi
+    /** The tenant's aggregate sending status. REINSTATED means sending was re-enabled after a pause and AWS is re-monitoring it.
+     *
+     * * `ENABLED` - ENABLED
+     * * `REINSTATED` - REINSTATED
+     * * `DISABLED` - DISABLED */
+    readonly sending_status: SendingStatusEnumApi
+    /** Open findings, if any, with AWS's remediation guidance. */
+    readonly findings: readonly AwsTenantFindingApi[]
+}
+
+/**
  * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
  */
 export interface EmailSendingRatesApi {
@@ -1086,6 +1199,8 @@ export interface WorkflowEmailSendingRatesApi {
 }
 
 export interface TeamEmailReputationResponseApi {
+    /** Sending health as judged and enforced by AWS SES for this project's tenant; null when no tenant is provisioned or AWS is unreachable. */
+    readonly aws: AwsTenantReputationApi | null
     /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
     readonly reputation: EmailSendingRatesApi | null
     /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
