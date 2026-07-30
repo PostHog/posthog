@@ -84,7 +84,7 @@ function joinSources(sources: string[]): string {
 
 // Compose scoped, honest text for a campaign's status pill. The pill label is intentionally
 // terse; this explains what the audit actually found for this specific campaign.
-export function issueTooltip(record: CampaignAuditResult): string {
+function issueTooltip(record: CampaignAuditResult): string {
     const issue = record.issues[0]
     if (!issue) {
         return ''
@@ -120,7 +120,7 @@ export function issueTooltip(record: CampaignAuditResult): string {
 }
 
 // Short pill label reflecting the issue kind. The tooltip carries the full explanation.
-export function issueLabel(record: CampaignAuditResult): string {
+function issueLabel(record: CampaignAuditResult): string {
     const kind = record.issues[0]?.kind
     return (kind && ISSUE_LABELS[kind]) || 'Source mismatch'
 }
