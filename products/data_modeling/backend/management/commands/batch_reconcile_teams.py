@@ -49,12 +49,6 @@ class Command(BaseCommand):
         parser.add_argument(
             "--apply", action="store_true", default=False, help="Execute the plan; default is plan-only"
         )
-        parser.add_argument(
-            "--default-interval-seconds",
-            type=int,
-            default=None,
-            help="Target for nodes with no seedable cadence anywhere (must be a supported bucket)",
-        )
         parser.add_argument("--output", type=str, default=None, help="Also write the JSON report to this path")
 
     def handle(self, *args, **options):
@@ -66,12 +60,6 @@ class Command(BaseCommand):
             raise CommandError("--team-ids is empty")
 
         apply = options["apply"]
-        default = (
-            timedelta(seconds=options["default_interval_seconds"])
-            if options["default_interval_seconds"] is not None
-            else None
-        )
-
         report: dict = {"apply": apply, "halted": False, "halt_reason": None, "teams": []}
         halted = False
         for team_id in team_ids:
@@ -81,7 +69,7 @@ class Command(BaseCommand):
             record: dict = {"team_id": team_id, "status": "planned", "dags": [], "anomalies": []}
             report["teams"].append(record)
             try:
-                self._process_team(team_id, record, apply=apply, default=default)
+                self._process_team(team_id, record, apply=apply)
                 if apply:
                     record["status"] = "applied"
                 self.stdout.write(f"team {team_id}: {record['status']}")
@@ -107,7 +95,7 @@ class Command(BaseCommand):
         self.stdout.write(REPORT_MARKER)
         self.stdout.write(payload)
 
-    def _process_team(self, team_id: int, record: dict, *, apply: bool, default: timedelta | None) -> None:
+    def _process_team(self, team_id: int, record: dict, *, apply: bool) -> None:
         team = Team.objects.filter(id=team_id).first()
         if team is None:
             raise Anomaly("team does not exist")
@@ -165,7 +153,7 @@ class Command(BaseCommand):
         # Seed every DAG before sweeping any intervals: a query in two DAGs seeds from the shared
         # interval, so sweeping/nulling mid-loop would corrupt the other DAG's seed.
         for dag, _preview, dag_record in plans:
-            dag_record["seeded"] = convert_dag_to_tiers(dag, default=default)
+            dag_record["seeded"] = convert_dag_to_tiers(dag)
         for dag, _preview, dag_record in plans:
             nodes = list(schedulable_nodes(dag).select_related("saved_query"))
             sq_ids = [str(node.saved_query_id) for node in nodes if node.saved_query_id is not None]
