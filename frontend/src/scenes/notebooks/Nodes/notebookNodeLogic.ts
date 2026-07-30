@@ -26,6 +26,11 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 
 import type { CommentType } from '../../../types'
+import {
+    convertNotebookContentToMarkdown,
+    insertMarkdownNotebookBlockAfterNode,
+    isMarkdownNotebookContent,
+} from '../Notebook/markdownNotebookV2'
 import type { NotebookKernelInfo } from '../Notebook/notebookKernelInfoLogic'
 import type { notebookLogicType } from '../Notebook/notebookLogic'
 import {
@@ -1538,6 +1543,22 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         navigateToNode: ({ nodeId }) => {
             const targetLogic = values.notebookLogic.values.findNodeLogicById(nodeId)
             targetLogic?.actions.selectNode()
+        },
+
+        insertAfter: ({ content }) => {
+            const notebookLogic = values.notebookLogic
+            if (!isMarkdownNotebookContent(notebookLogic.values.content)) {
+                return
+            }
+            // The converter serializes the children of a doc, so a single leaf node must be
+            // wrapped in an array to be serialized itself.
+            const insertedMarkdown = convertNotebookContentToMarkdown(content.type === 'doc' ? content : [content])
+            if (!insertedMarkdown.trim()) {
+                return
+            }
+            notebookLogic.actions.setLocalContent(
+                insertMarkdownNotebookBlockAfterNode(notebookLogic.values.content, values.nodeId, insertedMarkdown)
+            )
         },
 
         setExpanded: ({ expanded }) => {
