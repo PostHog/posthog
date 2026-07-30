@@ -37,6 +37,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
+import { QueryDiffViewer } from './components/QueryDiffViewer'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -354,6 +355,48 @@ function AccessControlModal(): JSX.Element | null {
     )
 }
 
+function UpdateViewModal(): JSX.Element | null {
+    const { isUpdateViewModalOpen, pendingViewUpdate, editingView, queryInput } = useValues(sqlEditorLogic)
+    const { updateView, closeUpdateViewModal } = useActions(sqlEditorLogic)
+
+    if (!editingView) {
+        return null
+    }
+
+    const isMaterialized = editingView.is_materialized === true
+    const confirmLabel = isMaterialized ? 'Update and re-materialize view' : 'Update view'
+
+    return (
+        <LemonModal
+            title="Review changes"
+            description="Compare the saved query with your edits before updating this view."
+            isOpen={isUpdateViewModalOpen}
+            onClose={closeUpdateViewModal}
+            width={800}
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={closeUpdateViewModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={() => {
+                            if (pendingViewUpdate) {
+                                updateView(pendingViewUpdate.view, pendingViewUpdate.draftId)
+                            }
+                            closeUpdateViewModal()
+                        }}
+                    >
+                        {confirmLabel}
+                    </LemonButton>
+                </>
+            }
+        >
+            <QueryDiffViewer original={editingView.query?.query ?? ''} modified={queryInput ?? ''} />
+        </LemonModal>
+    )
+}
+
 function SQLEditorSceneTitle(): JSX.Element | null {
     const { titleSectionProps, updateInsightButtonEnabled, saveAsMenuItems } = useValues(editorSceneLogic)
     const {
@@ -370,7 +413,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     } = useValues(sqlEditorLogic)
     const { openHistoryModal } = useActions(editorSceneLogic)
     const {
-        updateView,
+        openUpdateViewModal,
         updateInsight,
         closeEditingObject,
         saveAsInsight,
@@ -589,7 +632,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     <LemonButton
                                         onClick={() =>
-                                            updateView({
+                                            openUpdateViewModal({
                                                 id: editingView.id,
                                                 query: {
                                                     ...sourceQuery.source,
@@ -794,6 +837,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 }
             />
             <QueryHistoryModal />
+            <UpdateViewModal />
         </>
     )
 }

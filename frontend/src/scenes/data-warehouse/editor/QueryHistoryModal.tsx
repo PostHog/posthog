@@ -1,7 +1,6 @@
-import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { IconCode } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
@@ -9,11 +8,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
+import { QueryDiffViewer } from './components/QueryDiffViewer'
 import { editorSceneLogic } from './editorSceneLogic'
 import { InsightHistory } from './InsightHistory'
 import { queryHistoryLogic } from './queryHistoryLogic'
@@ -65,41 +64,18 @@ function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem })
             <div className="flex flex-col deprecated-space-y-2">
                 {changes?.length ? (
                     changes.map((change, i) => {
-                        return <QueryDiffViewer key={i} before={change.before} after={change.after} />
+                        return (
+                            <QueryDiffViewer
+                                key={i}
+                                original={change.before?.query ?? ''}
+                                modified={change.after?.query ?? ''}
+                            />
+                        )
                     })
                 ) : (
                     <div className="text-secondary">This item has no changes to compare</div>
                 )}
             </div>
-        </div>
-    )
-}
-
-interface QueryDiffViewerProps {
-    before: any
-    after: any
-}
-
-function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const [width] = useSize(containerRef)
-    return (
-        <div ref={containerRef} className="flex flex-col space-y-2 w-full">
-            <MonacoDiffEditor
-                key="diff-viewer"
-                original={before?.query ?? ''}
-                modified={after?.query ?? ''}
-                language="hogQL"
-                width={width}
-                options={{
-                    renderOverviewRuler: false,
-                    scrollBeyondLastLine: false,
-                    renderGutterMenu: false,
-                    scrollbar: {
-                        alwaysConsumeMouseWheel: false,
-                    },
-                }}
-            />
         </div>
     )
 }

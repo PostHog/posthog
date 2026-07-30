@@ -523,6 +523,7 @@ export interface sqlEditorLogicValues {
     isEmbeddedMode: boolean
     isMultiQuery: boolean
     isSourceQueryLastRun: boolean
+    isUpdateViewModalOpen: boolean
     lastRunQuery: DataVisualizationNode | null
     materializationModalOpen: boolean
     materializationModalView: DataWarehouseSavedQuery | null
@@ -530,6 +531,7 @@ export interface sqlEditorLogicValues {
     metadataLoading: boolean
     metricUpdating: boolean
     originalQueryInput: string | null | undefined
+    pendingViewUpdate: { view: UpdateViewPayload; draftId?: string } | null
     queryInput: string | null
     rejectText: string
     selectedConnectionId: string | undefined
@@ -747,6 +749,9 @@ export interface sqlEditorLogicActions {
     closeMaterializationModal: () => {
         value: true
     }
+    closeUpdateViewModal: () => {
+        value: true
+    }
     createTab: (
         query?: string,
         view?: DataWarehouseSavedQuery,
@@ -827,6 +832,13 @@ export interface sqlEditorLogicActions {
     }
     openMaterializationModal: (view?: DataWarehouseSavedQuery) => {
         view: DataWarehouseSavedQuery | undefined
+    }
+    openUpdateViewModal: (
+        view: UpdateViewPayload,
+        draftId?: string
+    ) => {
+        view: UpdateViewPayload
+        draftId: string | undefined
     }
     reportAIQueryAccepted: () => {
         value: true
@@ -1310,6 +1322,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
+        openUpdateViewModal: (view: UpdateViewPayload, draftId?: string) => ({
+            view,
+            draftId,
+        }),
+        closeUpdateViewModal: true,
         updateView: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -1484,6 +1501,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             {
                 setMaterializationModalOpen: (_, { open }) => open,
                 closeMaterializationModal: () => false,
+            },
+        ],
+        isUpdateViewModalOpen: [
+            false,
+            {
+                openUpdateViewModal: () => true,
+                closeUpdateViewModal: () => false,
+                updateViewSuccess: () => false,
+            },
+        ],
+        pendingViewUpdate: [
+            null as { view: UpdateViewPayload; draftId?: string } | null,
+            {
+                openUpdateViewModal: (_, { view, draftId }) => ({ view, draftId }),
+                closeUpdateViewModal: () => null,
+                updateViewSuccess: () => null,
             },
         ],
         materializationModalView: [
