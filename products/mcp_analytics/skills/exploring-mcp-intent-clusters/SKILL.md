@@ -2,19 +2,27 @@
 name: exploring-mcp-intent-clusters
 description: >
   Explore PostHog MCP intent clusters — agent goals grouped by semantic
-  similarity, with each cluster's tool distribution and error rates. Use when the
-  user asks "what are agents trying to do with the MCP?", "group the intents",
-  "which goals fail most?", "what does each cluster route to?", wants to
-  recompute the clustering, or pastes an MCP analytics intent-clustering URL.
+  similarity, with each cluster's tool distribution and error rates, plus the
+  tool-centric pivot (capture rate per intent, discovery rate against the
+  advertised catalog, description fit, tool overlaps). Use when the user asks
+  "what are agents trying to do with the MCP?", "group the intents", "which
+  goals fail most?", "what does each cluster route to?", "when agents have this
+  intent do they find my tool?", "which tools get mixed up?", wants to recompute
+  the clustering, or pastes an MCP analytics intent-clustering URL.
 ---
 
 # Exploring MCP intent clusters
 
 Intent clustering takes the free-text `$mcp_intent` values agents attach to
 their tool calls, embeds them, and groups semantically similar goals into
-clusters. Each cluster carries its tool distribution, call counts, and error
-rates — answering "what are people _trying_ to do, and does it work?" rather
-than "which tool was called".
+clusters. Attribution is per call: each call is credited to its own intent
+(calls without one inherit the most recent prior intent in the same session),
+so a tool's counts reflect the intent it actually served. Each cluster carries
+its tool distribution, call counts, and error rates — answering "what are
+people _trying_ to do, and does it work?" rather than "which tool was called".
+The snapshot also carries a tool-centric pivot answering the reverse question:
+for a given tool, which intents drive its usage, how often do agents find it,
+and who does it compete with.
 
 Unlike tool quality and sessions (which ultimately aggregate `$mcp_tool_call`),
 clustering needs embeddings and is **not expressible in SQL**. It is served by
@@ -35,10 +43,13 @@ posthog:mcp-analytics-intent-clusters-retrieve
 ```
 
 Returns a snapshot with `status`, `last_computed_at`, `computed_with` (the
-embedding model and clustering parameters), and a `clusters` array. Each cluster
-has a `label`, `intent_count`, `call_count`, `error_count`, `error_rate_pct`,
-`routing_entropy`, a `tool_distribution` (which tools that goal routes to, with
-per-tool error rates), and `sample_intents`.
+embedding model, clustering parameters, and sample-coverage percentages), a
+`clusters` array, a `tools` array (the tool pivot), and `tool_overlaps`. Each
+cluster has a `label`, `intent_count`, `call_count`, `error_count`,
+`error_rate_pct`, `routing_entropy`, a `tool_distribution` (which tools that
+goal routes to, with per-tool error rates), `sample_intents`, plus `switches`
+(errored call immediately followed by a different tool for the same intent —
+the strongest "agents mix these tools up" evidence) and `self_retries`.
 
 Read clusters by `call_count` for "what are agents mostly doing", or by
 `error_rate_pct` for "which goals are failing" — a high error rate on a cluster
@@ -47,6 +58,35 @@ points at a class of agent goals the tools serve badly.
 `routing_entropy` is how spread-out a cluster's tool usage is: low entropy means
 one goal reliably maps to one tool; high entropy means agents are casting around
 for the right tool for that goal (often a missing-capability signal).
+
+## Workflow: answer "is my tool discoverable?" from the tool pivot
+
+Each entry in `tools` carries:
+
+- `clusters` — the intent clusters the tool serves, each with `capture_pct`
+  (its share of the cluster's calls), `rank`, `top_competitor` (the strongest
+  other tool and its share), and `description_fit` (cosine similarity between
+  the tool's description and the cluster centroid; null until descriptions are
+  captured)
+- `discovery_rate_pct` — of the sampled sessions whose `$mcp_tools_list`
+  catalog advertised the tool, the share that actually called it; null when the
+  tool was advertised in fewer than 5 sampled sessions
+- `contested_score` — call-weighted mean entropy of its clusters: how often its
+  intents are split with other tools
+
+High `description_fit` with low `capture_pct` is the discoverability failure:
+agents should find the tool for that intent but pick something else. Low fit
+with high capture means the description undersells what the tool actually does.
+`tool_overlaps` lists pairs competing for the same intents; use
+`sessions_with_both` vs `sessions_with_either` to separate workflows (used
+together) from confusion (one or the other).
+
+Read coverage before quoting numbers: `computed_with.sampled_sessions` /
+`session_coverage_pct` say how much of the window the corpus represents, and
+`advertisement_coverage_pct` bounds what discovery rates can see. Only sessions
+with an observed tools-list catalog enter discovery denominators, and sessions
+in exec-wrapper mode advertise only the wrapper, so per-tool discovery is
+measured on full-catalog sessions.
 
 ## Workflow: handle an empty or stale snapshot
 

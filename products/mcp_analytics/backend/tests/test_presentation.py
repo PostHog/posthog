@@ -205,6 +205,87 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert len(data["clusters"]) == 1
         assert data["clusters"][0]["label"] == "check feature flag rollout"
         assert data["computed_with"]["n_clusters"] == 1
+        # A pre-v2 blob (no version, no tool sections) must keep rendering:
+        # the pivot comes back empty and the coverage meta null, never a 500.
+        assert data["tools"] == []
+        assert data["tool_overlaps"] == []
+        assert data["computed_with"]["sampled_sessions"] is None
+        assert data["clusters"][0]["switches"] == []
+
+    def test_intent_clusters_returns_v2_tool_sections(self) -> None:
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            clusters={
+                "version": 2,
+                "clusters": [],
+                "tools": [
+                    {
+                        "tool": "feature_flag_get",
+                        "call_count": 12,
+                        "error_count": 1,
+                        "session_count": 4,
+                        "contested_score": 0.31,
+                        "advertised_sessions": 3,
+                        "called_when_advertised": 2,
+                        "discovery_rate_pct": None,
+                        "description": None,
+                        "clusters": [
+                            {
+                                "cluster_id": 0,
+                                "label": "check feature flag rollout",
+                                "calls": 12,
+                                "capture_pct": 85.7,
+                                "rank": 1,
+                                "cluster_call_count": 14,
+                                "cluster_entropy": 0.1,
+                                "description_fit": None,
+                                "top_competitor": {"tool": "query_run", "pct": 14.3},
+                            }
+                        ],
+                    }
+                ],
+                "tool_overlaps": [
+                    {
+                        "tool_a": "feature_flag_get",
+                        "tool_b": "query_run",
+                        "contested_calls": 2,
+                        "sessions_with_both": 1,
+                        "sessions_with_either": 4,
+                        "top_cluster_id": 0,
+                    }
+                ],
+                "computed_with": {
+                    "distance_threshold": 0.2,
+                    "embedding_model": "text-embedding-3-small-1536",
+                    "n_intents": 2,
+                    "n_clusters": 1,
+                    "corpus": "per_call",
+                    "sampled_sessions": 5,
+                    "window_sessions": 100,
+                    "session_coverage_pct": 5.0,
+                    "intent_coverage_pct": 91.4,
+                },
+            },
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        tool = data["tools"][0]
+        assert tool["tool"] == "feature_flag_get"
+        assert tool["contested_score"] == 0.31
+        # Nulls must survive the DTO + serializer round trip as null, not 0 or "".
+        assert tool["discovery_rate_pct"] is None
+        assert tool["description"] is None
+        assert tool["clusters"][0]["top_competitor"] == {"tool": "query_run", "pct": 14.3}
+        assert data["tool_overlaps"][0]["contested_calls"] == 2
+        assert data["computed_with"]["sampled_sessions"] == 5
+        assert data["computed_with"]["intent_coverage_pct"] == 91.4
+        # Coverage fields the blob omitted come back null rather than erroring.
+        assert data["computed_with"]["description_coverage_pct"] is None
 
     def test_intent_clusters_recompute_starts_workflow_and_returns_computing(self) -> None:
         # Mock async_connect to return a client whose start_workflow is an

@@ -121,6 +121,19 @@ class IntentClusterJourney:
 
 
 @dataclass(frozen=True)
+class ClusterSwitch:
+    from_tool: str
+    to_tool: str
+    count: int
+
+
+@dataclass(frozen=True)
+class ClusterSelfRetry:
+    tool: str
+    count: int
+
+
+@dataclass(frozen=True)
 class IntentCluster:
     id: int
     label: str
@@ -133,6 +146,51 @@ class IntentCluster:
     tool_distribution: list[IntentClusterToolEntry]
     sample_intents: list[str]
     journey: IntentClusterJourney | None = None
+    switches: list[ClusterSwitch] = field(default_factory=list)
+    self_retries: list[ClusterSelfRetry] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ToolPivotCompetitor:
+    tool: str
+    pct: float
+
+
+@dataclass(frozen=True)
+class ToolPivotClusterEntry:
+    cluster_id: int
+    label: str
+    calls: int
+    capture_pct: float
+    rank: int
+    cluster_call_count: int
+    cluster_entropy: float
+    description_fit: float | None = None
+    top_competitor: ToolPivotCompetitor | None = None
+
+
+@dataclass(frozen=True)
+class ToolPivot:
+    tool: str
+    call_count: int
+    error_count: int
+    session_count: int
+    contested_score: float | None
+    advertised_sessions: int
+    called_when_advertised: int
+    discovery_rate_pct: float | None
+    description: str | None
+    clusters: list[ToolPivotClusterEntry] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ToolOverlap:
+    tool_a: str
+    tool_b: str
+    contested_calls: int
+    sessions_with_both: int
+    sessions_with_either: int
+    top_cluster_id: int
 
 
 @dataclass(frozen=True)
@@ -141,6 +199,20 @@ class IntentClusterSnapshotMeta:
     embedding_model: str
     n_intents: int
     n_clusters: int
+    # v2 (per-call corpus) coverage fields; None on snapshots computed before v2.
+    corpus: str | None = None
+    sampled_sessions: int | None = None
+    window_sessions: int | None = None
+    session_coverage_pct: float | None = None
+    intent_coverage_pct: float | None = None
+    imputed_call_pct: float | None = None
+    unattributed_call_pct: float | None = None
+    corpus_call_coverage_pct: float | None = None
+    advertisement_coverage_pct: float | None = None
+    n_tools: int | None = None
+    dropped_tools: int | None = None
+    dropped_overlap_pairs: int | None = None
+    description_coverage_pct: float | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +223,8 @@ class IntentClusterSnapshot:
     last_computed_by_email: str
     clusters: list[IntentCluster] = field(default_factory=list)
     computed_with: IntentClusterSnapshotMeta | None = None
+    tools: list[ToolPivot] = field(default_factory=list)
+    tool_overlaps: list[ToolOverlap] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

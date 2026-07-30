@@ -109,8 +109,14 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
             snapshot = await _mark_computing(team, user)
 
             try:
-                records, intent_by_session = await database_sync_to_async(intent_clustering.fetch_intent_corpus)(
-                    team, lookback_days=inputs.lookback_days, top_n=inputs.top_n
+                session_ids = await database_sync_to_async(intent_clustering.sample_corpus_sessions)(
+                    team, lookback_days=inputs.lookback_days
+                )
+                call_rows = await database_sync_to_async(intent_clustering.fetch_session_calls)(
+                    team, session_ids, lookback_days=inputs.lookback_days
+                )
+                records, calls_by_session, corpus_stats = intent_clustering.build_call_corpus(
+                    call_rows, top_n=inputs.top_n
                 )
                 activity.heartbeat("fetched corpus")
 
@@ -125,7 +131,7 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                         team_id=inputs.team_id, n_intents=0, n_clusters=0, computed_at=timezone.now().isoformat()
                     )
 
-                embeddings, valid_indices = await intent_clustering.embed_intents_async(
+                embeddings, valid_indices = await intent_clustering.embed_texts_async(
                     team, [r.intent_text for r in records]
                 )
                 if len(valid_indices) == 0:
@@ -139,16 +145,33 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 labels = await asyncio.to_thread(intent_clustering.cluster_embeddings, embeddings)
                 activity.heartbeat("clustered")
 
-                session_journeys = await database_sync_to_async(intent_clustering.fetch_session_journeys)(
-                    team, list(intent_by_session.keys()), lookback_days=inputs.lookback_days
+                advertised_by_session = await database_sync_to_async(intent_clustering.fetch_advertised_tools)(
+                    team, session_ids, lookback_days=inputs.lookback_days
                 )
-                intent_to_sessions: dict[str, list[str]] = {}
-                for sid, intent_text in intent_by_session.items():
-                    intent_to_sessions.setdefault(intent_text, []).append(sid)
-                journeys_by_cluster = intent_clustering.aggregate_journeys_per_cluster(
-                    aligned_records, labels, session_journeys, intent_to_sessions
+                window_stats = await database_sync_to_async(intent_clustering.fetch_window_stats)(
+                    team, lookback_days=inputs.lookback_days
                 )
-                activity.heartbeat("journeys")
+                tool_descriptions = await database_sync_to_async(intent_clustering.fetch_tool_descriptions)(
+                    team, lookback_days=inputs.lookback_days
+                )
+                # Only embed descriptions for tools the corpus actually touched:
+                # the fit score is per (tool, cluster), so descriptions of tools
+                # outside every cluster have nothing to be compared against.
+                corpus_tools: set[str] = set()
+                for record in aligned_records:
+                    corpus_tools.update(record.tool_counts)
+                tool_descriptions = {tool: text for tool, text in tool_descriptions.items() if tool in corpus_tools}
+                described = sorted(tool_descriptions.items())
+                description_matrix, described_valid = await intent_clustering.embed_texts_async(
+                    team,
+                    [text for _, text in described],
+                    prefix=intent_clustering.DESCRIPTION_EMBEDDING_PREFIX,
+                )
+                description_embeddings = {
+                    described[original_index][0]: description_matrix[row]
+                    for row, original_index in enumerate(described_valid)
+                }
+                activity.heartbeat("context")
 
                 # Same blocking-loop concern as cluster_embeddings — pure-numpy
                 # aggregation over the labelled corpus.
@@ -157,7 +180,12 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                     aligned_records,
                     labels,
                     embeddings,
-                    journeys_by_cluster=journeys_by_cluster,
+                    calls_by_session=calls_by_session,
+                    advertised_by_session=advertised_by_session,
+                    tool_descriptions=tool_descriptions,
+                    description_embeddings=description_embeddings,
+                    corpus_stats=corpus_stats,
+                    window_stats=window_stats,
                 )
                 await _persist_clusters(snapshot, clusters_blob)
 
@@ -190,15 +218,7 @@ def _save_empty_blob(snapshot: MCPIntentClusterSnapshot) -> None:
     Lives outside the async activity body so ``database_sync_to_async`` can
     wrap it without re-entrancy from inside an async context.
     """
-    snapshot.clusters = {
-        "clusters": [],
-        "computed_with": {
-            "distance_threshold": intent_clustering.DEFAULT_DISTANCE_THRESHOLD,
-            "embedding_model": intent_clustering.EMBEDDING_MODEL,
-            "n_intents": 0,
-            "n_clusters": 0,
-        },
-    }
+    snapshot.clusters = intent_clustering.empty_snapshot(intent_clustering.DEFAULT_DISTANCE_THRESHOLD, n_intents=0)
     snapshot.status = MCPIntentClusterSnapshot.Status.IDLE
     snapshot.error_message = ""
     snapshot.last_computed_at = timezone.now()

@@ -737,6 +737,8 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
     blob = snapshot.clusters or {}
     clusters_raw = blob.get("clusters", []) if isinstance(blob, dict) else []
+    tools_raw = blob.get("tools", []) if isinstance(blob, dict) else []
+    overlaps_raw = blob.get("tool_overlaps", []) if isinstance(blob, dict) else []
     meta_raw = blob.get("computed_with") if isinstance(blob, dict) else None
 
     # Snapshots persisted before build_snapshot capped its output can hold
@@ -756,7 +758,17 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
         last_computed_by_email=snapshot.last_computed_by.email if snapshot.last_computed_by else "",
         clusters=[_to_cluster_dto(item) for item in clusters_raw if isinstance(item, dict)],
         computed_with=_to_meta_dto(meta_raw) if isinstance(meta_raw, dict) else None,
+        tools=[_to_tool_pivot_dto(item) for item in tools_raw if isinstance(item, dict)],
+        tool_overlaps=[_to_overlap_dto(item) for item in overlaps_raw if isinstance(item, dict)],
     )
+
+
+def _opt_float(value: Any) -> float | None:
+    return float(value) if isinstance(value, int | float) else None
+
+
+def _opt_int(value: Any) -> int | None:
+    return int(value) if isinstance(value, int | float) else None
 
 
 def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
@@ -783,6 +795,67 @@ def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
         ],
         sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
         journey=_to_journey_dto(journey_raw) if isinstance(journey_raw, dict) else None,
+        switches=[
+            contracts.ClusterSwitch(
+                from_tool=str(entry.get("from_tool", "")),
+                to_tool=str(entry.get("to_tool", "")),
+                count=int(entry.get("count", 0)),
+            )
+            for entry in item.get("switches", [])
+            if isinstance(entry, dict)
+        ],
+        self_retries=[
+            contracts.ClusterSelfRetry(tool=str(entry.get("tool", "")), count=int(entry.get("count", 0)))
+            for entry in item.get("self_retries", [])
+            if isinstance(entry, dict)
+        ],
+    )
+
+
+def _to_tool_pivot_dto(item: dict[str, Any]) -> contracts.ToolPivot:
+    return contracts.ToolPivot(
+        tool=str(item.get("tool", "")),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        session_count=int(item.get("session_count", 0)),
+        contested_score=_opt_float(item.get("contested_score")),
+        advertised_sessions=int(item.get("advertised_sessions", 0)),
+        called_when_advertised=int(item.get("called_when_advertised", 0)),
+        discovery_rate_pct=_opt_float(item.get("discovery_rate_pct")),
+        description=str(item["description"]) if item.get("description") else None,
+        clusters=[_to_tool_pivot_cluster_dto(entry) for entry in item.get("clusters", []) if isinstance(entry, dict)],
+    )
+
+
+def _to_tool_pivot_cluster_dto(entry: dict[str, Any]) -> contracts.ToolPivotClusterEntry:
+    competitor_raw = entry.get("top_competitor")
+    return contracts.ToolPivotClusterEntry(
+        cluster_id=int(entry.get("cluster_id", 0)),
+        label=str(entry.get("label", "")),
+        calls=int(entry.get("calls", 0)),
+        capture_pct=float(entry.get("capture_pct", 0.0)),
+        rank=int(entry.get("rank", 0)),
+        cluster_call_count=int(entry.get("cluster_call_count", 0)),
+        cluster_entropy=float(entry.get("cluster_entropy", 0.0)),
+        description_fit=_opt_float(entry.get("description_fit")),
+        top_competitor=(
+            contracts.ToolPivotCompetitor(
+                tool=str(competitor_raw.get("tool", "")), pct=float(competitor_raw.get("pct", 0.0))
+            )
+            if isinstance(competitor_raw, dict)
+            else None
+        ),
+    )
+
+
+def _to_overlap_dto(item: dict[str, Any]) -> contracts.ToolOverlap:
+    return contracts.ToolOverlap(
+        tool_a=str(item.get("tool_a", "")),
+        tool_b=str(item.get("tool_b", "")),
+        contested_calls=int(item.get("contested_calls", 0)),
+        sessions_with_both=int(item.get("sessions_with_both", 0)),
+        sessions_with_either=int(item.get("sessions_with_either", 0)),
+        top_cluster_id=int(item.get("top_cluster_id", 0)),
     )
 
 
@@ -808,6 +881,19 @@ def _to_meta_dto(meta: dict[str, Any]) -> contracts.IntentClusterSnapshotMeta:
         embedding_model=str(meta.get("embedding_model", "")),
         n_intents=int(meta.get("n_intents", 0)),
         n_clusters=int(meta.get("n_clusters", 0)),
+        corpus=str(meta["corpus"]) if meta.get("corpus") else None,
+        sampled_sessions=_opt_int(meta.get("sampled_sessions")),
+        window_sessions=_opt_int(meta.get("window_sessions")),
+        session_coverage_pct=_opt_float(meta.get("session_coverage_pct")),
+        intent_coverage_pct=_opt_float(meta.get("intent_coverage_pct")),
+        imputed_call_pct=_opt_float(meta.get("imputed_call_pct")),
+        unattributed_call_pct=_opt_float(meta.get("unattributed_call_pct")),
+        corpus_call_coverage_pct=_opt_float(meta.get("corpus_call_coverage_pct")),
+        advertisement_coverage_pct=_opt_float(meta.get("advertisement_coverage_pct")),
+        n_tools=_opt_int(meta.get("n_tools")),
+        dropped_tools=_opt_int(meta.get("dropped_tools")),
+        dropped_overlap_pairs=_opt_int(meta.get("dropped_overlap_pairs")),
+        description_coverage_pct=_opt_float(meta.get("description_coverage_pct")),
     )
 
 

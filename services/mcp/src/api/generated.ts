@@ -39279,6 +39279,22 @@ export namespace Schemas {
       Oauth: 'oauth',
     } as const;
 
+    export interface MCPClusterSelfRetry {
+      /** Tool the agent retried immediately after its own error. */
+      readonly tool: string;
+      /** Number of immediate same-tool retries after an error. */
+      readonly count: number;
+    }
+
+    export interface MCPClusterSwitch {
+      /** Tool whose errored call the agent abandoned. */
+      readonly from_tool: string;
+      /** Different tool the agent tried immediately after. */
+      readonly to_tool: string;
+      /** How many times this exact error-then-switch happened within the cluster. */
+      readonly count: number;
+    }
+
     /**
      * * `results` - Results
      * * `usability` - Usability
@@ -39422,6 +39438,10 @@ export namespace Schemas {
       readonly sample_intents: readonly string[];
       /** Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable. */
       readonly journey: MCPIntentClusterJourney | null;
+      /** Errored call immediately followed by a different tool for the same intent: the strongest evidence agents mix the tools up. Top 10 by count. */
+      readonly switches: readonly MCPClusterSwitch[];
+      /** Errored call immediately retried with the same tool. Top 5 by count. */
+      readonly self_retries: readonly MCPClusterSelfRetry[];
     }
 
     /**
@@ -39438,6 +39458,84 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    export interface MCPToolPivotCompetitor {
+      /** The other tool with the largest share of this cluster's calls. */
+      readonly tool: string;
+      /** That competitor's share of the cluster's calls, 0-100. */
+      readonly pct: number;
+    }
+
+    export interface MCPToolPivotClusterEntry {
+      /** Cluster this entry refers to, within the snapshot. */
+      readonly cluster_id: number;
+      /** The cluster's representative intent text. */
+      readonly label: string;
+      /** Calls routed to this tool for this intent cluster. */
+      readonly calls: number;
+      /** Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent. */
+      readonly capture_pct: number;
+      /** This tool's position in the cluster's tool distribution; 1 is the cluster's top tool. */
+      readonly rank: number;
+      /** Total calls in the cluster, all tools. */
+      readonly cluster_call_count: number;
+      /** The cluster's routing entropy, 0 (one tool dominates) to 1 (spread evenly). */
+      readonly cluster_entropy: number;
+      /**
+         * Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.
+         * @nullable
+         */
+      readonly description_fit: number | null;
+      /** The strongest other tool in this cluster. Null when this tool is the only one. */
+      readonly top_competitor: MCPToolPivotCompetitor | null;
+    }
+
+    export interface MCPToolPivot {
+      /** Effective MCP tool name. */
+      readonly tool: string;
+      /** Intent-attributed calls to this tool across the sampled corpus. */
+      readonly call_count: number;
+      /** Errored attributed calls across the corpus. */
+      readonly error_count: number;
+      /** Sampled sessions that called this tool. */
+      readonly session_count: number;
+      /**
+         * Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.
+         * @nullable
+         */
+      readonly contested_score: number | null;
+      /** Sampled sessions whose tools-list catalog included this tool. Only sessions with an observed $mcp_tools_list event count. */
+      readonly advertised_sessions: number;
+      /** Of the advertised sessions, how many actually called the tool. */
+      readonly called_when_advertised: number;
+      /**
+         * called_when_advertised / advertised_sessions as a percentage. Null when the tool was advertised in fewer than 5 sampled sessions, which is not enough signal to compute a rate.
+         * @nullable
+         */
+      readonly discovery_rate_pct: number | null;
+      /**
+         * Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.
+         * @nullable
+         */
+      readonly description: string | null;
+      /** Intent clusters this tool serves, by call volume desc, capped at 20. */
+      readonly clusters: readonly MCPToolPivotClusterEntry[];
+    }
+
+    export interface MCPToolOverlap {
+      /** First tool of the pair (lexicographic order). */
+      readonly tool_a: string;
+      /** Second tool of the pair. */
+      readonly tool_b: string;
+      /** Sum over shared clusters of the smaller tool's calls: the volume both tools plausibly compete for. */
+      readonly contested_calls: number;
+      /** Sampled sessions that called both tools. High relative to sessions_with_either suggests the pair is a workflow, not confusion. */
+      readonly sessions_with_both: number;
+      /** Sampled sessions that called at least one of the pair. */
+      readonly sessions_with_either: number;
+      /** The cluster contributing the most contested calls for this pair. */
+      readonly top_cluster_id: number;
+    }
+
     export interface MCPIntentClusterSnapshotMeta {
       /** Cosine distance threshold used by the clustering algorithm. */
       readonly distance_threshold: number;
@@ -39447,6 +39545,71 @@ export namespace Schemas {
       readonly n_intents: number;
       /** Number of clusters produced by the run. */
       readonly n_clusters: number;
+      /**
+         * Corpus granularity. 'per_call' when each call was attributed to its own intent; null on snapshots computed before the per-call pipeline.
+         * @nullable
+         */
+      readonly corpus: string | null;
+      /**
+         * Sessions sampled into the corpus. Null on pre-v2 snapshots.
+         * @nullable
+         */
+      readonly sampled_sessions: number | null;
+      /**
+         * Total sessions with tool calls in the lookback window (unsampled).
+         * @nullable
+         */
+      readonly window_sessions: number | null;
+      /**
+         * sampled_sessions / window_sessions as a percentage: how much of the window the corpus represents.
+         * @nullable
+         */
+      readonly session_coverage_pct: number | null;
+      /**
+         * Share of the window's calls that carried an $mcp_intent. Low coverage makes capture rates less reliable.
+         * @nullable
+         */
+      readonly intent_coverage_pct: number | null;
+      /**
+         * Share of attributed calls whose intent was carried forward from an earlier call in the session rather than stated on the call itself.
+         * @nullable
+         */
+      readonly imputed_call_pct: number | null;
+      /**
+         * Share of sampled calls with no attributable intent (before the session's first stated intent). These calls are excluded from clusters.
+         * @nullable
+         */
+      readonly unattributed_call_pct: number | null;
+      /**
+         * Share of attributed calls whose intent made the top-N cut that feeds clustering.
+         * @nullable
+         */
+      readonly corpus_call_coverage_pct: number | null;
+      /**
+         * Share of sampled sessions with an observed $mcp_tools_list catalog. Discovery rates only draw on those sessions.
+         * @nullable
+         */
+      readonly advertisement_coverage_pct: number | null;
+      /**
+         * Tools included in the tool pivot.
+         * @nullable
+         */
+      readonly n_tools: number | null;
+      /**
+         * Tools dropped from the pivot by the volume cap. Zero means the pivot is complete.
+         * @nullable
+         */
+      readonly dropped_tools: number | null;
+      /**
+         * Overlap pairs dropped by the pair cap.
+         * @nullable
+         */
+      readonly dropped_overlap_pairs: number | null;
+      /**
+         * Share of pivot tools with a captured description. Description fit is only available for those.
+         * @nullable
+         */
+      readonly description_coverage_pct: number | null;
     }
 
     export interface MCPIntentClusterSnapshot {
@@ -39467,7 +39630,11 @@ export namespace Schemas {
       readonly last_computed_by_email: string;
       /** All clusters in the snapshot. */
       readonly clusters: readonly MCPIntentCluster[];
-      /** Settings used to produce the snapshot. Null when no snapshot has been computed yet. */
+      /** Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate. */
+      readonly tools: readonly MCPToolPivot[];
+      /** Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50. */
+      readonly tool_overlaps: readonly MCPToolOverlap[];
+      /** Settings and coverage of the snapshot's corpus. Null when no snapshot has been computed yet. */
       readonly computed_with: MCPIntentClusterSnapshotMeta | null;
     }
 

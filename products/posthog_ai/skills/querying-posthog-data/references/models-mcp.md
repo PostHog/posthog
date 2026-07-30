@@ -51,13 +51,21 @@ And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent
 | `$mcp_intent`              | The agent's stated intent for the call, when supplied.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `$mcp_client_name`         | Raw client string (e.g. `claude-code/1.2.3`). Bucketed into harnesses **server-side** by `products/mcp_analytics/backend/mcp_harness.py` (`HARNESS_TOKEN_SQL` / `harness_label_sql`) — the single source of truth. The frontend only maps the resolved label to a logo. There is no `category` column.                                                                                                                                                                                            |
 | `$mcp_tool_category`       | Tool category, when tagged.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `$mcp_tool_description`    | Tool description as seen by the agent (revisions over time).                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `$mcp_tool_description`    | Tool description as seen by the agent (revisions over time), clipped to 512 chars on capture. Gap warning: the hono migration silently dropped this stamp, so there is a window (roughly Jun–Jul 2026) with no descriptions on PostHog's hosted server; `notEmpty(...)` filters are mandatory.                                                                                                                                                                                                    |
 
 **Effective tool name.** New-SDK events wrap the real tool in a single-exec call, so to filter/group by the tool the agent actually invoked, use:
 
 ```sql
 coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))
 ```
+
+**The advertised catalog: `$mcp_tools_list`.** Each tools/list response emits a `$mcp_tools_list` event whose `$mcp_listed_tool_names` property holds the advertised tool names as a JSON array, with `tool_count` alongside. This is the denominator for "advertised but never called" analysis. Only about half of tool-call sessions carry a tools-list event, and sessions in exec-wrapper mode advertise just the wrapper (`['exec', 'render-ui']`), so condition per-tool discovery cuts on sessions where the catalog was actually observed. Extract the array with:
+
+```sql
+JSONExtract(coalesce(toString(properties.$mcp_listed_tool_names), '[]'), 'Array(String)')
+```
+
+The `coalesce(..., '[]')` is required: the property accessor is Nullable, and `JSONExtract` of a Nullable into `Array(String)` is a ClickHouse type error.
 
 **Failures with detail.** `$mcp_tool_call` carries `$mcp_is_error` plus a semantic `$mcp_error_type` and, for HTTP failures, `$mcp_error_status`. `posthog:query-mcp-tool-failures` groups errored tool calls by these two fields and returns each bucket's raw `error_type`/`error_status`; pass those to `posthog:query-mcp-tool-failure-occurrences` for individual errored calls with the free-text `$mcp_error_message` (sanitized, truncated to 2048 chars — empty on events captured before PostHog's server started emitting it). `$mcp_response` stays empty on PostHog's hosted server. PostHog's own tool calls also don't emit `$exception` events — those only exist for separately-instrumented MCP servers.
 
