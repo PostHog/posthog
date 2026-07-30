@@ -16,7 +16,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { IconRobot } from 'lib/lemon-ui/icons'
 import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import {
     TabsPrimitive,
@@ -49,7 +48,6 @@ import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
-import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
@@ -315,7 +313,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
         persistPrefix: 'error-tracking-issue-view-columns-ratio',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
-    const hasTasks = useFeatureFlag('TASKS')
     const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return (
@@ -348,12 +345,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
                                 <IconFilter className="mr-1" />
                                 <span className="text-nowrap">Breakdowns</span>
                             </TabsPrimitiveTrigger>
-                            {hasTasks && (
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
-                                    <IconRobot className="mr-1" />
-                                    <span className="text-nowrap">Autofix</span>
-                                </TabsPrimitiveTrigger>
-                            )}
                             {hasSimilarIssues && (
                                 <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
                                     <IconSearch className="mr-1" />
@@ -369,13 +360,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
                 <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
                     <BreakdownsTab />
                 </TabsPrimitiveContent>
-                {hasTasks && (
-                    <TabsPrimitiveContent value="autofix">
-                        <div className="p-2">
-                            <IssueTasks />
-                        </div>
-                    </TabsPrimitiveContent>
-                )}
                 {hasSimilarIssues && (
                     <TabsPrimitiveContent value="similar_issues" className="flex-1 min-h-0">
                         <SimilarIssuesList />
