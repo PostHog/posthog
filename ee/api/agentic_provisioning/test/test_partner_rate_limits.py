@@ -8,10 +8,11 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.oauth_provisioning import ProvisioningRateLimits
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PARTNER_RATE_LIMIT_DEFAULTS
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
 from ee.api.agentic_provisioning.throttling import enforce_partner_rate_limit
 
 PARTNER_CLIENT_ID = "partner_rate_limit_test"
@@ -34,10 +35,9 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             algorithm="RS256",
             is_first_party=True,
             is_provisioning_partner=True,
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
 
     def tearDown(self):
@@ -57,7 +57,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         ]
     )
     def test_default_limit_applies_when_field_is_null(self, endpoint):
-        assert getattr(self.partner_app, f"provisioning_rate_limit_{endpoint}") is None
+        assert getattr(self.partner_app.provisioning.rate_limits, endpoint) is None
         expected_limit = PARTNER_RATE_LIMIT_DEFAULTS[endpoint]
 
         for _ in range(expected_limit):
@@ -68,8 +68,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         assert ctx.exception.status == 429
 
     def test_custom_override_respected(self):
-        self.partner_app.provisioning_rate_limit_account_requests = 3
-        self.partner_app.save(update_fields=["provisioning_rate_limit_account_requests"])
+        self.partner_app.update_provisioning_rate_limits(account_requests=3)
 
         for _ in range(3):
             enforce_partner_rate_limit(self.partner_app, "account_requests")
@@ -80,22 +79,13 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         assert ctx.exception.retry_after is not None
 
     def test_zero_override_disables_limiting(self):
-        self.partner_app.provisioning_rate_limit_account_requests = 0
-        self.partner_app.save(update_fields=["provisioning_rate_limit_account_requests"])
+        self.partner_app.update_provisioning_rate_limits(account_requests=0)
 
         for _ in range(100):
             enforce_partner_rate_limit(self.partner_app, "account_requests")
 
     def test_separate_buckets_per_endpoint(self):
-        self.partner_app.provisioning_rate_limit_account_requests = 2
-        self.partner_app.provisioning_rate_limit_resource_creates = 2
-        self.partner_app.save(
-            update_fields=[
-                "provisioning_rate_limit_account_requests",
-                "provisioning_rate_limit_resource_creates",
-            ]
-        )
-
+        self.partner_app.update_provisioning_rate_limits(account_requests=2, resource_creates=2)
         for _ in range(2):
             enforce_partner_rate_limit(self.partner_app, "account_requests")
 
@@ -113,13 +103,12 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             redirect_uris="https://other.example.com/callback",
             algorithm="RS256",
             is_provisioning_partner=True,
-            provisioning_partner_type="other",
-            provisioning_active=True,
-            provisioning_rate_limit_account_requests=2,
+            _provisioning_config=provisioning_config(
+                active=True, rate_limits=ProvisioningRateLimits(account_requests=2)
+            ),
         )
 
-        self.partner_app.provisioning_rate_limit_account_requests = 2
-        self.partner_app.save(update_fields=["provisioning_rate_limit_account_requests"])
+        self.partner_app.update_provisioning_rate_limits(account_requests=2)
 
         for _ in range(2):
             enforce_partner_rate_limit(self.partner_app, "account_requests")
@@ -131,8 +120,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
     # --- Integration: token exchange rate limiting ---
 
     def test_token_exchange_auth_code_rate_limited(self):
-        self.partner_app.provisioning_rate_limit_token_exchanges = 1
-        self.partner_app.save(update_fields=["provisioning_rate_limit_token_exchanges"])
+        self.partner_app.update_provisioning_rate_limits(token_exchanges=1)
 
         # First exchange succeeds
         self._get_partner_bearer_token()
@@ -159,8 +147,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         assert cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}") is None
 
     def test_token_exchange_refresh_rate_limited(self):
-        self.partner_app.provisioning_rate_limit_token_exchanges = 1
-        self.partner_app.save(update_fields=["provisioning_rate_limit_token_exchanges"])
+        self.partner_app.update_provisioning_rate_limits(token_exchanges=1)
 
         # Create access + refresh token for the partner
         access_token = OAuthAccessToken.objects.create(
@@ -228,8 +215,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
     # --- Integration: resource creation rate limiting ---
 
     def test_resource_create_rate_limited(self):
-        self.partner_app.provisioning_rate_limit_resource_creates = 1
-        self.partner_app.save(update_fields=["provisioning_rate_limit_resource_creates"])
+        self.partner_app.update_provisioning_rate_limits(resource_creates=1)
 
         token = self._get_partner_bearer_token()
 

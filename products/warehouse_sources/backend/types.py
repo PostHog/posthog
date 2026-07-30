@@ -1296,6 +1296,14 @@ class ExternalDataSourceType(models.TextChoices):
     DUCKLAKE = "DuckLake", "DuckLake"
     STARBURST = "Starburst", "Starburst"
     EASYBILL = "Easybill", "Easybill"
+    BEXIO = "Bexio", "Bexio"
+    UMAMI = "Umami", "Umami"
+    MANYCHAT = "Manychat", "Manychat"
+    KICKSTARTER = "Kickstarter", "Kickstarter"
+    TYPESENSE = "Typesense", "Typesense"
+    FIRSTPROMOTER = "FirstPromoter", "FirstPromoter"
+    ZERO = "Zero", "Zero"
+    INTH = "Inth", "Inth"
     EXCEL = "Excel", "Excel"
 
 

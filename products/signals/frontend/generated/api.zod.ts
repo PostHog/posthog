@@ -633,9 +633,9 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                     )
             )
             .max(signalsScoutEditReportBodyChartsMax)
-            .optional()
+            .nullish()
             .describe(
-                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched."
+                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
     })
     .describe(

@@ -2513,6 +2513,14 @@ export interface CredentialApi {
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
  * * `Easybill` - Easybill
+ * * `Bexio` - Bexio
+ * * `Umami` - Umami
+ * * `Manychat` - Manychat
+ * * `Kickstarter` - Kickstarter
+ * * `Typesense` - Typesense
+ * * `FirstPromoter` - FirstPromoter
+ * * `Zero` - Zero
+ * * `Inth` - Inth
  * * `Excel` - Excel
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -3773,6 +3781,14 @@ export const ExternalDataSourceTypeEnumApi = {
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
     Easybill: 'Easybill',
+    Bexio: 'Bexio',
+    Umami: 'Umami',
+    Manychat: 'Manychat',
+    Kickstarter: 'Kickstarter',
+    Typesense: 'Typesense',
+    FirstPromoter: 'FirstPromoter',
+    Zero: 'Zero',
+    Inth: 'Inth',
     Excel: 'Excel',
 } as const
 

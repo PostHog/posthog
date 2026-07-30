@@ -25,13 +25,6 @@ PARQUET_READ_DURATION_SECONDS = Histogram(
     buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
 )
 
-POST_LOAD_DURATION_SECONDS = Histogram(
-    "warehouse_load_post_load_duration_seconds",
-    "Duration of post-load operations",
-    labelnames=["operation"],
-    buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
-)
-
 # TODO: the `team_id`/`schema_id` labels below are high cardinality — keep only for the gated rollout
 # so we can debug per-team behaviour, then drop them before fully rolling out (per-team diagnosability
 # is also covered by the `warehouse_repartition_*` capture events).
@@ -52,4 +45,21 @@ DELTA_REPARTITION_SKIP_TOTAL = Counter(
     "warehouse_load_delta_repartition_skip_total",
     "Tables over the partition-size budget that the controller skipped, by reason",
     labelnames=["team_id", "reason"],
+)
+
+# deltalite shadow verification (rollout canary). `outcome` is one of:
+#   match      - deltalite produced byte-identical logical content to the delta-rs MERGE
+#   mismatch   - deltalite disagreed with MERGE (a correctness bug; investigate before rollout)
+#   skipped    - not run (sampled out, over the affected-bytes cap, SCD2, or no affected partitions)
+#   unsupported- deltalite refused the table (deletion vectors / column mapping)
+#   error      - the shadow itself failed (never affects the real sync)
+DELTALITE_SHADOW_TOTAL = Counter(
+    "warehouse_load_deltalite_shadow_total",
+    "deltalite shadow verifications against the delta-rs MERGE, by outcome",
+    labelnames=["outcome"],
+)
+
+DELTALITE_SHADOW_DURATION_SECONDS = Histogram(
+    "warehouse_load_deltalite_shadow_duration_seconds",
+    "Wall-clock time of a deltalite shadow verification (seed + upsert + compare)",
 )
