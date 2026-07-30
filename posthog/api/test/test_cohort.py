@@ -1893,7 +1893,9 @@ email@example.org,
         self.assertIn("filters", full)
 
         basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
-        for dropped in ("filters", "query", "groups"):
+        # `last_error_message` is dropped too — basic callers don't read it, and keeping it
+        # would force the per-row CohortCalculationHistory subquery back onto the hot path.
+        for dropped in ("filters", "query", "groups", "last_error_message"):
             self.assertNotIn(dropped, basic)
         # The fields pickers actually read are still present.
         for kept in ("id", "name", "count"):

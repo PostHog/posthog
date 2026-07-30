@@ -264,12 +264,18 @@ export const cohortsModel = kea<cohortsModelType>([
         allCohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadAllCohorts: async () => {
+                // `allCohorts` only feeds `cohortsById` (id + name lookups for breadcrumbs,
+                // filter labels, etc.), so request the basic payload that omits the heavy
+                // `filters`/`query`/`groups` JSON. Pulling those for up to 2,000 cohorts on
+                // this hot path was slow enough to hit the gateway timeout on cohort-heavy
+                // teams. No `processCohort` here — the columns it normalizes aren't returned.
                 const response = await api.cohorts.listPaginated({
                     limit: MAX_COHORTS_FOR_FULL_LIST,
+                    basic: true,
                 })
                 return {
                     count: response.count,
-                    results: response.results.map((cohort) => processCohort(cohort)),
+                    results: response.results,
                 }
             },
         },
