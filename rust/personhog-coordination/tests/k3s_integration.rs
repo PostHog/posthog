@@ -681,6 +681,8 @@ async fn statefulset_rollout_pod_skips_drain() {
         drain_timeout: Duration::from_secs(30),
         reconcile_interval: Duration::from_secs(86_400),
         reconcile_failure_budget: 12,
+        run_retry_budget: 10,
+        run_retry_backoff: Duration::from_millis(500),
         advertise_address: None,
         warm_concurrency: 4,
     };

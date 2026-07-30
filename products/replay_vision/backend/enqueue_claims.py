@@ -17,6 +17,7 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
 )
+from products.replay_vision.backend.temporal.metrics import record_enqueue_claim_failure
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +94,7 @@ def try_claim_enqueue_slot(
         )
         return bool(allowed)
     except Exception:
+        record_enqueue_claim_failure("claim")
         logger.warning("replay_vision.enqueue_claim.failed_open", team_id=team_id, exc_info=True)
         return True
 
@@ -111,6 +113,7 @@ def release_enqueue_claim(*, team_id: int, scanner_id: UUID, workflow_id: str, i
             pipeline.zadd(_scanner_key(scanner_id), {workflow_id: expiry}, xx=True)
         pipeline.execute()
     except Exception:
+        record_enqueue_claim_failure("release")
         logger.warning("replay_vision.enqueue_claim.release_failed", team_id=team_id, exc_info=True)
 
 
@@ -127,5 +130,6 @@ def _pending(key: str) -> int:
     try:
         return int(redis.get_client().zcount(key, f"({time.time()}", "+inf"))
     except Exception:
+        record_enqueue_claim_failure("count")
         logger.warning("replay_vision.enqueue_claim.count_failed", key=key, exc_info=True)
         return 0

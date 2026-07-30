@@ -509,6 +509,43 @@ class TestWarehouseTableAccessControl(BaseTest):
             "warehouse_table", set()
         )
 
+    def test_source_denial_reaches_its_tables_but_not_self_managed(self):
+        # The gate resolves each table through RESOURCE_FALLBACK_MAP, so a rule about a source must
+        # deny the tables it syncs while leaving tables no source owns untouched. Pins the gate's
+        # resolution call: a per-table or umbrella test passes even if the gate stops consulting the
+        # source, this one doesn't.
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="stripe_",
+        )
+        sourced_table = DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=self.credential,
+            external_data_source=source,
+            url_pattern="s3://bucket/stripe/*",
+            columns={"id": "String"},
+        )
+        self._create_ac(
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="none",
+            member=self._membership(),
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert sourced_table.name in database._denied_tables
+        # allowed_table has no source, so no rule about sources may reach it.
+        assert "allowed_table" not in database._denied_tables
+
     def test_warehouse_objects_resource_none_denies_all_tables(self):
         self._create_ac(resource="warehouse_objects", access_level="none")
 
