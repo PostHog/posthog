@@ -791,6 +791,38 @@ class TestQueryRunner(BaseTest):
         captured = any(call.args and call.args[0] is raised_exc for call in mock_capture_exception.call_args_list)
         assert captured == expected_captured
 
+    @parameterized.expand(
+        [
+            ("query_service", True, False),
+            ("app_query", False, True),
+        ]
+    )
+    def test_run_skips_capture_for_query_service_timeouts(self, _name, is_query_service, expected_captured):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        raised_exc = ClickHouseQueryTimeOut()
+
+        def calculate_raises(self):
+            raise raised_exc
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.is_query_service = is_query_service
+
+        with (
+            mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed,
+            mock.patch("posthog.hogql_queries.query_runner.capture_exception") as mock_capture_exception,
+        ):
+            with pytest.raises(ClickHouseQueryTimeOut):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        # The SLO signal is unchanged either way — only error tracking stops hearing about it.
+        completed_kwargs = mock_emit_slo_completed.call_args.kwargs
+        assert completed_kwargs["properties"].outcome == SloOutcome.FAILURE
+        assert completed_kwargs["extra_properties"]["error_category"] == "query_performance_error"
+
+        captured = any(call.args and call.args[0] is raised_exc for call in mock_capture_exception.call_args_list)
+        assert captured == expected_captured
+
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL

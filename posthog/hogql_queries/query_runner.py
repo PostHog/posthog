@@ -112,6 +112,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -299,6 +300,30 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
     if category in (QueryErrorCategory.USER_ERROR, QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED):
         return category, SloOutcome.SUCCESS
     return category, SloOutcome.FAILURE
+
+
+def should_capture_query_failure(exc: Exception, *, is_query_service: bool) -> bool:
+    """Whether a FAILURE-outcome query error belongs in error tracking.
+
+    Two classes of failure are deliberately not reported, because nothing on our side is
+    broken and the caller already receives an actionable error:
+
+    - A replay of a cached failure. The original was classified and reported when it
+      happened, so re-reporting every request that hits the open breaker only multiplies
+      one incident into thousands.
+    - A query-service timeout. That is a caller's own query hitting the execution-time cap
+      on the public query API, returned as a 504 telling them to narrow it down. It is
+      indistinguishable from user input in outcome, and at API volume it drowns out the
+      platform failures classified into the same category.
+
+    Both still carry their SLO tag and Prometheus counters, so the signal is only removed
+    from error tracking.
+    """
+    if getattr(exc, "served_from_query_failure_cache", False):
+        return False
+    if is_query_service and isinstance(exc, ClickHouseQueryTimeOut):
+        return False
+    return True
 
 
 class SharedExecutionSettings(NamedTuple):
@@ -1937,11 +1962,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.fail(error_category=category.value)
                         # Capture only what classifies as a FAILURE outcome. User-input query errors
                         # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
-                        # deliberately not captured — they're returned to the user as 4xx. Note this
-                        # gate is the SLO outcome, not a strict platform-vs-user split:
-                        # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
-                        # those are user-input limits — see _classify_error_for_slo.
-                        capture_exception(exc)
+                        # deliberately not captured — they're returned to the user as 4xx. The SLO
+                        # outcome alone is not a platform-vs-user split though, so
+                        # should_capture_query_failure carves out the FAILURE-classified errors that
+                        # are still the caller's own doing.
+                        if should_capture_query_failure(exc, is_query_service=self.is_query_service):
+                            capture_exception(exc)
                     if self._query_failure_caching_enabled:
                         # Transient error classes classify to None and are never recorded.
                         failure_kind = classify_failure(exc)

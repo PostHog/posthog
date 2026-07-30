@@ -42,6 +42,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -759,6 +760,35 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         mock_process_query_model.assert_called_once()
         # HogQLQuery is an insight query, so it gets QUERY_ASYNC by default
         self.assertEqual(mock_process_query_model.call_args[1]["limit_context"], LimitContext.QUERY_ASYNC)
+
+    @parameterized.expand(
+        [
+            ("failure_cache_replay", True, False),
+            ("fresh_failure", False, True),
+        ]
+    )
+    @patch("posthog.api.query.capture_exception")
+    @patch("posthog.api.query.process_query_model")
+    def test_query_failure_cache_replays_are_not_reported_again(
+        self,
+        _name,
+        served_from_failure_cache,
+        expected_captured,
+        mock_process_query_model,
+        mock_capture_exception,
+    ):
+        error = ClickHouseQueryTimeOut()
+        if served_from_failure_cache:
+            error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
+        mock_process_query_model.side_effect = error
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "select 1"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
+        self.assertEqual(mock_capture_exception.called, expected_captured)
 
     def test_query_limit_context_invalid_value(self):
         api_response = self.client.post(

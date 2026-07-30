@@ -55,7 +55,7 @@ from posthog.event_usage import EventSource, get_request_analytics_properties, r
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh, should_capture_query_failure
 from posthog.models.user import User
 from posthog.models.utils import uuid7
 from posthog.rate_limit import (
@@ -347,7 +347,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
         except Exception as e:
-            capture_exception(e)
+            # The query runner already decided what deserves reporting for anything that reached
+            # ClickHouse; this catch-all must honour that or it re-reports what the runner
+            # deliberately skipped.
+            if should_capture_query_failure(
+                e, is_query_service=get_query_tag_value("access_method") == "personal_api_key"
+            ):
+                capture_exception(e)
             raise
 
     @extend_schema(
