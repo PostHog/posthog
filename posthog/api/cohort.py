@@ -640,6 +640,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "is_static",
             "cohort_type",
             "condition_type",
@@ -660,6 +662,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             "errors_calculating",
             "last_error_message",
             "count",
+            "last_import_total_count",
+            "last_import_unmatched_count",
             "experiment_set",
             "condition_type",
         ]

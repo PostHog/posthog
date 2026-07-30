@@ -76,6 +76,29 @@ class TestCohort(BaseTest):
         self.assertEqual(count_cohort_members(self.team.id, cohort.pk), 11)
         self.assertEqual(cohort.is_calculating, False)
 
+    def test_insert_by_distinct_id_records_unmatched_ids(self):
+        create_person(team=self.team, distinct_ids=["000"])
+        create_person(team=self.team, distinct_ids=["123"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_by_list(["123", "000", "anonymous-1", "anonymous-2", "anonymous-3"], batch_size=2)
+        cohort.refresh_from_db()
+
+        self.assertEqual(cohort.count, 2)
+        self.assertEqual(cohort.last_import_total_count, 5)
+        self.assertEqual(cohort.last_import_unmatched_count, 3)
+
+    def test_insert_by_distinct_id_does_not_count_shared_persons_as_unmatched(self):
+        create_person(team=self.team, distinct_ids=["002", "011"])
+
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+        cohort.insert_users_by_list(["002", "011"])
+        cohort.refresh_from_db()
+
+        self.assertEqual(cohort.count, 1)
+        self.assertEqual(cohort.last_import_total_count, 2)
+        self.assertEqual(cohort.last_import_unmatched_count, 0)
+
     @pytest.mark.ee
     def test_calculating_cohort_clickhouse(self):
         cohort = Cohort.objects.create(
