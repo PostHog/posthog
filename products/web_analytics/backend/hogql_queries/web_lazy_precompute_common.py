@@ -188,6 +188,21 @@ BACKGROUND_WARMING_TRIGGERS = frozenset(
 # still exist).
 STALE_WHILE_REVALIDATE_SECONDS = 6 * 60 * 60
 
+# The overview family is the dashboard's headline Visitors/Views/Sessions tile, and it sits
+# directly above tiles that are never precomputed (Active hours is a plain trends query, so
+# it always reads live). A grace measured in hours therefore shows up on screen as the top
+# number contradicting the tile right below it, which reads as broken data rather than as
+# "cached". Cap it just past the revalidation cadence instead: a stale serve enqueues a
+# revalidation that starts after REVALIDATION_START_DELAY_SECONDS, so this covers the
+# rebuild plus slack, and a read arriving after it falls through to the live query and gets
+# fresh numbers rather than repeating a half-day-old figure. The heavier table families keep
+# the long grace — their live fallback is the expensive query precompute exists to avoid,
+# and they have no live neighbour to visibly disagree with.
+OVERVIEW_FAMILY = "web_overview"
+INTERACTIVE_STALE_WHILE_REVALIDATE_SECONDS: dict[str, float] = {
+    OVERVIEW_FAMILY: 15 * 60,
+}
+
 WEB_ANALYTICS_LAZY_PRECOMPUTE_CHECK_MISS = Counter(
     "web_analytics_lazy_precompute_check_miss_total",
     "User-facing reads that found no covering READY jobs, fell back to the live query, and enqueued a background warm.",
@@ -345,7 +360,8 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     at any window age). The request that hits the OOM still fails here and falls back to the
     live query — the cap only takes effect next time.
 
-    Every user-facing call gets the stale-while-revalidate grace by default; requests
+    Every user-facing call gets the stale-while-revalidate grace by default (its length
+    depends on the family — see `INTERACTIVE_STALE_WHILE_REVALIDATE_SECONDS`); requests
     tagged with a background warming trigger never do (they are the refresh mechanism
     and would serve stale to themselves). Callers that see `stale=True` must hand the
     result to `handle_stale_served` so the background revalidation actually happens.
@@ -366,7 +382,8 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
             kwargs["stale_while_revalidate_seconds"] = None
         else:
             kwargs["stale_while_revalidate_seconds"] = resolve_stale_while_revalidate_seconds(
-                STALE_WHILE_REVALIDATE_SECONDS, BACKGROUND_WARMING_TRIGGERS
+                INTERACTIVE_STALE_WHILE_REVALIDATE_SECONDS.get(family or "", STALE_WHILE_REVALIDATE_SECONDS),
+                BACKGROUND_WARMING_TRIGGERS,
             )
     # User-facing requests never compute inline: they are served from covering
     # READY jobs (fresh or within the stale grace) or told "miss" immediately so

@@ -36,11 +36,12 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     with_insert_session_id_set_filter,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    OVERVIEW_FAMILY,
     handle_stale_served,
     web_ensure_precomputed,
 )
 
-_FAMILY = "web_overview"
+_FAMILY = OVERVIEW_FAMILY
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner

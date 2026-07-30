@@ -33,7 +33,9 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    INTERACTIVE_STALE_WHILE_REVALIDATE_SECONDS,
     OOM_PIN_TTL_SECONDS,
+    OVERVIEW_FAMILY,
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
@@ -562,6 +564,31 @@ class TestWebEnsurePrecomputed(BaseTest):
         with tags_context(execution_mode=execution_mode):
             web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
+
+    @parameterized.expand(
+        [
+            # The overview tile sits above always-live tiles (Active hours), so its grace is
+            # capped near the revalidation cadence — an hours-old headline number next to a
+            # live one reads as broken data.
+            ("overview", OVERVIEW_FAMILY, INTERACTIVE_STALE_WHILE_REVALIDATE_SECONDS[OVERVIEW_FAMILY]),
+            ("stats_table", "web_stats", STALE_WHILE_REVALIDATE_SECONDS),
+            ("unspecified", None, STALE_WHILE_REVALIDATE_SECONDS),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_stale_grace_is_shorter_for_the_overview_family(self, _name, family, expected_grace, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        reset_query_tags()
+        web_ensure_precomputed(team=self.team, family=family, ttl_seconds={"default": 3600}, table=None)
+        assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
+
+    def test_overview_grace_stays_within_an_hour(self):
+        # Guards the point of the cap: the overview tile must not be able to sit an
+        # order of magnitude behind the live tiles beside it on the same dashboard.
+        assert INTERACTIVE_STALE_WHILE_REVALIDATE_SECONDS[OVERVIEW_FAMILY] <= 60 * 60
+        # It still has to outlast the revalidation head start, or a stale serve expires
+        # the grace before its own refresh has had a chance to run.
+        assert INTERACTIVE_STALE_WHILE_REVALIDATE_SECONDS[OVERVIEW_FAMILY] > REVALIDATION_START_DELAY_SECONDS
 
 
 class TestStaleRevalidationEnqueue(BaseTest):
