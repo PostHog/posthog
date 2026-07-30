@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 
-from products.cohorts.backend.backfill.finalize import FINALIZABLE_KINDS, FLAGS_CACHE_TASK, finalize_backfill_runs
+from products.cohorts.backend.backfill.finalize import _STAMP_BY_KIND, FLAGS_CACHE_TASK, finalize_backfill_runs
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.models.backfill import (
     CohortBackfillKind,
@@ -29,7 +29,7 @@ from products.cohorts.backend.models.dependencies import _behavioral_cohort_ids_
 
 class TestFinalizerKindCoverage(SimpleTestCase):
     def test_every_backfill_kind_has_a_stamp(self) -> None:
-        unmapped = set(CohortBackfillKind.values) - set(FINALIZABLE_KINDS)
+        unmapped = set(CohortBackfillKind.values) - set(_STAMP_BY_KIND)
         assert not unmapped, (
             f"{sorted(unmapped)} has no entry in finalize._STAMP_BY_KIND, so the finalizer's "
             "discovery filters those runs out entirely: they park in reconciling forever with no "
@@ -40,6 +40,7 @@ class TestFinalizerKindCoverage(SimpleTestCase):
 @override_settings(
     REALTIME_COHORT_TEAM_ALLOWLIST="all",
     BEHAVIORAL_BACKFILL_FINALIZER_ENABLED=True,
+    BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED=True,
 )
 class TestBackfillFinalizer(BaseTest):
     def setUp(self) -> None:
@@ -210,6 +211,30 @@ class TestBackfillFinalizer(BaseTest):
         self.assertIsNone(person_cohorts[0].last_backfill_events_at)
         self.assertFalse(behavioral_cohorts[0].is_flag_compatible)
         self.assertFalse(person_cohorts[0].is_flag_compatible)
+
+    @override_settings(BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED=False)
+    def test_person_run_is_held_not_superseded_while_the_readiness_gate_is_off(self) -> None:
+        behavioral, behavioral_cohorts = self._make_run(["completed"])
+        person, person_cohorts = self._make_run(["completed"], kind=CohortBackfillKind.PERSON_PROPERTY)
+
+        result = finalize_backfill_runs()
+
+        behavioral.refresh_from_db()
+        person.refresh_from_db()
+        behavioral_cohorts[0].refresh_from_db()
+        person_cohorts[0].refresh_from_db()
+        person_participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run_id=person.id)
+        # The behavioral run is unaffected: the gate narrows discovery by kind, not the whole pass.
+        self.assertEqual(behavioral.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertIsNotNone(behavioral_cohorts[0].last_backfill_events_at)
+        # No stamp: the flags service reads this column as proof cohort_membership is populated.
+        self.assertIsNone(person_cohorts[0].last_backfill_person_properties_at)
+        # Held, not discarded. Gating inside the stamp would supersede the participation, throwing
+        # away a completed person backfill that should finalize once the gate opens.
+        self.assertEqual(person.status, CohortBackfillRunStatus.RECONCILING)
+        self.assertIsNone(person_participation.superseded_at)
+        self.assertIsNone(person_participation.stamped_at)
+        self.assertEqual(result.completed, 1)
 
     def test_second_fire_is_a_noop(self) -> None:
         run, _cohorts = self._make_run(["completed", "completed"])

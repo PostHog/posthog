@@ -4,6 +4,10 @@ A run stamps the readiness column of its own kind: behavioral runs stamp ``last_
 person-property runs stamp ``last_backfill_person_properties_at``. A mixed cohort needs both runs to
 finalize before it is flag-compatible (intended fail-closed).
 
+The person half is gated dark by ``BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`` until the flags
+service can tell a stamp written here apart from the legacy ones it currently reads as proof that
+``cohort_membership`` is populated. See ``_finalizable_kinds``.
+
 The seeder writes a definitive per-participation outcome (``reconcile_completed_at`` /
 ``superseded_at`` / retryable ``error``) before it sets ``run.reconcile_observed_at`` as its last
 write. This finalizer trusts those columns — never Kafka — and CASes the run out of
@@ -77,17 +81,31 @@ class FinalizerPass:
     invalidated_teams: int = 0
 
 
-# The one place discovery and dispatch agree on which kinds this finalizer owns: `FINALIZABLE_KINDS`
-# is derived from these keys, so the lookup below can only ever see a kind it has a stamp for. That
-# is what guarantees a run is never stamped into the wrong column — but it also means a kind added to
-# the vocabulary without a stamp here is filtered out of discovery and simply never finalized: it
-# sits in `reconciling` indefinitely, with no exception, no error count, and no gauge movement.
-# `test_every_backfill_kind_has_a_stamp` is what turns that silence into a CI failure instead.
+# Every kind this finalizer knows how to stamp. Discovery draws from these keys, so the lookup below
+# can only ever see a kind it has a stamp for, which is what guarantees a run is never stamped into
+# the wrong column. It also means a kind added to the vocabulary without a stamp here is filtered out
+# of discovery and simply never finalized: it sits in `reconciling` indefinitely, with no exception,
+# no error count, and no gauge movement. `test_every_backfill_kind_has_a_stamp` turns that silence
+# into a CI failure instead.
 _STAMP_BY_KIND: dict[str, Callable[[CohortBackfillRun, int], bool]] = {
     CohortBackfillKind.BEHAVIORAL: stamp_events_readiness,
     CohortBackfillKind.PERSON_PROPERTY: stamp_person_properties_readiness,
 }
-FINALIZABLE_KINDS = tuple(_STAMP_BY_KIND)
+
+
+def _finalizable_kinds() -> tuple[str, ...]:
+    """The kinds this pass may terminalize, narrowed by the person readiness gate.
+
+    Gating discovery rather than the stamp is deliberate: a stamp function that returned ``False``
+    would mark the participation superseded, which is terminal, and would silently throw away a
+    completed person backfill. Filtering here leaves the run `reconciling` instead, so it finalizes
+    normally once the gate opens. See ``BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`` for why the
+    person stamp is held back: the flags service still reads it as proof that `cohort_membership`
+    is populated, which is true of the legacy rows but not of one this finalizer writes.
+    """
+    if settings.BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED:
+        return tuple(_STAMP_BY_KIND)
+    return (CohortBackfillKind.BEHAVIORAL,)
 
 
 def _dispatch_flags_cache_update(team_id: int) -> None:
@@ -113,7 +131,7 @@ def finalize_backfill_runs() -> FinalizerPass:
     observed = list(
         CohortBackfillRun.objects.unscoped()
         .filter(
-            backfill_kind__in=FINALIZABLE_KINDS,
+            backfill_kind__in=_finalizable_kinds(),
             status=CohortBackfillRunStatus.RECONCILING,
             reconcile_observed_at__isnull=False,
         )
