@@ -8,6 +8,7 @@ import { IconX } from '@posthog/icons'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { useVisualViewportBounds } from 'lib/hooks/useVisualViewportBounds'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { Tooltip } from '../Tooltip'
@@ -98,6 +99,8 @@ export function LemonModal({
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
+
+    useVisualViewportBounds(isOpen && !inline)
 
     useEffect(() => setIgnoredOverlayClickCount(0), [hasUnsavedInput]) // Reset when there no longer is unsaved input
 

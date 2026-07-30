@@ -634,7 +634,7 @@ function SearchRoot({
     return (
         <SearchContext.Provider value={contextValue}>
             <div
-                className={`flex flex-col overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
+                className={`flex flex-col min-h-0 overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
             >
                 <Autocomplete.Root
                     items={orderedItems}
@@ -828,8 +828,8 @@ function SearchResults({
         <ScrollableShadows
             direction="vertical"
             styledScrollbars
-            className={cn('flex-1 overflow-y-auto', className)}
-            innerClassName="scroll-pt-12 scroll-pb-8"
+            className={cn('flex-1 min-h-0 overflow-y-auto', className)}
+            innerClassName="scroll-pt-12 scroll-pb-8 overscroll-contain"
         >
             {!isAnyLoading && (
                 <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">

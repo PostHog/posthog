@@ -3,6 +3,14 @@
 @import 'mixins';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
+// Geometry of the part of the page the user can actually see. `dvh` handles collapsible mobile
+// browser chrome; the on-screen keyboard is invisible to CSS, so `useVisualViewportBounds`
+// overwrites these from `window.visualViewport` while a modal is open.
+:root {
+    --visual-viewport-height: 100dvh;
+    --visual-viewport-offset-top: 0px;
+}
+
 // Set variables
 :root,
 :host {
@@ -1181,6 +1189,15 @@
         }
     }
 
+    // react-modal adds this to <body> while any modal is open, but ships no styles for it — so on
+    // pages where the body is the scroller, dragging inside a modal chains through to the page
+    // behind it instead of scrolling the modal.
+    // The test runner screenshots the whole page, which needs the body to stay scrollable.
+    body.ReactModal__Body--open:not(.storybook-test-runner) {
+        overflow: hidden;
+        overscroll-behavior: contain;
+    }
+
     body {
         font-size: 14px;
         font-weight: 400;
@@ -1690,6 +1707,7 @@
         #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
             // Fix for stories of fixed modals - otherwise body would be zero-sized
             position: static !important;
+            height: auto !important; // Un-pin from the viewport, so the story is only as tall as the modal
         }
     }
 

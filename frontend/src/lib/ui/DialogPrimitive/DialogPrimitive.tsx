@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 
 import { IconX } from '@posthog/icons'
 
+import { useVisualViewportBounds } from 'lib/hooks/useVisualViewportBounds'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -25,6 +26,8 @@ function DialogPrimitive({
     className?: string
     disablePointerDismissal?: boolean
 }): JSX.Element {
+    useVisualViewportBounds(open)
+
     return (
         <Dialog.Root
             open={open}
@@ -36,7 +39,13 @@ function DialogPrimitive({
                     <Dialog.Backdrop className="fixed inset-0 min-h-dvh min-w-dvw bg-black opacity-20 transition-all duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 dark:opacity-70 z-[var(--z-modal)]" />
                     <Dialog.Popup
                         className={cn(
-                            '@container fixed top-4 left-1/2 w-[400px] max-w-[calc(100vw-3rem)] max-h-[60vh] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col overflow-hidden z-[var(--z-force-modal-above-popovers)]',
+                            '@container fixed left-1/2 w-[400px] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col min-h-0 overflow-hidden overscroll-contain z-[var(--z-force-modal-above-popovers)]',
+                            // Sized and positioned against the visible viewport, not the layout one: on
+                            // mobile the latter reaches behind the browser chrome and the on-screen
+                            // keyboard, which would push the scroll pane below the fold. Above `sm` the
+                            // popup stays a compact overlay rather than filling the window.
+                            'top-[calc(var(--visual-viewport-offset-top)+1rem)] max-h-[calc(var(--visual-viewport-height)-2rem)]',
+                            'sm:max-h-[min(60dvh,calc(var(--visual-viewport-height)-2rem))]',
                             className
                         )}
                     >

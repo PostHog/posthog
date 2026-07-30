@@ -1,10 +1,19 @@
 .LemonModal__overlay {
     position: fixed;
-    inset: 0;
+    inset: 0 0 auto;
     z-index: var(--z-modal);
     display: flex;
     align-items: flex-start;
     justify-content: center;
+
+    // `position: fixed` resolves against the layout viewport, which on mobile extends behind the
+    // browser chrome and the on-screen keyboard. Pinning the overlay to the visible viewport
+    // instead keeps the modal's scroll pane and footer above the fold; scrolling the overlay is
+    // the last resort for a modal that still can't fit.
+    top: var(--visual-viewport-offset-top);
+    height: var(--visual-viewport-height);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     transition:
         background-color var(--modal-transition-time) ease-out,
         backdrop-filter var(--modal-transition-time) ease-out;
@@ -39,7 +48,7 @@
     max-width: 90%;
 
     // Always give toasts some space at the bottom
-    max-height: calc(100vh - 60px - 2rem);
+    max-height: calc(var(--visual-viewport-height) - 60px - 2rem);
     margin: 1rem auto;
     background-color: var(--color-bg-surface-primary);
     border: 1px solid var(--border-bold);
@@ -85,12 +94,14 @@
         display: flex;
         flex: 1;
         flex-direction: column;
+        min-height: 0; // Let the layout shrink so .LemonModal__content, not the modal, does the scrolling
         overflow-y: hidden;
     }
 
     .LemonModal__content {
         padding: 1rem;
         overflow-y: auto;
+        overscroll-behavior: contain; // Don't hand a touch drag off to the page behind at the ends
 
         &.LemonModal__content--embedded {
             padding: 0;
@@ -100,6 +111,7 @@
     .LemonModal__container {
         display: flex;
         height: 100%;
+        min-height: 0;
         overflow: hidden;
     }
 }
