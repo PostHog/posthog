@@ -22,6 +22,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -290,8 +291,51 @@ def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, str
         sync_hogql_query_variables(query, team)
         validate_hogql_query(query, team, user)
 
+    if data.is_materialized is True and query is not None:
+        assert_user_can_materialize(query.model_dump(), team, user)
+
     validate_data_freshness(data.data_freshness_seconds)
     validate_optional_breakdown_properties(data.optional_breakdown_properties, query)
+
+
+class _NeutralizePlaceholders(CloningVisitor):
+    """Replace {variables.x} placeholders with NULL so the query resolves without the variable
+    machinery. Access depends on what the query reads, not on variable values - and stored
+    endpoints can carry legacy non-UUID variable ids that the substitution path chokes on."""
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
+        return ast.Constant(value=None)
+
+
+def assert_user_can_materialize(query: dict | None, team: Team, user: User) -> None:
+    """Materialized results are produced by a userless run and then served under the endpoint's own
+    access rules, so whoever turns materialization on must be able to read everything the query
+    reads. Resolves the query as the requester - structured kinds (Trends, Lifecycle, Retention)
+    are first converted to HogQL the same way the materialization workflow converts them.
+    """
+    from products.endpoints.backend.materialization_transforms import (
+        build_endpoint_hogql,  # noqa: PLC0415 — keeps the heavy conversion pipeline off this module's import path
+    )
+
+    if not query:
+        return  # a missing query is rejected by the callers' own validation
+
+    if query.get("kind") != "HogQLQuery":
+        query = build_endpoint_hogql(query, team, user=user)
+
+    sql = query.get("query")
+    if not isinstance(sql, str) or not sql.strip():
+        return
+
+    node = _NeutralizePlaceholders().visit(parse_select(sql))
+    context = HogQLContext(team_id=team.pk, user=user, enable_select_queries=True)
+    try:
+        # Resolution is where table and view access is enforced, so this doesn't need to print.
+        prepare_ast_for_printing(node=node, context=context, dialect="clickhouse")
+    except (ExposedHogQLError, ResolutionError) as err:
+        # Surfaces "You don't have access to table `X`." for a denial; a query that no longer
+        # resolves also can't be safely published, so it's refused the same way.
+        raise ValidationError({"query": f"Cannot materialize endpoint: {err}"}) from err
 
 
 def validate_update_request(
@@ -320,6 +364,7 @@ def validate_update_request(
             can_materialize, reason = can_materialize_query(effective_query)
             if not can_materialize:
                 raise ValidationError(f"Cannot materialize endpoint. Reason: {reason}")
+            assert_user_can_materialize(effective_query, team, user)
 
     if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
         sync_hogql_query_variables(data.query, team)

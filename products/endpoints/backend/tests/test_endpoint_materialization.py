@@ -2325,3 +2325,78 @@ class TestEndpointMaterializationTemporal:
         schedule = await sync_to_async(get_saved_query_schedule)(saved_query)
         assert len(schedule.spec.calendars) == 1
         assert schedule.spec.jitter == timedelta(hours=1)
+
+
+@pytest.mark.ee
+@mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
+class TestMaterializationRequiresUnderlyingAccess(APIBaseTest):
+    """Enabling materialization publishes the query's rows under the endpoint's own access rules,
+    so it has to be gated on the requester's access to what the query reads - a payload that only
+    flips the flag never reaches the query validators."""
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import OrganizationMembership
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        self.table = DataWarehouseTable.objects.create(
+            name="restricted_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/restricted/*",
+            columns={"id": "String"},
+        )
+        # Authored by someone who could read the table; the restricted user only flips the flag.
+        self.endpoint = create_endpoint_with_version(
+            name="over_restricted_table",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "select id from restricted_table"},
+            created_by=self.user,
+            is_active=True,
+        )
+        self.denied_user = self._create_user("denied@posthog.com")
+        membership = OrganizationMembership.objects.get(user=self.denied_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(self.table.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(self.denied_user)
+
+    def _toggle(self):
+        return self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{self.endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+
+    def test_toggle_denied_when_the_query_reads_a_denied_table(self):
+        # 400 rather than 403 to match how the create path reports a denied query.
+        response = self._toggle()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("access", str(response.json()))
+        version = self.endpoint.versions.first()
+        self.assertIsNone(version.saved_query)
+
+    def test_toggle_allowed_without_a_table_denial(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        AccessControl.objects.all().delete()
+
+        response = self._toggle()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
