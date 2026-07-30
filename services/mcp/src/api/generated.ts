@@ -16617,6 +16617,20 @@ export namespace Schemas {
 
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
+    export interface SavedQuerySuspension {
+      /** When materialization was suspended. */
+      at: string;
+      /** Error from the materialization run that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type DataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
     /**
      * * `never` - never
      * * `15min` - 15min
@@ -16774,6 +16788,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended: DataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -48492,6 +48508,11 @@ export namespace Schemas {
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type PatchedDataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
      * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -48590,6 +48611,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -61932,7 +61955,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
       origin: string;
     }
 
