@@ -13,6 +13,7 @@ pydantic-error formatting, and activity logging live behind the facade.
 from __future__ import annotations
 
 import json
+import builtins
 from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
@@ -39,6 +40,7 @@ from posthog.rbac.user_access_control import UserAccessControl, model_to_resourc
 
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.presentation.views.serializers import (
+    AccountChannelSummarySerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
     AccountRelationshipDefinitionSerializer,
@@ -58,6 +60,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    SupportTicketSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -969,21 +972,47 @@ class AccountViewSet(
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
 
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def support_tickets(self, request: Request, *args, **kwargs) -> Response:
+        try:
+            tickets = api.get_account_support_tickets(
+                self.team_id,
+                self.kwargs["pk"],
+                user_access_control=self.user_access_control,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
+        if tickets is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(SupportTicketSerializer(instance=tickets, many=True).data)
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
+        super_method = getattr(super(), "dangerously_get_required_scopes", None)
+        if callable(super_method):
+            mixin_result = super_method(request, view)
+            if mixin_result is not None:
+                return mixin_result
+        # Ticket content behind an account-scoped viewset — a token holding only
+        # account:read must not read it.
+        if view.action == "support_tickets":
+            return ["account:read", "ticket:read"]
+        return None
+
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
             account = api.create_account_for_view(
-                team_id=self.team_id,
                 team=self.team,
                 input=contracts.CreateAccountInput(
                     name=data.name,
                     external_id=data.external_id,
                     properties=data.properties or {},
                     tags=_account_tags_input(serializer),
+                    slack_summary_cadence=data.slack_summary_cadence,
                 ),
-                organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )
@@ -1010,6 +1039,10 @@ class AccountViewSet(
                     properties=data.properties if "properties" in request.data else None,
                     properties_provided="properties" in request.data,
                     tags=_account_tags_input(serializer),
+                    slack_summary_cadence=data.slack_summary_cadence
+                    if "slack_summary_cadence" in request.data
+                    else None,
+                    slack_summary_cadence_provided="slack_summary_cadence" in request.data,
                 ),
                 user_access_control=self.user_access_control,
                 required_level=_object_required_level(request, write=True),
@@ -1031,6 +1064,20 @@ class AccountViewSet(
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
+
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: AccountChannelSummarySerializer(many=True)})
+    @action(methods=["GET"], detail=True)
+    def summaries(self, request: Request, *args, **kwargs) -> Response:
+        if api.get_accessible_account_id(self.team_id, self.kwargs["pk"], self.user_access_control) is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        def fetch(offset: int, limit: int) -> tuple[list[contracts.AccountChannelSummaryView], int]:
+            result = api.list_account_channel_summaries(
+                self.team_id, self.kwargs["pk"], self.user_access_control, offset=offset, limit=limit
+            )
+            return result if result is not None else ([], 0)
+
+        return self._paginate_via_facade(request, fetch, AccountChannelSummarySerializer)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM])
     def destroy(self, request: Request, *args, **kwargs) -> Response:

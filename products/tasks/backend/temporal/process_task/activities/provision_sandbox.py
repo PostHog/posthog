@@ -602,6 +602,18 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
                 (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
             )
             sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
+        if sandbox.config.image_fallback:
+            emit_agent_log(
+                ctx.run_id,
+                "warn",
+                f"Sandbox image downgraded: {sandbox.config.image_fallback}",
+            )
+        if sandbox.launch_dev_stack_bootstrap():
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                "Warming the prebaked dev stack in the background (compose host aliases + dockerd)",
+            )
         create_ms = sandbox_creation_timer.elapsed_ms
         snapshot_outcome = (
             "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
@@ -627,16 +639,19 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             if credentials.token:
                 sandbox_state["sandbox_connect_token"] = credentials.token
             TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+            open_sandbox_session(
+                run_id=ctx.run_id,
+                sandbox_id=sandbox.id,
+                config=sandbox.config,
+                sandbox_created_at=sandbox_created_at,
+                required=ctx.task_runtime == "pi",
+            )
         except Exception:
-            sandbox.destroy()
+            try:
+                sandbox.destroy()
+            finally:
+                TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
             raise
-
-        # Best-effort usage-ledger row (swallows its own failures). After the state
-        # write on purpose: the except branch above destroys sandboxes that never
-        # became reachable, and those must not enter the ledger.
-        open_sandbox_session(
-            run_id=ctx.run_id, sandbox_id=sandbox.id, config=sandbox.config, sandbox_created_at=sandbox_created_at
-        )
 
         emit_agent_log(ctx.run_id, "debug", f"Sandbox provisioned: {sandbox.id}")
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")

@@ -39,7 +39,10 @@ import {
 } from './MarkdownNotebookEntityListPicker'
 import { MarkdownNotebookExperimentPicker } from './MarkdownNotebookExperimentPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
-import { getMarkdownRegistryForFeatureFlags } from './markdownNotebookRegistry'
+import {
+    getHiddenInsertCommandKeysForFeatureFlags,
+    getMarkdownRegistryForFeatureFlags,
+} from './markdownNotebookRegistry'
 import { useNotebookComponentRunStatusResolver } from './markdownNotebookRunStatus'
 import {
     InlineNotebookAIRequest,
@@ -90,6 +93,10 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
+    const hiddenInsertCommandKeys = useMemo(
+        () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
+        [featureFlags]
+    )
     const resolveComponentRunStatus = useNotebookComponentRunStatusResolver(mountedNotebookLogic.props.shortId)
     const {
         handleMarkdownEditorChange,
@@ -744,6 +751,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     mode={isEditable ? 'edit' : 'view'}
                     registry={markdownRegistry}
                     extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
+                    hiddenInsertCommandKeys={hiddenInsertCommandKeys}
                     onChange={isEditable ? handleMarkdownNotebookChange : undefined}
                     onConflict={reportMarkdownMergeConflicts}
                     remoteCarets={remoteCarets}

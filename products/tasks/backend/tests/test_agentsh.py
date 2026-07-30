@@ -511,6 +511,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-test"
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
@@ -540,6 +541,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
             sandbox = ModalSandbox.__new__(ModalSandbox)
         else:
             sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox.id = "sb-test"
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
@@ -613,6 +615,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-test"
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",
@@ -631,6 +634,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-test"
         cmd = sandbox._build_agent_server_command(
             repo_path="/tmp/workspace/repos/org/repo",
             task_id="test-task",

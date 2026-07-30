@@ -249,6 +249,7 @@ impl HttpTransport {
         // worker. The guard decrements the gauge on every return path.
         let _in_flight = InFlightGuard::new(worker_url);
 
+        let message_total = messages.len();
         let mut queue: VecDeque<Vec<SerializedKafkaMessage>> =
             split_by_size(messages, self.max_body_bytes).into();
         if queue.len() > 1 {
@@ -257,6 +258,13 @@ impl HttpTransport {
                 "reason" => "size_estimate"
             )
             .increment((queue.len() - 1) as u64);
+            record_if(&self.debug_recorder, || DebugEventKind::SendSplit {
+                worker: worker_url.to_string(),
+                batch_id: batch_id.to_string(),
+                reason: "size_estimate",
+                chunks: queue.len(),
+                messages: message_total,
+            });
         }
 
         let mut sent: Vec<SerializedKafkaMessage> = Vec::new();
@@ -276,6 +284,13 @@ impl HttpTransport {
                         "reason" => "http_413"
                     )
                     .increment(1);
+                    record_if(&self.debug_recorder, || DebugEventKind::SendSplit {
+                        worker: worker_url.to_string(),
+                        batch_id: batch_id.to_string(),
+                        reason: "http_413",
+                        chunks: 2,
+                        messages: messages.len(),
+                    });
                     let mut left = messages;
                     let right = left.split_off(left.len() / 2);
                     queue.push_front(right);
