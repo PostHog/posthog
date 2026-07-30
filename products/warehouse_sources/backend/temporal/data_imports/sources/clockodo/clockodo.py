@@ -2,10 +2,10 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import (
-    CLOCKODO_ENDPOINTS,
     ENTRIES_TIME_SINCE,
+    ClockodoEndpointConfig,
+    endpoints_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Clockodo's API is hosted at a single fixed host for every account (no per-tenant subdomain).
 CLOCKODO_BASE_URL = "https://my.clockodo.com/api"
@@ -50,8 +51,7 @@ def _format_z(dt: datetime) -> str:
     return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _endpoint_params(endpoint: str) -> dict[str, Any]:
-    config = CLOCKODO_ENDPOINTS[endpoint]
+def _endpoint_params(endpoint: str, config: ClockodoEndpointConfig) -> dict[str, Any]:
     params: dict[str, Any] = dict(config.extra_params)
     if endpoint == "entries":
         # Send a wide window so every entry is in range. time_until is pushed a year past now
@@ -68,8 +68,9 @@ def clockodo_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ClockodoResumeConfig],
+    api_version: str,
 ) -> SourceResponse:
-    config = CLOCKODO_ENDPOINTS[endpoint]
+    config = endpoints_for_version(api_version)[endpoint]
 
     # Clockodo only paginates a subset of resources; paginated responses carry the total
     # page count at paging.count_pages, so we stop after the last page. An empty page also
@@ -92,7 +93,7 @@ def clockodo_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": _endpoint_params(endpoint),
+                    "params": _endpoint_params(endpoint, config),
                     "data_selector": config.data_key,
                 },
             }
@@ -128,11 +129,16 @@ def clockodo_source(
     )
 
 
-def validate_credentials(api_user: str, api_key: str) -> bool:
-    """Cheap probe to confirm the API user/key pair is genuine."""
+def validate_credentials(api_user: str, api_key: str, api_version: str) -> bool:
+    """Cheap probe to confirm the API user/key pair is genuine.
+
+    Probes the users endpoint for the resolved version so a new source (default v3) does not
+    validate against `v2/users`, which is decommissioned on 2026-05-01.
+    """
+    users_path = endpoints_for_version(api_version)["users"].path
     ok, _status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
-        f"{CLOCKODO_BASE_URL}/v2/users",
+        f"{CLOCKODO_BASE_URL}/{users_path}",
         headers={"X-ClockodoApiKey": api_key, **_build_headers(api_user)},
     )
     return ok

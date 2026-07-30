@@ -168,25 +168,30 @@ export interface AlertConfigApi {
 
 /**
  * * `slack` - Slack
+ * * `webhook` - Webhook
  */
 export type DeliveryTargetTypeEnumApi = (typeof DeliveryTargetTypeEnumApi)[keyof typeof DeliveryTargetTypeEnumApi]
 
 export const DeliveryTargetTypeEnumApi = {
     Slack: 'slack',
+    Webhook: 'webhook',
 } as const
 
 /**
- * A single delivery destination. MVP supports Slack only.
+ * A single delivery destination: a Slack channel or an HTTP webhook URL.
  */
 export interface DeliveryTargetApi {
-    /** Destination channel type. MVP supports 'slack' only.
+    /** Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.
      *
-     * * `slack` - Slack */
+     * * `slack` - Slack
+     * * `webhook` - Webhook */
     type: DeliveryTargetTypeEnumApi
-    /** ID of the Slack Integration on this team used to deliver the summary. */
-    integration_id: number
-    /** Slack channel ID or name the summary is posted to. */
-    channel: string
+    /** ID of the Slack Integration on this team used to deliver. Required when type is 'slack'. */
+    integration_id?: number
+    /** Slack channel ID or name the summary is posted to. Required when type is 'slack'. */
+    channel?: string
+    /** HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner. */
+    url?: string
 }
 
 /**
@@ -1188,6 +1193,22 @@ export interface ScorerStatsApi {
     histogram: ScorerHistogramApi | null
 }
 
+export interface FacetCountApi {
+    /** The facet value as emitted by the summarizer (lowercased). */
+    term: string
+    /** Number of succeeded observations that emitted this value. */
+    count: number
+}
+
+export interface SummarizerStatsApi {
+    /** Top friction points by emission count. */
+    friction_ranked: FacetCountApi[]
+    /** Top keywords by emission count. */
+    keyword_ranked: FacetCountApi[]
+    /** Succeeded observations that emitted at least one friction point or keyword. */
+    total_with_facets: number
+}
+
 export interface ObservationStatsApi {
     /** Counts of observations by terminal status. */
     status_counts: ObservationStatusCountsApi
@@ -1203,6 +1224,8 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
+    /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
+    summarizer: SummarizerStatsApi | null
 }
 
 /**

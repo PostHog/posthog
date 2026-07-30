@@ -14,18 +14,18 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-    is_transient_object_store_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
-    PersonPropertyRowSink,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    DeltaTableHelper,
+    is_transient_delta_maintenance_error,
+    is_transient_object_store_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
+    PersonPropertyRowSink,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 if TYPE_CHECKING:
@@ -441,7 +442,7 @@ async def handle_corrupted_delta_log(
     # and clears the markers when temp is also gone (the terminal corrupt state), so we then fall to reset.
     swap = schema.repartition_swap
     if swap and swap.get("state") == "ready" and swap.get("temp_uri") and swap.get("live_uri"):
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
             _resume_swap_with_missing_live,
         )
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
@@ -704,9 +705,10 @@ async def run_pre_write_defensive_compact(
     the CDC post-load path in `common/load.py` writes the same watermark, and both merge
     via `update_sync_type_config_keys` under a row lock. Wrapped in try/except so a
     maintenance failure never blocks the actual sync; the original error path is unaffected.
-    A transient object-store error (see `is_transient_object_store_error`) is logged at
-    warning instead of captured — the next sync's maintenance pass retries it from scratch,
-    so it isn't a bug in this function, just a temporary blip talking to our own S3 bucket.
+    A transient object-store error (see `is_transient_object_store_error`) or a racy
+    concurrent-maintenance DeltaError (see `is_transient_delta_maintenance_error`) is
+    logged at warning instead of captured — the next sync's maintenance pass retries it
+    from scratch, so neither is a bug in this function.
 
     Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the behaviour
     identical across pipelines without each having to know how to look up `partition_count`
@@ -730,8 +732,8 @@ async def run_pre_write_defensive_compact(
                 schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
             )
     except Exception as e:
-        if is_transient_object_store_error(e):
-            await logger.awarning(f"Pre-write maintenance skipped: transient object-store error: {e}")
+        if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
+            await logger.awarning(f"Pre-write maintenance skipped: transient error: {e}")
             return
         capture_exception(e)
         await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)
