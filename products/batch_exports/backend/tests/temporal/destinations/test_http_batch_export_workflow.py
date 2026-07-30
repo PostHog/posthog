@@ -39,7 +39,10 @@ from products.batch_exports.backend.temporal.destinations.http_batch_export impo
     insert_into_http_activity,
 )
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -402,13 +405,15 @@ async def test_http_export_workflow(
             ):
                 m.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
 
-                await activity_environment.client.execute_workflow(
-                    HttpBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                await asyncio.wait_for(
+                    activity_environment.client.execute_workflow(
+                        HttpBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    ),
+                    timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=http_batch_export.id)
@@ -549,22 +554,26 @@ async def test_http_export_workflow_with_model(
 
                 if expect_failure:
                     with pytest.raises(WorkflowFailureError):
-                        await activity_environment.client.execute_workflow(
+                        await asyncio.wait_for(
+                            activity_environment.client.execute_workflow(
+                                HttpBatchExportWorkflow.run,
+                                inputs,
+                                id=workflow_id,
+                                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                                retry_policy=RetryPolicy(maximum_attempts=1),
+                            ),
+                            timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+                        )
+                else:
+                    await asyncio.wait_for(
+                        activity_environment.client.execute_workflow(
                             HttpBatchExportWorkflow.run,
                             inputs,
                             id=workflow_id,
                             task_queue=settings.TEMPORAL_TASK_QUEUE,
                             retry_policy=RetryPolicy(maximum_attempts=1),
-                            execution_timeout=dt.timedelta(seconds=10),
-                        )
-                else:
-                    await activity_environment.client.execute_workflow(
-                        HttpBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.TEMPORAL_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(seconds=10),
+                        ),
+                        timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                     )
 
     if expect_failure:
