@@ -54,7 +54,7 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         return github_grants.create_grant(self.partner, AUTHORIZATION, email)
 
     def _post(self, payload: dict):
-        return self._post_with_bearer(ACCOUNT_REQUESTS_URL, payload, token=self._get_bearer_token())
+        return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload)
 
     def test_without_wizard_block_response_and_email_unchanged(self):
         with patch("ee.api.agentic_provisioning.accounts.send_provisioning_welcome") as mock_email:
@@ -67,6 +67,13 @@ class TestAccountRequestsWizardBlock(ProvisioningTestBase):
         args, kwargs = mock_email.delay.call_args
         assert len(args) == 3
         assert kwargs == {}
+
+        user = User.objects.get(email="plain@example.com")
+        team = user.teams.get()
+        assert user.onboarding_skipped_reason == OnboardingSkippedReason.PROVISIONED
+        assert user.onboarding_skipped_at is not None
+        assert user.onboarding_skipped_organization_id == team.organization_id
+        assert team.completed_snippet_onboarding is True
 
     def test_bundled_happy_path_runs_wizard_then_emails(self):
         grant = self._grant("drop@example.com")

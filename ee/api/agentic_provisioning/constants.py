@@ -21,6 +21,18 @@ CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
 CIMD_DOMAIN_RATE_LIMIT_MAX = 5
 CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
 
+# The client registration endpoint dereferences a caller-supplied URL synchronously, so it is
+# capped per client_id on top of the per-IP and per-domain CIMD limits. Generous enough for a
+# partner iterating on a broken metadata document, low enough that it is not an amplifier.
+CLIENT_REGISTRATION_RATE_LIMIT_PREFIX = "provisioning_client_registration:"
+CLIENT_REGISTRATION_RATE_LIMIT_MAX = 30
+CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS = 3600
+# Ceiling across every client_id one address checks, so registering a pile of clients does not
+# multiply the per-client budget into an unbounded number of synchronous outbound fetches.
+# Well above the per-client limit, since one address legitimately operating several partners
+# should still be able to spend a full budget on each.
+CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX = 120
+
 PARTNER_RATE_LIMIT_PREFIX = "provisioning_partner_rate:"
 PARTNER_RATE_LIMIT_WINDOW_SECONDS = 3600
 PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {

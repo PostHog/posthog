@@ -336,6 +336,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
     },
+    "OAuthApplication": {
+        "_provisioning_config": "provisioning config",
+    },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
         "sso_enforcement": "SSO enforcement",
@@ -418,6 +421,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     {
         "scope": "User",
         "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Staff-only email sending suspension flips: the acting staff user must not leak into the
+        # org activity log. The customer is told via email and in-app notification instead.
+        "scope": "Team",
+        "activities": ["email_sending_suspended", "email_sending_unsuspended"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -755,7 +766,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Secrets — never diff these, even masked.
         "client_secret",
         "hash_client_secret",
-        "provisioning_signing_secret",
         # Reverse token relations can hold tens of thousands of rows; reading
         # through them in `changes_between` would scan the token tables.
         "oauthaccesstoken",

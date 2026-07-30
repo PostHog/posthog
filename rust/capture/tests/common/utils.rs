@@ -179,9 +179,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_ingestion_warnings_enabled: false,
     capture_ingestion_warnings_kafka_queue_mib: 16,
     capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
-    capture_ingestion_warnings_kafka_topic: None,
-    capture_ingestion_warnings_kafka_hosts: None,
-    capture_ingestion_warnings_kafka_tls: None,
+    capture_ingestion_warnings_kafka_topic: String::new(),
+    capture_ingestion_warnings_kafka_hosts: String::new(),
+    capture_ingestion_warnings_kafka_tls: false,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every
@@ -258,8 +258,11 @@ impl ServerHandle {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
         config.capture_ingestion_warnings_enabled = true;
-        config.capture_ingestion_warnings_kafka_topic =
-            Some(warnings_topic.topic_name().to_string());
+        // The emitter reads only its own dedicated config now (no v0 KAFKA_*
+        // fallback), so point it at the same ephemeral broker as the main sink.
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());
         Self::for_config_with_sink_env(config, sink_env).await
     }

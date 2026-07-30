@@ -108,6 +108,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
+    '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
     '/models/dags': ['Models', 'models'],
@@ -360,6 +361,7 @@ export const productRedirects: Record<
             : '/customer_analytics/dashboard'
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
+    '/data-warehouse': () => urls.sources(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
@@ -540,6 +542,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_warehouse',
         description: 'Review and manage governed metrics, certifications, and relationships for your data.',
     },
+    DataCatalogMetric: { projectBased: true, name: 'Metric' },
     DataOps: {
         name: 'Data ops',
         projectBased: true,
@@ -992,6 +995,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+    dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
     dataOps: (tab?: string, dagId?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
@@ -1796,8 +1800,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
         flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
+        tags: ['alpha'],
         sceneKey: 'DataCatalog',
-        sceneKeys: ['DataCatalog'],
+        sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },
     {
         path: 'Data warehouse',

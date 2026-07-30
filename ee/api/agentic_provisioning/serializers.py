@@ -15,6 +15,8 @@ from django.utils.dateparse import parse_datetime
 
 from rest_framework import serializers
 
+from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
+
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.credentials import validate_label_prefix
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
@@ -72,7 +74,7 @@ class AccountRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=dict,
-        help_text="Partner configuration: region (US/EU), organization_name, team_id, wizard block.",
+        help_text="Partner configuration: region (US/EU), organization_name, wizard block.",
     )
     code_challenge = serializers.CharField(
         required=False,
@@ -277,4 +279,43 @@ class DeepLinkSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs["purpose"] = attrs.get("purpose") or "dashboard"
+        return attrs
+
+
+class ClientRegistrationSerializer(serializers.Serializer):
+    """POST /provisioning/client_registration body."""
+
+    client_id = serializers.CharField(
+        help_text=(
+            "The client_id to register and diagnose. For a CIMD client this is the https URL of "
+            "its own metadata document, which is what gets fetched."
+        ),
+    )
+    client_assertion = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default="",
+        help_text=(
+            "Optional private_key_jwt assertion to verify end to end, so a partner can confirm "
+            "its signing setup before relying on it. Verifying consumes the assertion's jti, so "
+            "send one minted for this check rather than reusing it afterwards."
+        ),
+    )
+    client_assertion_type = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        default="",
+        help_text=("Must be urn:ietf:params:oauth:client-assertion-type:jwt-bearer when client_assertion is sent."),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs["client_assertion"] = attrs.get("client_assertion") or ""
+        attrs["client_assertion_type"] = attrs.get("client_assertion_type") or ""
+        if attrs["client_assertion"] and attrs["client_assertion_type"] != CLIENT_ASSERTION_TYPE_JWT_BEARER:
+            raise ProvisioningError(
+                "invalid_request",
+                f"client_assertion_type must be {CLIENT_ASSERTION_TYPE_JWT_BEARER}",
+            )
         return attrs

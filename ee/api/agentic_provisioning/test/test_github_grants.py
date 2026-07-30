@@ -10,7 +10,7 @@ from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning import github_grants
 from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
 
 ACCESS_TOKEN = "gho_secret_user_token"
 
@@ -60,15 +60,12 @@ REPOSITORIES_RESPONSE = _github_response(
 
 
 class TestGitHubGrants(ProvisioningTestBase):
-    def setUp(self):
-        super().setUp()
-        self.bearer = self._get_bearer_token()
-
     def _post_grants(self, body: dict):
-        return self._post_with_bearer("/api/agentic/provisioning/github/grants", body, token=self.bearer)
+        return self._post_with_client_secret("/api/agentic/provisioning/github/grants", body)
 
     def _get_grants(self, url: str):
-        return self._get_with_bearer(url, self.bearer)
+        # A GET has no body to carry the credentials, so these endpoints need Basic auth.
+        return self._get_api(url, HTTP_AUTHORIZATION=self._basic_auth_header())
 
     def _create_grant_via_api(self):
         with (
@@ -151,9 +148,8 @@ class TestGitHubGrants(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://pkce.example.com",
             algorithm="RS256",
-            provisioning_auth_method="pkce",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(active=True, can_create_accounts=True),
         )
         response = self.client.post(
             "/api/agentic/provisioning/github/grants",
@@ -202,14 +198,14 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert response.status_code == 401
 
     def test_create_grant_requires_account_creation_permission(self):
-        self.partner.provisioning_can_create_accounts = False
+        self.partner.update_provisioning(can_create_accounts=False)
         self.partner.save()
         response = self._post_grants({"code": "gh_code"})
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "forbidden"
 
     def test_create_grant_partner_rate_limited(self):
-        self.partner.provisioning_rate_limit_github_grants = 1
+        self.partner.update_provisioning_rate_limits(github_grants=1)
         self.partner.save()
         first = self._create_grant_via_api()
         assert first.status_code == 200
@@ -218,8 +214,8 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert second["Retry-After"]
 
     def test_capability_refusal_does_not_spend_grant_budget(self):
-        self.partner.provisioning_rate_limit_github_grants = 1
-        self.partner.provisioning_can_create_accounts = False
+        self.partner.update_provisioning(can_create_accounts=False)
+        self.partner.update_provisioning_rate_limits(github_grants=1)
         self.partner.save()
 
         for _ in range(3):
@@ -227,7 +223,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             assert refused.status_code == 403
             assert refused.json()["error"]["code"] == "forbidden"
 
-        self.partner.provisioning_can_create_accounts = True
+        self.partner.update_provisioning(can_create_accounts=True)
         self.partner.save()
         assert self._create_grant_via_api().status_code == 200
 
@@ -261,18 +257,22 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "grant_not_found"
 
-    def _create_other_partner(self) -> OAuthApplication:
+    def _create_other_partner(
+        self, *, can_use_github_grants: bool = True, is_cimd_client: bool = False
+    ) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name="Other Partner",
+            is_cimd_client=is_cimd_client,
             client_id="other_partner_client_id",
-            client_secret="",
+            client_secret=TEST_PARTNER_CLIENT_SECRET,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://other.example.com",
             algorithm="RS256",
-            provisioning_auth_method="bearer",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_use_github_grants=can_use_github_grants
+            ),
         )
 
     def test_repositories_grant_of_other_partner_returns_404(self):
@@ -305,7 +305,6 @@ class TestGitHubGrants(ProvisioningTestBase):
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
         url = f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories"
         other_partner = self._create_other_partner()
-        other_bearer = self._request_bearer_token(partner=other_partner).json()["access_token"]
 
         def fake_github_request(method, request_url, **kwargs):
             if request_url.endswith("/user/installations"):
@@ -316,11 +315,45 @@ class TestGitHubGrants(ProvisioningTestBase):
             patch("ee.api.agentic_provisioning.throttling.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
             patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
         ):
-            foreign = self._get_with_bearer(url, other_bearer)
+            foreign = self._get_api(url, HTTP_AUTHORIZATION=self._basic_auth_header(other_partner))
             owner = self._get_grants(url)
 
         assert foreign.status_code == 404
         assert owner.status_code == 200
+
+    def test_repositories_rejects_a_partner_without_the_capability(self):
+        # A CIMD client self-registers by publishing a metadata document and becomes confidential
+        # by declaring private_key_jwt, so authenticating cannot be the only gate here. The
+        # capability is granted by an admin, and self-registration never grants it.
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        unvouched = self._create_other_partner(can_use_github_grants=False, is_cimd_client=True)
+        response = self._get_api(
+            f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories",
+            HTTP_AUTHORIZATION=self._basic_auth_header(unvouched),
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+
+    def test_repositories_allows_a_partner_granted_the_capability(self):
+        # The other half of the gate: the capability is what admits a partner, whether or not it
+        # is a CIMD client.
+        grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
+        admin_registered = self._create_other_partner(can_use_github_grants=True)
+
+        def fake_github_request(method, request_url, **kwargs):
+            if request_url.endswith("/user/installations"):
+                return INSTALLATIONS_RESPONSE
+            return REPOSITORIES_RESPONSE
+
+        with patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request):
+            response = self._get_api(
+                f"/api/agentic/provisioning/github/grants/{grant.grant_id}/repositories",
+                HTTP_AUTHORIZATION=self._basic_auth_header(admin_registered),
+            )
+        # 404 rather than 200: it authenticated and passed the gate, then failed ownership on a
+        # grant belonging to another partner, which is the next check and the correct one.
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "grant_not_found"
 
     def test_repositories_github_failure_returns_502(self):
         grant = github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")

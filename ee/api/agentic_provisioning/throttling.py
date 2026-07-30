@@ -26,6 +26,7 @@ A caller can burst up to 2x a limit across a window boundary (``limit`` at
 from __future__ import annotations
 
 import time
+from hashlib import sha256
 from typing import ClassVar, cast
 from urllib.parse import urlparse
 
@@ -46,6 +47,10 @@ from ee.api.agentic_provisioning.constants import (
     CIMD_DOMAIN_RATE_LIMIT_MAX,
     CIMD_DOMAIN_RATE_LIMIT_PREFIX,
     CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS,
+    CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX,
+    CLIENT_REGISTRATION_RATE_LIMIT_MAX,
+    CLIENT_REGISTRATION_RATE_LIMIT_PREFIX,
+    CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS,
     GITHUB_GRANT_POLL_RATE_LIMIT_MAX,
     GITHUB_GRANT_POLL_RATE_LIMIT_PREFIX,
     GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS,
@@ -89,7 +94,7 @@ def _count_partner_request(partner: OAuthApplication, endpoint: str) -> tuple[in
     if endpoint not in PARTNER_RATE_LIMIT_DEFAULTS:
         raise ValueError(f"Unknown rate limit endpoint: {endpoint}")
 
-    override = getattr(partner, f"provisioning_rate_limit_{endpoint}", None)
+    override = getattr(partner.provisioning.rate_limits, endpoint, None)
     limit = override if override is not None else PARTNER_RATE_LIMIT_DEFAULTS[endpoint]
 
     if limit <= 0:
@@ -172,11 +177,12 @@ class ResourceCreatesThrottle(PartnerRateThrottle):
     error_message = "Rate limit exceeded for this partner. Try again later."
 
     def get_partner(self, request: Request) -> OAuthApplication | None:
+        # Plain OAuth apps whose tokens reach this endpoint are not partners and carry no
+        # partner quota. Keyed on carrying provisioning config rather than on a capability or
+        # on is_provisioning_partner, so neither revoking a capability nor disabling the
+        # partner outright also un-throttles its outstanding tokens.
         partner = super().get_partner(request)
-        # provisioning_partner_type is the stable partner marker; apps without
-        # it (plain OAuth apps whose tokens reach this endpoint) are not
-        # subject to partner quotas.
-        if partner is None or not partner.provisioning_partner_type:
+        if partner is None or not partner.carries_provisioning_config:
             return None
         return partner
 
@@ -245,6 +251,48 @@ def enforce_wizard_run_user_rate_limit(user_id: int, resource_id: str = "") -> N
                 resource_id=resource_id,
                 retry_after=_window_retry_after(window_seconds),
             )
+
+
+class ClientRegistrationThrottle(BaseThrottle):
+    """Cap client_registration calls per client_id.
+
+    That endpoint performs a synchronous outbound fetch of a caller-supplied URL, so unlike
+    :class:`CIMDRegistrationThrottle` this applies whether or not the client already exists:
+    an already-registered partner re-running diagnostics is exactly the case that would
+    otherwise fetch without limit.
+
+    Counted per client_id and per address. CIMDRegistrationThrottle only screens by IP and
+    domain while a client is new, so without the second counter a caller could register a
+    stack of client_ids and then spend a full per-client budget on each of them from one
+    address, turning the per-client cap into an arbitrarily large total.
+    """
+
+    # Not a ClassVar: the per-address refusal narrows the message on the instance, the same way
+    # CIMDRegistrationThrottle distinguishes its domain limit.
+    error_message: str = "Too many registration checks for this client. Try again later."
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        client_id = request.data.get("client_id") or ""
+        if not client_id:
+            return True
+        window_index = int(time.time()) // CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS
+        key = f"{CLIENT_REGISTRATION_RATE_LIMIT_PREFIX}{sha256(client_id.encode()).hexdigest()}:{window_index}"
+        if _fixed_window_count(key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) > CLIENT_REGISTRATION_RATE_LIMIT_MAX:
+            return False
+
+        ident = self.get_ident(request)
+        if not ident:
+            return True
+        ip_key = f"{CLIENT_REGISTRATION_RATE_LIMIT_PREFIX}ip:{sha256(ident.encode()).hexdigest()}:{window_index}"
+        if _fixed_window_count(ip_key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) > (
+            CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX
+        ):
+            self.error_message = "Too many registration checks from this address. Try again later."
+            return False
+        return True
+
+    def wait(self) -> int:
+        return _window_retry_after(CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS)
 
 
 class CIMDRegistrationThrottle(BaseThrottle):
