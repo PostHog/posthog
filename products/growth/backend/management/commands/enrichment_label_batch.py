@@ -60,20 +60,30 @@ class Command(BaseCommand):
         counts: dict[str, int] = {"attempted": 0, "succeeded": 0, "skipped_existing": 0, "unknown": 0, "failures": 0}
         counts_lock = threading.Lock()
 
-        def _result_exists(fetch: OrganizationEnrichmentFetch) -> bool:
+        def _result_exists(fetch: OrganizationEnrichmentFetch, label_name: str) -> bool:
             return EnrichmentLabelResult.objects.filter(
                 organization_id=fetch.organization_id,
-                label_name=label,
+                label_name=label_name,
                 prompt_version=config.version,
                 fetch=fetch,
             ).exists()
+
+        def _live_label_name() -> str:
+            # A rename leaves content_hash alone, so the mid-run config check can't catch it. The
+            # pre-spend check and the write both read the live name, or an existing verdict under
+            # the renamed label fails to match and the fetch gets paid for twice.
+            return (
+                EnrichmentPromptConfig.objects.filter(pk=config.pk).values_list("name", flat=True).first()
+                or config.name
+            )
 
         # In-flight LLM concurrency is bounded by the pool size itself; no extra gate needed.
         def _process(fetch: OrganizationEnrichmentFetch) -> None:
             try:
                 # Re-check right before spending: another run may have computed this since the
                 # target was enumerated.
-                if _result_exists(fetch):
+                live_label = _live_label_name()
+                if _result_exists(fetch, live_label):
                     with counts_lock:
                         counts["skipped_existing"] += 1
                     return
@@ -83,16 +93,12 @@ class Command(BaseCommand):
                 # inputs snapshot inside it would double-store and bloat every row.
                 inputs = output.pop("inputs", {})
                 with transaction.atomic():
-                    # Read the current name, not the one captured at startup: a label rename
-                    # mid-run must stamp the retired result under the live name, or the next run
-                    # for the renamed label would recompute the same fetch.
-                    current_name = (
-                        EnrichmentPromptConfig.objects.filter(pk=config.pk).values_list("name", flat=True).first()
-                    )
+                    # Re-read: a rename can land while the LLM call is in flight, and stamping the
+                    # name captured before it would strand this verdict under a retired label.
                     EnrichmentLabelResult.objects.get_or_create(
                         organization_id=fetch.organization_id,
                         fetch=fetch,
-                        label_name=current_name or config.name,
+                        label_name=_live_label_name(),
                         prompt_version=config.version,
                         defaults={
                             "prompt_hash": config.content_hash,
@@ -127,7 +133,7 @@ class Command(BaseCommand):
             for fetch in latest_fetches_qs().select_related("organization").iterator():
                 if limit is not None and counts["attempted"] >= limit:
                     return
-                if _result_exists(fetch):
+                if _result_exists(fetch, label):
                     with counts_lock:
                         counts["skipped_existing"] += 1
                     continue
