@@ -590,6 +590,9 @@ SPECTACULAR_SETTINGS = {
         "EmailReputationStateEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
+        # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
+        "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
+        "NotebookSQLV2RefKindEnum": ["hogql", "local"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         # Inline-choices variant of TaskRun.Status (labels == values), shared by
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
@@ -619,6 +622,9 @@ SPECTACULAR_SETTINGS = {
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
+        # daily/weekly/monthly choice set; pin one name for both.
+        "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
         # ReviewHog findings expose the same priority set on two fields (effective_priority +
         # reviewer_priority); pin one shared name for the choice set.
         "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],

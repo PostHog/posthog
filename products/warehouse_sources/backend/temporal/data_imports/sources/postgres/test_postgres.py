@@ -23,13 +23,13 @@ from psycopg import sql
 from sshtunnel import BaseSSHTunnelForwarderError
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -798,6 +798,8 @@ class TestPostgresSourceNonRetryableErrors:
         [
             'invalid input syntax for type integer: "1.5"',
             'InvalidTextRepresentation: invalid input syntax for type integer: "1.5"',
+            'invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
+            'InvalidTextRepresentation: invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
         ],
     )
     def test_non_integer_incremental_cursor_errors_are_non_retryable(self, source, error_msg):
@@ -989,6 +991,27 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'unit "week" not supported for type interval',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'FeatureNotSupported: unit "week" not supported for type interval',
+        ],
+    )
+    def test_interval_unit_not_supported_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unsupported interval-unit error should be non-retryable: {error_msg}"
+
+    def test_interval_unit_not_supported_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'unit "week" not supported for type interval'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unsupported interval-unit error should surface an actionable message"
+        assert "interval" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
