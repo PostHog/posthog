@@ -293,17 +293,17 @@ async def new_async_producer(
     return _build_async_producer(resolved)
 
 
-def flush_all_producers(timeout: Optional[float] = None) -> None:
-    """Flush every cached sync producer.
+def flush_all_producers(timeout: Optional[float] = None) -> int:
+    """Flush every cached sync producer, returning the total still-undelivered count.
 
     Useful from management commands and other terminating contexts where the
     process is about to exit and may have produced to several topics across
-    multiple profiles.
+    multiple profiles. A non-zero return means some messages were not delivered
+    within ``timeout`` — the caller should treat that as a failure.
     """
     with _LOCK:
         producers = list(_SYNC_PRODUCERS.values())
-    for producer in producers:
-        producer.flush(timeout)
+    return sum(producer.flush(timeout) for producer in producers)
 
 
 def reset_producers() -> None:
