@@ -666,6 +666,8 @@ export namespace Schemas {
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       timings?: boolean | null;
+      /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+      typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -12774,6 +12776,31 @@ export namespace Schemas {
       Warning: 'warning',
     } as const;
 
+    /**
+     * * `not_linked` - not_linked
+     * * `name_collision` - name_collision
+     * * `no_tagged_events` - no_tagged_events
+     * * `unknown_source` - unknown_source
+     * * `missing_source` - missing_source
+     */
+    export type UtmIssueKindEnum = typeof UtmIssueKindEnum[keyof typeof UtmIssueKindEnum];
+
+
+    export const UtmIssueKindEnum = {
+      NotLinked: 'not_linked',
+      NameCollision: 'name_collision',
+      NoTaggedEvents: 'no_tagged_events',
+      UnknownSource: 'unknown_source',
+      MissingSource: 'missing_source',
+    } as const;
+
+    export interface UtmAlternativeSource {
+      /** A utm_source value found on this campaign's pageviews */
+      utm_source: string;
+      /** Number of pageview events with this utm_source */
+      event_count: number;
+    }
+
     export interface UtmIssue {
       /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
       field: string;
@@ -12782,8 +12809,22 @@ export namespace Schemas {
        * * `error` - error
        * * `warning` - warning */
       severity: UtmIssueSeverityEnum;
-      /** Human-readable description of the issue */
+      /** Which kind of UTM problem this campaign has
+       *
+       * * `not_linked` - not_linked
+       * * `name_collision` - name_collision
+       * * `no_tagged_events` - no_tagged_events
+       * * `unknown_source` - unknown_source
+       * * `missing_source` - missing_source */
+      kind: UtmIssueKindEnum;
+      /** Human-readable headline; the frontend composes richer text from the fields below */
       message: string;
+      /** utm_source values actually found on this campaign's pageviews, ordered by event count */
+      alternative_sources: UtmAlternativeSource[];
+      /** Other integrations whose campaigns share this campaign's name (name_collision only) */
+      shared_with_integrations: string[];
+      /** Pageviews that matched this campaign but carried no utm_source, on any issue kind */
+      missing_source_count: number;
     }
 
     export interface CampaignAuditResult {
@@ -16576,6 +16617,20 @@ export namespace Schemas {
 
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
+    export interface SavedQuerySuspension {
+      /** When materialization was suspended. */
+      at: string;
+      /** Error from the materialization run that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type DataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
     /**
      * * `never` - never
      * * `15min` - 15min
@@ -16733,6 +16788,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended: DataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -23337,57 +23394,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `workflow` - Workflow
-     * * `team` - Team
+     * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
-    export type EmailReputationScopeEnum = typeof EmailReputationScopeEnum[keyof typeof EmailReputationScopeEnum];
-
-
-    export const EmailReputationScopeEnum = {
-      Workflow: 'workflow',
-      Team: 'team',
-    } as const;
-
-    /**
-     * * `insufficient_data` - Insufficient Data
-     * * `healthy` - Healthy
-     * * `warning` - Warning
-     * * `critical` - Critical
-     */
-    export type EmailReputationStateEnum = typeof EmailReputationStateEnum[keyof typeof EmailReputationStateEnum];
-
-
-    export const EmailReputationStateEnum = {
-      InsufficientData: 'insufficient_data',
-      Healthy: 'healthy',
-      Warning: 'warning',
-      Critical: 'critical',
-    } as const;
-
-    /**
-     * One email deliverability reputation snapshot (per workflow or per team, per daily evaluation run).
-     */
-    export interface EmailReputationSnapshot {
-      /** 'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.
-       *
-       * * `workflow` - Workflow
-       * * `team` - Team */
-      readonly scope: EmailReputationScopeEnum;
-      /** 'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a warning threshold), or 'critical' (over a critical threshold).
-       *
-       * * `insufficient_data` - Insufficient Data
-       * * `healthy` - Healthy
-       * * `warning` - Warning
-       * * `critical` - Critical */
-      readonly state: EmailReputationStateEnum;
-      /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
+    export interface EmailSendingRates {
+      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly bounce_rate: number;
-      /** Spam complaints / emails sent over the evaluated volume (0-1). */
+      /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly complaint_rate: number;
-      /** Emails in the evaluated window: at least the target's last day of sends and at least the configured representative volume (SES-style), whichever covers more. 0 means no recent sending. */
+      /** Emails sent in the last 30 days. */
       readonly emails_sent: number;
-      /** When this snapshot was computed; one snapshot exists per target per run. */
-      readonly evaluated_at: string;
     }
 
     /**
@@ -32708,6 +32723,16 @@ export namespace Schemas {
       samples: GoalEventSample[];
       /** Caveats about the breakdown (sampling, attribution, etc.) */
       notes: string[];
+    }
+
+    export interface GoogleSearchConsoleSearchOpportunitySignalExtra {
+      page: string;
+      query: string;
+      date: string;
+      clicks: number;
+      impressions: number;
+      ctr: number;
+      position: number;
     }
 
     export interface GorgiasTicketSignalExtra {
@@ -44840,6 +44865,7 @@ export namespace Schemas {
      * * `intercom` - Intercom
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
+     * * `google_search_console` - Google Search Console
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -44893,6 +44919,7 @@ export namespace Schemas {
       Intercom: 'intercom',
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
+      GoogleSearchConsole: 'google_search_console',
     } as const;
 
     /**
@@ -48442,6 +48469,11 @@ export namespace Schemas {
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type PatchedDataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
      * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -48540,6 +48572,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -55315,6 +55349,11 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    export interface PinnedTaskIdsResponse {
+      /** Visible task IDs pinned by the requester, newest pin first. */
+      task_ids: string[];
+    }
+
     export interface PlainThreadSignalExtra {
       status: string | null;
       priority: string | null;
@@ -60315,6 +60354,7 @@ export namespace Schemas {
      * * `intercom` - intercom
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
+     * * `google_search_console` - google_search_console
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -60368,6 +60408,7 @@ export namespace Schemas {
       Intercom: 'intercom',
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
+      GoogleSearchConsole: 'google_search_console',
     } as const;
 
     /**
@@ -60392,6 +60433,7 @@ export namespace Schemas {
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression
+     * * `search_opportunity` - search_opportunity
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -60418,6 +60460,7 @@ export namespace Schemas {
       CiFlakyCheck: 'ci_flaky_check',
       CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
+      SearchOpportunity: 'search_opportunity',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -60542,7 +60585,7 @@ export namespace Schemas {
       createdDate: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -60600,7 +60643,8 @@ export namespace Schemas {
        * * `judgeme_reviews` - judgeme_reviews
        * * `intercom` - intercom
        * * `hubspot` - hubspot
-       * * `engineering_analytics` - engineering_analytics */
+       * * `engineering_analytics` - engineering_analytics
+       * * `google_search_console` - google_search_console */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -60624,7 +60668,8 @@ export namespace Schemas {
        * * `review` - review
        * * `ci_flaky_check` - ci_flaky_check
        * * `ci_broken_default_branch` - ci_broken_default_branch
-       * * `ci_duration_regression` - ci_duration_regression */
+       * * `ci_duration_regression` - ci_duration_regression
+       * * `search_opportunity` - search_opportunity */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -68570,6 +68615,18 @@ export namespace Schemas {
       runtime?: RuntimeEnum;
     }
 
+    export interface TaskPinRequest {
+      /** Whether the task should be pinned for the requester. */
+      pinned: boolean;
+    }
+
+    export interface TaskPinResponse {
+      /** Task whose pin state was updated. */
+      task_id: string;
+      /** Current pin state for the requester. */
+      pinned: boolean;
+    }
+
     /**
      * Request body for the presence beacon and beacon-leave endpoints.
      *
@@ -69832,45 +69889,26 @@ export namespace Schemas {
     }
 
     /**
-     * A workflow-scoped reputation snapshot, annotated with the workflow it belongs to.
+     * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
-    export interface WorkflowEmailReputationSnapshot {
-      /** 'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.
-       *
-       * * `workflow` - Workflow
-       * * `team` - Team */
-      readonly scope: EmailReputationScopeEnum;
-      /** 'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a warning threshold), or 'critical' (over a critical threshold).
-       *
-       * * `insufficient_data` - Insufficient Data
-       * * `healthy` - Healthy
-       * * `warning` - Warning
-       * * `critical` - Critical */
-      readonly state: EmailReputationStateEnum;
-      /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
+    export interface WorkflowEmailSendingRates {
+      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly bounce_rate: number;
-      /** Spam complaints / emails sent over the evaluated volume (0-1). */
+      /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly complaint_rate: number;
-      /** Emails in the evaluated window: at least the target's last day of sends and at least the configured representative volume (SES-style), whichever covers more. 0 means no recent sending. */
+      /** Emails sent in the last 30 days. */
       readonly emails_sent: number;
-      /** When this snapshot was computed; one snapshot exists per target per run. */
-      readonly evaluated_at: string;
-      /** The workflow this snapshot is for. */
+      /** The workflow these rates are for. */
       readonly hog_flow_id: string;
-      /**
-         * Display name of the workflow.
-         * @nullable
-         */
-      readonly hog_flow_name: string | null;
-      /** This workflow's snapshots from the last 7 days (oldest first, one per daily evaluation run), including the latest. */
-      readonly history: readonly EmailReputationSnapshot[];
+      /** Display name of the workflow; empty for unnamed workflows. */
+      readonly hog_flow_name: string;
     }
 
     export interface TeamEmailReputationResponse {
-      /** Latest project-wide email reputation snapshot across all workflows; null until first evaluated. */
-      readonly reputation: EmailReputationSnapshot | null;
-      /** Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows. */
-      readonly workflows: readonly WorkflowEmailReputationSnapshot[];
+      /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
+      readonly reputation: EmailSendingRates | null;
+      /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
+      readonly workflows: readonly WorkflowEmailSendingRates[];
       /** True while workflow email sending is suspended for this project to protect deliverability. */
       readonly email_sending_suspended: boolean;
       /**
