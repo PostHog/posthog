@@ -7,7 +7,14 @@ from django.test import SimpleTestCase, override_settings
 import requests
 from parameterized import parameterized
 
-from products.web_analytics.backend.heatmap_preflight import analyze_framing_headers, preflight_page
+from posthog.security.pinned_requests import SSRFBlockedError
+
+from products.web_analytics.backend.heatmap_preflight import (
+    PREFLIGHT_MAX_REDIRECTS,
+    PreflightResult,
+    analyze_framing_headers,
+    preflight_page,
+)
 
 APP_ORIGIN = "https://us.posthog.com"
 
@@ -68,6 +75,42 @@ class TestFramingHeaderAnalysis(SimpleTestCase):
                 "x_frame_options",
             ),
             ("header_casing_is_ignored", {"X-Frame-Options": "deny"}, "blocked", "x_frame_options"),
+            # Port is part of the origin the browser compares, so a source naming a different one
+            # does not permit the app even though the host matches.
+            (
+                "csp_non_default_port_is_a_different_origin",
+                {"content-security-policy": "frame-ancestors https://us.posthog.com:8443"},
+                "blocked",
+                "frame_ancestors",
+            ),
+            (
+                "csp_spelled_out_default_port",
+                {"content-security-policy": "frame-ancestors https://us.posthog.com:443"},
+                "allowed",
+                None,
+            ),
+            (
+                "csp_wildcard_port",
+                {"content-security-policy": "frame-ancestors https://us.posthog.com:*"},
+                "allowed",
+                None,
+            ),
+            # A scheme-source permits every origin on that scheme, so reading it as a hostname is
+            # the false alarm that tells a customer their site blocks us when it doesn't.
+            (
+                "csp_scheme_source",
+                {"content-security-policy": "frame-ancestors https:"},
+                "allowed",
+                None,
+            ),
+            # Several policies each apply on their own, so the strictest decides. requests joins
+            # repeated headers with a comma exactly like a multi-policy header value.
+            (
+                "csp_strictest_of_several_policies_wins",
+                {"content-security-policy": "frame-ancestors *, frame-ancestors 'none'"},
+                "blocked",
+                "frame_ancestors",
+            ),
         ]
     )
     def test_framing_verdict(self, _name, headers, expected_framing, expected_blocked_by):
@@ -107,16 +150,53 @@ class TestPreflightPage(SimpleTestCase):
         assert result.body_excerpt == "local_rate_limited"
         self.mock_cache.set.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("absolute_location", "https://www.example.com/final", "https://www.example.com/final"),
+            ("relative_location", "/final", "https://example.com/final"),
+        ]
+    )
     @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
-    def test_redirect_is_inconclusive_rather_than_guessed(self, mock_session):
-        mock_session.return_value.__enter__.return_value.request.return_value = self._response(
-            301, {"location": "https://elsewhere.example"}
-        )
+    def test_the_verdict_comes_from_the_page_at_the_end_of_the_chain(self, _name, location, expected_hop, mock_session):
+        # http->https, apex->www and trailing-slash redirects are how a healthy public page
+        # normally answers. An iframe follows them, so stopping at the 3xx and reporting it would
+        # accuse the customer's host of failing when nothing is wrong.
+        request = mock_session.return_value.__enter__.return_value.request
+        request.side_effect = [
+            self._response(301, {"location": location}),
+            self._response(200, {"x-frame-options": "DENY"}),
+        ]
 
         result = preflight_page("https://example.com/page")
 
-        assert result.framing == "unknown"
-        assert result.http_status == 301
+        assert result == PreflightResult("blocked", "x_frame_options", 200, None)
+        # Every hop re-enters pinned_session, which is what validates and pins each target.
+        assert [call.args[0] for call in mock_session.call_args_list] == ["https://example.com/page", expected_hop]
+
+    @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
+    def test_a_chain_that_never_settles_reports_no_status(self, mock_session):
+        request = mock_session.return_value.__enter__.return_value.request
+        request.side_effect = lambda *args, **kwargs: self._response(302, {"location": "https://example.com/again"})
+
+        result = preflight_page("https://example.com/page")
+
+        # No status, because the UI reads one as the host's answer about the page and a loop never
+        # produced a page.
+        assert result == PreflightResult("unknown", None, None, None)
+        assert request.call_count == PREFLIGHT_MAX_REDIRECTS + 1
+
+    @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
+    def test_a_redirect_into_a_blocked_address_is_not_followed(self, mock_session):
+        # The first hop is a public URL that passes validation; the second points inside. Validating
+        # per hop is the only thing standing between a caller-supplied URL and an internal address.
+        mock_session.return_value.__enter__.return_value.request.return_value = self._response(
+            302, {"location": "http://169.254.169.254/latest/meta-data/"}
+        )
+        mock_session.side_effect = [mock_session.return_value, SSRFBlockedError("Private IP")]
+
+        result = preflight_page("https://example.com/page")
+
+        assert result == PreflightResult("unknown", None, None, None)
 
     @patch("products.web_analytics.backend.heatmap_preflight.pinned_session")
     def test_unreachable_host_is_a_verdict_not_an_exception(self, mock_session):

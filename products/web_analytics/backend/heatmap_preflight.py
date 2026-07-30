@@ -3,7 +3,7 @@ import time
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urljoin, urlsplit
 
 from django.conf import settings
 from django.core.cache import cache
@@ -26,8 +26,12 @@ PREFLIGHT_TOTAL_BUDGET_SECONDS = 15.0
 PREFLIGHT_MAX_BODY_BYTES = 64 * 1024
 BODY_EXCERPT_MAX_CHARS = 200
 PREFLIGHT_CACHE_TTL_SECONDS = 300
+PREFLIGHT_MAX_REDIRECTS = 5
 
 _FRAME_ANCESTORS_RE = re.compile(r"(?:^|;)\s*frame-ancestors\s+([^;]+)", re.IGNORECASE)
+_SCHEME_SOURCE_RE = re.compile(r"^[a-z][a-z0-9+.\-]*:$")
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 @dataclass(frozen=True)
@@ -38,13 +42,27 @@ class PreflightResult:
     body_excerpt: str | None
 
 
-def _origin_parts(origin: str) -> tuple[str, str]:
+# Carries no status on purpose: the UI reads a status as the host's own answer about the page, and
+# a status from a hop that never resolved into a page is not that.
+_INCONCLUSIVE = PreflightResult("unknown", None, None, None)
+
+
+def _effective_port(parts: SplitResult, scheme: str) -> int | None:
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    return port or _DEFAULT_PORTS.get(scheme)
+
+
+def _origin_parts(origin: str) -> tuple[str, str, int | None]:
     parts = urlsplit(origin)
-    return parts.scheme.lower(), (parts.hostname or "").lower()
+    scheme = parts.scheme.lower()
+    return scheme, (parts.hostname or "").lower(), _effective_port(parts, scheme)
 
 
-def _source_matches_origin(source: str, scheme: str, host: str) -> bool:
-    source = source.strip()
+def _source_matches_origin(source: str, scheme: str, host: str, port: int | None) -> bool:
+    source = source.strip().lower()
     # Keyword sources are quoted ('none', 'self', 'unsafe-inline'). None of them can name the app,
     # which is always a different origin than the customer's site.
     if source.startswith("'") or source.startswith('"'):
@@ -53,13 +71,22 @@ def _source_matches_origin(source: str, scheme: str, host: str) -> bool:
         return False
     if source == "*":
         return True
+    # A scheme-source ("https:") allows every origin on that scheme.
+    if _SCHEME_SOURCE_RE.match(source):
+        return source[:-1] == scheme
 
-    candidate = urlsplit(source if "//" in source else f"//{source}")
+    any_port = source.endswith(":*")
+    authority = source[:-2] if any_port else source
+    candidate = urlsplit(authority if "//" in authority else f"//{authority}")
     source_host = (candidate.hostname or "").lower()
     source_scheme = (candidate.scheme or "").lower()
     if not source_host:
         return False
     if source_scheme and source_scheme != scheme:
+        return False
+    # A source with no port means that scheme's default port, so one naming a different port is a
+    # different origin to the browser even when the host matches.
+    if not any_port and _effective_port(candidate, source_scheme or scheme) != port:
         return False
 
     if source_host.startswith("*."):
@@ -67,25 +94,32 @@ def _source_matches_origin(source: str, scheme: str, host: str) -> bool:
     return host == source_host
 
 
-def _frame_ancestors_verdict(directive: str, scheme: str, host: str) -> Framing:
+def _frame_ancestors_verdict(directive: str, scheme: str, host: str, port: int | None) -> Framing:
     sources = directive.split()
     if not sources:
         return "unknown"
-    return "allowed" if any(_source_matches_origin(s, scheme, host) for s in sources) else "blocked"
+    return "allowed" if any(_source_matches_origin(s, scheme, host, port) for s in sources) else "blocked"
 
 
 def analyze_framing_headers(headers: dict[str, str]) -> tuple[Framing, BlockedBy | None]:
     """Decide whether the PostHog app may embed a page in an iframe, from its response headers."""
-    scheme, host = _origin_parts(settings.SITE_URL)
+    scheme, host, port = _origin_parts(settings.SITE_URL)
     lowered = {k.lower(): v for k, v in headers.items()}
 
-    # CSP frame-ancestors supersedes X-Frame-Options wherever both are present.
+    # CSP frame-ancestors supersedes X-Frame-Options wherever both are present. A response can carry
+    # more than one policy, either comma-separated or as repeated headers that requests joins the
+    # same way, and each applies on its own, so any one of them blocking is decisive.
     csp = lowered.get("content-security-policy")
     if csp:
-        match = _FRAME_ANCESTORS_RE.search(csp)
-        if match:
-            verdict = _frame_ancestors_verdict(match.group(1), scheme, host)
-            return verdict, "frame_ancestors" if verdict == "blocked" else None
+        verdicts: list[Framing] = []
+        for policy in csp.split(","):
+            match = _FRAME_ANCESTORS_RE.search(policy)
+            if match:
+                verdicts.append(_frame_ancestors_verdict(match.group(1), scheme, host, port))
+        if "blocked" in verdicts:
+            return "blocked", "frame_ancestors"
+        if verdicts:
+            return ("allowed", None) if all(v == "allowed" for v in verdicts) else ("unknown", None)
 
     # Neither DENY nor SAMEORIGIN can ever name the app. ALLOW-FROM is not handled because no
     # browser we support ever implemented it, and an unrecognized value is ignored by browsers,
@@ -97,12 +131,11 @@ def analyze_framing_headers(headers: dict[str, str]) -> tuple[Framing, BlockedBy
     return "allowed", None
 
 
-def _body_excerpt(response: requests.Response) -> str | None:
+def _body_excerpt(response: requests.Response, deadline: float) -> str | None:
     # The read timeout bounds the gap between chunks, not the total transfer, so a host that
     # trickles bytes indefinitely would otherwise hold a web worker and grow unboundedly.
     chunks: list[bytes] = []
     total = 0
-    deadline = time.monotonic() + PREFLIGHT_TOTAL_BUDGET_SECONDS
     for chunk in response.iter_content(chunk_size=4096):
         chunks.append(chunk)
         total += len(chunk)
@@ -113,31 +146,53 @@ def _body_excerpt(response: requests.Response) -> str | None:
 
 
 def _probe(url: str) -> PreflightResult:
-    try:
-        with pinned_session(url) as session:
-            res = session.request(
-                "GET",
-                url,
-                timeout=(PREFLIGHT_CONNECT_TIMEOUT_SECONDS, PREFLIGHT_READ_TIMEOUT_SECONDS),
-                allow_redirects=False,
-                stream=True,
-            )
-            if not 200 <= res.status_code < 300:
-                # A redirect hides the real page's headers, and on any other non-2xx the headers
-                # belong to the host's error response rather than to the page, so they say nothing
-                # about framing either way. The status is the answer worth reporting.
-                return PreflightResult("unknown", None, res.status_code, _body_excerpt(res))
+    # One budget for the whole chain, so following a redirect can't multiply how long a web worker
+    # is held.
+    deadline = time.monotonic() + PREFLIGHT_TOTAL_BUDGET_SECONDS
+    current = url
 
-            framing, blocked_by = analyze_framing_headers(dict(res.headers))
-            return PreflightResult(framing, blocked_by, res.status_code, None)
-    except SSRFBlockedError as e:
-        logger.info("heatmap_preflight.url_blocked", reason=str(e))
-        return PreflightResult("unknown", None, None, None)
-    except requests.RequestException:
-        # Deliberately not logging the exception or the URL: both routinely echo the full target,
-        # and a customer-supplied URL can carry credentials or a signed token.
-        logger.info("heatmap_preflight.request_failed")
-        return PreflightResult("unknown", None, None, None)
+    for _ in range(PREFLIGHT_MAX_REDIRECTS + 1):
+        read_timeout = min(PREFLIGHT_READ_TIMEOUT_SECONDS, deadline - time.monotonic())
+        if read_timeout <= 0:
+            return _INCONCLUSIVE
+        try:
+            with pinned_session(current) as session:
+                res = session.request(
+                    "GET",
+                    current,
+                    timeout=(PREFLIGHT_CONNECT_TIMEOUT_SECONDS, read_timeout),
+                    allow_redirects=False,
+                    stream=True,
+                )
+                if 200 <= res.status_code < 300:
+                    framing, blocked_by = analyze_framing_headers(dict(res.headers))
+                    return PreflightResult(framing, blocked_by, res.status_code, None)
+
+                if res.status_code in _REDIRECT_STATUSES:
+                    location = res.headers.get("location")
+                    if not location:
+                        return _INCONCLUSIVE
+                    # An iframe follows redirects too, so the page that decides framing is the one
+                    # at the end of the chain, and reporting the 3xx instead would accuse a healthy
+                    # host of failing. Re-entering pinned_session per hop is what keeps every target
+                    # SSRF-validated and pinned to the address it was validated against.
+                    current = strip_userinfo(urljoin(current, location))
+                    continue
+
+                # The headers on any other non-2xx belong to the host's error response rather than
+                # to the page, so they say nothing about framing either way. The status is the
+                # answer worth reporting.
+                return PreflightResult("unknown", None, res.status_code, _body_excerpt(res, deadline))
+        except SSRFBlockedError as e:
+            logger.info("heatmap_preflight.url_blocked", reason=str(e))
+            return _INCONCLUSIVE
+        except requests.RequestException:
+            # Deliberately not logging the exception or the URL: both routinely echo the full target,
+            # and a customer-supplied URL can carry credentials or a signed token.
+            logger.info("heatmap_preflight.request_failed")
+            return _INCONCLUSIVE
+
+    return _INCONCLUSIVE
 
 
 def preflight_page(url: str) -> PreflightResult:

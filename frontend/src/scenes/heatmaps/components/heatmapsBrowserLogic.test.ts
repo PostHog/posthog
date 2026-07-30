@@ -65,6 +65,9 @@ describe('heatmapsBrowserLogic', () => {
         it.each([
             ['a healthy page', base],
             ['an inconclusive probe', { ...base, framing: 'unknown', http_status: null }],
+            // A redirect is how a healthy page normally answers, and the browser follows it, so it
+            // must never be reported as the customer's host refusing us.
+            ['a redirect', { ...base, framing: 'unknown', http_status: 301 }],
         ] as const)('stays silent for %s', (_name, preflight) => {
             expect(preflightBannerMessage(preflight)).toBeNull()
         })

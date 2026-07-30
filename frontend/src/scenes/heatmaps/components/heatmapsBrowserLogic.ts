@@ -68,7 +68,9 @@ export function preflightBannerMessage(preflight: PagePreflight | null): string 
     }
     const host = hostOf(preflight.url)
 
-    if (preflight.http_status !== null && (preflight.http_status < 200 || preflight.http_status >= 300)) {
+    // Only a 4xx or 5xx is the host refusing. Anything else it answered with, the browser handles
+    // on its own, and blaming the customer's CDN for it sends them after a problem they don't have.
+    if (preflight.http_status !== null && preflight.http_status >= 400) {
         const said = preflight.body_excerpt ? ` It said: "${preflight.body_excerpt}".` : ''
         return (
             `${host} returned ${preflight.http_status} when we tried to load this page.${said} ` +
