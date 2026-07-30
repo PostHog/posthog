@@ -206,7 +206,7 @@ describe('rasterizeRecordingActivity', () => {
         })
 
         it('re-throws retryable RasterizationError as plain Error (Temporal retries)', async () => {
-            const error = new RasterizationError('browser crashed', true, 'PLAYBACK_ERROR')
+            const error = new RasterizationError('browser crashed', true, 'TIMEOUT')
             mockedRasterizeRecording.mockRejectedValue(error)
 
             const rejection = rasterizeRecordingActivity(baseInput())
