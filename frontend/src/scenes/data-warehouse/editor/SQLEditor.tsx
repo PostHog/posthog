@@ -14,6 +14,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { urls } from 'scenes/urls'
 
 import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
@@ -77,6 +78,8 @@ interface SQLEditorProps {
     queryPaneDefaultHeight?: number
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
+    /** Embedded mode: link to open the current query in the full SQL editor. */
+    openInEditorUrl?: string
 }
 
 export function SQLEditor({
@@ -96,6 +99,7 @@ export function SQLEditor({
     onShareTab,
     queryPaneDefaultHeight,
     autoFocusQueryPane,
+    openInEditorUrl,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -269,6 +273,7 @@ export function SQLEditor({
                                                             cancelQueryLoading={cancelQueryLoading}
                                                             onShareTab={onShareTab}
                                                             autoFocusQueryPane={autoFocusQueryPane}
+                                                            openInEditorUrl={openInEditorUrl}
                                                         />
                                                     </div>
                                                 </div>
@@ -305,12 +310,34 @@ function ViewLoadingOverlay(): JSX.Element | null {
 }
 
 function MaterializationModal({ tabId }: { tabId: string }): JSX.Element {
-    const { materializationModalOpen, materializationModalView, viewLoading } = useValues(sqlEditorLogic)
+    const { materializationModalOpen, materializationModalView, viewLoading, upstream } = useValues(sqlEditorLogic)
     const { closeMaterializationModal } = useActions(sqlEditorLogic)
+
+    const modalNodeId = materializationModalView?.is_materialized
+        ? upstream?.nodes.find((n) => n.saved_query_id === materializationModalView.id)?.id
+        : undefined
 
     return (
         <LemonModal
-            title={materializationModalView ? `Materialize ${materializationModalView.name}` : 'Materialize view'}
+            title={
+                <div className="flex items-center gap-4">
+                    <span>
+                        {materializationModalView
+                            ? `Materialization · ${materializationModalView.name}`
+                            : 'Materialization'}
+                    </span>
+                    {modalNodeId && (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            to={urls.nodeDetail(modalNodeId)}
+                            data-attr="materialization-view-model-page"
+                        >
+                            View model page
+                        </LemonButton>
+                    )}
+                </div>
+            }
             isOpen={materializationModalOpen}
             onClose={closeMaterializationModal}
             width={960}

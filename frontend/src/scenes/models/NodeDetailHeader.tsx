@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -13,6 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
 
+import { NODE_TYPE_TAG_SETTINGS } from './nodeDetailConstants'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 function SaveDiscardActions({
@@ -74,9 +75,12 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         savedQuery?.user_access_level
     )
 
+    const tagSettings = node ? NODE_TYPE_TAG_SETTINGS[node.type] : null
+
     return (
         <SceneTitleSection
             name={node?.name}
+            nameSuffix={tagSettings ? <LemonTag type={tagSettings.type}>{tagSettings.label}</LemonTag> : undefined}
             description={node?.description}
             resourceType={{ type: 'sql_editor' }}
             canEdit={canEdit}

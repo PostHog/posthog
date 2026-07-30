@@ -70,15 +70,10 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                 {targetView ? (
                     <MaterializationStatusPanel viewId={targetView.id} />
                 ) : (
-                    <div>
-                        <div className="flex flex-row items-center gap-2">
-                            <h3 className="mb-0">Materialization</h3>
-                            <LemonTag type="warning">BETA</LemonTag>
-                        </div>
-                        <p className="text-xs">
-                            Materialized views are a way to pre-compute data in your data warehouse. This allows you to
-                            run queries faster and more efficiently.
-                            <br />
+                    <div className="flex flex-col gap-2">
+                        <p className="text-sm mb-0">
+                            Materialized views pre-compute results on a schedule, so queries read from a stored table
+                            instead of running the full query each time.{' '}
                             <Link
                                 data-attr="materializing-help"
                                 to="https://posthog.com/docs/data-warehouse/views#materializing-and-scheduling-a-view"
@@ -86,16 +81,17 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                             >
                                 Learn more about materialization
                             </Link>
-                            .
                         </p>
-                        <LemonButton
-                            size="small"
-                            onClick={() => saveAsView({ materializeAfterSave: true })}
-                            type="primary"
-                            loading={updatingDataWarehouseSavedQuery}
-                        >
-                            Save and materialize
-                        </LemonButton>
+                        <div>
+                            <LemonButton
+                                size="small"
+                                onClick={() => saveAsView({ materializeAfterSave: true })}
+                                type="primary"
+                                loading={updatingDataWarehouseSavedQuery}
+                            >
+                                Save and materialize
+                            </LemonButton>
+                        </div>
                     </div>
                 )}
                 {!isLineageDependencyViewEnabled && (

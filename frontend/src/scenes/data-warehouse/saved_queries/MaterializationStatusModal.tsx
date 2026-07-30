@@ -12,8 +12,8 @@ interface MaterializationStatusModalProps {
     kind?: MaterializationStatusModalKind
 }
 
-function buildTitle(kind: MaterializationStatusModalKind, viewName: string | undefined): string {
-    return viewName ? `Materialize ${kind} ${viewName}` : `Materialize ${kind}`
+function buildTitle(viewName: string | undefined): string {
+    return viewName ? `Materialization · ${viewName}` : 'Materialization'
 }
 
 export function MaterializationStatusModal({
@@ -24,7 +24,7 @@ export function MaterializationStatusModal({
     kind = 'view',
 }: MaterializationStatusModalProps): JSX.Element {
     return (
-        <LemonModal title={buildTitle(kind, viewName)} isOpen={isOpen} onClose={onClose} width={960}>
+        <LemonModal title={buildTitle(viewName)} isOpen={isOpen} onClose={onClose} width={960}>
             <div className="max-h-[75vh] overflow-auto">
                 {viewId ? (
                     <MaterializationStatusPanel viewId={viewId} kind={kind} />

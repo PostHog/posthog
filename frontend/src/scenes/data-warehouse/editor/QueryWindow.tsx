@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useCallback, useMemo, useRef } from 'react'
 
-import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose, IconExternal } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -58,6 +58,8 @@ interface QueryWindowProps {
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
+    /** Embedded mode: link to open the current query in the full SQL editor. */
+    openInEditorUrl?: string
 }
 
 export function QueryWindow({
@@ -76,6 +78,7 @@ export function QueryWindow({
     cancelQueryLoading,
     onShareTab,
     autoFocusQueryPane,
+    openInEditorUrl,
 }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogql-editor-${tabId}`
     const logic = sqlEditorLogic({ tabId })
@@ -287,6 +290,16 @@ export function QueryWindow({
                     </div>
 
                     <div className="ml-auto flex items-center gap-2">
+                        {openInEditorUrl && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconExternal />}
+                                to={openInEditorUrl}
+                                tooltip="Open in SQL editor"
+                                data-attr="sql-editor-open-full-editor"
+                            />
+                        )}
                         <FixErrorButton type="secondary" size="small" source="action-bar" />
                         {editorSettingsItems.length > 0 ? (
                             <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">

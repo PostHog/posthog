@@ -6,6 +6,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { SQLEditor } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -55,7 +56,12 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
 
     return (
         <ResizableSQLEditorContainer>
-            <SQLEditor tabId={sqlEditorTabId} mode={SQLEditorMode.Embedded} />
+            <SQLEditor
+                tabId={sqlEditorTabId}
+                mode={SQLEditorMode.Embedded}
+                defaultShowDatabaseTree={false}
+                openInEditorUrl={urls.sqlEditor({ view_id: savedQuery.id })}
+            />
         </ResizableSQLEditorContainer>
     )
 }
