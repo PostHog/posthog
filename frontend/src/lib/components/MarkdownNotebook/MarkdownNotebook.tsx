@@ -65,6 +65,7 @@ import {
     isGroupedBlockquoteNode,
     isPromptComponentNode,
     isTextBlockNode,
+    isTextGroupNode,
     makeEmptyNotebookTitle,
     removeNotebookNodesWithRefCleanup,
     stripNotebookRefMarksFromNodes,
@@ -77,6 +78,7 @@ import {
     textBlocksShareContinuationStyle,
     updateNotebookCodeBlockText,
     withoutLeadingEmptyTitleGroup,
+    withPreservedGroupStart,
     writeSystemClipboardText,
 } from './documentModel'
 import {
@@ -1663,7 +1665,9 @@ function MarkdownNotebookEditor({
 
         commitDocument({
             ...currentDocument,
-            nodes: nodes.flatMap((currentNode) => (currentNode.id === node.id ? replacementNodes : [currentNode])),
+            nodes: nodes.flatMap((currentNode) =>
+                currentNode.id === node.id ? withPreservedGroupStart(node, replacementNodes) : [currentNode]
+            ),
         })
         return true
     }, [commitDocument, insertMenu?.nodeId])
@@ -2622,7 +2626,7 @@ function MarkdownNotebookEditor({
 
     const replaceNode = useCallback(
         (nodeId: string, nextNode: NotebookBlockNode): void => {
-            updateNode(nodeId, () => nextNode)
+            updateNode(nodeId, (previousNode) => withPreservedGroupStart(previousNode, [nextNode])[0])
         },
         [updateNode]
     )
@@ -2673,7 +2677,7 @@ function MarkdownNotebookEditor({
                         return [node]
                     }
                     didReplace = true
-                    return replacementNodes
+                    return withPreservedGroupStart(node, replacementNodes)
                 }),
             })
         },
@@ -4119,7 +4123,11 @@ function MarkdownNotebookEditor({
             commitDocument(
                 {
                     ...currentDocument,
-                    nodes: currentDocument.nodes.filter((_, index) => index !== nodeIndex),
+                    nodes: currentDocument.nodes
+                        .filter((_, index) => index !== nodeIndex)
+                        .map((node) =>
+                            node.id === menu.rejoinNodeIdOnClose ? { ...node, startsGroup: undefined } : node
+                        ),
                 },
                 { addToHistory: false }
             )
@@ -4200,12 +4208,26 @@ function MarkdownNotebookEditor({
 
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes
-        const insertedNode = makeEmptyParagraph(`boundary-${String(boundaryIndex)}`)
+        const insertedNode: NotebookBlockNode = {
+            ...makeEmptyParagraph(`boundary-${String(boundaryIndex)}`),
+            startsGroup: true,
+        }
         const clampedBoundaryIndex = Math.max(1, Math.min(boundaryIndex, nodes.length))
+        // The block that followed the boundary starts its own card too, or it would join the
+        // inserted one instead of staying with the text it was grouped with.
+        const followingNode = nodes[clampedBoundaryIndex]
+        const rejoinNodeIdOnClose =
+            followingNode && isTextGroupNode(followingNode) && !followingNode.startsGroup ? followingNode.id : undefined
 
         commitDocument({
             ...currentDocument,
-            nodes: [...nodes.slice(0, clampedBoundaryIndex), insertedNode, ...nodes.slice(clampedBoundaryIndex)],
+            nodes: [
+                ...nodes.slice(0, clampedBoundaryIndex),
+                insertedNode,
+                ...nodes
+                    .slice(clampedBoundaryIndex)
+                    .map((node) => (node.id === rejoinNodeIdOnClose ? { ...node, startsGroup: true } : node)),
+            ],
         })
         restoreSelectionRef.current = { nodeId: insertedNode.id, start: 0, end: 0 }
         onInteractionStateChange?.(true)
@@ -4216,6 +4238,7 @@ function MarkdownNotebookEditor({
             mode: 'tools',
             detached: true,
             removeNodeOnClose: true,
+            rejoinNodeIdOnClose,
         })
     }
 
