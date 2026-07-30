@@ -22,6 +22,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -79,6 +80,7 @@ def validate_hogql_query(query: HogQLQuery, team: Team, user: User) -> None:
         capture_exception(e)
         raise ValidationError({"query": "Unknown error occurred parsing the query."})
 
+    validate_supported_placeholders(ast_node)
     validate_variable_placeholders(ast_node, query.variables or {}, team)
 
     _validate_query_access(ast_node, query, team, user)
@@ -170,6 +172,43 @@ def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
             )
 
     query.variables = synced_variables or None
+
+
+class _AllPlaceholderFinder(TraversingVisitor):
+    """Collect every placeholder, not just the {variables.x} ones."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.placeholders: list[ast.Placeholder] = []
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        self.placeholders.append(node)
+
+
+def validate_supported_placeholders(node: ast.AST) -> None:
+    """Reject placeholders endpoints can't substitute, so they fail with a useful message
+    instead of leaking a resolver error like "Unable to resolve field: filters"."""
+    finder = _AllPlaceholderFinder()
+    finder.visit(node)
+
+    unsupported = sorted(
+        {
+            placeholder.field or "expression"
+            for placeholder in finder.placeholders
+            if not (placeholder.chain and placeholder.chain[0] == "variables")
+        }
+    )
+    if not unsupported:
+        return
+
+    names = ", ".join(f"{{{name}}}" for name in unsupported)
+    raise ValidationError(
+        {
+            "query": f"Endpoints don't support the {names} placeholder(s). Use {{variables.your_variable}} "
+            "and define the variable on the endpoint instead. "
+            "See https://posthog.com/docs/endpoints/variables for detail."
+        }
+    )
 
 
 def validate_variable_placeholders(node: ast.AST, variables: Optional[dict[str, HogQLVariable]], team: Team) -> None:

@@ -172,6 +172,23 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("os", response.json()["detail"])
         self.assertNotIn("event_name", response.json()["detail"])
 
+    def test_cannot_create_endpoint_with_unsupported_placeholder(self):
+        data = {
+            "name": "test_query",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE {filters}",
+            },
+        }
+
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", data, format="json")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        detail = response.json()["detail"]
+        self.assertIn("{filters}", detail)
+        self.assertIn("{variables.your_variable}", detail)
+        self.assertNotIn("Unable to resolve field", detail)
+
     def test_cannot_update_endpoint_with_undefined_variable_placeholders(self):
         create_data = {
             "name": "test_query",

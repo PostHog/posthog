@@ -265,8 +265,6 @@ export function NavTabBrowse(): JSX.Element {
 
                     <div className={cn('flex flex-col gap-px', isLayoutNavCollapsed && 'items-center')}>
                         {panelTriggerItems
-                            // Starred only joined the trigger list with customization; keep the old layout without it.
-                            .filter((item) => uiCustomizationEnabled || item.configKey !== 'starred')
                             .filter((item) => isSidebarItemShown(item.configKey))
                             .map((item) => {
                                 const isActive =
