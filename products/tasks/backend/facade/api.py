@@ -520,6 +520,31 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
 
 
+def list_sandbox_run_usage(
+    team_id: int, *, workflow_id_prefixes: Sequence[str], created_after: datetime
+) -> list[dict[str, Any]]:
+    """Task ids + token usage for the team's runs whose ``workflow_id_prefix`` starts with any prefix.
+
+    Products that brand their sandbox runs' Temporal workflow ids (via ``workflow_id_prefix`` at
+    creation) can recover everything one logical operation spawned — e.g. a ReviewHog review turn
+    summing its LLM usage — without holding run ids themselves. ``created_after`` bounds the scan
+    to the operation's window. Read-only; returns ``{"task_id": UUID, "token_usage": dict}`` rows.
+    """
+    if not workflow_id_prefixes:
+        return []
+    prefix_q = Q()
+    for prefix in workflow_id_prefixes:
+        prefix_q |= Q(state__workflow_id_prefix__startswith=prefix)
+    rows = TaskRun.objects.filter(prefix_q, team_id=team_id, created_at__gte=created_after).values_list(
+        "task_id", "state"
+    )
+    usage_rows: list[dict[str, Any]] = []
+    for task_id, state in rows:
+        token_usage = state.get("token_usage") if isinstance(state, dict) else None
+        usage_rows.append({"task_id": task_id, "token_usage": token_usage if isinstance(token_usage, dict) else {}})
+    return usage_rows
+
+
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
     return Task.objects.filter(id=task_id, team_id=team_id).exists()

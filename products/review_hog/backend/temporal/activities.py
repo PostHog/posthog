@@ -137,6 +137,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.tasks.backend.facade.api import list_sandbox_run_usage
 
 logger = logging.getLogger(__name__)
 
@@ -1249,7 +1250,49 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     )
 
 
-def _track_review_completed(input: TrackReviewCompletedInput) -> None:
+_SANDBOX_TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "total_tokens")
+
+
+def _collect_turn_sandbox_usage(input: TrackReviewCompletedInput, workflow_id: str | None) -> dict:
+    """The turn's sandbox task ids and summed token usage.
+
+    Every sandbox run a turn spawns carries a Temporal workflow id branded with the review
+    workflow's id (`_sandbox_workflow_id_prefix`), so prefix + the turn's start time recovers
+    exactly this turn's runs: Temporal allows one running turn per PR, and matching on the `:` / `/`
+    separators keeps PR 12's prefix from also matching PR 123. `sandbox_task_ids` joins the event to
+    `$ai_generation` (which carries `task_id`) for per-turn dollar cost; the token sums serve
+    token-level views without a join. Best-effort: a lookup failure nulls these properties, never
+    the capture.
+    """
+    absent: dict = {"sandbox_task_ids": None, "sandbox_run_count": None} | {
+        f"llm_{key}": None for key in _SANDBOX_TOKEN_KEYS
+    }
+    if not workflow_id:
+        return absent
+    try:
+        base = workflow_id.lower()
+        runs = list_sandbox_run_usage(
+            input.team_id,
+            workflow_id_prefixes=[f"{base}:", f"{base}/"],
+            created_after=datetime.datetime.fromisoformat(input.workflow_started_at),
+        )
+        totals = dict.fromkeys(_SANDBOX_TOKEN_KEYS, 0)
+        task_ids: set[str] = set()
+        for run in runs:
+            task_ids.add(str(run["task_id"]))
+            for key in _SANDBOX_TOKEN_KEYS:
+                value = run["token_usage"].get(key)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    totals[key] += value
+        return {"sandbox_task_ids": sorted(task_ids), "sandbox_run_count": len(runs)} | {
+            f"llm_{key}": totals[key] for key in _SANDBOX_TOKEN_KEYS
+        }
+    except Exception:
+        logger.exception("Failed to collect sandbox usage for report %s; capturing without it", input.report_id)
+        return absent
+
+
+def _track_review_completed(input: TrackReviewCompletedInput, workflow_id: str | None) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
     snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
@@ -1290,16 +1333,17 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             # the honest denominator for per-line cost.
             "pr_reviewable_additions": count_reviewable_additions(snapshot.pr_files) if snapshot is not None else None,
             "duration_seconds": duration_seconds,
+            **_collect_turn_sandbox_usage(input, workflow_id),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,
     )
 
 
-def _track_review_completed_safe(input: TrackReviewCompletedInput) -> None:
+def _track_review_completed_safe(input: TrackReviewCompletedInput, workflow_id: str | None) -> None:
     # Analytics must never fail a review: any load/capture failure is logged, not raised.
     try:
-        _track_review_completed(input)
+        _track_review_completed(input, workflow_id)
     except Exception:
         logger.exception("Failed to capture reviewhog_review_completed for report %s; continuing", input.report_id)
 
@@ -1315,7 +1359,8 @@ async def track_review_completed_activity(input: TrackReviewCompletedInput) -> N
     provide (one review fans out into many sandbox tasks). Best-effort: analytics must never fail
     a review, so any failure is logged, not raised.
     """
-    await database_sync_to_async(_track_review_completed_safe, thread_sensitive=False)(input)
+    workflow_id = activity.info().workflow_id
+    await database_sync_to_async(_track_review_completed_safe, thread_sensitive=False)(input, workflow_id)
 
 
 # --- The PR's live status comment -------------------------------------------------------------------
