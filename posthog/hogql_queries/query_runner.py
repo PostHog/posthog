@@ -282,8 +282,10 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
 
     - USER_ERROR / RATE_LIMITED / CANCELLED → SUCCESS. They reflect user input,
       abuse, or normal interaction (cancel-on-navigate-away), not platform
-      reliability. The completed event still fires with the error_category tag
-      so dashboards can slice by it.
+      reliability. CANCELLED also covers a Celery worker hitting its soft time
+      limit mid-query, which is the worker running out of budget rather than the
+      query service failing. The completed event still fires with the
+      error_category tag so dashboards can slice by it.
     - QUERY_PERFORMANCE_ERROR and unclassified exceptions → FAILURE. Timeouts
       and OOM dominate that category at scale; the user-input limits inside it
       (EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded) are a minority

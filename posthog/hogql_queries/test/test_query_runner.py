@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
@@ -758,6 +759,15 @@ class TestQueryRunner(BaseTest):
                 SloOutcome.FAILURE,
                 "error",
                 True,
+            ),
+            (
+                # A Celery worker's soft time limit firing mid-query is the worker running out of
+                # budget, not a query platform failure — no capture, no SLO failure.
+                "celery_soft_time_limit",
+                SoftTimeLimitExceeded,
+                SloOutcome.SUCCESS,
+                "cancelled",
+                False,
             ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]

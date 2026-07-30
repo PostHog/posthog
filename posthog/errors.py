@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
+from celery.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import ServerException
 
 from posthog.hogql.errors import ExposedHogQLError
@@ -226,6 +227,12 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
 
     if isinstance(e, ExposedHogQLError):
         return QueryErrorCategory.USER_ERROR
+
+    if isinstance(e, SoftTimeLimitExceeded):
+        # A Celery worker's soft time limit fires wherever the task happens to be, often blocked on
+        # the ClickHouse response socket. The worker ran out of its own budget; nothing about the
+        # query platform failed, so treat it like a cancellation rather than an error.
+        return QueryErrorCategory.CANCELLED
 
     return QueryErrorCategory.ERROR
 
