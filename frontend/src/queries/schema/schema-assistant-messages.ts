@@ -91,7 +91,7 @@ export interface HumanMessage extends BaseAssistantMessage {
     content: string
     ui_context?: MaxUIContext
     trace_id?: string
-    // ISO 8601 send time, stamped server-side. Optional for messages persisted before this field existed.
+    /** When the message was sent, as an ISO 8601 timestamp. The server stamps this if the client didn't. Absent on messages persisted before this field existed. */
     created_at?: string
 }
 

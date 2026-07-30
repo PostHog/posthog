@@ -26660,6 +26660,7 @@
                     "type": "string"
                 },
                 "created_at": {
+                    "description": "When the message was sent, as an ISO 8601 timestamp. The server stamps this if the client didn't. Absent on messages persisted before this field existed.",
                     "type": "string"
                 },
                 "id": {
