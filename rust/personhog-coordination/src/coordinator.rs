@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::str::from_utf8;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use etcd_client::{EventType, WatchStream};
 use metrics::{counter, gauge, histogram};
@@ -170,6 +171,7 @@ impl Coordinator {
     /// election immediately instead of stranding it until TTL expiry.
     /// `run` relies on that by awaiting this call to completion.
     async fn try_lead(&self, cancel: CancellationToken) -> Result<bool> {
+        let granted_at = Instant::now();
         let lease_id = self.store.grant_lease(self.config.leader_lease_ttl).await?;
 
         let acquired = match self
@@ -206,12 +208,35 @@ impl Coordinator {
         let keepalive_handle = {
             let store = Arc::clone(&self.store);
             let interval = self.config.keepalive_interval;
+            let lease_ttl = self.config.leader_lease_ttl;
             let token = keepalive_cancel.clone();
             let lease_lost = lease_lost.clone();
             tokio::spawn(async move {
-                if let Err(e) = util::run_lease_keepalive(store, lease_id, interval, token).await {
-                    tracing::error!(error = %e, "election lease keepalive failed");
-                    lease_lost.cancel();
+                // The keepalive runs as its own inner task so a panic
+                // surfaces as a JoinError here instead of silently
+                // unwinding this watcher: a leader whose keepalive died
+                // without signalling would coordinate on with no renewal
+                // until a successor is elected alongside it.
+                let inner = tokio::spawn(util::run_lease_keepalive(
+                    store,
+                    lease_id,
+                    interval,
+                    lease_ttl,
+                    granted_at,
+                    "coordinator",
+                    token.clone(),
+                ));
+                let failure = match inner.await {
+                    Ok(Ok(())) => (!token.is_cancelled())
+                        .then(|| "election lease keepalive exited unexpectedly".to_string()),
+                    Ok(Err(e)) => Some(format!("election lease keepalive failed: {e}")),
+                    Err(join_err) => Some(format!("election lease keepalive panicked: {join_err}")),
+                };
+                if let Some(reason) = failure {
+                    if !token.is_cancelled() {
+                        tracing::error!(reason, "abdicating leadership");
+                        lease_lost.cancel();
+                    }
                 }
             })
         };
@@ -483,7 +508,7 @@ impl Coordinator {
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             let partition = event.kv().and_then(|kv| {
-                                let key = std::str::from_utf8(kv.key()).ok()?;
+                                let key = from_utf8(kv.key()).ok()?;
                                 store::extract_partition_from_ack_key(key)
                             });
 
