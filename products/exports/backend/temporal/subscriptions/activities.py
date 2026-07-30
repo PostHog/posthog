@@ -226,7 +226,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             if selected_ids:
                 tile_insight_pairs = [(t, i) for t, i in tile_insight_pairs if i.id in selected_ids]
                 if not tile_insight_pairs:
-                    no_exportable_reason = NoExportableInsightsReason.SELECTED_INSIGHTS_UNAVAILABLE
+                    no_exportable_reason = NoExportableInsightsReason.STALE_SELECTED_INSIGHTS
             elif not tile_insight_pairs:
                 no_exportable_reason = NoExportableInsightsReason.EMPTY_DASHBOARD
     elif subscription.insight:

@@ -30,7 +30,7 @@ class NoExportableInsightsReason:
     EMPTY_DASHBOARD = "empty_dashboard"
     INSIGHT_DELETED = "insight_deleted"
     MISSING_RESOURCE = "missing_resource"
-    SELECTED_INSIGHTS_UNAVAILABLE = "selected_insights_unavailable"
+    STALE_SELECTED_INSIGHTS = "stale_selected_insights"
 
 
 class NoExportableInsightsContext(typing.TypedDict):
