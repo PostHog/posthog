@@ -1,6 +1,10 @@
 //! Observability leaf: the `seeder_*` metric-name constants (the seeder's metric manifest, which
-//! dashboards depend on) and the Prometheus recorder installer. Depends on the metrics exporter only.
+//! dashboards depend on), the shared RAII duration timer, and the Prometheus recorder installer.
+//! Depends on the metrics crates only.
 
+use std::time::{Duration, Instant};
+
+use metrics::histogram;
 use metrics_exporter_prometheus::{BuildError, PrometheusBuilder, PrometheusHandle};
 
 pub const RUNS_DISCOVERED: &str = "seeder_runs_discovered_total";
@@ -58,6 +62,45 @@ pub const RECONCILE_OBSERVATION_STALLED_AGE_SECONDS: &str =
 pub const RECONCILE_OBSERVATION_PASS_SECONDS: &str = "seeder_reconcile_observation_pass_seconds";
 pub const RECONCILE_OBSERVE_ERRORS: &str = "seeder_reconcile_observe_errors_total";
 pub const RECONCILE_RUNS_UNDISPATCHED: &str = "seeder_reconcile_runs_undispatched";
+// Person-property seed path.
+pub const PERSONS_SCANNED: &str = "seeder_persons_scanned_total";
+pub const PERSON_SEEDS_PRODUCED: &str = "seeder_person_seeds_produced_total";
+pub const PERSON_NONMATCHERS_SKIPPED: &str = "seeder_person_nonmatchers_skipped_total";
+pub const PERSON_ROWS_SKIPPED: &str = "seeder_person_rows_skipped_total";
+pub const PERSON_HOGVM_ERRORS: &str = "seeder_person_hogvm_errors_total";
+pub const PERSON_BOUNDARIES_PLANNED: &str = "seeder_person_boundaries_planned_total";
+pub const PERSON_PLANNING_DURATION_SECONDS: &str = "seeder_person_planning_duration_seconds";
+/// Deliberately its own metric rather than [`CHUNK_SCAN_DURATION_SECONDS`] under a `kind` label:
+/// the person path interleaves scan, evaluation, and paced enqueue into one inseparable loop, so
+/// this spans all three, where the behavioral metric times the ClickHouse scan alone and accounts
+/// delivery separately. One name across both would compare unlike spans.
+pub const PERSON_CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_person_chunk_scan_duration_seconds";
+
+/// Records its lifetime into `metric` on drop, so every exit — early return, halt, cancellation —
+/// is sampled without a recording site per path.
+pub struct MetricTimer {
+    metric: &'static str,
+    started: Instant,
+}
+
+impl MetricTimer {
+    pub fn start(metric: &'static str) -> Self {
+        Self {
+            metric,
+            started: Instant::now(),
+        }
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+}
+
+impl Drop for MetricTimer {
+    fn drop(&mut self) {
+        histogram!(self.metric).record(self.started.elapsed().as_secs_f64());
+    }
+}
 
 pub fn install_recorder() -> Result<PrometheusHandle, BuildError> {
     PrometheusBuilder::new().install_recorder()
