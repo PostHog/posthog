@@ -680,6 +680,8 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
     blob = snapshot.clusters or {}
     clusters_raw = blob.get("clusters", []) if isinstance(blob, dict) else []
+    long_tail_raw = blob.get("long_tail") if isinstance(blob, dict) else None
+    recurring_raw = blob.get("recurring", []) if isinstance(blob, dict) else []
     meta_raw = blob.get("computed_with") if isinstance(blob, dict) else None
 
     # Snapshots persisted before build_snapshot capped its output can hold
@@ -698,6 +700,8 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
         last_computed_at=snapshot.last_computed_at,
         last_computed_by_email=snapshot.last_computed_by.email if snapshot.last_computed_by else "",
         clusters=[_to_cluster_dto(item) for item in clusters_raw if isinstance(item, dict)],
+        long_tail=_to_long_tail_dto(long_tail_raw) if isinstance(long_tail_raw, dict) else None,
+        recurring=[_to_recurring_dto(item) for item in recurring_raw if isinstance(item, dict)],
         computed_with=_to_meta_dto(meta_raw) if isinstance(meta_raw, dict) else None,
     )
 
@@ -742,6 +746,27 @@ def _to_journey_dto(journey: dict[str, Any]) -> contracts.IntentClusterJourney:
         paths=[_to_journey_path_dto(p) for p in journey.get("paths", []) if isinstance(p, dict)],
         total_sessions=int(journey.get("total_sessions", 0)),
         leak=(_to_journey_path_dto(journey["leak"]) if isinstance(journey.get("leak"), dict) else None),
+    )
+
+
+def _to_long_tail_dto(item: dict[str, Any]) -> contracts.IntentClusterLongTail:
+    return contracts.IntentClusterLongTail(
+        intent_count=int(item.get("intent_count", 0)),
+        session_count=int(item.get("session_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
+    )
+
+
+def _to_recurring_dto(item: dict[str, Any]) -> contracts.RecurringIntentEntry:
+    return contracts.RecurringIntentEntry(
+        intent_text=str(item.get("intent_text", "")),
+        session_count=int(item.get("session_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
     )
 
 

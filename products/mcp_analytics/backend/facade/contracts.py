@@ -136,6 +136,25 @@ class IntentCluster:
 
 
 @dataclass(frozen=True)
+class IntentClusterLongTail:
+    intent_count: int
+    session_count: int
+    call_count: int
+    error_count: int
+    error_rate_pct: float
+    sample_intents: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RecurringIntentEntry:
+    intent_text: str
+    session_count: int
+    call_count: int
+    error_count: int
+    error_rate_pct: float
+
+
+@dataclass(frozen=True)
 class IntentClusterSnapshotMeta:
     distance_threshold: float
     embedding_model: str
@@ -150,6 +169,8 @@ class IntentClusterSnapshot:
     last_computed_at: datetime | None
     last_computed_by_email: str
     clusters: list[IntentCluster] = field(default_factory=list)
+    long_tail: IntentClusterLongTail | None = None
+    recurring: list[RecurringIntentEntry] = field(default_factory=list)
     computed_with: IntentClusterSnapshotMeta | None = None
 
 

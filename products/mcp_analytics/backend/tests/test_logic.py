@@ -122,6 +122,51 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert cluster.tool_distribution[0].error_rate_pct == 8.3
         assert snapshot.computed_with is not None
         assert snapshot.computed_with.n_clusters == 1
+        # Blobs written before the long-tail/recurring split must still map.
+        assert snapshot.long_tail is None
+        assert snapshot.recurring == []
+
+    def test_maps_long_tail_and_recurring_blob_keys(self) -> None:
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            last_computed_at=timezone.now(),
+            clusters={
+                "clusters": [],
+                "long_tail": {
+                    "intent_count": 42,
+                    "session_count": 44,
+                    "call_count": 610,
+                    "error_count": 12,
+                    "error_rate_pct": 2.0,
+                    "sample_intents": ["one-off question"],
+                },
+                "recurring": [
+                    {
+                        "intent_text": "daily demo check",
+                        "session_count": 61,
+                        "call_count": 610,
+                        "error_count": 300,
+                        "error_rate_pct": 49.2,
+                    }
+                ],
+                "computed_with": {
+                    "distance_threshold": 0.4,
+                    "embedding_model": "text-embedding-3-small-1536",
+                    "n_intents": 43,
+                    "n_clusters": 0,
+                },
+            },
+        )
+
+        snapshot = logic.get_intent_cluster_snapshot(self.team)
+
+        assert snapshot.long_tail is not None
+        assert snapshot.long_tail.intent_count == 42
+        assert snapshot.long_tail.sample_intents == ["one-off question"]
+        assert len(snapshot.recurring) == 1
+        assert snapshot.recurring[0].intent_text == "daily demo check"
+        assert snapshot.recurring[0].error_rate_pct == 49.2
 
     def test_caps_clusters_from_an_oversized_stored_blob(self) -> None:
         # Snapshots persisted before the build-side cap can hold hundreds of

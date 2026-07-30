@@ -493,6 +493,41 @@ class MCPIntentClusterSerializer(serializers.Serializer):
     )
 
 
+class MCPIntentClusterLongTailSerializer(serializers.Serializer):
+    intent_count = serializers.IntegerField(
+        read_only=True, help_text="Number of intents that clustered below the minimum cluster size."
+    )
+    session_count = serializers.IntegerField(
+        read_only=True, help_text="Number of sessions represented by the long-tail intents."
+    )
+    call_count = serializers.IntegerField(read_only=True, help_text="Total tool calls across all long-tail intents.")
+    error_count = serializers.IntegerField(
+        read_only=True, help_text="Total error responses across all long-tail intents."
+    )
+    error_rate_pct = serializers.FloatField(
+        read_only=True, help_text="Aggregate error rate across long-tail tool calls, 0–100."
+    )
+    sample_intents = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Up to ten representative long-tail intent strings, ordered by call volume desc.",
+    )
+
+
+class MCPRecurringIntentSerializer(serializers.Serializer):
+    intent_text = serializers.CharField(
+        read_only=True, help_text="The exact intent text repeated verbatim across sessions."
+    )
+    session_count = serializers.IntegerField(
+        read_only=True, help_text="Number of sessions in the window that opened with this intent."
+    )
+    call_count = serializers.IntegerField(read_only=True, help_text="Total tool calls across those sessions.")
+    error_count = serializers.IntegerField(read_only=True, help_text="Total error responses across those sessions.")
+    error_rate_pct = serializers.FloatField(
+        read_only=True, help_text="Aggregate error rate across those sessions' tool calls, 0–100."
+    )
+
+
 class MCPIntentClusterSnapshotMetaSerializer(serializers.Serializer):
     distance_threshold = serializers.FloatField(
         read_only=True, help_text="Cosine distance threshold used by the clustering algorithm."
@@ -521,7 +556,28 @@ class MCPIntentClusterSnapshotSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Email of the user who triggered the latest recompute, empty for system-triggered runs.",
     )
-    clusters = MCPIntentClusterSerializer(many=True, read_only=True, help_text="All clusters in the snapshot.")
+    clusters = MCPIntentClusterSerializer(
+        many=True,
+        read_only=True,
+        help_text="Clusters that met the minimum member count, sorted by call volume desc.",
+    )
+    long_tail = MCPIntentClusterLongTailSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Aggregate of intents whose clusters fell below the minimum member count. "
+            "Null when every cluster met the minimum."
+        ),
+    )
+    recurring = MCPRecurringIntentSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Intent texts repeated verbatim across many sessions — automated traffic "
+            "(scheduled agents, crons, scout runs) excluded from the semantic clusters, "
+            "ranked by session count desc."
+        ),
+    )
     computed_with = MCPIntentClusterSnapshotMetaSerializer(
         read_only=True,
         allow_null=True,

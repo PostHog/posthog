@@ -50,8 +50,25 @@ EMBEDDING_MODEL = "text-embedding-3-small-1536"
 EMBEDDING_PREFIX = "User intent: "
 DEFAULT_LOOKBACK_DAYS = 7
 DEFAULT_TOP_N_INTENTS = 500
-DEFAULT_DISTANCE_THRESHOLD = 0.2
+# Cosine distance at which agglomerative merging stops. 0.2 produced >90%
+# singleton clusters on production diversity (same-topic paraphrases of
+# free-text intents typically sit at 0.25-0.45 distance on this embedding
+# model); 0.4 merges paraphrases while keeping distinct topics apart.
+DEFAULT_DISTANCE_THRESHOLD = 0.4
 MAX_SAMPLE_INTENTS_PER_CLUSTER = 3
+
+# Clusters below this member count collapse into the long-tail bucket instead
+# of rendering as rows — a page of singleton "clusters" is just a session list.
+MIN_CLUSTER_INTENTS = 2
+MAX_LONG_TAIL_SAMPLES = 10
+
+# An intent text repeated verbatim across this many sessions in the window is
+# automated traffic (scouts, crons, scheduled agents) — humans virtually never
+# type the same free-text twice, let alone across sessions. Detected
+# behaviourally rather than by client/identity properties because automation
+# runs under the same consumers and distinct_ids as interactive use.
+RECURRING_MIN_SESSIONS = 3
+MAX_RECURRING_INTENTS = 50
 
 # Placeholder previously written by the (now-removed) summariser job for sessions with no
 # recordable tool-call intents. Still filtered out of the corpus so it doesn't form a
@@ -81,6 +98,16 @@ class IntentRecord:
     session_count: int = 0
     tool_counts: dict[str, int] = field(default_factory=dict)
     error_counts: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RecurringIntent:
+    """An intent text repeated verbatim across many sessions — automated traffic."""
+
+    intent_text: str
+    session_count: int
+    call_count: int
+    error_count: int
 
 
 # Intent corpus -----------------------------------------------------------
@@ -173,6 +200,7 @@ def fetch_intent_corpus(
     team: Team,
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     top_n: int = DEFAULT_TOP_N_INTENTS,
+    exclude_texts: set[str] | None = None,
 ) -> tuple[list[IntentRecord], dict[str, str]]:
     """Return ``(records, intent_by_session)`` for clustering.
 
@@ -185,6 +213,9 @@ def fetch_intent_corpus(
 
     ``intent_by_session`` is exposed so callers can later join session-level
     data (e.g. journey aggregation) back to the cluster a session belongs to.
+
+    ``exclude_texts`` drops sessions whose representative text matches — used
+    to keep recurring automated intents out of the semantic corpus.
 
     ``lookback_days`` bounds both stores to the same window: event queries
     filter by timestamp, and session intent rows are filtered by ``created_at``
@@ -225,6 +256,9 @@ def fetch_intent_corpus(
         if not session_id or not text or text == NO_INTENT_RECORDED_FALLBACK:
             continue
         intent_by_session[session_id] = text
+
+    if exclude_texts:
+        intent_by_session = {sid: text for sid, text in intent_by_session.items() if text not in exclude_texts}
 
     if not intent_by_session:
         return [], {}
@@ -282,6 +316,93 @@ def fetch_intent_corpus(
 
     records.sort(key=lambda r: r.frequency, reverse=True)
     return records[:top_n], intent_by_session
+
+
+# Recurring intents --------------------------------------------------------
+
+# First intent per session over the FULL window (no corpus sampling), rolled up
+# by exact text. argMinIf keeps the per-session call/error counts over all tool
+# calls while the first-intent pick only considers intent-bearing rows.
+_RECURRING_INTENTS_SQL = """
+SELECT
+    first_intent,
+    count() AS n_sessions,
+    sum(calls) AS call_count,
+    sum(errors) AS error_count
+FROM (
+    SELECT
+        $session_id AS session_id,
+        argMinIf(
+            toString(properties.$mcp_intent),
+            timestamp,
+            coalesce(toString(properties.$mcp_intent), '') != ''
+        ) AS first_intent,
+        count() AS calls,
+        countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
+    FROM events
+    WHERE event = {event}
+        AND timestamp >= now() - INTERVAL {lookback_days} DAY
+        AND $session_id != ''
+    GROUP BY session_id
+    HAVING first_intent != ''
+)
+GROUP BY first_intent
+HAVING n_sessions >= {min_sessions}
+ORDER BY n_sessions DESC
+LIMIT {max_recurring}
+"""
+
+
+def fetch_recurring_intents(
+    team: Team,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+    min_sessions: int = RECURRING_MIN_SESSIONS,
+    limit: int = MAX_RECURRING_INTENTS,
+) -> list[RecurringIntent]:
+    """Return intent texts that open ``min_sessions``-plus sessions in the window.
+
+    These are scheduled agents, crons, and scout runs: they repeat the same
+    opening intent verbatim every run, where interactive intents are almost
+    always unique. Callers surface them as their own ranked list and pass the
+    texts to ``fetch_intent_corpus(exclude_texts=...)`` so they don't dominate
+    the semantic clusters.
+    """
+    query = parse_select(
+        _RECURRING_INTENTS_SQL,
+        placeholders={
+            "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "lookback_days": ast.Constant(value=lookback_days),
+            "min_sessions": ast.Constant(value=min_sessions),
+            "max_recurring": ast.Constant(value=limit),
+        },
+    )
+    with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
+        response = execute_hogql_query(query=query, team=team)
+
+    # Clip to the corpus text bound so exclusion matching in
+    # fetch_intent_corpus compares like with like; merge any rows the clip
+    # collapses together.
+    merged: dict[str, dict[str, int]] = {}
+    for row in response.results or []:
+        text = str(row[0] or "").strip()[:MAX_INTENT_TEXT_LENGTH]
+        if not text or text == NO_INTENT_RECORDED_FALLBACK:
+            continue
+        bucket = merged.setdefault(text, {"sessions": 0, "calls": 0, "errors": 0})
+        bucket["sessions"] += int(row[1] or 0)
+        bucket["calls"] += int(row[2] or 0)
+        bucket["errors"] += int(row[3] or 0)
+
+    out = [
+        RecurringIntent(
+            intent_text=text,
+            session_count=data["sessions"],
+            call_count=data["calls"],
+            error_count=data["errors"],
+        )
+        for text, data in merged.items()
+    ]
+    out.sort(key=lambda r: r.session_count, reverse=True)
+    return out
 
 
 # Journeys ----------------------------------------------------------------
@@ -570,6 +691,8 @@ def build_snapshot(
     embeddings: np.ndarray,
     distance_threshold: float = DEFAULT_DISTANCE_THRESHOLD,
     journeys_by_cluster: dict[int, dict[str, Any]] | None = None,
+    recurring: list[RecurringIntent] | None = None,
+    min_cluster_intents: int = MIN_CLUSTER_INTENTS,
 ) -> dict[str, Any]:
     """Aggregate clusters into the JSONB snapshot shape persisted in Postgres.
 
@@ -578,9 +701,13 @@ def build_snapshot(
 
     ``journeys_by_cluster`` is the output of ``aggregate_journeys_per_cluster``
     keyed by cluster id. Optional; clusters without an entry get a null journey.
+
+    Clusters with fewer than ``min_cluster_intents`` members collapse into one
+    ``long_tail`` aggregate; ``recurring`` entries (from
+    ``fetch_recurring_intents``) are serialised alongside the clusters.
     """
     if len(records) == 0:
-        return _empty_snapshot(distance_threshold, n_intents=0)
+        return _empty_snapshot(distance_threshold, n_intents=0, recurring=recurring)
     assert len(records) == len(labels) == len(embeddings), (
         f"records ({len(records)}), labels ({len(labels)}), and embeddings ({len(embeddings)}) must be the same length"
     )
@@ -633,32 +760,77 @@ def build_snapshot(
             }
         )
 
+    # Collapse sub-threshold clusters into one long-tail aggregate — rendering
+    # them as rows turns the page into a session list.
+    kept = [c for c in clusters if c["intent_count"] >= min_cluster_intents]
+    tail = [c for c in clusters if c["intent_count"] < min_cluster_intents]
+    long_tail: dict[str, Any] | None = None
+    if tail:
+        tail_calls = sum(c["call_count"] for c in tail)
+        tail_errors = sum(c["error_count"] for c in tail)
+        tail_samples = [
+            intent
+            for cluster in sorted(tail, key=lambda c: c["call_count"], reverse=True)
+            for intent in cluster["sample_intents"]
+        ]
+        long_tail = {
+            "intent_count": sum(c["intent_count"] for c in tail),
+            "session_count": sum(c["session_count"] for c in tail),
+            "call_count": tail_calls,
+            "error_count": tail_errors,
+            "error_rate_pct": round(100.0 * tail_errors / tail_calls, 1) if tail_calls else 0.0,
+            "sample_intents": tail_samples[:MAX_LONG_TAIL_SAMPLES],
+        }
+
     # Sort clusters by call volume desc so the UI shows the most impactful first.
-    clusters.sort(key=lambda c: c["call_count"], reverse=True)
+    kept.sort(key=lambda c: c["call_count"], reverse=True)
 
     # Persist only the highest-volume clusters; ``n_clusters`` keeps the full
-    # count so the UI can say how many the run actually found.
-    n_clusters_total = len(clusters)
-    del clusters[MAX_SNAPSHOT_CLUSTERS:]
+    # count so the UI can say how many the run actually found. The cap applies to
+    # `kept` because that is what ships — sub-threshold clusters are already
+    # aggregated into `long_tail` rather than counted as rows.
+    n_clusters_total = len(kept)
+    del kept[MAX_SNAPSHOT_CLUSTERS:]
 
     return {
-        "clusters": clusters,
+        "clusters": kept,
+        "long_tail": long_tail,
+        "recurring": _serialize_recurring(recurring),
         "computed_with": {
             "distance_threshold": distance_threshold,
             "embedding_model": EMBEDDING_MODEL,
             "n_intents": len(records),
             "n_clusters": n_clusters_total,
+            "n_long_tail_intents": long_tail["intent_count"] if long_tail else 0,
         },
     }
 
 
-def _empty_snapshot(distance_threshold: float, n_intents: int) -> dict[str, Any]:
+def _serialize_recurring(recurring: list[RecurringIntent] | None) -> list[dict[str, Any]]:
+    return [
+        {
+            "intent_text": r.intent_text,
+            "session_count": r.session_count,
+            "call_count": r.call_count,
+            "error_count": r.error_count,
+            "error_rate_pct": round(100.0 * r.error_count / r.call_count, 1) if r.call_count else 0.0,
+        }
+        for r in recurring or []
+    ]
+
+
+def _empty_snapshot(
+    distance_threshold: float, n_intents: int, recurring: list[RecurringIntent] | None = None
+) -> dict[str, Any]:
     return {
         "clusters": [],
+        "long_tail": None,
+        "recurring": _serialize_recurring(recurring),
         "computed_with": {
             "distance_threshold": distance_threshold,
             "embedding_model": EMBEDDING_MODEL,
             "n_intents": n_intents,
             "n_clusters": 0,
+            "n_long_tail_intents": 0,
         },
     }

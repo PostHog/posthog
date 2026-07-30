@@ -26,6 +26,7 @@ import asyncio
 from django.db import transaction
 from django.utils import timezone
 
+import numpy as np
 import structlog
 from temporalio import activity
 
@@ -109,13 +110,25 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
             snapshot = await _mark_computing(team, user)
 
             try:
+                # Recurring texts are reported as their own ranked list and kept
+                # out of the semantic corpus so automation can't dominate the
+                # clusters (the top production clusters were all scout/cron
+                # boilerplate before this split).
+                recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
+                    team, lookback_days=inputs.lookback_days
+                )
+                activity.heartbeat("fetched recurring intents")
+
                 records, intent_by_session = await database_sync_to_async(intent_clustering.fetch_intent_corpus)(
-                    team, lookback_days=inputs.lookback_days, top_n=inputs.top_n
+                    team,
+                    lookback_days=inputs.lookback_days,
+                    top_n=inputs.top_n,
+                    exclude_texts={r.intent_text for r in recurring},
                 )
                 activity.heartbeat("fetched corpus")
 
                 if not records:
-                    await database_sync_to_async(_save_empty_blob)(snapshot)
+                    await database_sync_to_async(_save_empty_blob)(snapshot, recurring)
                     logger.info(
                         "mcpa.intent_clustering.no_intents_found",
                         team_id=inputs.team_id,
@@ -158,6 +171,7 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                     labels,
                     embeddings,
                     journeys_by_cluster=journeys_by_cluster,
+                    recurring=recurring,
                 )
                 await _persist_clusters(snapshot, clusters_blob)
 
@@ -184,21 +198,23 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 raise
 
 
-def _save_empty_blob(snapshot: MCPIntentClusterSnapshot) -> None:
+def _save_empty_blob(
+    snapshot: MCPIntentClusterSnapshot, recurring: list[intent_clustering.RecurringIntent] | None = None
+) -> None:
     """Synchronous helper to write an empty snapshot when the corpus is empty.
+
+    Recurring intents still persist — a team whose traffic is entirely
+    automated has no semantic corpus but a very real recurring list.
 
     Lives outside the async activity body so ``database_sync_to_async`` can
     wrap it without re-entrancy from inside an async context.
     """
-    snapshot.clusters = {
-        "clusters": [],
-        "computed_with": {
-            "distance_threshold": intent_clustering.DEFAULT_DISTANCE_THRESHOLD,
-            "embedding_model": intent_clustering.EMBEDDING_MODEL,
-            "n_intents": 0,
-            "n_clusters": 0,
-        },
-    }
+    snapshot.clusters = intent_clustering.build_snapshot(
+        [],
+        np.array([], dtype=np.int64),
+        np.zeros((0, 0), dtype=np.float32),
+        recurring=recurring,
+    )
     snapshot.status = MCPIntentClusterSnapshot.Status.IDLE
     snapshot.error_message = ""
     snapshot.last_computed_at = timezone.now()

@@ -39327,6 +39327,21 @@ export namespace Schemas {
       readonly journey: MCPIntentClusterJourney | null;
     }
 
+    export interface MCPIntentClusterLongTail {
+      /** Number of intents that clustered below the minimum cluster size. */
+      readonly intent_count: number;
+      /** Number of sessions represented by the long-tail intents. */
+      readonly session_count: number;
+      /** Total tool calls across all long-tail intents. */
+      readonly call_count: number;
+      /** Total error responses across all long-tail intents. */
+      readonly error_count: number;
+      /** Aggregate error rate across long-tail tool calls, 0–100. */
+      readonly error_rate_pct: number;
+      /** Up to ten representative long-tail intent strings, ordered by call volume desc. */
+      readonly sample_intents: readonly string[];
+    }
+
     /**
      * * `idle` - Idle
      * * `computing` - Computing
@@ -39340,6 +39355,19 @@ export namespace Schemas {
       Computing: 'computing',
       Error: 'error',
     } as const;
+
+    export interface MCPRecurringIntent {
+      /** The exact intent text repeated verbatim across sessions. */
+      readonly intent_text: string;
+      /** Number of sessions in the window that opened with this intent. */
+      readonly session_count: number;
+      /** Total tool calls across those sessions. */
+      readonly call_count: number;
+      /** Total error responses across those sessions. */
+      readonly error_count: number;
+      /** Aggregate error rate across those sessions' tool calls, 0–100. */
+      readonly error_rate_pct: number;
+    }
 
     export interface MCPIntentClusterSnapshotMeta {
       /** Cosine distance threshold used by the clustering algorithm. */
@@ -39368,8 +39396,12 @@ export namespace Schemas {
       readonly last_computed_at: string | null;
       /** Email of the user who triggered the latest recompute, empty for system-triggered runs. */
       readonly last_computed_by_email: string;
-      /** All clusters in the snapshot. */
+      /** Clusters that met the minimum member count, sorted by call volume desc. */
       readonly clusters: readonly MCPIntentCluster[];
+      /** Aggregate of intents whose clusters fell below the minimum member count. Null when every cluster met the minimum. */
+      readonly long_tail: MCPIntentClusterLongTail | null;
+      /** Intent texts repeated verbatim across many sessions — automated traffic (scheduled agents, crons, scout runs) excluded from the semantic clusters, ranked by session count desc. */
+      readonly recurring: readonly MCPRecurringIntent[];
       /** Settings used to produce the snapshot. Null when no snapshot has been computed yet. */
       readonly computed_with: MCPIntentClusterSnapshotMeta | null;
     }
