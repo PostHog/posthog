@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-pub use assignment_coordination::util::now_seconds;
+pub use assignment_coordination::util::{now_millis, now_seconds};
 
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;

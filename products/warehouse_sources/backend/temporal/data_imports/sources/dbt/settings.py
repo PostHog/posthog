@@ -2,7 +2,19 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# dbt Cloud's Administrative API runs two live versions: v3 (the vendor's recommended version) and
+# v2 (legacy). There is no v1 — UNVERSIONED_API_VERSION ("v1") is only the framework placeholder
+# pre-versioning rows carry. This source already reads every resource from whichever version serves
+# it: accounts/projects/environments/users on v3, jobs/runs on v2 (v3 exposes neither jobs/runs nor
+# a bare account-detail endpoint for the credential probe). That split is fixed by the vendor, so a
+# "v1"- and a "v3"-pinned source issue byte-for-byte identical requests and nothing branches on the
+# pin; declaring v3 only makes the source's public version metadata name the API it actually targets.
+DBT_API_VERSION_V3 = "v3"
+DBT_SUPPORTED_VERSIONS = (UNVERSIONED_API_VERSION, DBT_API_VERSION_V3)
+DBT_DEFAULT_VERSION = DBT_API_VERSION_V3
 
 # Per-region base hostnames for the dbt Cloud Administrative API. Cell-based (e.g.
 # https://ab123.us1.dbt.com) and single-tenant deployments use a custom base URL instead.

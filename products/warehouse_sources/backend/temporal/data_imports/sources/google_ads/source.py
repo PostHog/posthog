@@ -26,14 +26,11 @@ from posthog.models.integration import (
     google_ads_hierarchy_level,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
     ResumableSource,
+    VersionDeprecation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -47,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
 )
@@ -82,9 +80,14 @@ def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
 class GoogleAdsSource(
     ResumableSource[GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, GoogleAdsResumeConfig], OAuthMixin
 ):
-    supported_versions = ("v23", "v24")
-    default_version = "v24"
+    supported_versions = ("v23", "v24", "v25")
+    default_version = "v25"
     api_docs_url = "https://developers.google.com/google-ads/api/docs/release-notes"
+    # Google sunsets each major ~12 months after release; v24 (released 2026-04-22) is projected
+    # for ~May 2027 but has no firm date on the sunset page yet, so `sunset_at` stays None until
+    # Google publishes one. Existing v24 pins stay on v24 until then — Google still serves it, and
+    # the repin belongs in the PR that records the real sunset date.
+    deprecated_versions = (VersionDeprecation(version="v24", sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

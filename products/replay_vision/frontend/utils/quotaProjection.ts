@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { VisionQuotaApi } from '../generated/api.schemas'
-import { formatCredits } from './credits'
+import { formatCreditCount } from './credits'
 
 export const QUOTA_WARN_THRESHOLD = 0.85
 
@@ -125,7 +125,7 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
         return { disabledReason: `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.` }
     }
     return {
-        tooltip: `${formatCredits(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,
+        tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,
     }
 }
 
