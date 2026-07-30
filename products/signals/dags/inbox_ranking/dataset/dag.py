@@ -30,6 +30,8 @@ import datetime
 from collections.abc import Iterator
 from typing import Any, cast
 
+from django.db.models import Q
+
 import dagster
 import pyarrow as pa
 
@@ -249,12 +251,22 @@ def _judgment_value(parsed: dict[str, Any], key: str) -> str | None:
 
 def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, dict[str, str | None]]:
     """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
-    the artefact content JSON. Artefacts are append-only, so bounding created_at makes this the
-    one piece of report state that is genuinely point-in-time even on forward runs."""
+    the artefact content JSON.
+
+    Artefacts are appended in normal operation but the API permits editing one in place
+    (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so
+    created_at alone would let a post-cutoff edit leak a future classification into the partition.
+    Bounding updated_at too means no value here was mutated after the cutoff — an edited row is
+    passed over rather than read, so the column goes null (or falls back to an older untouched
+    judgment) instead of going wrong. The genuinely immutable classification is
+    status_event_priority/actionability, snapshotted onto each transition in the label stream."""
     judgments: dict[str, dict[str, str | None]] = {}
     for chunk in _chunked(report_ids):
         artefacts = (
             SignalReportArtefact.objects.filter(
+                # updated_at is nullable, and a null one is a row predating the field, never an
+                # edit — excluding those would drop every legacy judgment from the dataset.
+                Q(updated_at__lt=snapshot_end) | Q(updated_at__isnull=True),
                 report_id__in=chunk,
                 type__in=[
                     SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
