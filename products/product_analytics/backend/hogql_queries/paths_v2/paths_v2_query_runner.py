@@ -43,8 +43,11 @@ from products.product_analytics.backend.hogql_queries.paths_v2.path_item import 
     DEFAULT_MAX_ROWS_PER_STEP,
     DEFAULT_MAX_STEPS,
     PATHS_V2_OTHER,
+    excluded_item_tuples,
+    excluded_items_filter_expr,
     item_tuple_expr,
     path_item_expr,
+    resolve_cleaning_rules,
     resolve_step_sources,
     source_events_filter_expr,
     step_source_for_event,
@@ -139,12 +142,47 @@ class ValidateAnchor:
             )
 
 
+class ValidateExcludedItems:
+    """Excluding an item of a naming-property source needs a label, since a bare event does not pin
+    which item to drop. Excluding the anchor would empty the chart for a reason the config does not
+    reveal. Exclusions whose event is not a step source are allowed and inert, so switching sources
+    never invalidates a saved exclude list."""
+
+    code = "paths_v2_excluded_items_invalid"
+
+    def validate(self, context: QueryValidationContext[PathsV2Query]) -> None:
+        paths_filter = context.query.pathsV2Filter
+        if paths_filter is None or not paths_filter.excludedItems:
+            return
+        sources_by_event = {source.event: source for source in resolve_step_sources(context.query)}
+        for item in paths_filter.excludedItems:
+            source = sources_by_event.get(item.event)
+            if source is not None and source.namingProperty is not None and item.label is None:
+                raise ValidationError(
+                    f"The excluded item for event {item.event!r} needs a label, as its source has a naming property.",
+                    code=self.code,
+                )
+        if paths_filter.anchor is not None:
+            anchor_item = paths_filter.anchor.item
+            if (anchor_item.event, anchor_item.label or "") in excluded_item_tuples(paths_filter):
+                raise ValidationError(
+                    "The anchor cannot be an excluded item, as no journey could ever reach it.",
+                    code=self.code,
+                )
+
+
 class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     query: PathsV2Query
     cached_response: CachedPathsV2QueryResponse
 
     def validators(self) -> tuple[QueryValidationRule[PathsV2Query], ...]:
-        return (ValidateGapBounds(), ValidateWindowBounds(), ValidateStepSources(), ValidateAnchor())
+        return (
+            ValidateGapBounds(),
+            ValidateWindowBounds(),
+            ValidateStepSources(),
+            ValidateAnchor(),
+            ValidateExcludedItems(),
+        )
 
     @cached_property
     def paths_v2_filter(self) -> PathsV2Filter:
@@ -153,6 +191,10 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     @cached_property
     def step_sources(self) -> list[PathsV2StepSource]:
         return resolve_step_sources(self.query)
+
+    @cached_property
+    def cleaning_rules(self) -> list[tuple[str, str]]:
+        return resolve_cleaning_rules(self.query.pathsV2Filter, self.team)
 
     @property
     def max_steps(self) -> int:
@@ -256,7 +298,8 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         return parse_expr(f"arraySort(x -> x.1, {events})")
 
     def _event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        """One row per in-range event matching a step source: (timestamp, actor_id, path_item)."""
+        """One row per in-range event matching a step source and no excluded item:
+        (timestamp, actor_id, path_item)."""
         event_filters: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -270,6 +313,12 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             ),
             source_events_filter_expr(self.step_sources),
         ]
+
+        excluded_filter = excluded_items_filter_expr(
+            ast.Field(chain=["path_item"]), excluded_item_tuples(self.query.pathsV2Filter)
+        )
+        if excluded_filter is not None:
+            event_filters.append(excluded_filter)
 
         if self.query.properties is not None and self.query.properties != []:
             event_filters.append(property_to_expr(self.query.properties, self.team))
@@ -292,7 +341,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             WHERE {filters}
             """,
             placeholders={
-                "path_item": path_item_expr(self.step_sources, self.team),
+                "path_item": path_item_expr(self.step_sources, self.cleaning_rules),
                 "filters": ast.And(exprs=event_filters),
             },
         )

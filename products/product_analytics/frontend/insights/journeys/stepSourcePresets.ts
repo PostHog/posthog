@@ -6,7 +6,7 @@ export interface StepSourcePreset {
     stepSources: PathsV2StepSource[]
 }
 
-/** The step-source presets the minimal editor offers; the full source picker comes later. */
+/** One-click step source configurations, replacing v1's checkbox event-type buckets. */
 export const STEP_SOURCE_PRESETS: Record<StepSourcePreset['key'], StepSourcePreset> = {
     pageViews: {
         key: 'pageViews',
@@ -19,6 +19,9 @@ export const STEP_SOURCE_PRESETS: Record<StepSourcePreset['key'], StepSourcePres
         stepSources: [{ event: '$screen', namingProperty: '$screen_name' }],
     },
 }
+
+/** What the runner defaults absent step sources to: the page views preset. */
+export const DEFAULT_STEP_SOURCES = STEP_SOURCE_PRESETS.pageViews.stepSources
 
 /** The preset matching the given step sources, or null when they were customized. */
 export function presetForStepSources(stepSources: PathsV2StepSource[] | undefined): StepSourcePreset | null {

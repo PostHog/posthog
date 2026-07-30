@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     DateRange,
     FunnelConversionWindowTimeUnit,
+    PathCleaningFilter,
     PathsV2Anchor,
     PathsV2AnchorType,
     PathsV2Filter,
@@ -72,6 +73,7 @@ class TestPathsV2FilterConstraints(SimpleTestCase):
             ("max_rows_above_max", {"maxRowsPerStep": 11}),
             ("step_sources_empty", {"stepSources": []}),
             ("step_sources_above_max", {"stepSources": [PathsV2StepSource(event=f"e{i}") for i in range(21)]}),
+            ("excluded_items_above_max", {"excludedItems": [PathsV2Item(event=f"e{i}") for i in range(101)]}),
         ]
     )
     def test_out_of_bounds_config_rejects(self, _name: str, kwargs: dict[str, Any]) -> None:
@@ -87,8 +89,11 @@ class TestPathsV2FilterConstraints(SimpleTestCase):
         self.assertEqual(paths_filter.collapseRepeats, True)
         self.assertEqual(paths_filter.conversionWindowInterval, 30)
         self.assertEqual(paths_filter.conversionWindowIntervalUnit, FunnelConversionWindowTimeUnit.MINUTE)
+        self.assertEqual(paths_filter.applyTeamPathCleaning, True)
         self.assertIsNone(paths_filter.stepSources)
         self.assertIsNone(paths_filter.anchor)
+        self.assertIsNone(paths_filter.excludedItems)
+        self.assertIsNone(paths_filter.localPathCleaningFilters)
 
 
 class TestPathsV2Validation(ClickhouseTestMixin, APIBaseTest):
@@ -163,6 +168,31 @@ class TestPathsV2Validation(ClickhouseTestMixin, APIBaseTest):
         )
         with self.assertRaisesMessage(ValidationError, "must be one of the step sources"):
             runner.validate()
+
+    def test_excluding_a_naming_property_item_needs_a_label(self) -> None:
+        runner = self._runner(
+            PathsV2Filter(
+                stepSources=[PathsV2StepSource(event="$pageview", namingProperty="$pathname")],
+                excludedItems=[PathsV2Item(event="$pageview")],
+            )
+        )
+        with self.assertRaisesMessage(ValidationError, "needs a label"):
+            runner.validate()
+
+    def test_excluding_the_anchor_rejects(self) -> None:
+        runner = self._runner(
+            PathsV2Filter(
+                stepSources=_sources("a", "b"),
+                anchor=PathsV2Anchor(type=PathsV2AnchorType.START, item=PathsV2Item(event="a")),
+                excludedItems=[PathsV2Item(event="a")],
+            )
+        )
+        with self.assertRaisesMessage(ValidationError, "anchor"):
+            runner.validate()
+
+    def test_excluding_a_non_source_event_is_allowed(self) -> None:
+        # Switching step sources must not invalidate a saved exclude list; the leftover exclusion is inert.
+        self._runner(PathsV2Filter(stepSources=_sources("a"), excludedItems=[PathsV2Item(event="gone")])).validate()
 
     def test_anchor_on_naming_property_source_needs_a_label(self) -> None:
         runner = self._runner(
@@ -456,6 +486,115 @@ class TestPathsV2QueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             self._edges(results),
             [_edge(0, _item("$pageview", label="/item/<id>"), _item("$pageview", label="/about"), 1)],
+        )
+
+    def test_excluded_items_drop_from_universe(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                **_timeline("p1", "a", "x", "b"),
+                **_timeline("p2", "x"),
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "x"), excludedItems=[_item("x")]),
+        )
+        results = self._run(query)
+
+        # Excluded events vanish from the universe before journeys are built: p1's journey bridges
+        # a -> b instead of splitting around x, and p2 has no journey at all. A display-level filter
+        # would drop the a -> x and x -> b edges without producing the bridged a -> b edge.
+        self.assertEqual(
+            self._steps(results),
+            [(0, [_row("a", 1)], 0, 0), (1, [_row("b", 1)], 0, 1)],
+        )
+        self.assertEqual(self._edges(results), [_edge(0, _item("a"), _item("b"), 1)])
+
+    def test_excluded_item_matches_the_label_not_the_event(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:00:00", "properties": {"$pathname": "/home"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:05:00", "properties": {"$pathname": "/login"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:10:00", "properties": {"$pathname": "/app"}},
+                ]
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(excludedItems=[_item("$pageview", label="/login")]),
+        )
+        results = self._run(query)
+
+        # Only the (event, label) item is excluded; the source's other items stay.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("$pageview", 1, label="/home")], 0, 0),
+                (1, [_row("$pageview", 1, label="/app")], 0, 1),
+            ],
+        )
+        self.assertEqual(
+            self._edges(results),
+            [_edge(0, _item("$pageview", label="/home"), _item("$pageview", label="/app"), 1)],
+        )
+
+    def test_local_path_cleaning_applies_after_team_rules(self):
+        self.team.path_cleaning_filters = [{"alias": "/item/:id", "regex": r"/item/\d+"}]
+        self.team.save()
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:00:00", "properties": {"$pathname": "/item/1"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:05:00", "properties": {"$pathname": "/about"}},
+                ]
+            },
+        )
+
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(localPathCleaningFilters=[PathCleaningFilter(alias="<id>", regex=":id")]),
+        )
+        results = self._run(query)
+
+        # The local rule's regex only matches the team rule's output, so this label proves both that
+        # local rules apply and that they run after the team's.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("$pageview", 1, label="/item/<id>")], 0, 0),
+                (1, [_row("$pageview", 1, label="/about")], 0, 1),
+            ],
+        )
+
+    def test_team_path_cleaning_can_be_disabled(self):
+        self.team.path_cleaning_filters = [{"alias": "/item/<id>", "regex": r"/item/\d+"}]
+        self.team.save()
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:00:00", "properties": {"$pathname": "/item/1"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:05:00", "properties": {"$pathname": "/item/2"}},
+                ]
+            },
+        )
+
+        query = PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=PathsV2Filter(applyTeamPathCleaning=False))
+        results = self._run(query)
+
+        # With the team's rules off, the raw URLs stay distinct items instead of merging.
+        self.assertEqual(
+            self._steps(results),
+            [
+                (0, [_row("$pageview", 1, label="/item/1")], 0, 0),
+                (1, [_row("$pageview", 1, label="/item/2")], 0, 1),
+            ],
         )
 
     def test_max_steps_trims_journeys(self):

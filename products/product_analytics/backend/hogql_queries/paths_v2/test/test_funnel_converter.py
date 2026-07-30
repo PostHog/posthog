@@ -13,6 +13,7 @@ from posthog.schema import (
     FunnelConversionWindowTimeUnit,
     FunnelExclusionEventsNode,
     HogQLPropertyFilter,
+    PathCleaningFilter,
     PathsV2Anchor,
     PathsV2AnchorType,
     PathsV2Filter,
@@ -297,6 +298,53 @@ class TestPathsV2EdgeContract(ClickhouseTestMixin, APIBaseTest):
 
         # Both raw URLs clean into the same item, so the funnel's label filter must apply the
         # same cleaning to match either of them.
+        self.assertEqual(self._funnel_count(query, source, target), 2)
+        self.assertEqual(self._edge_rows(query, source, target), [(0, 2)])
+
+    def test_excluded_items_edge_matches_funnel(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": _timeline("a", "x", "b"),
+                "p2": _timeline("a", "b"),
+                "p3": _timeline("a", "c"),
+            },
+        )
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(stepSources=_sources("a", "b", "c", "x"), excludedItems=[_item("x")]),
+        )
+        source, target = _item("a"), _item("b")
+
+        # With x excluded, p1's intervening x is invisible on both sides: the paths runner bridges
+        # a -> b and the funnel's item-strict universe must not count x as a breaking event.
+        self.assertEqual(self._funnel_count(query, source, target), 2)
+        self.assertEqual(self._edge_rows(query, source, target), [(0, 2)])
+
+    def test_local_cleaning_edge_matches_funnel(self):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": [
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:00:00", "properties": {"$pathname": "/item/1"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:05:00", "properties": {"$pathname": "/about"}},
+                ],
+                "p2": [
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:00:00", "properties": {"$pathname": "/item/2"}},
+                    {"event": "$pageview", "timestamp": "2023-03-10 10:05:00", "properties": {"$pathname": "/about"}},
+                ],
+            },
+        )
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(
+                localPathCleaningFilters=[PathCleaningFilter(alias="/item/<id>", regex=r"/item/\d+")]
+            ),
+        )
+        source, target = _item("$pageview", label="/item/<id>"), _item("$pageview", label="/about")
+
+        # Insight-local rules, with no team rules at all: the funnel's label filter must clean with
+        # the query's own rules, not just the team's.
         self.assertEqual(self._funnel_count(query, source, target), 2)
         self.assertEqual(self._edge_rows(query, source, target), [(0, 2)])
 
