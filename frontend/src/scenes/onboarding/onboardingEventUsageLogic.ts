@@ -80,17 +80,6 @@ export interface onboardingEventUsageLogicActions {
         status: 'cancelled' | 'completed' | 'failed'
         taskId: string
     }
-    reportContextOnboardingRepositoryPickerDegraded: (props: {
-        integrationId: number
-        pushableCount: number
-        reason: 'all_unpushable' | 'empty'
-        totalCount: number
-    }) => {
-        integrationId: number
-        pushableCount: number
-        reason: 'all_unpushable' | 'empty'
-        totalCount: number
-    }
     reportContextOnboardingCloudRunQueued: (props: { repository: string; runId: string; taskId: string }) => {
         repository: string
         runId: string
@@ -104,6 +93,17 @@ export interface onboardingEventUsageLogicActions {
     }
     reportContextOnboardingPlanSelected: (plan: 'free' | 'pay_as_you_go') => {
         plan: 'free' | 'pay_as_you_go'
+    }
+    reportContextOnboardingRepositoryPickerDegraded: (props: {
+        integrationId: number
+        pushableCount: number
+        reason: 'all_unpushable' | 'empty'
+        totalCount: number
+    }) => {
+        integrationId: number
+        pushableCount: number
+        reason: 'all_unpushable' | 'empty'
+        totalCount: number
     }
     reportContextOnboardingSourceToggled: (
         productKey: string,

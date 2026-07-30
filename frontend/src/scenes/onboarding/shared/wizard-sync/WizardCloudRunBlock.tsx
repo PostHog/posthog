@@ -253,8 +253,10 @@ function RepositoryPicker({
                 </LemonButton>
             </div>
             {noneUsable && (
-                <LemonBanner type="warning" data-attr="wizard-cloud-run-no-usable-repositories">
-                    <div className="space-y-1 text-sm">
+                <LemonBanner type="warning">
+                    {/* LemonBanner doesn't forward data-attr to the DOM, so it goes on the inner div —
+                        same as the queued banner above. */}
+                    <div className="space-y-1 text-sm" data-attr="wizard-cloud-run-no-usable-repositories">
                         <div className="font-semibold">
                             {summary?.total === 0
                                 ? 'PostHog has access to no repositories'
