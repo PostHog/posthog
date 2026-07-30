@@ -39,9 +39,6 @@ export interface signalTeamConfigLogicActions {
     clearDraftBaseBranch: () => {
         value: true
     }
-    finishTeamConfigUpdate: () => {
-        value: true
-    }
     loadTeamConfig: () => any
     loadTeamConfigFailure: (
         error: string,
@@ -63,6 +60,26 @@ export interface signalTeamConfigLogicActions {
     ) => {
         clearDraftOnSuccess: boolean
         patch: Partial<SignalTeamConfig>
+    }
+    patchTeamConfigFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    patchTeamConfigSuccess: (
+        teamConfig: SignalTeamConfig,
+        payload?: {
+            clearDraftOnSuccess: boolean
+            patch: Partial<SignalTeamConfig>
+        }
+    ) => {
+        teamConfig: SignalTeamConfig
+        payload?: {
+            clearDraftOnSuccess: boolean
+            patch: Partial<SignalTeamConfig>
+        }
     }
     removeBaseBranchOverride: (repo: string) => {
         repo: string
@@ -91,6 +108,7 @@ export interface signalTeamConfigLogicMeta {
         autostartEnabled: (teamConfig: SignalTeamConfig | null) => boolean
         defaultAutostartPriority: (teamConfig: SignalTeamConfig | null) => SignalReportPriority
         baseBranchOverrides: (teamConfig: SignalTeamConfig | null) => BaseBranchOverride[]
+        teamConfigUpdating: (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null) => boolean
         addBaseBranchOverrideDisabledReason: (
             draftBaseBranchRepo: string,
             draftBaseBranchBranch: string
@@ -118,13 +136,12 @@ export type signalTeamConfigLogicType = MakeLogicType<
 export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
     path(['scenes', 'inbox', 'logics', 'signalTeamConfigLogic']),
     actions({
-        // Partial update of the singleton, e.g. `{ default_slack_notification_channel: null }`
-        // to clear the team channel. One action serves every patchable field.
+        // Declared up front so the loader below adopts this signature instead of generating a
+        // single-payload one: callers say `patchTeamConfig({ autostart_enabled: false })`.
         patchTeamConfig: (patch: Partial<SignalTeamConfig>, clearDraftOnSuccess: boolean = false) => ({
             patch,
             clearDraftOnSuccess,
         }),
-        finishTeamConfigUpdate: true,
         setDraftBaseBranchIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setDraftBaseBranchRepo: (repo: string) => ({ repo }),
         setDraftBaseBranchBranch: (branch: string) => ({ branch }),
@@ -133,15 +150,36 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         updateBaseBranchOverride: (repo: string, branch: string) => ({ repo, branch }),
         removeBaseBranchOverride: (repo: string) => ({ repo }),
     }),
-    loaders({
-        teamConfig: [
-            null as SignalTeamConfig | null,
-            {
-                loadTeamConfig: async () => {
-                    return await api.signalTeamConfig.get()
+    loaders(() => {
+        // Every patch of `autostart_base_branches` sends the whole map, so two in flight at once let the
+        // server settle on whichever lands last rather than whichever was asked for last.
+        let updateQueue: Promise<unknown> = Promise.resolve()
+
+        return {
+            teamConfig: [
+                null as SignalTeamConfig | null,
+                {
+                    loadTeamConfig: async () => {
+                        return await api.signalTeamConfig.get()
+                    },
+                    // Partial update of the singleton, e.g. `{ default_slack_notification_channel: null }`
+                    // to clear the team channel. One action serves every patchable field.
+                    patchTeamConfig: async ({
+                        patch,
+                    }: {
+                        patch: Partial<SignalTeamConfig>
+                        clearDraftOnSuccess: boolean
+                    }) => {
+                        const update = updateQueue.then(() => api.signalTeamConfig.update(patch))
+                        updateQueue = update.then(
+                            () => undefined,
+                            () => undefined
+                        )
+                        return await update
+                    },
                 },
-            },
-        ],
+            ],
+        }
     }),
     reducers({
         // Optimistically reflect the patched values so the controls don't flicker
@@ -149,13 +187,6 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         teamConfig: {
             patchTeamConfig: (state, { patch }) => (state ? { ...state, ...patch } : state),
         },
-        teamConfigUpdating: [
-            false,
-            {
-                patchTeamConfig: () => true,
-                finishTeamConfigUpdate: () => false,
-            },
-        ],
         draftBaseBranchIntegrationId: [
             null as number | null,
             {
@@ -199,6 +230,13 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                     .map(([repo, branch]) => ({ repo, branch }))
                     .sort((a, b) => a.repo.localeCompare(b.repo)),
         ],
+        // One loader serves both the initial fetch and every patch, so what separates them is whether
+        // there's already a config on screen to be updating.
+        teamConfigUpdating: [
+            (s) => [s.teamConfigLoading, s.teamConfig],
+            (teamConfigLoading: boolean, teamConfig: SignalTeamConfig | null): boolean =>
+                teamConfigLoading && teamConfig !== null,
+        ],
         // Doubles as the add button's tooltip, so what blocks the add is stated once rather than
         // derived separately for the guard and for the copy.
         addBaseBranchOverrideDisabledReason: [
@@ -212,10 +250,6 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         ],
     }),
     listeners(({ actions, values }) => {
-        let updateQueue = Promise.resolve()
-        let pendingUpdates = 0
-        let updateFailed = false
-
         return {
             addBaseBranchOverride: () => {
                 if (values.addBaseBranchOverrideDisabledReason) {
@@ -245,36 +279,15 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 delete next[repo]
                 actions.patchTeamConfig({ autostart_base_branches: next })
             },
-            patchTeamConfig: async ({ patch, clearDraftOnSuccess }) => {
-                pendingUpdates += 1
-                const update = updateQueue.then(() => api.signalTeamConfig.update(patch))
-                updateQueue = update.then(
-                    () => undefined,
-                    () => undefined
-                )
-
-                try {
-                    const config = await update
-                    if (clearDraftOnSuccess) {
-                        actions.clearDraftBaseBranch()
-                    }
-                    if (pendingUpdates === 1) {
-                        updateFailed = false
-                        actions.loadTeamConfigSuccess(config)
-                    }
-                } catch (error: any) {
-                    updateFailed = true
-                    lemonToast.error(error?.detail ?? error?.message ?? 'Failed to update team self-driving settings')
-                } finally {
-                    pendingUpdates -= 1
-                    if (pendingUpdates === 0 && updateFailed) {
-                        updateFailed = false
-                        actions.loadTeamConfig()
-                    }
-                    if (pendingUpdates === 0) {
-                        actions.finishTeamConfigUpdate()
-                    }
+            patchTeamConfigSuccess: ({ payload }) => {
+                if (payload?.clearDraftOnSuccess) {
+                    actions.clearDraftBaseBranch()
                 }
+            },
+            patchTeamConfigFailure: ({ error, errorObject }) => {
+                lemonToast.error(errorObject?.detail ?? error ?? 'Failed to update team self-driving settings')
+                // The optimistic value is now a lie, and the server holds the truth about what stuck.
+                actions.loadTeamConfig()
             },
         }
     }),
