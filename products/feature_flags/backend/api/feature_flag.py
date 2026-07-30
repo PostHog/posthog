@@ -2070,6 +2070,10 @@ class FeatureFlagSerializer(
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
+            if instance.has_feature_enrollment:
+                from products.feature_flags.backend.tasks import migrate_feature_enrollment_on_key_change
+
+                migrate_feature_enrollment_on_key_change.delay(instance.team_id, old_key, instance.id)
 
         report_user_action(
             request.user,

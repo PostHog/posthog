@@ -29,8 +29,8 @@ use limiters::token_dropper::TokenDropper;
 
 use crate::config::{AiRouting, CaptureMode};
 use crate::metrics_middleware::track_metrics;
-use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::CaptureQuotaLimiter;
+use metrics_exporter_prometheus::PrometheusHandle;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -164,9 +164,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     event_restriction_service: Option<EventRestrictionService>,
-    metrics: bool,
+    recorder_handle: Option<PrometheusHandle>,
     capture_mode: CaptureMode,
-    deploy_role: String,
     concurrency_limit: Option<usize>,
     event_payload_size_limit: usize,
     enable_historical_rerouting: bool,
@@ -454,11 +453,10 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
-    // Don't install metrics unless asked to
-    // Installing a global recorder when capture is used as a library (during tests etc)
-    // does not work well.
-    if metrics {
-        let recorder_handle = setup_metrics_recorder(deploy_role, capture_mode.as_tag());
+    // The caller installs the recorder, before anything can emit; here we only
+    // expose its output. `None` for tests and library use, which have no
+    // recorder of their own.
+    if let Some(recorder_handle) = recorder_handle {
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router
