@@ -5,6 +5,8 @@ from typing import Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
 
+from django.utils.timezone import now
+
 from posthog.cache_utils import cache_for
 
 mocked_dependency = Mock()
@@ -31,9 +33,10 @@ def fn_background(number: float) -> int:
 
 class TestCacheUtils(APIBaseTest):
     def setUp(self):
-        mocked_dependency.reset_mock()
+        mocked_dependency.reset_mock(side_effect=True)
         mocked_dependency.return_value = 1
         order_of_events.reset_mock()
+        fn.clear_cache()
 
     def test_cache_for_with_different_passed_arguments_styles_when_skipping_cache(self) -> None:
         assert 1 == fn(use_cache=False)
@@ -50,6 +53,23 @@ class TestCacheUtils(APIBaseTest):
 
         # cache treats fn(2) and fn(number=2) as two different calls
         assert mocked_dependency.call_count == 2
+
+    def test_cache_for_serves_stale_value_when_refresh_raises(self) -> None:
+        assert 1 == fn(5, use_cache=True)
+
+        fn._cache[((5,), frozenset())] = (now() - timedelta(seconds=10), 1)
+        mocked_dependency.side_effect = Exception("backing store is down")
+
+        assert 1 == fn(5, use_cache=True)
+        # The stale value is re-stamped, so a subsequent call doesn't retry the failing dependency
+        assert 1 == fn(5, use_cache=True)
+        assert mocked_dependency.call_count == 2
+
+    def test_cache_for_raises_when_refresh_fails_with_no_cached_value(self) -> None:
+        mocked_dependency.side_effect = Exception("backing store is down")
+
+        with self.assertRaises(Exception):
+            fn(6, use_cache=True)
 
     def test_background_cache_refresh(self) -> None:
         # First call is not cached and as such takes some time
