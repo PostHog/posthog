@@ -112,7 +112,7 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
                 code=117,
             ),
             "CHQueryErrorIncorrectData",
-            "Code: 117.\nDB::Exception: Cannot read all data. Bytes read: 5. Bytes expected: 100.",
+            "Cannot read all data. Bytes read: 5. Bytes expected: 100.",
             117,
             "CHQueryErrorIncorrectData",
         ),

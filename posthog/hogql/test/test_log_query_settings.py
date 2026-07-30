@@ -12,6 +12,8 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
     CHQueryErrorCorruptedParquetMetadata,
+    CHQueryErrorMalformedWarehouseFile,
+    CHQueryErrorMissingWarehouseFile,
     CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManyBytes,
     ExposedCHQueryError,
@@ -180,5 +182,53 @@ class TestArgumentCountErrorsAreUserFacing(TestCase):
     def test_argument_count_error_is_exposed_and_user_error(self, code: int, name: str) -> None:
         server_error = ServerException(f"DB::Exception: Function minus {name.lower()}.", code=code)
         wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, ExposedCHQueryError)
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+
+class TestMalformedWarehouseFileErrors(TestCase):
+    """A ragged CSV backing a warehouse table is the customer's data problem. These codes must
+    surface actionable copy and classify as USER_ERROR, not get captured as platform errors."""
+
+    RAGGED_ROW_MESSAGE = (
+        "DB::Exception: Expected end of line, got something else: (at row 812) "
+        "(in file/uri https://bucket.s3.amazonaws.com/orders.csv): While executing S3Source. "
+        "Stack trace: ..."
+    )
+    INFERENCE_MESSAGE = "DB::Exception: Cannot extract table structure from CSVWithNames format file. Stack trace: ..."
+
+    @parameterized.expand(
+        [
+            (27, RAGGED_ROW_MESSAGE),
+            (117, RAGGED_ROW_MESSAGE),
+            (636, INFERENCE_MESSAGE),
+        ]
+    )
+    def test_file_backed_data_quality_error_is_exposed_and_actionable(self, code: int, message: str) -> None:
+        wrapped = wrap_clickhouse_query_error(ServerException(message, code=code))
+        assert isinstance(wrapped, CHQueryErrorMalformedWarehouseFile)
+        assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+        rendered = str(wrapped)
+        assert "DB::Exception" not in rendered
+        assert "Stack trace" not in rendered
+        assert "header doesn't match" in rendered
+
+    def test_missing_file_gets_its_own_message(self) -> None:
+        # A URL pattern matching nothing also raises 636, but "fix your CSV header" would be wrong.
+        wrapped = wrap_clickhouse_query_error(
+            ServerException(
+                "DB::Exception: Cannot extract table structure from CSV format file, because there are "
+                "no files with provided path in S3 or all files are empty",
+                code=636,
+            )
+        )
+        assert isinstance(wrapped, CHQueryErrorMissingWarehouseFile)
+        assert "URL pattern" in str(wrapped)
+
+    def test_non_file_data_quality_error_keeps_its_own_message(self) -> None:
+        # Without a file marker we can't claim it's about a file, so the message passes through -
+        # but it still counts as the user's error rather than ours.
+        wrapped = wrap_clickhouse_query_error(ServerException("DB::Exception: Incorrect data.", code=117))
+        assert not isinstance(wrapped, CHQueryErrorMalformedWarehouseFile)
         assert isinstance(wrapped, ExposedCHQueryError)
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR

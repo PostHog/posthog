@@ -91,6 +91,32 @@ CORRUPTED_PARQUET_METADATA_MESSAGE = (
 )
 
 
+# Codes ClickHouse raises when the bytes in a file don't match the schema it was asked to read
+# them with. On PostHog they only ever come from file-backed warehouse tables, so they describe
+# the customer's data rather than a platform fault.
+FILE_BACKED_DATA_QUALITY_ERRORS = frozenset(
+    {"CANNOT_PARSE_INPUT_ASSERTION_FAILED", "INCORRECT_DATA", "CANNOT_EXTRACT_TABLE_STRUCTURE"}
+)
+
+# Markers ClickHouse appends when the failure happened reading a file, as opposed to somewhere
+# in the query itself. Without one we can't promise the message is about a file, so it passes
+# through unchanged.
+FILE_BACKED_READ_MARKERS = ("(in file/uri", "format file")
+
+
+def _wrap_malformed_file_error(err: ServerException) -> "CHQueryErrorMalformedWarehouseFile":
+    match = STORAGE_FILE_URI_PATTERN.search(err.message)
+    file_uri = f" ({match.group(1)})" if match else ""
+    return CHQueryErrorMalformedWarehouseFile(
+        f"A file backing this data warehouse table couldn't be read{file_uri}. Its rows don't line up "
+        "with the table's columns, which usually means a CSV file whose header doesn't match the number "
+        "of fields in its data rows. Fix the file and re-sync the source, or re-upload it if you manage "
+        "the file yourself.",
+        code=err.code,
+        code_name="malformed_warehouse_file",
+    )
+
+
 def _wrap_storage_file_changed_error(err: ServerException) -> "CHQueryErrorS3FileChangedDuringRead":
     match = STORAGE_FILE_URI_PATTERN.search(err.message)
     file_uri = match.group(1) if match else "unknown file"
@@ -146,6 +172,15 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return CHQueryErrorS3Error(f"S3 error occurred. ({err.message})", code=err.code)
     elif name == "INCORRECT_DATA" and "Not a Parquet file" in err.message and "(in file/uri" in err.message:
         return _wrap_storage_file_changed_error(err)
+    elif name == "CANNOT_EXTRACT_TABLE_STRUCTURE" and "there are no files with provided path" in err.message:
+        return CHQueryErrorMissingWarehouseFile(
+            "No files match this data warehouse table's URL pattern, or the files that match are empty. "
+            "Check the URL pattern, then re-sync the source or re-upload the files.",
+            code=err.code,
+            code_name="missing_warehouse_file",
+        )
+    elif name in FILE_BACKED_DATA_QUALITY_ERRORS and any(marker in err.message for marker in FILE_BACKED_READ_MARKERS):
+        return _wrap_malformed_file_error(err)
     elif name == "STD_EXCEPTION" and "deserialize thrift" in err.message:
         # A Parquet file with corrupted or oversized thrift metadata (e.g.
         # "Couldn't deserialize thrift: TProtocolException: Exceeded size limit").
@@ -248,6 +283,18 @@ class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
 
 class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
     """A Parquet file backing a warehouse table has corrupted or oversized thrift metadata."""
+
+    pass
+
+
+class CHQueryErrorMalformedWarehouseFile(ExposedCHQueryError):
+    """A file backing a warehouse table doesn't match the schema it's read with (e.g. a ragged CSV)."""
+
+    pass
+
+
+class CHQueryErrorMissingWarehouseFile(ExposedCHQueryError):
+    """A warehouse table's URL pattern matches no files, or only empty ones."""
 
     pass
 
@@ -370,7 +417,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     24: ErrorCodeMeta("CANNOT_WRITE_TO_OSTREAM"),
     25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE"),
     26: ErrorCodeMeta("CANNOT_PARSE_QUOTED_STRING"),
-    27: ErrorCodeMeta("CANNOT_PARSE_INPUT_ASSERTION_FAILED"),
+    # See FILE_BACKED_DATA_QUALITY_ERRORS: reached only via file-backed warehouse reads, so the
+    # customer's file is at fault, not us.
+    27: ErrorCodeMeta("CANNOT_PARSE_INPUT_ASSERTION_FAILED", user_safe=True),
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),
@@ -451,7 +500,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     114: ErrorCodeMeta("CANNOT_CLOCK_GETTIME"),
     115: ErrorCodeMeta("UNKNOWN_SETTING"),
     116: ErrorCodeMeta("THERE_IS_NO_DEFAULT_VALUE"),
-    117: ErrorCodeMeta("INCORRECT_DATA"),
+    117: ErrorCodeMeta("INCORRECT_DATA", user_safe=True),
     119: ErrorCodeMeta("ENGINE_REQUIRED"),
     120: ErrorCodeMeta("CANNOT_INSERT_VALUE_OF_DIFFERENT_SIZE_INTO_TUPLE"),
     121: ErrorCodeMeta("UNSUPPORTED_JOIN_KEYS"),
@@ -898,7 +947,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     633: ErrorCodeMeta("QUERY_IS_NOT_SUPPORTED_IN_WINDOW_VIEW"),
     634: ErrorCodeMeta("MONGODB_ERROR"),
     635: ErrorCodeMeta("CANNOT_POLL"),
-    636: ErrorCodeMeta("CANNOT_EXTRACT_TABLE_STRUCTURE"),
+    636: ErrorCodeMeta("CANNOT_EXTRACT_TABLE_STRUCTURE", user_safe=True),
     637: ErrorCodeMeta("INVALID_TABLE_OVERRIDE"),
     638: ErrorCodeMeta("SNAPPY_UNCOMPRESS_FAILED"),
     639: ErrorCodeMeta("SNAPPY_COMPRESS_FAILED"),
