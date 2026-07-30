@@ -77,12 +77,27 @@ def slack_api_error_code(exc: SlackApiError) -> str | None:
     return error_code if isinstance(error_code, str) else None
 
 
-def _post_scout_slack_reply(client: object, *, channel_id: str, thread_ts: object) -> None:
-    """Reply in-thread inviting @PostHog follow-ups on a scout's Slack output.
+def _post_scout_slack_reply(
+    client: object,
+    *,
+    channel_id: str,
+    thread_ts: object,
+    scout_team_id: int,
+    integration_team_id: int,
+) -> None:
+    """Invite @PostHog follow-ups when the Slack connection uses the scout's environment.
 
     Best-effort and non-blocking: the scout message itself has already been delivered, so a failed
     or missing follow-up never fails the delivery (and so never re-posts the parent on retry).
     """
+    if integration_team_id != scout_team_id:
+        logger.info(
+            "scout_slack_followup_reply_skipped_environment_mismatch",
+            scout_team_id=scout_team_id,
+            integration_team_id=integration_team_id,
+            channel=channel_id,
+        )
+        return
     if not isinstance(thread_ts, str) or not thread_ts:
         return
     try:
@@ -205,7 +220,13 @@ def post_scout_emission_to_slack(
             ) from exc
         raise
 
-    _post_scout_slack_reply(client, channel_id=channel_id, thread_ts=response.get("ts"))
+    _post_scout_slack_reply(
+        client,
+        channel_id=channel_id,
+        thread_ts=response.get("ts"),
+        scout_team_id=emission.team_id,
+        integration_team_id=integration.team_id,
+    )
 
 
 def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
@@ -281,4 +302,10 @@ def post_scout_report_to_slack(
             ) from exc
         raise
 
-    _post_scout_slack_reply(client, channel_id=channel_id, thread_ts=response.get("ts"))
+    _post_scout_slack_reply(
+        client,
+        channel_id=channel_id,
+        thread_ts=response.get("ts"),
+        scout_team_id=run.team_id,
+        integration_team_id=integration.team_id,
+    )

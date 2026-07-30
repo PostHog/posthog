@@ -55,7 +55,7 @@ class TestScoutSlackDelivery(BaseTest):
             source_id=f"run:{run.id}:finding:checkout-500s",
         )
 
-    def test_posts_safe_slack_mrkdwn_through_project_integration_with_stable_delivery_id(self) -> None:
+    def test_posts_safe_mrkdwn_but_does_not_invite_followup_for_child_environment(self) -> None:
         emission = self._make_emission(
             "**Checkout** failures [trace](https://example.com/trace) <!channel> [ping](!here)"
         )
@@ -90,15 +90,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
-        # The @PostHog follow-up invite lands as a reply in the message's thread.
-        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
-        assert reply["thread_ts"] == "1785418710.000100"
-        assert reply["channel"] == "CSCOUTS"
-        assert reply["blocks"][0]["type"] == "context"
-        assert (
-            reply["blocks"][0]["elements"][0]["text"]
-            == "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
-        )
+        assert fake_client.chat_postMessage.call_count == 1
 
     def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
         emission = self._make_emission()
