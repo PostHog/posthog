@@ -1,6 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+
 import { useMocks } from '~/mocks/jest'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { viewLinkLogic } from './viewLinkLogic'
@@ -72,6 +75,67 @@ describe('viewLinkLogic', () => {
         await expectLogic(logic).toDispatchActions(['validateJoinSuccess'])
         expect(logic.values.saveDisabledReason).toBeNull()
         expect(logic.values.joinValidation.msg).toBe('Validation query returned no results')
+    })
+
+    it('buckets tables into picker groups and keeps unknown types reachable', async () => {
+        const table = (name: string, type: string): DatabaseSchemaTable =>
+            ({ name, type, fields: {}, id: name }) as unknown as DatabaseSchemaTable
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: {
+                events: table('events', 'posthog'),
+                stripe_customers: table('stripe_customers', 'data_warehouse'),
+                my_view: table('my_view', 'view'),
+                odd_one: table('odd_one', 'something_new'),
+            },
+        } as any)
+
+        expect(logic.values.groupedTableOptions).toEqual([
+            { value: 'PostHog tables', items: ['events'] },
+            { value: 'Data warehouse', items: ['stripe_customers'] },
+            { value: 'Views', items: ['my_view'] },
+            { value: 'Other', items: ['odd_one'] },
+        ])
+    })
+
+    it('keeps an explicit SQL expression mode even though the field is still empty', async () => {
+        logic.actions.selectJoiningTable('persons')
+        logic.actions.setJoiningKeyMode('sql_expression')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.joiningKeyMode).toBe('sql_expression')
+    })
+
+    it('drops the explicit key mode when the table changes', async () => {
+        logic.actions.setJoiningKeyMode('sql_expression')
+        logic.actions.selectJoiningTable('persons')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.joiningKeyModeOverride).toBeNull()
+    })
+
+    it('clears the key when its table changes', async () => {
+        logic.actions.selectSourceTable('events')
+        logic.actions.setViewLinkValue('source_table_key', 'uuid')
+        logic.actions.selectSourceTable('persons')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.viewLink.source_table_key).toBeNull()
+        expect(logic.values.selectedSourceKey).toBeNull()
+    })
+
+    it('keeps a field name the user typed when the joining table changes', async () => {
+        logic.actions.setFieldName('my_accessor')
+        logic.actions.selectJoiningTable('persons')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.fieldName).toBe('my_accessor')
+    })
+
+    it('autofills the field name from the joining table while untouched', async () => {
+        logic.actions.selectJoiningTable('postgres.public.customers')
+        await expectLogic(logic).toDispatchActions(['autofillFieldName'])
+
+        expect(logic.values.fieldName).toBe('postgres_public_customers')
     })
 
     it('resets validation state when the modal closes', async () => {

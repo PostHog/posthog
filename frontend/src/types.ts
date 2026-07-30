@@ -6207,7 +6207,11 @@ export interface DataWarehouseViewLinkValidation {
     is_valid: boolean
     msg: string | null
     hogql: string | null
+    columns: string[]
     results: any[]
+    total_rows: number | null
+    matched_rows: number | null
+    match_rate: number | null
 }
 
 export interface QueryTabState {
