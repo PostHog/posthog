@@ -90,3 +90,14 @@ def test_ack_is_always_strictly_before_the_open_day() -> None:
     assert ack is not None
     assert ack < dt.datetime(2026, 7, 7, 0, 0, 0, tzinfo=dt.UTC)
     assert ack.tzinfo is dt.UTC
+
+
+def test_non_utc_watermarks_are_normalized_before_the_boundary_math() -> None:
+    # duckgres serves Z-times today, but the rule must hold for any aware
+    # datetime: 03:00+05:30 on July 7 IS July 6 21:30 UTC — July 6 is the open
+    # day, so the ack reaches only through July 5.
+    ack = day_boundary_ack(
+        watermark_low=dt.datetime(2026, 7, 4, 23, 59, 59, tzinfo=dt.UTC),
+        watermark_high=dt.datetime(2026, 7, 7, 3, 0, tzinfo=dt.timezone(dt.timedelta(hours=5, minutes=30))),
+    )
+    assert ack == dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC)

@@ -12,13 +12,6 @@ class PollDuckgresUsageInputs(BaseModel):
     """No knobs yet — exists so future fields don't change the wire shape."""
 
 
-class SetDuckgresDefaultTeamInputs(BaseModel):
-    """Repoint one org's managed-warehouse default team in duckgres."""
-
-    org_id: str
-    team_id: int
-
-
 class PollDuckgresUsageResult(BaseModel):
     skipped: bool = False
     rows_written: int = 0
@@ -37,7 +30,9 @@ class PollDuckgresUsageResult(BaseModel):
     # Rows dated outside the ack window (duckgres served at/below its cursor).
     # Dropped, not persisted; non-zero withholds the ack.
     out_of_window_dropped: int = 0
-    # Orgs whose managed-warehouse default team was deleted, mapped to the live
-    # team we elected to replace it. The workflow fires one fire-and-forget child
-    # per entry to repoint duckgres at the source (UpdateDuckgresDefaultTeamWorkflow).
-    default_team_repoints: dict[str, int] = Field(default_factory=dict)
+    # Orgs whose usage was dropped because they have no billable team at all
+    # (orphan orgs): alerted on, but never withholds the ack.
+    orphaned_org_ids: list[str] = Field(default_factory=list)
+    # Rows served with a non-UUID org_id (duckgres contract break). Dropped and
+    # alerted; never withholds the ack — permanently-bad rows must not freeze it.
+    malformed_org_row_count: int = 0

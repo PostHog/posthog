@@ -343,7 +343,7 @@ def _one_row_response(org_id: str, team_id: int) -> UsageResponse:
 @pytest.mark.asyncio
 async def test_orphaned_org_drops_rows_alerts_and_still_acks(activity_environment) -> None:
     # An org whose usage is under a deleted team AND it has no live team at all:
-    # rows dropped, DuckgresUsageOrphanedTeam fires — but the ack STILL proceeds
+    # rows dropped, DuckgresUsageOrphanedOrg fires — but the ack STILL proceeds
     # (the deliberate opposite of hole/parse/out-of-window, which withhold it).
     orphan_org = "018f0000-0000-0000-0000-0000000000ff"  # no team created for it
     is_conf, fetch, cap, log = _patched(_one_row_response(orphan_org, 999))
@@ -351,20 +351,9 @@ async def test_orphaned_org_drops_rows_alerts_and_still_acks(activity_environmen
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     assert await usage_count() == 0  # dropped — no billable team to attribute to
-    mock_capture.assert_called_once()  # DuckgresUsageOrphanedTeam
+    mock_capture.assert_called_once()  # DuckgresUsageOrphanedOrg
     assert result.ack_watermark == DAY_6_END.isoformat()  # ack proceeds anyway
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_activity_surfaces_default_team_repoints(activity_environment) -> None:
-    # ORG's default team (999) was deleted; its live team is 42 (the fixture). The
-    # activity surfaces {ORG: 42} for the workflow to repoint duckgres at the source.
-    is_conf, fetch, cap, log = _patched(_one_row_response(ORG, 999))
-    with is_conf, fetch, cap, log:
-        result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
-
-    assert result.default_team_repoints == {ORG: TEAM_ID}
+    assert result.orphaned_org_ids == [orphan_org]  # surfaced on the result too
 
 
 @pytest.mark.django_db(transaction=True)

@@ -40,20 +40,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.duckgres_usage.acking import day_boundary_ack
-from posthog.temporal.duckgres_usage.client import (
-    UsageResponse,
-    ack_usage,
-    fetch_usage,
-    is_configured,
-    set_default_team,
-)
+from posthog.temporal.duckgres_usage.client import UsageResponse, ack_usage, fetch_usage, is_configured
 from posthog.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
 from posthog.temporal.duckgres_usage.team_resolution import ResolvedTeams, resolve_billing_teams
-from posthog.temporal.duckgres_usage.types import (
-    PollDuckgresUsageInputs,
-    PollDuckgresUsageResult,
-    SetDuckgresDefaultTeamInputs,
-)
+from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollDuckgresUsageResult
 
 logger = structlog.get_logger(__name__)
 
@@ -73,17 +63,21 @@ class DuckgresRowsOutsideWindow(Exception):
     could delete their source buckets and permanently under-bill."""
 
 
-class DuckgresUsageOrphanedTeam(Exception):
-    """An org's managed-warehouse usage was under a deleted team and the org has
-    no billable team to re-attribute it to, so it was dropped. Unlike the anomalies
-    above the ack still proceeds — re-pulling can't help a warehouse with no
+class DuckgresUsageOrphanedOrg(Exception):
+    """An org's managed-warehouse usage had no billable team to attribute it to
+    (every project deleted, or only demo/internal projects left), so it was
+    dropped — an orphan org, agreed with billing. Captured loudly so a paying
+    org draining into "unbillable" gets noticed, but unlike the anomalies above
+    the ack ALWAYS proceeds — re-pulling can't help a warehouse with no billable
     projects; the data is unattributable, not withheld."""
 
 
-class DuckgresRepointFailed(Exception):
-    """Repointing an org's managed-warehouse default team failed after retries. The
-    poll re-detects the dead team and re-fires next tick, so it's not fatal — but a
-    persistent failure (org 404, auth) must be visible like the other anomalies."""
+class DuckgresMalformedOrgRows(Exception):
+    """Duckgres served usage rows whose org_id is not a PostHog org UUID — a broken
+    contract (the dev seed's org named 'local' is a live example). The rows are
+    dropped and the ack DELIBERATELY proceeds: a bucket's org_id never changes, so
+    withholding would freeze the ack forever on permanently-bad data. Loud so the
+    upstream contract break gets fixed; never loop-breaking."""
 
 
 class DuckgresDuplicateRows(Exception):
@@ -108,11 +102,10 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         response = await sync_to_async(fetch_usage)()
 
         # Resolve billing teams up front (needs the Team table, so sync DB context):
-        # re-attribute non-billable-team rows to a billable surrogate and surface any
-        # duplicates, value-conflicts, and orphaned orgs. The conflict count feeds the
-        # ack decision below, so it must be known before should_ack.
+        # re-attribute deleted/unknown-team rows to a billable surrogate and surface
+        # any duplicates, value-conflicts, and orphan orgs. The conflict
+        # count feeds the ack decision below, so it must be known before should_ack.
         resolution = await database_sync_to_async(resolve_billing_teams)(response.rows, response.storage_rows)
-        default_team_repoints = resolution.default_team_repoints
 
         recorded = await database_sync_to_async(_read_recorded_watermark)()
         hole = recorded is not None and response.watermark_low > recorded
@@ -167,10 +160,22 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
                 )
             )
         if resolution.orphaned_org_ids:
+            # Loud on purpose, but never gates the ack: an orphan org has no
+            # billable team, so it's unbillable by definition, and withholding
+            # would just make duckgres accumulate and re-serve the same rows forever.
             capture_exception(
-                DuckgresUsageOrphanedTeam(
-                    f"dropped managed-warehouse usage for {len(resolution.orphaned_org_ids)} org(s) whose team "
-                    f"was deleted with no billable team to re-attribute to: {sorted(resolution.orphaned_org_ids)}"
+                DuckgresUsageOrphanedOrg(
+                    f"managed-warehouse usage for {len(resolution.orphaned_org_ids)} orphan org(s) with no "
+                    f"billable team to attribute it to (rows dropped, ack proceeds): "
+                    f"{sorted(resolution.orphaned_org_ids)}"
+                )
+            )
+        if resolution.malformed_org_row_count:
+            capture_exception(
+                DuckgresMalformedOrgRows(
+                    f"dropped {resolution.malformed_org_row_count} duckgres usage row(s) with a non-UUID "
+                    f"org_id (sample: {list(resolution.malformed_org_id_sample)}); ack proceeds — "
+                    "a bucket's org_id never changes, so these can never become billable"
                 )
             )
         if resolution.duplicate_row_count:
@@ -199,9 +204,8 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             watermark_hole=hole,
             unparsed_row_count=response.unparsed_row_count,
             out_of_window_dropped=out_of_window,
-            # A source-config mutation follows for each entry (repoint duckgres's
-            # default team), so surface it: {org_id: elected_live_team}.
-            default_team_repoints=default_team_repoints,
+            orphaned_org_ids=sorted(resolution.orphaned_org_ids),
+            malformed_org_row_count=resolution.malformed_org_row_count,
         )
         return PollDuckgresUsageResult(
             rows_written=rows_written,
@@ -211,7 +215,8 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             watermark_hole=hole,
             unparsed_row_count=response.unparsed_row_count,
             out_of_window_dropped=out_of_window,
-            default_team_repoints=default_team_repoints,
+            orphaned_org_ids=sorted(resolution.orphaned_org_ids),
+            malformed_org_row_count=resolution.malformed_org_row_count,
         )
 
 
@@ -221,30 +226,6 @@ async def ack_duckgres_usage(ack_watermark: str) -> None:
     transient failure retries just this POST. Idempotent on duckgres (re-acking
     the same watermark is a no-op)."""
     await sync_to_async(ack_usage)(dt.datetime.fromisoformat(ack_watermark))
-
-
-@activity.defn(name="set-duckgres-default-team")
-async def set_duckgres_default_team(inputs: SetDuckgresDefaultTeamInputs) -> None:
-    """Repoint one org's managed-warehouse default team in duckgres.
-
-    Fired fire-and-forget by the poll workflow when duckgres is stamping a
-    deleted default team. Its own activity so this control-plane write retries
-    independently of the (large) pull; idempotent server-side, so retries and
-    re-detections across polls are safe."""
-    await sync_to_async(set_default_team)(inputs.org_id, inputs.team_id)
-
-
-@activity.defn(name="capture-duckgres-repoint-failure")
-async def capture_duckgres_repoint_failure(inputs: SetDuckgresDefaultTeamInputs) -> None:
-    """Surface a repoint that exhausted its retries. Run from the child workflow's
-    failure path so the (fire-and-forget) repoint isn't dark when it persistently
-    breaks — matching how hole/parse/out-of-window/orphan all capture."""
-    capture_exception(
-        DuckgresRepointFailed(
-            f"failed to repoint org {inputs.org_id} default team to {inputs.team_id} "
-            "(retries exhausted or a non-retryable error)"
-        )
-    )
 
 
 def _read_recorded_watermark() -> dt.datetime | None:

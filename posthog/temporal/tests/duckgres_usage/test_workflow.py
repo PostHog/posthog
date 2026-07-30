@@ -12,17 +12,12 @@ import pytest
 
 import temporalio.worker
 from temporalio import activity
-from temporalio.client import WorkflowFailureError
 from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.duckgres_usage.types import (
-    PollDuckgresUsageInputs,
-    PollDuckgresUsageResult,
-    SetDuckgresDefaultTeamInputs,
-)
-from posthog.temporal.duckgres_usage.workflow import PollDuckgresUsageWorkflow, UpdateDuckgresDefaultTeamWorkflow
+from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs, PollDuckgresUsageResult
+from posthog.temporal.duckgres_usage.workflow import PollDuckgresUsageWorkflow
 
 ACK_WATERMARK = "2026-07-06T23:59:59+00:00"
 ORG_A = "018f0000-0000-0000-0000-00000000000a"
@@ -71,88 +66,11 @@ async def test_workflow_does_not_ack_when_poll_withholds() -> None:
     assert acked_with == []
 
 
-async def _run_workflow_capturing_repoints(poll_result: PollDuckgresUsageResult) -> list[tuple[str, int]]:
-    """Run the poll workflow with a mock poll returning `poll_result`; return the
-    (org_id, team_id) pairs the repoint activity was invoked with. The repoint
-    children are ABANDON (they outlive the parent), so we await each by its
-    deterministic id after the parent completes."""
-    repointed: list[tuple[str, int]] = []
-
-    @activity.defn(name="poll-duckgres-usage")
-    async def poll_mock(inputs: PollDuckgresUsageInputs) -> PollDuckgresUsageResult:
-        return poll_result
-
-    @activity.defn(name="ack-duckgres-usage")
-    async def ack_mock(ack_watermark: str) -> None:
-        pass
-
-    @activity.defn(name="set-duckgres-default-team")
-    async def set_team_mock(inputs: SetDuckgresDefaultTeamInputs) -> None:
-        repointed.append((inputs.org_id, inputs.team_id))
-
-    async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
-        async with Worker(
-            env.client,
-            task_queue=(tq := str(uuid.uuid4())),
-            workflows=[PollDuckgresUsageWorkflow, UpdateDuckgresDefaultTeamWorkflow],
-            activities=[poll_mock, ack_mock, set_team_mock],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            await env.client.execute_workflow(
-                PollDuckgresUsageWorkflow.run,
-                PollDuckgresUsageInputs(),
-                id=str(uuid.uuid4()),
-                task_queue=tq,
-            )
-            for org_id in poll_result.default_team_repoints:
-                handle = env.client.get_workflow_handle(UpdateDuckgresDefaultTeamWorkflow.workflow_id_for(org_id))
-                await handle.result()
-    return repointed
-
-
 @pytest.mark.asyncio
-async def test_workflow_repoints_each_deleted_default_team() -> None:
-    repointed = await _run_workflow_capturing_repoints(
-        PollDuckgresUsageResult(rows_written=3, default_team_repoints={ORG_A: 7})
+async def test_workflow_still_acks_when_orgs_were_orphaned() -> None:
+    # Orphan orgs (no billable team) are surfaced on the result but never
+    # withhold the ack — the two must be independent at the workflow level too.
+    acked_with = await _run_workflow(
+        PollDuckgresUsageResult(rows_written=2, ack_watermark=ACK_WATERMARK, orphaned_org_ids=[ORG_A])
     )
-    assert repointed == [(ORG_A, 7)]
-
-
-@pytest.mark.asyncio
-async def test_workflow_starts_no_repoint_when_none() -> None:
-    repointed = await _run_workflow_capturing_repoints(
-        PollDuckgresUsageResult(rows_written=3, default_team_repoints={})
-    )
-    assert repointed == []
-
-
-@pytest.mark.asyncio
-async def test_repoint_failure_is_captured() -> None:
-    """A repoint that keeps failing must surface via a capture activity — else it
-    dies silently, unlike every other anomaly in the module (hole/parse/orphan)."""
-    captured: list[tuple[str, int]] = []
-
-    @activity.defn(name="set-duckgres-default-team")
-    async def set_fail(inputs: SetDuckgresDefaultTeamInputs) -> None:
-        raise RuntimeError("duckgres PUT 404")
-
-    @activity.defn(name="capture-duckgres-repoint-failure")
-    async def capture_mock(inputs: SetDuckgresDefaultTeamInputs) -> None:
-        captured.append((inputs.org_id, inputs.team_id))
-
-    async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
-        async with Worker(
-            env.client,
-            task_queue=(tq := str(uuid.uuid4())),
-            workflows=[UpdateDuckgresDefaultTeamWorkflow],
-            activities=[set_fail, capture_mock],
-            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ):
-            with pytest.raises(WorkflowFailureError):  # still fails after capturing
-                await env.client.execute_workflow(
-                    UpdateDuckgresDefaultTeamWorkflow.run,
-                    SetDuckgresDefaultTeamInputs(org_id=ORG_A, team_id=7),
-                    id=str(uuid.uuid4()),
-                    task_queue=tq,
-                )
-    assert captured == [(ORG_A, 7)]
+    assert acked_with == [ACK_WATERMARK]

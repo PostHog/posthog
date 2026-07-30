@@ -1,28 +1,31 @@
 """Re-attribute duckgres usage rows whose PostHog team is not billable.
 
-duckgres stamps every managed-warehouse usage bucket with the org's default
-PostHog team, resolved at record time. It treats that id as opaque, so if the
-project is deleted without the org's default being repointed, duckgres keeps
-emitting the dead id — and those rows would be dropped by the usage-report
-gather (which only visits *billable* teams), silently under-billing the org.
+duckgres does not own team attribution: the `team_id` it stamps on a usage
+bucket is an informational hint recorded at connection end (the connecting
+user's team, else the org's oldest team, else 0 when it knows no team), and
+team changes or deletions never re-attribute buckets on its side. That means
+rows can arrive under a deleted team's id — or under 0 — and those would be
+dropped by the usage-report gather (which only visits *billable* teams),
+silently under-billing the org.
 
-Without this, MDW is *worse* than the platform norm: duckgres re-emits the dead
-team every pull, so the loss recurs indefinitely (not the one-time "a deleted
-team loses its in-flight usage" every product already tolerates). Re-attributing
-and repointing brings it to parity — the only residual is the ~1 day around the
-deletion (see the PR description).
+At persist time we re-attribute such a row (a team_id no longer in the Team
+table, which includes the 0 stamp) to a deterministic billable team in the same
+org (lowest id). Managed warehouse bills at the org level, so the surrogate is
+billing-neutral — it only changes per-team display, never the org total. A team
+that still exists but is non-billable by design (a demo project, an
+internal-metrics org) is left alone: the gather already excludes it, and
+remapping it would bill intentionally-free usage. The elected surrogate MUST
+come from the gather's definition (`billable_teams_queryset`), or the remap
+would make under-billing permanent.
 
-At persist time we re-attribute a *deleted* team's rows (a team_id no longer in the
-Team table) to a deterministic billable team in the same org (lowest id). Managed
-warehouse bills at the org level, so the surrogate is billing-neutral — it only
-changes per-team display, never the org total. A team that still exists but is
-non-billable by design (a demo project, an internal-metrics org) is left alone: the
-gather already excludes it, and remapping it would bill intentionally-free usage. The
-elected surrogate MUST come from the gather's definition (`billable_teams_queryset`),
-or the repoint would make under-billing permanent. Rows for a deleted team with no
-billable team in the org are dropped and surfaced.
+An org with no billable team at all (every project deleted, or only demo/
+internal projects left) is unbillable by definition: its rows are dropped and
+the org is surfaced via `orphaned_org_ids` — an orphan org, decided with
+billing (see the poll activity, which alerts loudly but never withholds the
+ack for it).
 """
 
+import uuid
 import datetime as dt
 import dataclasses
 from collections.abc import Callable
@@ -32,36 +35,42 @@ from typing import TypeVar
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageRow
 
 _Row = TypeVar("_Row", UsageRow, StorageRow)
-_ComputeKey = tuple[dt.date, int, str, Decimal, Decimal]
-_StorageKey = tuple[dt.date, int]
+_ComputeKey = tuple[str, dt.date, int, str, Decimal, Decimal]
+_StorageKey = tuple[str, dt.date, int]
 
 
 @dataclasses.dataclass(frozen=True)
 class ResolvedTeams:
     compute_rows: list[UsageRow]
     storage_rows: list[StorageRow]
-    # Orgs whose usage was dropped because they have no billable team at all. The
-    # caller alerts on these; the ack still proceeds (re-pulling can't help — the
-    # org has no billable team, so the data is unattributable, not withheld).
+    # Orgs whose usage was dropped because they have no billable team at all
+    # (orphan orgs). The caller alerts on these; the ack still proceeds
+    # (re-pulling can't help — the org has no billable team, so the data is
+    # unattributable, not withheld).
     orphaned_org_ids: set[str]
-    # Orgs whose rows are *entirely* under a non-billable team — duckgres is stamping
-    # a deleted/unbillable default — mapped to the elected billable team. The caller
-    # repoints duckgres at the source; an org with any billable row is left alone.
-    default_team_repoints: dict[str, int] = dataclasses.field(default_factory=dict)
     # Rows duckgres emitted twice with an IDENTICAL billing row (harmless repeat).
     # We keep one, the caller alerts, and the ack still proceeds.
     duplicate_row_count: int = 0
     # Rows with the same billing key but DIFFERENT measures — we can't trust either,
     # so keep the larger and the caller WITHHOLDS the ack for reconciliation.
     conflicting_row_count: int = 0
+    # Rows whose org_id is not a UUID — duckgres broke its contract (org keys are
+    # PostHog org UUIDs). Dropped and surfaced; the ack DELIBERATELY proceeds: a
+    # bucket's org_id never changes, so withholding would freeze the ack forever.
+    malformed_org_row_count: int = 0
+    malformed_org_id_sample: tuple[str, ...] = ()
 
 
 def _compute_key(row: UsageRow) -> _ComputeKey:
-    return (row.date, row.team_id, row.query_source, row.cpu, row.mem_gib)
+    # org_id is part of the key: duckgres buckets are per-org, and the team
+    # stamp alone is NOT org-unique (two orgs can both stamp 0). Without the
+    # org, cross-org same-stamp rows would read as duplicates/conflicts of each
+    # other — silently dropping one org's usage and withholding the ack forever.
+    return (row.org_id, row.date, row.team_id, row.query_source, row.cpu, row.mem_gib)
 
 
 def _storage_key(row: StorageRow) -> _StorageKey:
-    return (row.date, row.team_id)
+    return (row.org_id, row.date, row.team_id)
 
 
 def _compute_usage(row: UsageRow) -> tuple:
@@ -104,18 +113,26 @@ def _dedup_raw(
     return list(by_key.values()), exact, conflicts
 
 
+def _valid_org_id(org_id: str) -> bool:
+    try:
+        uuid.UUID(org_id)
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[StorageRow]) -> ResolvedTeams:
     """Remap rows under a *deleted* team to a billable team in the same org.
 
     Two notions of "not the right team", kept distinct on purpose:
 
-    - **deleted** — the team_id isn't in the Team table at all (the project was
-      deleted; duckgres keeps emitting the dead id). The gather would drop these, so
-      we remap them to a live billable surrogate and repoint duckgres at the source.
+    - **deleted** — the team_id isn't in the Team table at all: the project was
+      deleted (duckgres keeps the stale stamp on already-recorded buckets), or
+      duckgres stamped its "no team known" sentinel 0. The gather would drop
+      these, so we remap them to a live billable surrogate.
     - **live but non-billable** — the team exists but is a demo project or in an
       internal-metrics org, so the gather excludes it *by design*. We leave these rows
-      where they are; remapping would bill intentionally-free usage, and repointing
-      would stomp a live default.
+      where they are; remapping would bill intentionally-free usage.
 
     The elected surrogate is always billable (`billable_teams_queryset`, the gather's
     own definition) — electing a demo/internal team would silently under-bill.
@@ -125,6 +142,18 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     # once repointed — permanent under-billing). Team gives us liveness (exists at all).
     from posthog.models import Team
     from posthog.tasks.usage_report import billable_teams_queryset
+
+    # Quarantine rows with a non-UUID org_id FIRST — they cannot survive any DB
+    # touch downstream (org_id is a UUID column in both the election query and
+    # the mirror), and one garbage row must never crash the poll for every org.
+    malformed = [r for r in compute_rows if not _valid_org_id(r.org_id)] + [
+        r for r in storage_rows if not _valid_org_id(r.org_id)
+    ]
+    if malformed:
+        compute_rows = [r for r in compute_rows if _valid_org_id(r.org_id)]
+        storage_rows = [r for r in storage_rows if _valid_org_id(r.org_id)]
+    malformed_org_row_count = len(malformed)
+    malformed_org_id_sample = tuple(sorted({r.org_id for r in malformed})[:3])
 
     # Collapse raw duplicates first (a duckgres contract violation), so the fold below
     # only ever sums *re-attribution* collisions — never double-bills a duplicate.
@@ -141,6 +170,8 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
             set(),
             duplicate_row_count=duplicate_row_count,
             conflicting_row_count=conflicting_row_count,
+            malformed_org_row_count=malformed_org_row_count,
+            malformed_org_id_sample=malformed_org_id_sample,
         )
 
     # "Dead" means *deleted* (absent from the Team table) — NOT merely non-billable. A
@@ -157,34 +188,26 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
             set(),
             duplicate_row_count=duplicate_row_count,
             conflicting_row_count=conflicting_row_count,
+            malformed_org_row_count=malformed_org_row_count,
+            malformed_org_id_sample=malformed_org_id_sample,
         )
 
-    billable = billable_teams_queryset()
     orgs_to_reattribute = {row.org_id for row in compute_rows if row.team_id in deleted_team_ids} | {
         row.org_id for row in storage_rows if row.team_id in deleted_team_ids
     }
     # Deterministic: the org's lowest-id billable team. The same dead team maps to the
     # same surrogate across pulls, so the mirror stays stable. None = no billable team.
-    elected: dict[str, int | None] = {
-        org_id: billable.filter(organization_id=org_id).order_by("id").values_list("id", flat=True).first()
-        for org_id in orgs_to_reattribute
-    }
+    # ONE query for every affected org (a pull can carry thousands of them), grouped
+    # back per org in Python — the org key is what keeps election strictly
+    # tenant-local: org A's rows can never elect org B's team, whatever the ids.
+    elected: dict[str, int | None] = dict.fromkeys(orgs_to_reattribute)
+    billable_pairs = billable_teams_queryset().filter(organization_id__in=orgs_to_reattribute)
+    for org_uuid, team_id in billable_pairs.values_list("organization_id", "id"):
+        org_id = str(org_uuid)
+        current = elected[org_id]
+        if current is None or team_id < current:
+            elected[org_id] = team_id
     orphaned_org_ids = {org_id for org_id, team_id in elected.items() if team_id is None}
-
-    # Which orgs to repoint at the source: those whose rows are *entirely* under
-    # deleted teams (duckgres is stamping a default that no longer exists). If a live
-    # team already appears for the org, duckgres has — or is mid-switch to — a live
-    # default (billable or not), so leave it; the mirror remap below still fixes the
-    # residual. (This can't see a switch to a new default that hasn't produced usage in
-    # the window yet, so we may briefly override it — billing-neutral, self-corrects.)
-    orgs_with_live_row = {row.org_id for row in compute_rows if row.team_id in live_team_ids} | {
-        row.org_id for row in storage_rows if row.team_id in live_team_ids
-    }
-    default_team_repoints: dict[str, int] = {}
-    for org_id in orgs_to_reattribute:
-        elected_team = elected[org_id]
-        if elected_team is not None and org_id not in orgs_with_live_row:
-            default_team_repoints[org_id] = elected_team
 
     def reattribute(rows: list[_Row]) -> list[_Row]:
         out: list[_Row] = []
@@ -202,9 +225,10 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
         _fold_compute(reattribute(compute_rows)),
         _fold_storage(reattribute(storage_rows)),
         orphaned_org_ids,
-        default_team_repoints,
         duplicate_row_count,
         conflicting_row_count,
+        malformed_org_row_count=malformed_org_row_count,
+        malformed_org_id_sample=malformed_org_id_sample,
     )
 
 

@@ -1,10 +1,12 @@
 """Tests for re-attributing usage rows whose team has been deleted.
 
-Managed-warehouse usage is stamped with the org's default team; if that project
-is deleted, duckgres keeps emitting the dead id, and the rows would be dropped
+duckgres stamps buckets with an informational team hint (the connecting user's
+team, else the org's oldest team, else 0) and never re-attributes on its side,
+so rows can arrive under a deleted team's id or 0 — and those would be dropped
 by the (live-teams-only) usage-report gather. resolve_billing_teams remaps them
 to a live team in the same org so the org still bills — org-level attribution
-makes the surrogate choice billing-neutral.
+makes the surrogate choice billing-neutral. Orgs with no billable team at all
+are orphan orgs (rows dropped, surfaced via orphaned_org_ids, ack proceeds).
 """
 
 import datetime as dt
@@ -133,69 +135,38 @@ def test_empty_input_is_a_noop() -> None:
     assert result.orphaned_org_ids == set()
 
 
-# --- default_team_repoints: which orgs to tell duckgres to switch -------------
-# duckgres stamps usage with the org's default team and keeps emitting it after
-# the project is deleted. When an org's rows are *entirely* under a dead team,
-# duckgres's default is dead, so we surface the org → elected-live-team mapping;
-# the workflow uses it to repoint duckgres at the source.
+# --- the team_id=0 sentinel ----------------------------------------------------
+# duckgres stamps 0 when it knows no team for the connection (its "no team
+# known" fallback — team attribution is ours, not its). 0 is never a real Team
+# id, so it rides the deleted-team path: remap when the org has a billable
+# team, flag the org as an orphan when it doesn't.
 
 
-def test_deleted_default_team_is_repointed_to_the_elected_team() -> None:
+def test_zero_stamped_rows_remap_to_lowest_billable_team() -> None:
     org, (t0, t1) = _org_with_teams()
     lowest = min(t0.id, t1.id)
-    # Every row is under the dead team → duckgres is stamping a deleted default.
-    result = resolve_billing_teams([_compute(DEAD, str(org.id))], [_storage(DEAD, str(org.id))])
 
-    assert result.default_team_repoints == {str(org.id): lowest}
+    result = resolve_billing_teams([_compute(0, str(org.id))], [_storage(0, str(org.id))])
 
-
-def test_org_with_a_live_team_present_is_not_repointed() -> None:
-    org, (t0, t1) = _org_with_teams()
-    # A live team already appears for the org → duckgres already has (or is
-    # mid-switch to) a live default. Leave it: the dead row is still remapped in
-    # the mirror, but we don't stomp duckgres's default.
-    result = resolve_billing_teams(
-        [_compute(t0.id, str(org.id)), _compute(DEAD, str(org.id), date=dt.date(2026, 7, 7))],
-        [],
-    )
-
-    assert result.default_team_repoints == {}
+    assert [r.team_id for r in result.compute_rows] == [lowest]
+    assert [r.team_id for r in result.storage_rows] == [lowest]
+    assert result.orphaned_org_ids == set()
 
 
-def test_orphaned_org_is_not_repointed() -> None:
-    org = Organization.objects.create(name="no projects")  # no live team to elect
-    result = resolve_billing_teams([_compute(DEAD, str(org.id))], [])
+def test_zero_stamped_rows_with_no_billable_team_are_orphaned() -> None:
+    org = Organization.objects.create(name="no projects")
 
-    assert result.default_team_repoints == {}
+    result = resolve_billing_teams([_compute(0, str(org.id))], [_storage(0, str(org.id))])
+
+    assert result.compute_rows == []
+    assert result.storage_rows == []
     assert result.orphaned_org_ids == {str(org.id)}
-
-
-def test_live_only_rows_have_no_repoints() -> None:
-    org, (t0, t1) = _org_with_teams()
-    result = resolve_billing_teams([_compute(t0.id, str(org.id))], [_storage(t1.id, str(org.id))])
-
-    assert result.default_team_repoints == {}
-
-
-def test_only_the_fully_dead_org_is_repointed() -> None:
-    dead_org, (d0, d1) = _org_with_teams()  # entirely dead → repoint
-    mixed_org, (m0,) = _org_with_teams(n=1)  # has a live row → leave alone
-    compute = [
-        _compute(DEAD, str(dead_org.id)),
-        _compute(m0.id, str(mixed_org.id)),
-        _compute(DEAD, str(mixed_org.id), date=dt.date(2026, 7, 7)),
-    ]
-
-    result = resolve_billing_teams(compute, [])
-
-    assert result.default_team_repoints == {str(dead_org.id): min(d0.id, d1.id)}
 
 
 # --- "live team" must equal the usage gather's "billable team" -----------------
 # The gather (_get_teams_for_usage_reports) excludes demo projects and
 # internal-metrics orgs. The resolver must use the same definition — otherwise it
-# elects a team the gather will never bill, silently under-billing the org (and
-# the repoint makes it permanent).
+# elects a team the gather will never bill, silently under-billing the org.
 
 DEMO = 88_800_001  # a demo team, low id (would be picked first by a naive election)
 REAL = 88_800_002  # the real billable team, higher id
@@ -208,18 +179,16 @@ def test_demo_team_is_not_elected_as_surrogate() -> None:
 
     result = resolve_billing_teams([_compute(DEAD, str(org.id))], [])
 
-    assert result.default_team_repoints == {str(org.id): real.id}  # skips the lower-id demo team
-    assert [r.team_id for r in result.compute_rows] == [real.id]
+    assert [r.team_id for r in result.compute_rows] == [real.id]  # skips the lower-id demo team
 
 
-def test_org_with_only_a_demo_team_is_orphaned_not_repointed() -> None:
+def test_org_with_only_a_demo_team_is_orphaned() -> None:
     org = Organization.objects.create(name="demo only")
     Team.objects.create(id=DEMO, organization=org, name="demo", is_demo=True)  # the only "live" team
 
     result = resolve_billing_teams([_compute(DEAD, str(org.id))], [])
 
     assert result.orphaned_org_ids == {str(org.id)}  # loud + safe, not silently onto the demo team
-    assert result.default_team_repoints == {}
     assert result.compute_rows == []
 
 
@@ -230,14 +199,13 @@ def test_internal_metrics_org_is_orphaned() -> None:
     result = resolve_billing_teams([_compute(DEAD, str(org.id))], [])
 
     assert result.orphaned_org_ids == {str(org.id)}  # internal orgs are unbilled by design
-    assert result.default_team_repoints == {}
 
 
 def test_live_demo_stamped_rows_are_left_untouched() -> None:
     # duckgres stamped usage with a LIVE demo team that shares the org with a real
     # team. The demo team is intentionally non-billable but *exists* — remapping its
-    # usage onto the real team would bill what the gather deliberately excludes, and
-    # repointing would stomp a live default. Only *deleted* teams get moved.
+    # usage onto the real team would bill what the gather deliberately excludes.
+    # Only *deleted* (or 0-stamped) teams get moved.
     org = Organization.objects.create(name="demo stamped")
     Team.objects.create(id=DEMO, organization=org, name="demo", is_demo=True)
     Team.objects.create(id=REAL, organization=org, name="real")
@@ -245,7 +213,6 @@ def test_live_demo_stamped_rows_are_left_untouched() -> None:
     result = resolve_billing_teams([_compute(DEMO, str(org.id))], [])
 
     assert [r.team_id for r in result.compute_rows] == [DEMO]  # left under the demo team, not remapped
-    assert result.default_team_repoints == {}  # live default not stomped
     assert result.orphaned_org_ids == set()  # kept, not dropped
 
 
@@ -261,7 +228,6 @@ def test_live_internal_org_team_rows_are_left_untouched() -> None:
 
     assert [r.team_id for r in result.compute_rows] == [internal_team.id]  # left alone
     assert result.orphaned_org_ids == set()  # not deleted → not orphaned
-    assert result.default_team_repoints == {}
 
 
 def test_raw_duplicate_rows_are_deduped_not_summed() -> None:
@@ -339,3 +305,83 @@ def test_storage_conflicting_values_keep_max_and_flag() -> None:
     assert len(result.storage_rows) == 1
     assert result.storage_rows[0].gib_seconds == Decimal("250")  # kept the max
     assert result.conflicting_row_count == 1
+
+
+# --- surrogate election: one query, strictly tenant-local -----------------------
+
+
+def test_surrogate_election_never_crosses_orgs() -> None:
+    # Org B owns the GLOBALLY lowest billable team id. A naive "lowest id across
+    # the batch" election would hand org A's usage to org B's team — a
+    # cross-tenant billing leak. Election must be lowest-per-org, always.
+    org_a = Organization.objects.create(name="org a")
+    Team.objects.create(id=40010, organization=org_a, name="a-low")
+    Team.objects.create(id=40011, organization=org_a, name="a-high")
+    org_b = Organization.objects.create(name="org b")
+    Team.objects.create(id=40001, organization=org_b, name="b-global-lowest")
+
+    result = resolve_billing_teams(
+        [_compute(DEAD, str(org_a.id)), _compute(DEAD_2, str(org_b.id))],
+        [],
+    )
+
+    by_org = {r.org_id: r.team_id for r in result.compute_rows}
+    assert by_org == {str(org_a.id): 40010, str(org_b.id): 40001}  # each org its OWN lowest
+    assert result.orphaned_org_ids == set()
+
+
+def test_orphan_org_stays_orphan_in_a_batch_with_billable_orgs() -> None:
+    # The single shared election query must not bleed between orgs: an org with
+    # no billable team is orphaned even when the same pull carries orgs that
+    # elect successfully.
+    org_ok, (t0, _) = _org_with_teams()
+    org_orphan = Organization.objects.create(name="no teams")
+
+    result = resolve_billing_teams(
+        [_compute(DEAD, str(org_ok.id)), _compute(DEAD_2, str(org_orphan.id))],
+        [],
+    )
+
+    by_org = {r.org_id: r.team_id for r in result.compute_rows}
+    assert by_org[str(org_ok.id)] == t0.id  # elected normally
+    assert str(org_orphan.id) not in by_org  # dropped
+    assert result.orphaned_org_ids == {str(org_orphan.id)}
+
+
+def test_election_query_count_is_constant_in_org_count(django_assert_num_queries) -> None:
+    # The election is ONE query however many orgs carry dead stamps (it was a
+    # per-org N+1; a pull can carry thousands of affected orgs). Two queries
+    # total: team liveness + election.
+    orgs = []
+    for i in range(5):
+        org = Organization.objects.create(name=f"org {i}")
+        Team.objects.create(id=41000 + i, organization=org, name=f"t{i}")
+        orgs.append(org)
+
+    rows = [_compute(DEAD, str(org.id)) for org in orgs]
+    with django_assert_num_queries(2):
+        result = resolve_billing_teams(rows, [])
+
+    assert {r.team_id for r in result.compute_rows} == {41000 + i for i in range(5)}
+
+
+def test_malformed_org_ids_are_dropped_counted_and_never_crash() -> None:
+    # duckgres contract break: org keys must be PostHog org UUIDs (the dev
+    # seed's org named 'local' is a live counter-example). Such rows can't
+    # survive any DB touch, so they're quarantined before one — valid rows
+    # unaffected, ack unaffected (asserted at the activity level).
+    org, (t0, _) = _org_with_teams()
+    rows = [
+        _compute(t0.id, str(org.id)),  # valid, live stamp
+        _compute(DEAD, "local"),  # malformed org, dead stamp
+        _compute(t0.id, "not-a-uuid"),  # malformed org, live stamp
+    ]
+    storage = [_storage(t0.id, str(org.id)), _storage(DEAD, "local")]
+
+    result = resolve_billing_teams(rows, storage)
+
+    assert [r.org_id for r in result.compute_rows] == [str(org.id)]
+    assert [r.org_id for r in result.storage_rows] == [str(org.id)]
+    assert result.malformed_org_row_count == 3
+    assert result.malformed_org_id_sample == ("local", "not-a-uuid")
+    assert result.orphaned_org_ids == set()
