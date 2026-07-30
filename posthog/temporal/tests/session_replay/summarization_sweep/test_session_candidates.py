@@ -2,9 +2,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
+
+from clickhouse_driver.errors import ServerException, SocketTimeoutError
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.temporal.session_replay.summarization_sweep.constants import DEFAULT_SAMPLE_RATE, SAMPLE_RATE_PRECISION
 from posthog.temporal.session_replay.summarization_sweep.session_candidates import (
@@ -12,6 +17,8 @@ from posthog.temporal.session_replay.summarization_sweep.session_candidates impo
     _sampling_having_predicate,
     coerce_sample_rate,
     fetch_recent_session_ids,
+    filter_session_ids_with_events,
+    is_transient_clickhouse_error,
 )
 
 from products.signals.backend.models import SignalSourceConfig
@@ -116,3 +123,64 @@ class TestSamplingPushdown(ClickhouseTestMixin):
                 active_milliseconds=60_000,
             )
         return session_ids
+
+
+def _ch_error(code: int, message: str = "DB::Exception: boom") -> Exception:
+    return wrap_clickhouse_query_error(ServerException(message, code=code))
+
+
+@pytest.mark.parametrize(
+    "exc,transient",
+    [
+        (_ch_error(394), True),  # QUERY_WAS_CANCELLED — the reported issue
+        (_ch_error(735), True),  # QUERY_WAS_CANCELLED_BY_CLIENT
+        (_ch_error(236), True),  # ABORTED
+        (_ch_error(202), True),  # TOO_MANY_SIMULTANEOUS_QUERIES, wrapped as ClickHouseAtCapacity
+        (_ch_error(159), True),  # TIMEOUT_EXCEEDED
+        (_ch_error(241, "DB::Exception: Memory limit (total) exceeded"), True),
+        (_ch_error(241, "DB::Exception: Memory limit (for query) exceeded"), True),
+        (_ch_error(209), True),  # SOCKET_TIMEOUT
+        (_ch_error(210), True),  # NETWORK_ERROR
+        (SocketTimeoutError(), True),
+        (_ch_error(10), False),  # NOT_FOUND_COLUMN_IN_BLOCK — a genuine query bug
+        (_ch_error(47), False),  # UNKNOWN_IDENTIFIER
+        (ExposedHogQLError("bad query"), False),
+        (ValueError("unrelated"), False),
+    ],
+)
+def test_is_transient_clickhouse_error(exc, transient) -> None:
+    assert is_transient_clickhouse_error(exc) is transient
+
+
+def test_fetch_recent_session_ids_skips_tick_when_clickhouse_sheds_the_query() -> None:
+    with patch(
+        "posthog.temporal.session_replay.summarization_sweep.session_candidates.SessionRecordingListFromQuery",
+        side_effect=_ch_error(394),
+    ):
+        assert fetch_recent_session_ids(team=MagicMock(), lookback_minutes=30) == []
+
+
+def test_fetch_recent_session_ids_reraises_query_bugs() -> None:
+    with patch(
+        "posthog.temporal.session_replay.summarization_sweep.session_candidates.SessionRecordingListFromQuery",
+        side_effect=_ch_error(10),
+    ):
+        with pytest.raises(Exception, match="boom"):
+            fetch_recent_session_ids(team=MagicMock(), lookback_minutes=30)
+
+
+def test_filter_session_ids_with_events_skips_tick_when_clickhouse_sheds_the_query() -> None:
+    with patch(
+        "posthog.temporal.session_replay.summarization_sweep.session_candidates.HogQLQueryRunner",
+        side_effect=_ch_error(394),
+    ):
+        assert filter_session_ids_with_events(team=MagicMock(), session_ids=["a"], lookback_minutes=30) == set()
+
+
+def test_filter_session_ids_with_events_reraises_query_bugs() -> None:
+    with patch(
+        "posthog.temporal.session_replay.summarization_sweep.session_candidates.HogQLQueryRunner",
+        side_effect=_ch_error(10),
+    ):
+        with pytest.raises(Exception, match="boom"):
+            filter_session_ids_with_events(team=MagicMock(), session_ids=["a"], lookback_minutes=30)

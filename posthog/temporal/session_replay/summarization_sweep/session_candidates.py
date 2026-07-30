@@ -2,6 +2,8 @@
 
 from django.conf import settings
 
+import structlog
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import HogQLQuery, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
@@ -10,6 +12,12 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    QueryErrorCategory,
+    classify_query_error,
+    look_up_clickhouse_error_code_meta,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.team import Team
@@ -24,7 +32,47 @@ from ee.hogai.session_summaries.constants import (
     SESSION_SUMMARY_EVENT_BLOCKLIST,
 )
 
+logger = structlog.get_logger(__name__)
+
 MAX_CANDIDATE_SESSIONS = 10_000
+
+# A busy cluster isn't a defect here: skipping a tick costs nothing, because the next one
+# re-picks the same sessions out of the same lookback window. Cancellations, capacity
+# shedding, timeouts and per-query memory limits all land in these categories.
+_TRANSIENT_ERROR_CATEGORIES = frozenset(
+    {
+        QueryErrorCategory.CANCELLED,
+        QueryErrorCategory.RATE_LIMITED,
+        QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+    }
+)
+# Connectivity codes classify as a plain ERROR, so they need naming explicitly.
+_TRANSIENT_ERROR_CODE_NAMES = frozenset(
+    {
+        "ALL_CONNECTION_TRIES_FAILED",
+        "ATTEMPT_TO_READ_AFTER_EOF",
+        "NETWORK_ERROR",
+        "NO_REMOTE_SHARD_AVAILABLE",
+        "SOCKET_TIMEOUT",
+    }
+)
+
+
+def is_transient_clickhouse_error(exc: BaseException) -> bool:
+    """Whether a candidate query failed because ClickHouse was busy or unreachable.
+
+    Deliberately narrow: a genuine query bug (an unknown column, a bad type) must stay
+    reportable, since nothing else would surface it.
+    """
+    if isinstance(exc, (NetworkError, SocketTimeoutError, *CH_TRANSIENT_ERRORS)):
+        return True
+    if not isinstance(exc, Exception):
+        return False
+    if classify_query_error(exc) in _TRANSIENT_ERROR_CATEGORIES:
+        return True
+    if isinstance(exc, ServerException):
+        return look_up_clickhouse_error_code_meta(exc).name in _TRANSIENT_ERROR_CODE_NAMES
+    return False
 
 
 _BASELINE_HAVING_PREDICATES: list[RecordingPropertyFilter] = [
@@ -105,7 +153,10 @@ def fetch_recent_session_ids(
     limit: int = MAX_CANDIDATE_SESSIONS,
     max_execution_time_seconds: int = HOGQL_INCREASED_MAX_EXECUTION_TIME,
 ) -> list[str]:
-    """Fetch session IDs of recordings that ended within the lookback period."""
+    """Fetch session IDs of recordings that ended within the lookback period.
+
+    Empty if ClickHouse sheds the query — the next tick covers the same window.
+    """
     user_defined_query = _build_user_defined_query(recording_filters)
     if user_defined_query:
         # Running a RecordingsQuery for consistency with the session recordings API
@@ -132,12 +183,23 @@ def fetch_recent_session_ids(
 
     sampling_predicate = _sampling_having_predicate(sample_rate)
     with tags_context(product=Product.SESSION_SUMMARY, feature=Feature.ENRICHMENT):
-        result = SessionRecordingListFromQuery(
-            team=team,
-            query=query,
-            max_execution_time=max_execution_time_seconds,
-            extra_having_predicates=[sampling_predicate] if sampling_predicate is not None else None,
-        ).run()
+        try:
+            result = SessionRecordingListFromQuery(
+                team=team,
+                query=query,
+                max_execution_time=max_execution_time_seconds,
+                extra_having_predicates=[sampling_predicate] if sampling_predicate is not None else None,
+            ).run()
+        except Exception as exc:
+            if not is_transient_clickhouse_error(exc):
+                raise
+            logger.warning(
+                "summarization_sweep.recordings_query_failed",
+                team_id=team.pk,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return []
 
     return [recording["session_id"] for recording in result.results]
 
@@ -148,7 +210,10 @@ def filter_session_ids_with_events(
     lookback_minutes: int,
     max_execution_time_seconds: int = HOGQL_INCREASED_MAX_EXECUTION_TIME,
 ) -> set[str]:
-    """Subset of `session_ids` that have at least one summarizable event in their recording window."""
+    """Subset of `session_ids` that have at least one summarizable event in their recording window.
+
+    Empty if ClickHouse sheds the query — the next tick covers the same window.
+    """
     if not session_ids:
         return set()
     # Covers candidate sessions started within lookback and active up to MAX_ACTIVE_SECONDS_FOR_VIDEO_SUMMARY_S.
@@ -170,5 +235,17 @@ def filter_session_ids_with_events(
     )
     hogql_settings = HogQLGlobalSettings(max_execution_time=max_execution_time_seconds)
     with tags_context(product=Product.SESSION_SUMMARY, feature=Feature.ENRICHMENT):
-        result = HogQLQueryRunner(team=team, query=query, settings=hogql_settings).calculate()
+        try:
+            result = HogQLQueryRunner(team=team, query=query, settings=hogql_settings).calculate()
+        except Exception as exc:
+            if not is_transient_clickhouse_error(exc):
+                raise
+            logger.warning(
+                "summarization_sweep.events_prefilter_query_failed",
+                team_id=team.pk,
+                session_id_count=len(session_ids),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return set()
     return {row[0] for row in (result.results or []) if row and row[0]}
