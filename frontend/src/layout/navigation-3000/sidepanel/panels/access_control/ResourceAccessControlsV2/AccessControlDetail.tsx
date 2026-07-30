@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconHome, IconInfo, IconPeople } from '@posthog/icons'
-import { Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { IconGear, IconHome, IconInfo, IconPeople, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, InheritedAccessLevelReason } from '~/types'
 
@@ -82,12 +84,67 @@ function MemberHeader({ member }: { member: AccessControlMemberEntry }): JSX.Ele
 }
 
 function RoleHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
+    const { sortedRoles, canEditRoles } = useValues(roleAccessControlLogic)
+    const { deleteRole } = useActions(roleAccessControlLogic)
+
+    const members = sortedRoles.find((r) => r.id === role.role_id)?.members ?? []
+
+    const confirmDelete = (): void => {
+        LemonDialog.open({
+            title: `Delete the ${role.role_name} role?`,
+            description: (
+                <div className="space-y-2">
+                    <p className="mb-0">
+                        This removes every access rule the role grants, in this project and in every other project in
+                        the organization.
+                    </p>
+                    {members.length > 0 && (
+                        <p className="mb-0">
+                            {members.length === 1 ? '1 member loses' : `${members.length} members lose`} the role:{' '}
+                            {members
+                                .map((m) => (m.user.first_name ? fullName(m.user) : m.user.email))
+                                .sort()
+                                .join(', ')}
+                            .
+                        </p>
+                    )}
+                </div>
+            ),
+            primaryButton: {
+                children: 'Delete role',
+                status: 'danger',
+                onClick: () => deleteRole(role.role_id),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
     return (
-        <div className="flex items-center gap-2">
-            <span className="text-muted-alt flex items-center text-lg">
-                <IconPeople />
-            </span>
-            <div className="font-medium">{role.role_name}</div>
+        <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+                <span className="text-muted-alt flex items-center text-lg">
+                    <IconPeople />
+                </span>
+                <div className="font-medium">{role.role_name}</div>
+            </div>
+            <More
+                overlay={
+                    <>
+                        <LemonButton fullWidth icon={<IconGear />} to={urls.settings('organization-roles')}>
+                            Manage roles
+                        </LemonButton>
+                        <LemonButton
+                            fullWidth
+                            status="danger"
+                            icon={<IconTrash />}
+                            disabledReason={canEditRoles === false ? 'You cannot edit roles' : undefined}
+                            onClick={confirmDelete}
+                        >
+                            Delete role
+                        </LemonButton>
+                    </>
+                }
+            />
         </div>
     )
 }

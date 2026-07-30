@@ -884,7 +884,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 'updateAccessControlRolesSuccess',
             ],
             roleAccessControlLogic,
-            ['roleMembershipsChanged'],
+            ['roleMembershipsChanged', 'deleteRoleSuccess'],
         ],
         values: [
             userLogic,
@@ -1308,6 +1308,14 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         },
         roleMembershipsChanged: () => {
             // A member's roles decide what they inherit, so both lists go stale at once
+            if (values.membersData) {
+                actions.loadMembers()
+            }
+            if (values.rolesData) {
+                actions.loadRoles()
+            }
+        },
+        deleteRoleSuccess: () => {
             if (values.membersData) {
                 actions.loadMembers()
             }
