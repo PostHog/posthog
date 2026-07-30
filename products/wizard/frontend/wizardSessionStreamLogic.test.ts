@@ -33,6 +33,8 @@ function makeSession(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessio
         tasks: [],
         event_plan: null,
         error: null,
+        pending_input: null,
+        created_by: null,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
         is_stale: false,
