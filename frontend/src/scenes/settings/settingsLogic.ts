@@ -258,9 +258,9 @@ export interface settingsLogicMeta {
             selectedSectionIdRaw: SettingSectionId | null,
             selectedLevelRaw: 'environment' | 'organization' | 'project' | 'user',
             currentTeam: TeamPublicType | TeamType | null,
-            currentTeamLoading: any,
+            currentTeamLoading: boolean,
             currentOrganization: OrganizationType | null,
-            currentOrganizationLoading: any
+            currentOrganizationLoading: boolean
         ) => SettingsUnavailability
         selectedSetting: (settings: Setting[], selectedSettingId: SettingId | null) => Setting | null
         doesMatchFlags: (featureFlags: FeatureFlagsSet) => (flagDefinition: Pick<Setting, 'flag'>) => boolean

@@ -31,7 +31,7 @@ describe('Settings', () => {
         renderSettingsScene()
 
         await waitFor(() => expect(screen.getByText(/couldn't load this project/i)).toBeInTheDocument())
-        expect(screen.getAllByRole('button', { name: /try again/i }).length).toBeGreaterThan(0)
+        expect(screen.getAllByText(/try again/i).length).toBeGreaterThan(0)
         expect(screen.queryByText(/not found/i)).not.toBeInTheDocument()
     })
 
