@@ -436,26 +436,21 @@ export class IngestionConsumer {
             }
         }
 
-        // FinOps usage meters, one set per batch, gated on the opt-in flag so the disabled hot
-        // path does no extra work (the meter also no-ops internally). WarpStream bills on
-        // throughput rather than message count, so we meter bytes as well as events: `bytes` uses
-        // the decompressed value size, which is a proportional proxy for the compressed wire bytes
-        // the vendor bill is based on. `events` stays because some downstream costs (ClickHouse
-        // inserts, per-event processing) scale per event rather than per byte.
+        // WarpStream bills on throughput, so costQuantity records message bytes while quantity
+        // keeps the customer-facing event count used to allocate that cost.
         if (this.config.INGESTION_FINOPS_USAGE_METERS_ENABLED) {
             const batchBytes = messages.reduce((total, message) => total + (message.size ?? 0), 0)
-            const dimensions = { system: 'warpstream', workload: this.groupId, resourceId: this.topic } as const
             this.finopsUsageMeter.queue({
-                product: 'ingestion',
+                product: 'shared',
                 billableUnit: 'events',
                 quantity: messages.length,
-                ...dimensions,
-            })
-            this.finopsUsageMeter.queue({
-                product: 'ingestion',
-                billableUnit: 'bytes',
-                quantity: batchBytes,
-                ...dimensions,
+                costUnit: 'bytes',
+                costQuantity: batchBytes,
+                team: 'ingestion',
+                costType: 'cogs',
+                system: 'warpstream',
+                workload: this.groupId,
+                resourceId: this.topic,
             })
         }
 

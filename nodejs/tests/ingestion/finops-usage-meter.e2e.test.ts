@@ -32,6 +32,12 @@ const WIRE_CONTRACT_COLUMNS = [
     'duration_ms',
     'service_name',
     'count',
+    'cost_unit',
+    'cost_quantity',
+    'team',
+    'cost_type',
+    'user_id',
+    'trace_id',
 ]
 
 function consumeBatch(consumer: KafkaConsumer, count: number): Promise<Message[]> {
@@ -76,7 +82,7 @@ describe('FinopsUsageMeter E2E', () => {
     it('an enabled meter delivers a wire-contract row to the real Kafka topic', async () => {
         const meter = new FinopsUsageMeter(createTestIngestionOutputs(producer), { enabled: true })
         meter.queue({
-            product: 'ingestion',
+            product: 'shared',
             billableUnit: 'events',
             quantity: 1000,
             teamId: TEST_TEAM_ID,
@@ -104,7 +110,7 @@ describe('FinopsUsageMeter E2E', () => {
 
         expect(new Set(Object.keys(rows[0]))).toEqual(new Set(WIRE_CONTRACT_COLUMNS))
         expect(rows[0]).toMatchObject({
-            product: 'ingestion',
+            product: 'shared',
             team_id: TEST_TEAM_ID,
             billable_unit: 'events',
             quantity: 1000,

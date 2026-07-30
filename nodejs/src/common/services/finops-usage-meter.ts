@@ -48,6 +48,12 @@ export interface FinopsUsageMeterInput {
     resourceId?: string
     durationMs?: number
     count?: number
+    costUnit?: string
+    costQuantity?: number
+    team?: string
+    costType?: string
+    userId?: number
+    traceId?: string
 }
 
 export interface FinopsUsageMeterOptions {
@@ -67,6 +73,12 @@ type AccumulatedMeter = {
     quantity: number
     durationMs: number
     count: number
+    costUnit: string
+    costQuantity: number
+    team: string
+    costType: string
+    userId: number
+    traceId: string
 }
 
 /**
@@ -100,6 +112,7 @@ export class FinopsUsageMeter {
             const existing = this.buffer.get(key)
             if (existing) {
                 existing.quantity += meter.quantity
+                existing.costQuantity += meter.costQuantity ?? 0
                 existing.durationMs += meter.durationMs ?? 0
                 existing.count += meter.count ?? 1
             } else {
@@ -115,6 +128,12 @@ export class FinopsUsageMeter {
                     quantity: meter.quantity,
                     durationMs: meter.durationMs ?? 0,
                     count: meter.count ?? 1,
+                    costUnit: meter.costUnit ?? '',
+                    costQuantity: meter.costQuantity ?? 0,
+                    team: meter.team ?? '',
+                    costType: meter.costType ?? '',
+                    userId: meter.userId ?? 0,
+                    traceId: meter.traceId ?? '',
                 })
             }
         } catch (error) {
@@ -155,6 +174,12 @@ export class FinopsUsageMeter {
                             duration_ms: m.durationMs,
                             service_name: serviceName,
                             count: m.count,
+                            cost_unit: m.costUnit,
+                            cost_quantity: m.costQuantity,
+                            team: m.team,
+                            cost_type: m.costType,
+                            user_id: m.userId,
+                            trace_id: m.traceId,
                         })
                     )
                 ),
@@ -193,5 +218,10 @@ function makeKey(m: FinopsUsageMeterInput): string {
         m.system ?? '',
         m.workload ?? '',
         m.resourceId ?? '',
+        m.costUnit ?? '',
+        m.team ?? '',
+        m.costType ?? '',
+        m.userId ?? 0,
+        m.traceId ?? '',
     ].join(':')
 }

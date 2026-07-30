@@ -23,7 +23,7 @@ function makeOutputs(): {
 
 function input(overrides: Partial<FinopsUsageMeterInput> = {}): FinopsUsageMeterInput {
     return {
-        product: 'ingestion',
+        product: 'shared',
         billableUnit: 'events',
         quantity: 1000,
         teamId: 42,
@@ -81,10 +81,16 @@ describe('FinopsUsageMeter', () => {
                 'duration_ms',
                 'service_name',
                 'count',
+                'cost_unit',
+                'cost_quantity',
+                'team',
+                'cost_type',
+                'user_id',
+                'trace_id',
             ])
         )
         expect(row).toMatchObject({
-            product: 'ingestion',
+            product: 'shared',
             team_id: 42,
             org_id: '',
             feature: '',
@@ -93,6 +99,12 @@ describe('FinopsUsageMeter', () => {
             system: 'warpstream',
             workload: 'events-ingestion-consumer',
             count: 1,
+            cost_unit: '',
+            cost_quantity: 0,
+            team: '',
+            cost_type: '',
+            user_id: 0,
+            trace_id: '',
         })
         expect(row.timestamp).toEqual(expect.any(String))
         expect(['dev', 'prod-us', 'prod-eu']).toContain(row.environment)
@@ -100,14 +112,15 @@ describe('FinopsUsageMeter', () => {
 
     it('sums quantity and count for entries sharing the identity fields', async () => {
         const meter = new FinopsUsageMeter(outputs, { enabled: true })
-        meter.queue(input({ quantity: 1000, count: 1 }))
-        meter.queue(input({ quantity: 500, count: 1 }))
+        meter.queue(input({ quantity: 1000, count: 1, costQuantity: 2000 }))
+        meter.queue(input({ quantity: 500, count: 1, costQuantity: 750 }))
         await meter.flush()
 
         const rows = getRows()
         expect(rows).toHaveLength(1)
         expect(rows[0].quantity).toBe(1500)
         expect(rows[0].count).toBe(2)
+        expect(rows[0].cost_quantity).toBe(2750)
     })
 
     it.each([
@@ -115,6 +128,9 @@ describe('FinopsUsageMeter', () => {
         ['billableUnit', { billableUnit: 'invocations' }],
         ['teamId', { teamId: 7 }],
         ['workload', { workload: 'other-consumer' }],
+        ['costUnit', { costUnit: 'actions' }],
+        ['team', { team: 'cdp' }],
+        ['costType', { costType: 'rnd' }],
     ])('keeps %s separate', async (_field, override) => {
         const meter = new FinopsUsageMeter(outputs, { enabled: true })
         meter.queue(input())
