@@ -7,7 +7,7 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KlausSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaus import KlausSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.klaus import KlausResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaus.source import KlausSource

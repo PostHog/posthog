@@ -7,6 +7,7 @@ import {
     resolveMappingRewrite,
 } from '@/lib/kv'
 import { proxyPostWithClientId, tryBothRegions } from '@/lib/proxy'
+import { errorResponse } from '@/lib/validation'
 
 /**
  * OAuth Token Exchange — proxy to the correct region.
@@ -29,9 +30,9 @@ export async function handleToken(request: Request, kv: KVNamespace): Promise<Re
             clientId = (json.client_id as string) || null
             grantType = (json.grant_type as string) || null
         } catch {
-            return new Response(
-                JSON.stringify({ error: 'invalid_request', error_description: 'Malformed JSON body' }),
-                { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
+            return errorResponse(
+                { error: 'invalid_request', error_description: 'Malformed JSON body' },
+                { 'Cache-Control': 'no-store' }
             )
         }
     } else {

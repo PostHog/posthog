@@ -231,6 +231,15 @@ tools:
             Remove a person from a static cohort by their UUID. Only works for static cohorts (is_static: true). The
             person must exist in the project. Idempotent: removing a person who exists but is not a member of the cohort
             succeeds silently.
+    cohorts-staff-list:
+        operation: cohorts_staff_list
+        enabled: false
+    cohorts-staff-recalculate-create:
+        operation: cohorts_staff_recalculate_create
+        enabled: false
+    cohorts-staff-stuck-retrieve:
+        operation: cohorts_staff_stuck_retrieve
+        enabled: false
     cohorts-update:
         operation: cohorts_update
         enabled: false

@@ -1,17 +1,21 @@
 import re
 import base64
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.settings import WUFOO_ENDPOINTS
 
 # Wufoo enforces a per-account hostname, so only the subdomain label is user-supplied. Restricting
@@ -20,13 +24,7 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 # Wufoo caps `pageSize` at 100 rows per request.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 VALIDATE_TIMEOUT_SECONDS = 10
-MAX_RETRIES = 5
-
-
-class WufooRetryableError(Exception):
-    """Raised for transient API responses (429 / 5xx) so tenacity retries them."""
 
 
 @dataclasses.dataclass
@@ -56,96 +54,78 @@ def _redact_values(api_key: str) -> tuple[str, ...]:
     return (api_key, _basic_token(api_key))
 
 
-@retry(
-    retry=retry_if_exception_type((WufooRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    page_start: int,
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    response = session.get(
-        url,
-        params={"pageStart": page_start, "pageSize": PAGE_SIZE},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise WufooRetryableError(f"Wufoo API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Wufoo API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def get_rows(
-    api_key: str,
-    subdomain: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[WufooResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = WUFOO_ENDPOINTS[endpoint]
-    # One session reused across pages so urllib3 keeps the connection alive. Redirects are pinned
-    # off so the user-supplied credential can't be replayed to a cross-host redirect target
-    # (SSRF / credential-exfiltration defense-in-depth). urllib3 retries are disabled so tenacity
-    # (on `_fetch_page`) is the single retry layer.
-    session = make_tracked_session(
-        headers=_headers(api_key),
-        redact_values=_redact_values(api_key),
-        allow_redirects=False,
-        retry=Retry(total=0),
-    )
-    url = f"{base_url(subdomain)}/{config.path}"
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page_start = resume.page_start if resume else 0
-    if resume and resume.page_start > 0:
-        logger.debug(f"Wufoo: resuming {endpoint} from pageStart {page_start}")
-
-    while True:
-        data = _fetch_page(session, url, page_start, logger)
-
-        items = data[config.data_key]
-        if not isinstance(items, list):
-            items = []
-        if items:
-            yield items
-
-        # A short (or empty) page means the account has no further rows for this endpoint.
-        if len(items) < PAGE_SIZE:
-            break
-
-        page_start += PAGE_SIZE
-        # Save state AFTER yielding so a crash re-fetches the page we just emitted rather than
-        # skipping it — merge dedupes the re-yielded rows on the primary key.
-        resumable_source_manager.save_state(WufooResumeConfig(page_start=page_start))
-
-
 def wufoo_source(
     api_key: str,
     subdomain: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[WufooResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = WUFOO_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url(subdomain),
+            # Only the non-secret Accept header goes here; the credential rides on framework auth
+            # so its value is redacted from logs.
+            "headers": {"Accept": "application/json"},
+            # Wufoo authenticates with HTTP Basic: the API key is the username and any non-empty
+            # string is the (ignored) password.
+            "auth": {"type": "http_basic", "username": api_key, "password": "footastic"},
+            # Wufoo exposes no top-level total; termination is a short/empty page (OffsetPaginator
+            # default). pageStart/pageSize are Wufoo's offset/limit params.
+            "paginator": OffsetPaginator(
+                limit=PAGE_SIZE,
+                offset_param="pageStart",
+                limit_param="pageSize",
+                total_path=None,
+            ),
+            # Pin every request to the validated subdomain host and reject redirects so the
+            # credential can't be replayed to a cross-host target (SSRF / exfiltration defense).
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "data_selector": config.data_key,
+                    # A 200 body without the expected list key means the response shape changed —
+                    # fail loud instead of silently syncing 0 rows.
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.page_start}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(WufooResumeConfig(page_start=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            subdomain=subdomain,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -156,15 +136,15 @@ def validate_credentials(api_key: str, subdomain: str) -> Optional[int]:
     """Probe a cheap list endpoint. Returns the HTTP status code, or ``None`` on a connection error."""
     if not SUBDOMAIN_REGEX.match(subdomain):
         return None
-    url = f"{base_url(subdomain)}/forms.json"
-    try:
-        response = make_tracked_session(
-            headers=_headers(api_key),
+    url = f"{base_url(subdomain)}/forms.json?pageSize=1"
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(
             redact_values=_redact_values(api_key),
             allow_redirects=False,
             retry=Retry(total=0),
-        ).get(url, params={"pageSize": 1}, timeout=VALIDATE_TIMEOUT_SECONDS)
-    except Exception:
-        return None
-
-    return response.status_code
+        ),
+        url,
+        headers=_headers(api_key),
+        timeout=VALIDATE_TIMEOUT_SECONDS,
+    )
+    return status

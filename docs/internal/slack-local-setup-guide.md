@@ -1,6 +1,6 @@
 # Slack local setup guide
 
-How to point a real Slack workspace at your local PostHog so you can test the **PostHog Code**
+How to point a real Slack workspace at your local PostHog so you can test the **PostHog Desktop**
 coding agent (`@PostHog <task>` → sandbox run) end to end. The same tunnel + workspace works for
 the other Slack integrations too, but this guide only documents what we verified.
 
@@ -8,7 +8,7 @@ Slack is SaaS-only: there's no self-hosted Slack. So "local testing" means a rea
 (throwaway) Slack workspace + app whose webhooks and OAuth callback reach your laptop
 through a tunnel. This guide captures a setup that has been verified end to end.
 
-> Prerequisite: the PostHog Code stack must already work locally — GitHub App, temporal
+> Prerequisite: the PostHog Desktop stack must already work locally — GitHub App, temporal
 > worker, sandboxes. If you haven't done that yet, follow
 > [sandboxes-setup-guide.md](./sandboxes-setup-guide.md) first and come back here.
 
@@ -118,8 +118,9 @@ oauth_config:
       - users:read
       - users:read.email
     user:
-      - identity.basic
-      - identity.email
+      - openid
+      - email
+      - profile
 settings:
   event_subscriptions:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
@@ -142,13 +143,13 @@ Django must be up at that moment.
 > otherwise) and the coding agent doesn't use it.
 
 > The `app_home` block + `app_home_opened` bot event power the App Home tab; the
-> sign-in-with-Slack flow needs `user` scopes `identity.basic` + `identity.email` and the second
-> redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature locally —
-> they're behind the `slack-app-home` and `slack-app-oauth` flags.
+> Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
+> the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
+> locally — they're behind the `slack-app-home` and `slack-app-oauth` flags.
 
 ## Step 3 — backend credentials and `SITE_URL`
 
-PostHog Code reuses the regular Slack notifications app, so set the standard
+PostHog Desktop reuses the regular Slack notifications app, so set the standard
 `SLACK_APP_*` credentials in `.env` and restart the `django` +
 `temporal-django-worker` processes so it reloads. These are dynamic settings
 seeded from the env on boot (`posthog/settings/dynamic_settings.py`):
@@ -199,9 +200,9 @@ connected, `@PostHog` events reach the agent unconditionally.
 
 ## Step 5 — connect the integrations
 
-**Slack.** PostHog Code piggybacks on the regular Slack notifications install — there's no
-separate "PostHog Code Slack" install anymore. Go to **Settings → Project → Integrations**,
-find Slack, click **Connect to Slack**, and authorize in your dev workspace. The PostHog Code
+**Slack.** PostHog Desktop piggybacks on the regular Slack notifications install — there's no
+separate "PostHog Desktop Slack" install anymore. Go to **Settings → Project → Integrations**,
+find Slack, click **Connect to Slack**, and authorize in your dev workspace. The PostHog Desktop
 agent reads the same `Integration` row that the notifications product writes. Verify:
 
 ```bash

@@ -116,9 +116,9 @@ ORDER BY count DESC
 ```sql
 SELECT
     timestamp,
-    properties.$exception_type AS exception_type,
-    properties.$exception_message AS exception_message,
-    properties.$exception_source AS source,
+    properties.$exception_types[1] AS exception_type,
+    properties.$exception_values[1] AS exception_message,
+    properties.$exception_sources[1] AS source,
     person.id AS user_id
 FROM events
 WHERE event = '$exception'

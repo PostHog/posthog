@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshservi
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.source import FreshserviceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshserviceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshservice import (
+    FreshserviceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.source.validate_freshservice_credentials"

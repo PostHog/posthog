@@ -9,7 +9,9 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HoneycombSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.honeycomb import (
+    HoneycombSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.honeycomb import HoneycombResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.settings import (
     ENDPOINTS,

@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
+import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
@@ -233,8 +234,8 @@ describe('runInteractionLogic', () => {
 
         // The agent transitions autonomously (e.g. a plan approval leaves Plan mode) and confirms via a
         // `current_mode_update` frame — the live mode replaces the earlier pick.
-        stream.actions.setCurrentMode('acceptEdits')
-        expect(logic.values.selectedMode).toBe('acceptEdits')
+        stream.actions.setCurrentMode('auto')
+        expect(logic.values.selectedMode).toBe('auto')
 
         logic.actions.setComposerFormValues({ draft: 'go on' })
         await expectLogic(logic, () => {
@@ -255,13 +256,14 @@ describe('runInteractionLogic', () => {
         stream.actions.setCurrentMode('full-access')
         expect(logic.values.selectedMode).toBe('plan')
 
+        // The retired acceptEdits wire mode (older runs, resumed snapshots) normalizes to auto.
         stream.actions.setCurrentMode('acceptEdits')
-        expect(logic.values.selectedMode).toBe('acceptEdits')
+        expect(logic.values.selectedMode).toBe('auto')
     })
 
     it('seeds a fresh run with the picked permission mode when the run is terminal', async () => {
         setStatus('completed')
-        logic.actions.setMode('acceptEdits')
+        logic.actions.setMode('bypassPermissions')
         logic.actions.setComposerFormValues({ draft: 'continue from here' })
 
         await expectLogic(logic, () => {
@@ -271,7 +273,7 @@ describe('runInteractionLogic', () => {
         expect(tasksRunCreate).toHaveBeenCalledWith(
             '997',
             TASK_ID,
-            expect.objectContaining({ initial_permission_mode: 'acceptEdits' })
+            expect.objectContaining({ initial_permission_mode: 'bypassPermissions' })
         )
     })
 
@@ -350,7 +352,7 @@ describe('runInteractionLogic', () => {
             runtime_adapter: 'claude',
             model: 'claude-sonnet-5',
             reasoning_effort: 'high',
-            initial_permission_mode: 'bypassPermissions',
+            initial_permission_mode: 'auto',
             resume_from_run_id: RUN_ID,
             pending_user_message: 'continue from here',
         })
@@ -416,6 +418,25 @@ describe('runInteractionLogic', () => {
         expect(secondSend.params.content).not.toContain('- insight sig')
         expect(secondSend.params.content).toContain('- text: "always resend me"')
         expect(secondSend.params.content.endsWith('follow up')).toBe(true)
+    })
+
+    it('prunes context whose rendered line the run log already carries, even with no sent-key bookkeeping', async () => {
+        // The reload scenario: `sentContextKeysByTask` is empty (fresh session), but `runStreamLogic`
+        // recorded the block lines it found replaying the resume-chain history — the same ref must not
+        // be re-wrapped into the next send.
+        const seenItem = { type: 'insight', key: 'sig', label: 'Signups' }
+        attachedContextLogic().actions.registerContext('scene', [seenItem])
+        attachedContextLogic().actions.markContextLinesSeen(TASK_ID, [contextItemLine(seenItem)])
+        setThinking(false)
+
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
+        // The only attached item is already in the chain history, so no context block is prepended.
+        expect(send.params.content).toBe('follow up')
     })
 
     it('keeps pruning context sent by a terminal-run send after re-pointing to the fresh run', async () => {

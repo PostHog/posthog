@@ -11,14 +11,19 @@
 //! state to the live survivor instead — inline when the survivor co-resides on this partition,
 //! forwarded on `cohort_merge_state_transfer` when it lives on another.
 
+use std::collections::BTreeMap;
+
 use metrics::counter;
 use uuid::Uuid;
 
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::TeamId;
+use crate::filters::{CohortId, TeamId};
 use crate::merge::rules::merge_records;
 use crate::merge::tombstone_redirect::{resolve, Resolution};
-use crate::merge::transfer::{ApplyStamp, MergeStateTransfer};
+use crate::merge::transfer::{
+    ApplyStamp, MergeStateTransfer, TransferMembershipRegister, TransferMembershipRegisterKind,
+    TransferredRegisterProvenance,
+};
 use crate::observability::metrics::{
     MERGE_APPLIES_SKIPPED_REPLAY_TOTAL, MERGE_FORWARD_HOP_CAPPED_TOTAL, MERGE_LEAVES_DROPPED_TOTAL,
     MERGE_TRANSFER_FORWARDS_TOTAL,
@@ -27,9 +32,12 @@ use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::{PersonDedup, PersonRecord};
 use crate::stage1::state::StatefulRecord;
 use crate::stage1::transition::LeafTransition;
+use crate::stage2::{
+    leaf_membership, single_leaf_register_writes, MembershipRegisterSource, Stage2State,
+};
 use crate::store::{
     Behavioral, BehavioralKey, CohortStore, MergeAppliedKey, PersonPrefix, PersonRecords,
-    StoreError,
+    Stage2Key, Stage2TransferredRegisterKey, StoreError,
 };
 use crate::sweep::EvictionQueue;
 use crate::workers::event_path::schedule_deadline;
@@ -228,9 +236,42 @@ fn apply_into(
     let stamp = ApplyStamp {
         applied_at_ms: transfer.merged_at_ms,
     };
+    let fallback_register_writes = missing_transferred_register_writes(
+        partition_id,
+        store,
+        filters,
+        transfer.team_id,
+        target,
+        &transfer.membership_registers,
+        transfer.merged_at_ms,
+    )?;
     store.write_batch(|batch| {
-        for (key, bytes) in &apply.puts {
-            batch.put::<Behavioral>(key, bytes);
+        for write in &fallback_register_writes {
+            if let Some(state) = &write.state {
+                batch.put_stage2(&write.key, &state.encode_transferred_fallback());
+            }
+            if let Some(provenance) = &write.provenance {
+                batch.put_stage2_transferred_register(
+                    &Stage2TransferredRegisterKey::new(write.key),
+                    &provenance.encode(),
+                );
+            }
+        }
+        for leaf in &apply.puts {
+            batch.put::<Behavioral>(&leaf.key, &leaf.bytes);
+            for write in single_leaf_register_writes(
+                filters,
+                MembershipRegisterSource {
+                    partition_id,
+                    team_id: TeamId(transfer.team_id),
+                    person_id: target,
+                    leaf_state_key: leaf.key.lsk(),
+                },
+                leaf.in_cohort,
+                transfer.merged_at_ms,
+            ) {
+                batch.put_stage2(&write.key, &write.state.encode());
+            }
         }
         if let Some(bytes) = &record_put {
             batch.put::<PersonRecords>(&target_prefix.record_key(), bytes);
@@ -292,13 +333,121 @@ pub(crate) fn merge_person_records(
     }
 }
 
+/// One merge-carried register settlement. The logical state and person-first provenance are
+/// fill-only. A decoded existing state may be rewritten only to mark its ownership as transferred,
+/// preserving its bit and timestamp so a later receiver evaluation can settle the provenance.
+pub(crate) struct TransferredRegisterWrite {
+    pub key: Stage2Key,
+    pub state: Option<Stage2State>,
+    pub provenance: Option<TransferredRegisterProvenance>,
+}
+
+/// Fill only missing survivor rows from transferred membership registers. A recognized receiver
+/// shape chooses the conservative local bit (so a real single-leaf-to-composable edit starts false);
+/// otherwise the self-describing wire kind does. Source kind + bit remain in person-first provenance
+/// for another catalogless hop. Applied leaf evaluation remains authoritative and is staged later.
+#[allow(clippy::too_many_arguments, clippy::disallowed_methods)]
+pub(crate) fn missing_transferred_register_writes(
+    partition_id: u16,
+    store: &CohortStore,
+    filters: &TeamFilters,
+    team_id: i32,
+    person_id: Uuid,
+    registers: &[TransferMembershipRegister],
+    last_evaluated_at_ms: i64,
+) -> Result<Vec<TransferredRegisterWrite>, StoreError> {
+    let registers_by_cohort: BTreeMap<CohortId, TransferMembershipRegister> = registers
+        .iter()
+        .map(|register| (CohortId(register.cohort_id), *register))
+        .collect();
+    let keys: Vec<Stage2Key> = registers_by_cohort
+        .keys()
+        .map(|cohort_id| Stage2Key {
+            partition_id,
+            team_id: team_id as u64,
+            cohort_id: cohort_id.0 as u64,
+            person_id,
+        })
+        .collect();
+    let existing = store.multi_get_stage2(&keys)?;
+    let inventory_keys: Vec<Stage2TransferredRegisterKey> = keys
+        .iter()
+        .copied()
+        .map(Stage2TransferredRegisterKey::new)
+        .collect();
+    let existing_provenance = store.multi_get_stage2_transferred_registers(&inventory_keys)?;
+
+    Ok(keys
+        .into_iter()
+        .zip(registers_by_cohort.into_values())
+        .zip(existing)
+        .zip(existing_provenance)
+        .map(|(((key, register), existing), existing_provenance)| {
+            let receiver_kind =
+                TransferMembershipRegisterKind::from_filters(filters, CohortId(register.cohort_id));
+            let primary_missing = existing.is_none();
+            let existing_state = existing
+                .as_deref()
+                .and_then(|bytes| Stage2State::decode(bytes).ok());
+            let existing_bit = existing_state.as_ref().map(|state| state.in_cohort);
+            let materialized_kind = receiver_kind.unwrap_or(register.kind);
+            let install_existing_provenance =
+                !primary_missing && existing_provenance.is_none() && receiver_kind.is_none();
+            let state = if primary_missing {
+                Some(Stage2State {
+                    in_cohort: materialized_kind.materialized_bit(register.in_cohort),
+                    last_evaluated_at_ms,
+                })
+            } else if install_existing_provenance {
+                // A corrupt primary has no fill-only bit to preserve. Repair it with the same
+                // conservative source fallback used for a missing catalogless primary.
+                Some(existing_state.unwrap_or(Stage2State {
+                    in_cohort: register.kind.materialized_bit(register.in_cohort),
+                    last_evaluated_at_ms,
+                }))
+            } else {
+                None
+            };
+            let provenance = (primary_missing || install_existing_provenance).then(|| {
+                let source = TransferMembershipRegister {
+                    // The survivor's existing primary is fill-only and therefore owns the bit. The
+                    // incoming register supplies only the otherwise-unavailable kind clue.
+                    in_cohort: existing_bit.unwrap_or(register.in_cohort),
+                    ..register
+                };
+                let encoded_state = state.as_ref().map(Stage2State::encode_transferred_fallback);
+                let expected_primary = encoded_state.as_deref().expect(
+                    "installing provenance always materializes explicit fallback ownership",
+                );
+                TransferredRegisterProvenance::new(source, expected_primary)
+            });
+            TransferredRegisterWrite {
+                key,
+                state,
+                // Fill-only applies to provenance too: an existing survivor inventory wins. If
+                // neither inventory nor catalog can enumerate an existing row, the incoming
+                // source is the only safe person-first provenance to install.
+                provenance,
+            }
+        })
+        .collect())
+}
+
 /// Computed writes from applying P_old's leaves into P_new, uncommitted so the caller can compose
 /// the final batch.
 #[derive(Debug, Default)]
 pub(crate) struct LeafApply {
-    pub puts: Vec<(BehavioralKey, Vec<u8>)>,
+    pub puts: Vec<AppliedLeafWrite>,
     pub transitions: Vec<LeafTransition>,
     pub schedules: Vec<(BehavioralKey, i64)>,
+}
+
+/// One survivor leaf write coupled to the membership derived from those exact post-merge bytes.
+#[derive(Debug)]
+pub(crate) struct AppliedLeafWrite {
+    pub key: BehavioralKey,
+    pub bytes: Vec<u8>,
+    pub in_cohort: bool,
 }
 
 /// Merge each of P_old's `leaves` into P_new's state on `partition_new`. Pure reads only — the
@@ -349,7 +498,11 @@ pub(crate) fn apply_leaves(
             if let Some(deadline) = schedule_deadline(&record.state) {
                 out.schedules.push((p_new_key, deadline));
             }
-            out.puts.push((p_new_key, record.encode()));
+            out.puts.push(AppliedLeafWrite {
+                key: p_new_key,
+                bytes: record.encode(),
+                in_cohort: leaf_membership(Some(&record.state), meta),
+            });
         }
         if let Some(kind) = merged.flip {
             out.transitions.push(LeafTransition {

@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.activecampaign import (
     ActiveCampaignSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -103,6 +103,7 @@ You can find both in your ActiveCampaign account under **Settings > Developer**.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -119,7 +120,11 @@ You can find both in your ActiveCampaign account under **Settings > Developer**.
         return schemas
 
     def validate_credentials(
-        self, config: ActiveCampaignSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ActiveCampaignSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_active_campaign_credentials(config.api_url, config.api_key)
 

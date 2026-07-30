@@ -20,6 +20,7 @@ function makeRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRun
         skill_name: 'signals-scout-dev-report-probe',
         skill_version: 1,
         status: 'completed',
+        metadata: {},
         created_at: '2026-06-27T21:00:00Z',
         started_at: '2026-06-27T21:00:00Z',
         completed_at: '2026-06-27T21:02:00Z',

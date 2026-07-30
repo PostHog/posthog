@@ -1,20 +1,17 @@
+import json
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
 
 import requests
-import structlog
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat import (
     FreshchatHostNotAllowedError,
     FreshchatResumeConfig,
-    _has_next_page,
-    _parse_retry_after,
     build_base_params,
-    extract_items,
-    get_rows,
+    freshchat_source,
     is_allowed_host,
     normalize_domain,
     validate_credentials,
@@ -25,59 +22,63 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.
     USERS_CREATED_FROM,
 )
 
-logger = structlog.get_logger()
-
-PATCH_SESSION = (
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the freshchat module.
+FRESHCHAT_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat.make_tracked_session"
 )
 
-
-class FakeResponse:
-    def __init__(
-        self,
-        json_data: Any = None,
-        status_code: int = 200,
-        text: str = "",
-        headers: Optional[dict] = None,
-    ) -> None:
-        self._json = json_data
-        self.status_code = status_code
-        self.ok = 200 <= status_code < 400
-        self.text = text
-        self.headers = headers or {}
-        self.is_redirect = status_code in (301, 302, 303, 307, 308) and "Location" in self.headers
-        self.is_permanent_redirect = status_code in (301, 308) and "Location" in self.headers
-
-    def json(self) -> Any:
-        return self._json
-
-    def raise_for_status(self) -> None:
-        if not self.ok:
-            real_response = requests.Response()
-            real_response.status_code = self.status_code
-            raise requests.HTTPError(f"{self.status_code} Client Error", response=real_response)
+BASE_HOST = "acme.freshchat.com"
 
 
-class FakeResumableManager:
-    def __init__(self, resume: Optional[FreshchatResumeConfig] = None) -> None:
-        self._resume = resume
-        self.saved: list[FreshchatResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._resume is not None
-
-    def load_state(self) -> Optional[FreshchatResumeConfig]:
-        return self._resume
-
-    def save_state(self, data: FreshchatResumeConfig) -> None:
-        self.saved.append(data)
-
-
-def _page(data_key: str, items: list[dict], current: int, total_pages: int) -> dict:
-    return {
+def _page(data_key: str, items: list[dict], current: int, total_pages: int) -> Response:
+    body = {
         data_key: items,
         "pagination": {"current_page": current, "total_pages": total_pages, "total_items": 999},
     }
+    return _resp(body)
+
+
+def _resp(body: Any, status: int = 200, headers: Optional[dict] = None) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode() if body is not None else b""
+    if headers:
+        resp.headers.update(headers)
+    return resp
+
+
+def _make_manager(resume_state: Optional[FreshchatResumeConfig] = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared. The prepared request's URL is pinned to the (allowed) base host so the
+    client's SSRF host check passes.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        prepared = mock.MagicMock()
+        prepared.url = f"https://{BASE_HOST}/v2/resource"
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestNormalizeDomain:
@@ -117,15 +118,6 @@ class TestIsAllowedHost:
         assert is_allowed_host(host) is allowed
 
 
-class TestParseRetryAfter:
-    @pytest.mark.parametrize(
-        "value, expected",
-        [("30", 30.0), ("0", 0.0), (None, None), ("", None), ("not-a-number", None)],
-    )
-    def test_parse_retry_after(self, value: Optional[str], expected: Optional[float]) -> None:
-        assert _parse_retry_after(value) == expected
-
-
 class TestBuildBaseParams:
     def test_paginated_endpoint_has_page_size_and_sort(self) -> None:
         params = build_base_params(FRESHCHAT_ENDPOINTS["agents"])
@@ -141,216 +133,212 @@ class TestBuildBaseParams:
         assert params == {}
 
 
-class TestExtractItems:
-    @pytest.mark.parametrize("endpoint", ["agents", "users", "groups", "channels"])
-    def test_wrapper_key(self, endpoint: str) -> None:
-        config = FRESHCHAT_ENDPOINTS[endpoint]
-        assert extract_items({config.data_key: [{"id": 1}]}, config) == [{"id": 1}]
-
-    def test_wrong_wrapper_key_returns_empty(self) -> None:
-        assert extract_items({"something_else": [{"id": 1}]}, FRESHCHAT_ENDPOINTS["agents"]) == []
-
-    def test_bare_array_fallback(self) -> None:
-        assert extract_items([{"id": 1}], FRESHCHAT_ENDPOINTS["agents"]) == [{"id": 1}]
-
-    def test_single_object_wrapped(self) -> None:
-        # accounts/configuration wrapped under its resource key -> one row.
-        config = FRESHCHAT_ENDPOINTS["accounts_configuration"]
-        assert extract_items({"configuration": {"app_id": "a1"}}, config) == [{"app_id": "a1"}]
-
-    def test_single_object_bare(self) -> None:
-        # accounts/configuration returned as a bare object -> still one row.
-        config = FRESHCHAT_ENDPOINTS["accounts_configuration"]
-        assert extract_items({"app_id": "a1"}, config) == [{"app_id": "a1"}]
-
-    def test_unknown_shape_returns_empty(self) -> None:
-        assert extract_items({"pagination": {}}, FRESHCHAT_ENDPOINTS["agents"]) == []
-
-
-class TestHasNextPage:
-    @pytest.mark.parametrize(
-        "data, items, page, expected",
-        [
-            ({"pagination": {"current_page": 1, "total_pages": 3}}, [{"id": 1}], 1, True),
-            ({"pagination": {"current_page": 3, "total_pages": 3}}, [{"id": 1}], 3, False),
-            # links envelope with a next_page href -> more pages.
-            ({"links": {"next_page": {"href": "https://x/v2/agents?page=2"}}}, [{"id": 1}], 1, True),
-            # links envelope present but no next_page -> done.
-            ({"links": {"last_page": {"href": "https://x"}}}, [{"id": 1}], 1, False),
-            # no usable metadata: a full page implies there may be more.
-            ({}, [{"id": i} for i in range(PER_PAGE)], 1, True),
-            ({}, [{"id": 1}], 1, False),  # short page, no meta -> done
-            ({"pagination": {"current_page": 1, "total_pages": 2}}, [], 1, False),  # empty page terminates
-        ],
-    )
-    def test_has_next_page(self, data: dict, items: list[dict], page: int, expected: bool) -> None:
-        assert _has_next_page(data, items, page) is expected
-
-
 class TestGetRows:
-    def test_paginates_by_page_number_and_saves_state(self) -> None:
-        responses = [
-            FakeResponse(_page("agents", [{"id": 1}], current=1, total_pages=2)),
-            FakeResponse(_page("agents", [{"id": 2}], current=2, total_pages=2)),
-        ]
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = responses
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_by_page_number_and_saves_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _page("agents", [{"id": 1}], current=1, total_pages=2),
+                _page("agents", [{"id": 2}], current=2, total_pages=2),
+            ],
+        )
+        manager = _make_manager()
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            rows = list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
+        rows = _rows(
+            freshchat_source("key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
 
-        assert rows == [[{"id": 1}], [{"id": 2}]]
+        assert rows == [{"id": 1}, {"id": 2}]
+        # The API reports total_pages=2, so it stops right after page 2 — no extra empty request.
+        assert session.send.call_count == 2
+        assert params[0]["page"] == 1
+        assert params[0]["items_per_page"] == str(PER_PAGE)
+        assert params[1]["page"] == 2
         # State saved once, pointing at page 2 (the next page after the first was written).
-        assert manager.saved == [FreshchatResumeConfig(page=2)]
-        first_url = session.get.call_args_list[0].args[0]
-        query = parse_qs(urlparse(first_url).query)
-        assert query["page"] == ["1"]
-        assert query["items_per_page"] == [str(PER_PAGE)]
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == FreshchatResumeConfig(page=2)
 
-    def test_single_page_saves_no_state(self) -> None:
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse(_page("groups", [{"id": 1}], current=1, total_pages=1))]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_saves_no_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page("groups", [{"id": 1}], current=1, total_pages=1)])
+        manager = _make_manager()
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            rows = list(get_rows("key", "acme.freshchat.com", "groups", logger, manager))  # type: ignore[arg-type]
+        rows = _rows(
+            freshchat_source("key", BASE_HOST, "groups", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
 
-        assert rows == [[{"id": 1}]]
-        assert manager.saved == []
+        assert rows == [{"id": 1}]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_non_paginated_endpoint_fetches_once(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_paginated_endpoint_fetches_once(self, MockSession) -> None:
         # accounts/configuration is a single object: one request, no pagination params, no state.
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse({"configuration": {"app_id": "a1"}})]
+        session = MockSession.return_value
+        params = _wire(session, [_resp({"configuration": {"app_id": "a1"}})])
+        manager = _make_manager()
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            rows = list(
-                get_rows("key", "acme.freshchat.com", "accounts_configuration", logger, manager)  # type: ignore[arg-type]
+        rows = _rows(
+            freshchat_source(
+                "key", BASE_HOST, "accounts_configuration", team_id=1, job_id="j", resumable_source_manager=manager
+            )
+        )
+
+        assert rows == [{"app_id": "a1"}]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+        assert "page" not in params[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page("agents", [{"id": 50}], current=5, total_pages=5)])
+        manager = _make_manager(FreshchatResumeConfig(page=5))
+
+        rows = _rows(
+            freshchat_source("key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
+
+        assert rows == [{"id": 50}]
+        assert params[0]["page"] == 5
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_users_carries_created_from_filter(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_page("users", [{"id": 1}], current=1, total_pages=1)])
+
+        _rows(
+            freshchat_source("key", BASE_HOST, "users", team_id=1, job_id="j", resumable_source_manager=_make_manager())
+        )
+
+        assert params[0]["created_from"] == USERS_CREATED_FROM
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_bearer_token_is_redacted_from_samples(self, MockSession) -> None:
+        # The token rides in the Authorization header; it must be value-redacted from captured
+        # HTTP samples via the tracked session's redact_values.
+        session = MockSession.return_value
+        _wire(session, [_page("agents", [{"id": 1}], current=1, total_pages=1)])
+
+        _rows(
+            freshchat_source(
+                "secret-key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+
+        assert "secret-key" in MockSession.call_args.kwargs.get("redact_values", ())
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    @pytest.mark.parametrize("status_code", [401, 403, 404])
+    def test_non_retryable_status_raises(self, MockSession, status_code: int) -> None:
+        session = MockSession.return_value
+        _wire(session, [_resp({"error": "boom"}, status=status_code)])
+
+        with pytest.raises(requests.HTTPError):
+            _rows(
+                freshchat_source(
+                    "key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+                )
             )
 
-        assert rows == [[{"app_id": "a1"}]]
-        assert manager.saved == []
-        assert session.get.call_count == 1
-        query = parse_qs(urlparse(session.get.call_args_list[0].args[0]).query)
-        assert "page" not in query
-
-    def test_resumes_from_saved_page(self) -> None:
-        manager = FakeResumableManager(resume=FreshchatResumeConfig(page=5))
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse(_page("agents", [{"id": 50}], current=5, total_pages=5))]
-
-        with mock.patch(PATCH_SESSION, return_value=session):
-            rows = list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
-
-        assert rows == [[{"id": 50}]]
-        first_url = session.get.call_args_list[0].args[0]
-        assert parse_qs(urlparse(first_url).query)["page"] == ["5"]
-
-    def test_uses_bearer_auth_header(self) -> None:
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse(_page("agents", [{"id": 1}], current=1, total_pages=1))]
-
-        with mock.patch(PATCH_SESSION, return_value=session):
-            list(get_rows("tok", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
-
-        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer tok"
-
-    def test_session_redacts_api_key_from_samples(self) -> None:
-        # The token rides in the Authorization header, which the name-based sample scrubbers don't
-        # cover, so it must be value-redacted or it leaks into captured HTTP samples.
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse(_page("agents", [{"id": 1}], current=1, total_pages=1))]
-
-        with mock.patch(PATCH_SESSION, return_value=session) as mock_make:
-            list(get_rows("secret-key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
-
-        assert mock_make.call_args.kwargs.get("redact_values") == ("secret-key",)
-
-    @pytest.mark.parametrize("status_code", [401, 403, 404])
-    def test_non_retryable_status_raises(self, status_code: int) -> None:
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [FakeResponse(status_code=status_code, text="boom")]
-
-        with mock.patch(PATCH_SESSION, return_value=session):
-            with pytest.raises(requests.HTTPError):
-                list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
-
-    # A 429 (rate limit) and any 5xx are transient: the sync must retry rather than abort. The 429
-    # case also proves a server-provided Retry-After is honored (here 0, so the retry is immediate).
+    # A 429 (rate limit) and any 5xx are transient: the sync retries rather than aborting. The 429
+    # case also carries a Retry-After the client honors (here 0, so the retry is immediate).
+    @mock.patch("time.sleep", return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
     @pytest.mark.parametrize("status_code, headers", [(429, {"Retry-After": "0"}), (500, {})])
-    def test_retryable_status_is_retried_then_succeeds(self, status_code: int, headers: dict) -> None:
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        session.get.side_effect = [
-            FakeResponse(status_code=status_code, headers=headers),
-            FakeResponse(_page("agents", [{"id": 1}], current=1, total_pages=1)),
-        ]
+    def test_retryable_status_is_retried_then_succeeds(
+        self, MockSession, _mock_sleep, status_code: int, headers: dict
+    ) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _resp(None, status=status_code, headers=headers),
+                _page("agents", [{"id": 1}], current=1, total_pages=1),
+            ],
+        )
 
-        # Neutralize the exponential backoff so the 5xx retry doesn't actually sleep.
-        with (
-            mock.patch(PATCH_SESSION, return_value=session),
-            mock.patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.freshchat.freshchat._EXPONENTIAL_WAIT",
-                return_value=0,
-            ),
-        ):
-            rows = list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
+        rows = _rows(
+            freshchat_source(
+                "key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
 
-        assert rows == [[{"id": 1}]]
-        assert session.get.call_count == 2
+        assert rows == [{"id": 1}]
+        assert session.send.call_count == 2
 
-    def test_disallowed_host_raises_before_any_request(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_disallowed_host_raises_before_any_request(self, MockSession) -> None:
         # A saved-then-edited domain must never receive the stored token at sync time (SSRF).
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
+        session = MockSession.return_value
+        _wire(session, [])
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            with pytest.raises(FreshchatHostNotAllowedError):
-                list(get_rows("key", "metadata.google.internal", "agents", logger, manager))  # type: ignore[arg-type]
+        with pytest.raises(FreshchatHostNotAllowedError):
+            _rows(
+                freshchat_source(
+                    "key",
+                    "metadata.google.internal",
+                    "agents",
+                    team_id=1,
+                    job_id="j",
+                    resumable_source_manager=_make_manager(),
+                )
+            )
 
-        session.get.assert_not_called()
+        session.send.assert_not_called()
 
-    def test_redirect_response_raises_and_is_not_followed(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_redirect_response_raises_and_is_not_followed(self, MockSession) -> None:
         # A 3xx from the allowed host could point anywhere; following it would defeat the host
         # allowlist, so it must surface as a hard error instead.
-        manager = FakeResumableManager()
-        session = mock.MagicMock()
-        redirect = FakeResponse(status_code=302, headers={"Location": "http://169.254.169.254/"})
-        session.get.side_effect = [redirect]
+        session = MockSession.return_value
+        _wire(session, [_resp(None, status=302, headers={"Location": "http://169.254.169.254/"})])
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            with pytest.raises(FreshchatHostNotAllowedError):
-                list(get_rows("key", "acme.freshchat.com", "agents", logger, manager))  # type: ignore[arg-type]
+        with pytest.raises(ValueError):
+            _rows(
+                freshchat_source(
+                    "key", BASE_HOST, "agents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+                )
+            )
 
-        assert session.get.call_args.kwargs.get("allow_redirects") is False
+        assert session.send.call_args.kwargs.get("allow_redirects") is False
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code", [200, 401, 403])
     def test_returns_status_code(self, status_code: int) -> None:
         session = mock.MagicMock()
-        session.get.return_value = FakeResponse(status_code=status_code)
+        session.get.return_value = _resp(None, status=status_code)
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            assert validate_credentials("acme.freshchat.com", "key") == status_code
+        with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session):
+            assert validate_credentials(BASE_HOST, "key") == status_code
 
     def test_connection_error_returns_none(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("nope")
 
-        with mock.patch(PATCH_SESSION, return_value=session):
-            assert validate_credentials("acme.freshchat.com", "key") is None
+        with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session):
+            assert validate_credentials(BASE_HOST, "key") is None
 
     def test_session_redacts_api_key_from_samples(self) -> None:
         session = mock.MagicMock()
-        session.get.return_value = FakeResponse(status_code=200)
+        session.get.return_value = _resp(None, status=200)
 
-        with mock.patch(PATCH_SESSION, return_value=session) as mock_make:
-            validate_credentials("acme.freshchat.com", "secret-key")
+        with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session) as mock_make:
+            validate_credentials(BASE_HOST, "secret-key")
 
         assert mock_make.call_args.kwargs.get("redact_values") == ("secret-key",)
+
+    def test_probe_disables_redirects_to_protect_token(self) -> None:
+        # The token rides on the probe; the session must be built with redirects pinned off so a
+        # redirect can't replay it to the redirect target during validation.
+        session = mock.MagicMock()
+        session.get.return_value = _resp(None, status=200)
+
+        with mock.patch(FRESHCHAT_SESSION_PATCH, return_value=session) as mock_make:
+            validate_credentials(BASE_HOST, "key")
+
+        assert mock_make.call_args.kwargs.get("allow_redirects") is False

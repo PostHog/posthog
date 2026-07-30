@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_si
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DropboxSignSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dropboxsign import (
+    DropboxSignSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -95,6 +97,7 @@ You can create an API key in your [Dropbox Sign API settings](https://app.hellos
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Dropbox Sign exposes no server-side timestamp cursor, so every table is full refresh only.
         def _build_schema(endpoint: str) -> SourceSchema:
@@ -114,7 +117,11 @@ You can create an API key in your [Dropbox Sign API settings](https://app.hellos
         return schemas
 
     def validate_credentials(
-        self, config: DropboxSignSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DropboxSignSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_dropbox_sign_credentials(config.api_key):
             return True, None

@@ -1,27 +1,27 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.settings import STIGG_ENDPOINTS
 
 STIGG_BASE_URL = "https://api.stigg.io/api/v1"
 # List endpoints accept a `limit` of up to 100 (default 20); the largest page minimises round trips.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm an API key is genuine. Server API keys are environment-wide,
 # so one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/customers"
-
-
-class StiggRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -33,130 +33,112 @@ class StiggResumeConfig:
     cursor: str | None = None
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"X-API-KEY": api_key, "Accept": "application/json"}
+class StiggCursorPaginator(JSONResponseCursorPaginator):
+    """Cursor paginator for Stigg's list contract.
+
+    Stigg wraps records in ``{"data": [...], "pagination": {"next": ..., "prev": ...}}`` and
+    accepts the `next` cursor back as the ``after`` query param. Beyond the built-in null-cursor
+    stop, an EMPTY page also ends the sync — a defensive guard so a buggy upstream cursor that
+    keeps returning a non-null `next` can't loop the sync forever.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="pagination.next", cursor_param="after")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if not data:
+            self._has_next_page = False
 
 
-@retry(
-    retry=retry_if_exception_type((StiggRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    path: str,
-    cursor: str | None,
-    limit: int,
-    logger: FilteringBoundLogger,
-) -> tuple[list[dict[str, Any]], str | None]:
-    params: dict[str, Any] = {"limit": limit}
-    if cursor is not None:
-        params["after"] = cursor
-
-    response = session.get(
-        f"{STIGG_BASE_URL}{path}",
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise StiggRetryableError(f"Stigg API error (retryable): status={response.status_code}, path={path}")
-
-    if not response.ok:
-        logger.error(f"Stigg API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
-
-    data = response.json()
-    # Stigg list endpoints wrap records in {"data": [...], "pagination": {"next": ..., "prev": ...}}.
-    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
-        raise StiggRetryableError(f"Stigg returned an unexpected payload for {path}: {type(data).__name__}")
-
-    items: list[dict[str, Any]] = data["data"]
-    pagination = data.get("pagination") or {}
-    next_cursor = pagination.get("next") if isinstance(pagination, dict) else None
-    return items, next_cursor
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[StiggResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = STIGG_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume.cursor if resume else None
-    if resume and resume.cursor is not None:
-        logger.debug(f"Stigg: resuming {endpoint} from cursor {cursor}")
-
-    while True:
-        items, next_cursor = _fetch_page(session, config.path, cursor, PAGE_SIZE, logger)
-        if items:
-            yield items
-
-        # A null `pagination.next` (or an empty page) means we've reached the end of the list.
-        if not next_cursor or not items:
-            break
-
-        cursor = next_cursor
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(StiggResumeConfig(cursor=cursor))
+def _accept_header() -> dict[str, str]:
+    # Auth (the X-API-KEY header) is supplied via the framework auth config so its value is
+    # redacted from logs and raised errors; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
 def stigg_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[StiggResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = STIGG_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": STIGG_BASE_URL,
+            "headers": _accept_header(),
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
+            "paginator": StiggCursorPaginator(),
+        },
+        # Per-resource settings are fully specified below, so no shared defaults are needed.
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": PAGE_SIZE},
+                    "data_selector": "data",
+                    # A 200 whose body isn't the `{"data": [...]}` shape (a non-dict body or a
+                    # missing/ non-list `data` key) is treated as transient — retry rather than
+                    # fail loud or ingest the stray payload as a single garbage row.
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor is not None:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # from the next page (already-yielded pages are persisted) rather than skipping it; merge
+        # dedupes the re-pulled page on the primary key.
+        if state and state.get("cursor") is not None:
+            resumable_source_manager.save_state(StiggResumeConfig(cursor=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime",
         partition_format="month",
         partition_keys=[config.partition_key],
+        column_hints=resource.column_hints,
     )
 
 
-def check_access(api_key: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
-    """Probe a single endpoint to validate the API key.
-
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
-    """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
-    try:
-        response = session.get(f"{STIGG_BASE_URL}{path}", params={"limit": 1}, timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to Stigg: {e}"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Stigg returned HTTP {response.status_code}"
-
-    return 200, None
-
-
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key)
-    if status == 200:
+    # Server API keys are environment-wide, so probing one cheap endpoint validates access to
+    # every list endpoint. The framework probe swallows transport errors and returns (ok, status).
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{STIGG_BASE_URL}{DEFAULT_PROBE_PATH}?limit=1",
+        headers={"X-API-KEY": api_key, **_accept_header()},
+    )
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid Stigg API key. Use a server API key from Settings → Integrations → API keys."
-    return False, message or "Could not validate Stigg API key"
+    if status is None:
+        return False, "Could not validate Stigg API key"
+    return False, f"Stigg returned HTTP {status}"

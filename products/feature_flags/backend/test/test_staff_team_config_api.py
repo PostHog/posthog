@@ -74,8 +74,11 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @parameterized.expand([(True,), (False,)])
-    def test_set_updates_db_value_and_enqueues_cache_refresh_task(self, new_value):
-        with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_task:
+    def test_set_updates_db_value_and_enqueues_cache_refresh_tasks(self, new_value):
+        with (
+            patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_metadata_task,
+            patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_task,
+        ):
             response = self.client.post(
                 SET_URL, {"team_id": self.team.id, "minimal_flag_called_events": new_value}, format="json"
             )
@@ -85,9 +88,11 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
 
         config = TeamFeatureFlagsConfig.objects.get(team=self.team)
         self.assertEqual(config.minimal_flag_called_events, new_value)
-        # /flags and /decide read this value out of team_metadata_hypercache, not the DB, so a
-        # bare write has no effect until that cache is rebuilt.
-        mock_task.delay.assert_called_once_with(self.team.id)
+        # /flags and /decide read this value out of team_metadata_hypercache, and local-eval
+        # SDKs read it out of the flag-definitions blob — a bare DB write has no effect until
+        # both caches are rebuilt.
+        mock_metadata_task.delay.assert_called_once_with(self.team.id)
+        mock_flags_task.delay.assert_called_once_with(self.team.id)
 
     def test_set_returns_404_for_unknown_team(self):
         missing_id = self.team.id + 9999
@@ -99,7 +104,10 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         # auto-created row from the team-creation signal.
         TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
 
-        with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task"):
+        with (
+            patch("posthog.tasks.team_metadata.update_team_metadata_cache_task"),
+            patch("products.feature_flags.backend.tasks.update_team_flags_cache"),
+        ):
             response = self.client.post(
                 SET_URL, {"team_id": self.team.id, "minimal_flag_called_events": True}, format="json"
             )

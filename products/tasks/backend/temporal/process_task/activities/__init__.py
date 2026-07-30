@@ -40,7 +40,7 @@ from .relay_sandbox_events import (
     relay_sandbox_events_deferred_completion,
 )
 from .run_wizard import RunWizardInput, run_wizard
-from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .send_followup_to_sandbox import STEER_DECLINED_OUTCOME, SendFollowupToSandboxInput, send_followup_to_sandbox
 from .send_permission_response_to_sandbox import (
     PostPermissionDeliveryFailureInput,
     SendPermissionDenialGuidanceInput,
@@ -99,6 +99,7 @@ __all__ = [
     "SendPermissionDenialGuidanceInput",
     "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
+    "STEER_DECLINED_OUTCOME",
     "cleanup_sandbox",
     "complete_run_stream",
     "create_resume_snapshot",

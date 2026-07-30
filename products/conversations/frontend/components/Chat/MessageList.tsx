@@ -28,6 +28,16 @@ export interface MessageListProps {
     /** Whether AI reply feedback controls are enabled */
     showAiReplyFeedback?: boolean
     onSubmitAiReplyFeedback?: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => void
+    /** Non-message timeline entries, placed among the messages by their own timestamp. Opt-in, so a
+     * customer-facing view never receives team-only content. */
+    extras?: TimelineExtra[]
+}
+
+/** A non-message entry in the thread, e.g. an agent's findings. `at` is what orders it among the
+ * messages; `element` carries its own React key. */
+export interface TimelineExtra {
+    at: string
+    element: JSX.Element
 }
 
 export function MessageList({
@@ -47,6 +57,7 @@ export function MessageList({
     feedbackByMessageId = {},
     showAiReplyFeedback = false,
     onSubmitAiReplyFeedback,
+    extras = [],
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -61,10 +72,11 @@ export function MessageList({
     }
 
     useEffect(() => {
-        if (messages.length > 0) {
+        if (messages.length > 0 || extras.length > 0) {
             scrollToBottom()
         }
-    }, [messages.length])
+        // Extras land in the same stream, so one arriving has to scroll like a message does.
+    }, [messages.length, extras.length])
 
     const handleScroll = (): void => {
         const container = containerRef.current
@@ -103,6 +115,41 @@ export function MessageList({
 
     const deliveryStatusMap = getDeliveryStatusMap()
 
+    // Messages and extras share one chronological stream, so an agent's findings sit at the point in
+    // the conversation they arrived rather than always at the bottom. Ties keep messages first, and
+    // the original order within each kind, so a same-second reply never reshuffles.
+    const timeline: JSX.Element[] = [
+        ...messages.map((message) => {
+            const isCustomer = message.authorType === 'customer'
+            return {
+                at: message.createdAt,
+                rank: 0,
+                element: (
+                    <Message
+                        key={message.id}
+                        message={message}
+                        isCustomer={isCustomerView ? !isCustomer : isCustomer}
+                        deliveryStatus={deliveryStatusMap.get(message.id)}
+                        showAiReplyFeedback={
+                            showAiReplyFeedback && message.id === latestAiMessageId && message.authorType === 'AI'
+                        }
+                        aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
+                        onSubmitAiReplyFeedback={
+                            onSubmitAiReplyFeedback
+                                ? (rating, feedbackText) => onSubmitAiReplyFeedback(message.id, rating, feedbackText)
+                                : undefined
+                        }
+                    />
+                ),
+            }
+        }),
+        ...extras.map((extra) => ({ at: extra.at, rank: 1, element: extra.element })),
+    ]
+        // Array.prototype.sort is stable, so equal (time, rank) pairs keep the order they were
+        // concatenated in; only the message-before-extra tiebreak needs stating.
+        .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime() || a.rank - b.rank)
+        .map(({ element }) => element)
+
     return (
         <div
             ref={containerRef}
@@ -123,29 +170,7 @@ export function MessageList({
                 <div className="flex items-center justify-center h-full text-muted-alt text-sm">{emptyMessage}</div>
             ) : (
                 <>
-                    {messages.map((message) => {
-                        const isCustomer = message.authorType === 'customer'
-                        return (
-                            <Message
-                                key={message.id}
-                                message={message}
-                                isCustomer={isCustomerView ? !isCustomer : isCustomer}
-                                deliveryStatus={deliveryStatusMap.get(message.id)}
-                                showAiReplyFeedback={
-                                    showAiReplyFeedback &&
-                                    message.id === latestAiMessageId &&
-                                    message.authorType === 'AI'
-                                }
-                                aiReplyFeedbackRating={feedbackByMessageId[message.id] ?? null}
-                                onSubmitAiReplyFeedback={
-                                    onSubmitAiReplyFeedback
-                                        ? (rating, feedbackText) =>
-                                              onSubmitAiReplyFeedback(message.id, rating, feedbackText)
-                                        : undefined
-                                }
-                            />
-                        )
-                    })}
+                    {timeline}
                     <div ref={messagesEndRef} />
                 </>
             )}

@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
+    ZendeskSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.settings import (
     BASE_ENDPOINTS,
     INCREMENTAL_FIELDS as ZENDESK_INCREMENTAL_FIELDS,
@@ -68,6 +70,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -85,7 +88,11 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: ZendeskSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ZendeskSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         subdomain = normalize_subdomain(config.subdomain)
         subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")

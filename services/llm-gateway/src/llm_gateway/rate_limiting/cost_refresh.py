@@ -23,7 +23,7 @@ CACHE_TTL_SECONDS = 300
 COST_ALIASES: dict[str, str] = {
     "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
     "openai/@cf/zai-org/glm-5.2": "cloudflare/@cf/zai-org/glm-5.2",
-    # Modal serves the same GLM checkpoint (MODAL_MODEL_MAP); billed at the CF rate until trued
+    # Modal serves the same GLM checkpoint; billed at the CF rate until trued
     # up against Modal's GPU-time invoices.
     "openai/zai-org/GLM-5.2-FP8": "cloudflare/@cf/zai-org/glm-5.2",
 }
@@ -36,6 +36,7 @@ ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
     "openai/@cf/zai-org/glm-5.2": ("cloudflare", "@cf/zai-org/glm-5.2"),
     # Same public model id as the CF entry so dashboards slice one model across both backends.
     "openai/zai-org/GLM-5.2-FP8": ("modal", "@cf/zai-org/glm-5.2"),
+    "openai/moonshotai/kimi-k3": ("modal", "moonshotai/kimi-k3"),
 }
 
 

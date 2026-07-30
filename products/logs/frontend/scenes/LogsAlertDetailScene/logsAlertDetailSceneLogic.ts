@@ -98,7 +98,7 @@ export interface logsAlertDetailSceneLogicActions {
     destinationsChanged: () => {
         value: true
     } // logsAlertNotificationLogic
-    loadAlerts: () => any // logsAlertingLogic
+    loadAlerts: (_?: any) => any // logsAlertingLogic
     applyEnabledChange: (enabled: boolean) => {
         enabled: boolean
     }

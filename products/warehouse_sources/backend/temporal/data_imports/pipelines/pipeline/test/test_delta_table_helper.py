@@ -17,6 +17,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
+    _delta_merge_spill_kwargs,
     _first_per_pk_table,
     _realign_decimal_buffers,
 )
@@ -161,6 +162,32 @@ class TestStorageOptionsCommitSafety:
 
         assert options["conditional_put"] == "etag"
         assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
+
+
+class TestDeltaMergeSpillKwargs:
+    # Guards the wiring from settings → delta-rs merge kwargs. A silent break here (renamed setting,
+    # dropped forwarding, or emitting a None kwarg) stops merges spilling to disk and OOMs return.
+    @parameterized.expand(
+        [
+            ("both_unset", None, None, {}),
+            ("only_spill", 6_442_450_944, None, {"max_spill_size": 6_442_450_944}),
+            ("only_temp_dir", None, 51_539_607_552, {"max_temp_directory_size": 51_539_607_552}),
+            (
+                "both_set",
+                6_442_450_944,
+                51_539_607_552,
+                {"max_spill_size": 6_442_450_944, "max_temp_directory_size": 51_539_607_552},
+            ),
+        ]
+    )
+    def test_kwargs_from_settings(
+        self, _case: str, spill: int | None, temp_dir: int | None, expected: dict[str, int]
+    ) -> None:
+        with override_settings(
+            DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES=spill,
+            DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES=temp_dir,
+        ):
+            assert _delta_merge_spill_kwargs() == expected
 
 
 class TestHasCommitWithMetadata:
@@ -351,6 +378,32 @@ class TestGetDeltaTableUnrecoverableErrors:
                     await helper.get_delta_table()
                 s3._rm.assert_not_awaited()
                 assert helper.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_is_deltatable_failure_is_captured_and_reraised(self):
+        """The `is_deltatable` existence check is a separate S3 call from the DeltaTable() open
+        handled above, and callers span best-effort maintenance to the main write path, so a
+        failure here can't be swallowed as "no table" (that would trip should_overwrite_table and
+        wipe an existing table) — it must be captured for visibility and reraised."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = OSError(
+                "Generic S3 error: Received redirect without LOCATION, this normally indicates "
+                "an incorrectly configured region"
+            )
+
+            with pytest.raises(OSError, match="Received redirect without LOCATION"):
+                await helper.get_delta_table()
+
+            mock_capture.assert_called_once()
+            assert helper.is_first_sync is False
 
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:

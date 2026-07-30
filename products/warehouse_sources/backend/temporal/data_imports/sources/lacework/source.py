@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LaceworkSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lacework import (
+    LaceworkSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.lacework.lacework import (
     INVALID_ACCOUNT_ERROR,
     LaceworkResumeConfig,
@@ -118,6 +120,7 @@ Your account name is the first part of your FortiCNAPP URL: `https://<account na
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -135,7 +138,11 @@ Your account name is the first part of your FortiCNAPP URL: `https://<account na
         return schemas
 
     def validate_credentials(
-        self, config: LaceworkSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: LaceworkSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_lacework_credentials(config.account_name, config.key_id, config.secret_key)
 

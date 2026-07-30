@@ -1,40 +1,49 @@
 import dataclasses
-from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, time
 from typing import Any, Optional
-from urllib.parse import urlencode
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+    IncrementalConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.surveymonkey.settings import (
     DEFAULT_PAGE_SIZE,
     SURVEYMONKEY_ENDPOINTS,
-    SurveyMonkeyEndpointConfig,
 )
 
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-
-
-class SurveyMonkeyRetryableError(Exception):
-    """Raised for 429 / 5xx responses so tenacity retries with backoff."""
+# SurveyMonkey lists wrap rows in a `data` array and expose the next page as a full URL under
+# `links.next`; the client walks that URL until it's absent.
+_SURVEYS_INCLUDE = "date_created,date_modified,response_count,question_count"
 
 
 @dataclasses.dataclass
 class SurveyMonkeyResumeConfig:
-    # For the top-level `surveys` endpoint: the current list page URL to re-fetch on resume.
-    # For fan-out endpoints: the current child-resource page URL within the survey at the head
-    # of `remaining_survey_ids`.
+    # Legacy fields from the pre-framework implementation, kept (with defaults) so a checkpoint
+    # written by the old code still parses via ``dataclass(**saved)``. They are no longer written; a
+    # loaded state carrying only these starts fresh (a full re-read, deduped on the primary key).
     next_url: Optional[str] = None
-    # Surveys not yet fully processed (fan-out only). The head of the list is the survey
-    # currently being read, so a resume re-reads it and relies on primary-key merge to dedupe.
     remaining_survey_ids: Optional[list[str]] = None
+    # Simple-resource (``surveys``) paginator snapshot: ``{"next_url": <next page to fetch>}``.
+    paginator_state: Optional[dict[str, Any]] = None
+    # Single-hop fan-out snapshot for a survey-scoped endpoint:
+    # ``{"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}``.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _get_headers(access_token: str) -> dict[str, str]:
@@ -55,46 +64,227 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
-def _cutoff_param_name(incremental_field: str | None, config: SurveyMonkeyEndpointConfig) -> str:
+def _cutoff_param_name(incremental_field: str | None, default_incremental_field: str | None) -> str:
     """Map the chosen cursor field to its server-side filter param."""
-    chosen = incremental_field or config.default_incremental_field
+    chosen = incremental_field or default_incremental_field
     if chosen == "date_created":
         return "start_created_at"
     return "start_modified_at"
 
 
-def _build_list_url(
-    base_url: str,
-    config: SurveyMonkeyEndpointConfig,
-    cutoff: str | None,
+def _incremental_config(
+    endpoint: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
     incremental_field: str | None,
-    survey_id: str | None = None,
-) -> str:
-    path = config.path.format(survey_id=survey_id) if survey_id is not None else config.path
-    params: dict[str, Any] = {"per_page": config.page_size}
+) -> IncrementalConfig | None:
+    """Server-side date filter (`start_modified_at` / `start_created_at`), only when we have a cursor.
 
-    # Pull the stable/cursor dates and counts that aren't returned on the bare survey object.
-    if config.name == "surveys":
-        params["include"] = "date_created,date_modified,response_count,question_count"
+    Mirrors the old behaviour: no filter on a first (full) sync, and the persisted watermark is
+    formatted the way SurveyMonkey's date filters expect. Sorting ascending on the cursor keeps the
+    watermark advancing monotonically.
+    """
+    config = SURVEYMONKEY_ENDPOINTS[endpoint]
+    if not should_use_incremental_field or db_incremental_field_last_value is None or not config.incremental_fields:
+        return None
+    chosen = incremental_field or config.default_incremental_field
+    return {
+        "start_param": _cutoff_param_name(incremental_field, config.default_incremental_field),
+        "cursor_path": chosen or "date_modified",
+        "convert": _format_incremental_value,
+    }
 
-    # Sort ascending on the cursor field so the pipeline's watermark advances monotonically and
-    # offset pagination stays stable as new rows arrive. Only endpoints with a server-side sort
-    # enum set `sort_by`; the rest page via the `links.next` cursor in the API's default order.
-    if config.sort_by:
-        params["sort_by"] = config.sort_by
-        params["sort_order"] = "ASC"
 
-    if cutoff:
-        params[_cutoff_param_name(incremental_field, config)] = cutoff
+def _promote_survey_id(row: dict[str, Any]) -> dict[str, Any]:
+    # include_from_parent injects the parent survey's id as ``_surveys_id``; expose it under the
+    # ``survey_id`` column the child rows have always carried.
+    if "_surveys_id" in row:
+        row["survey_id"] = row.pop("_surveys_id")
+    return row
 
-    return f"{base_url}{path}?{urlencode(params)}"
+
+def _explode_questions(page: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten one page of a `/surveys/{id}/details` payload into one row per question.
+
+    The ``pages`` array is the data_selector, so each item here is a single page carrying its
+    ``questions`` and the parent survey id (injected as ``_surveys_id``). An empty list drops the
+    page — matching the old loop, which yielded no rows for a page without questions.
+    """
+    survey_id = page.get("_surveys_id")
+    page_id = page.get("id")
+    rows: list[dict[str, Any]] = []
+    for question in page.get("questions", []) or []:
+        row = dict(question)
+        row["survey_id"] = survey_id
+        row["page_id"] = page_id
+        rows.append(row)
+    return rows
+
+
+def _client_config(access_token: str, base_url: str) -> ClientConfig:
+    return {
+        "base_url": base_url,
+        # Auth (the Bearer token) is supplied via the framework auth config so its value is redacted
+        # from every raised error and log sample; only the non-secret content headers are set here.
+        "headers": {"Content-Type": "application/json", "Accept": "application/json"},
+        "auth": {"type": "bearer", "token": access_token},
+        # Every list endpoint returns its next page as a full URL under `links.next`.
+        "paginator": JSONResponsePaginator(next_url_path="links.next"),
+    }
+
+
+def _surveys_resource(incremental: IncrementalConfig | None) -> EndpointResource:
+    config = SURVEYMONKEY_ENDPOINTS["surveys"]
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": {
+            "per_page": config.page_size,
+            # Pull the stable/cursor dates and counts that aren't returned on the bare survey object.
+            "include": _SURVEYS_INCLUDE,
+            # `/surveys` only sorts by date_modified; sort ascending so the watermark advances.
+            "sort_by": config.sort_by,
+            "sort_order": "ASC",
+        },
+        "data_selector": "data",
+    }
+    if incremental is not None:
+        endpoint["incremental"] = incremental
+    return {"name": "surveys", "endpoint": endpoint}
+
+
+def _parent_surveys_resource() -> EndpointResource:
+    # Fan-out enumerates every survey id via a bare `/surveys` listing (no include/sort/filter) — the
+    # child endpoints must fan out over ALL surveys, never only the recently-modified slice.
+    return {
+        "name": "surveys",
+        "endpoint": {
+            "path": "/surveys",
+            "params": {"per_page": DEFAULT_PAGE_SIZE},
+            "data_selector": "data",
+        },
+    }
+
+
+def _fanout_child_resource(endpoint: str, incremental: IncrementalConfig | None) -> EndpointResource:
+    config = SURVEYMONKEY_ENDPOINTS[endpoint]
+    child_endpoint: Endpoint = {
+        "path": config.path,
+        "params": {
+            "survey_id": {"type": "resolve", "resource": "surveys", "field": "id"},
+            "per_page": config.page_size,
+        },
+        "data_selector": "data",
+    }
+    if incremental is not None:
+        child_endpoint["incremental"] = incremental
+    return {
+        "name": endpoint,
+        "include_from_parent": ["id"],
+        "endpoint": child_endpoint,
+        "data_map": _promote_survey_id,
+    }
+
+
+def _questions_resource() -> EndpointResource:
+    config = SURVEYMONKEY_ENDPOINTS["survey_questions"]
+    return {
+        "name": "survey_questions",
+        "include_from_parent": ["id"],
+        "endpoint": {
+            "path": config.path,
+            "params": {"survey_id": {"type": "resolve", "resource": "surveys", "field": "id"}},
+            # Select the nested pages[] as items; the data_map explodes each into its questions.
+            "data_selector": "pages",
+        },
+        "data_map": _explode_questions,
+    }
+
+
+def surveymonkey_source(
+    access_token: str,
+    base_url: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SurveyMonkeyResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Optional[Any] = None,
+    incremental_field: str | None = None,
+) -> SourceResponse:
+    config = SURVEYMONKEY_ENDPOINTS[endpoint]
+    incremental = _incremental_config(
+        endpoint, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+    client_config = _client_config(access_token, base_url)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    resource: Resource
+    if endpoint == "surveys":
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": [_surveys_resource(incremental)],
+        }
+
+        def save_simple(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; save AFTER a page is yielded so a crash resumes
+            # at the next page rather than re-reading from the top.
+            if state is not None:
+                resumable_source_manager.save_state(SurveyMonkeyResumeConfig(paginator_state=state))
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_simple,
+            initial_paginator_state=(resume.paginator_state if resume is not None else None),
+        )
+    else:
+        child_resource = (
+            _questions_resource() if endpoint == "survey_questions" else _fanout_child_resource(endpoint, incremental)
+        )
+        fanout_config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": [_parent_surveys_resource(), child_resource],
+        }
+
+        def save_fanout(state: Optional[dict[str, Any]]) -> None:
+            if state is not None:
+                resumable_source_manager.save_state(SurveyMonkeyResumeConfig(fanout_state=state))
+
+        resources = rest_api_resources(
+            fanout_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_fanout,
+            initial_paginator_state=(resume.fanout_state if resume is not None else None),
+        )
+        resource = next(r for r in resources if r.name == endpoint)
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=[config.primary_key],
+        sort_mode="asc",
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
 
 
 def validate_credentials(access_token: str, base_url: str) -> tuple[bool, str | None]:
     """Cheap probe against `/users/me` to confirm the token is genuine."""
     url = f"{base_url}/users/me"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_token), timeout=10)
+        response = make_tracked_session(redact_values=(access_token,)).get(
+            url, headers=_get_headers(access_token), timeout=10
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -110,224 +300,3 @@ def validate_credentials(access_token: str, base_url: str) -> tuple[bool, str | 
     except (ValueError, AttributeError):
         message = None
     return False, message or f"SurveyMonkey API returned status {response.status_code}"
-
-
-def _attach_survey_id(item: dict[str, Any], survey_id: str) -> dict[str, Any]:
-    row = dict(item)
-    row["survey_id"] = survey_id
-    return row
-
-
-def _extract_questions(details: dict[str, Any], survey_id: str) -> list[dict[str, Any]]:
-    """Flatten the nested pages[].questions[] of a `/surveys/{id}/details` payload."""
-    rows: list[dict[str, Any]] = []
-    for page in details.get("pages", []) or []:
-        page_id = page.get("id")
-        for question in page.get("questions", []) or []:
-            row = dict(question)
-            row["survey_id"] = survey_id
-            row["page_id"] = page_id
-            rows.append(row)
-    return rows
-
-
-def get_rows(
-    access_token: str,
-    base_url: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SurveyMonkeyResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = SURVEYMONKEY_ENDPOINTS[endpoint]
-    # One session reused across the whole sync (keeps TLS/TCP connections warm). urllib3 retries
-    # are disabled so tenacity below is the single retry authority — otherwise the two layers
-    # multiply request counts against SurveyMonkey's low daily call quota.
-    session = make_tracked_session(headers=_get_headers(access_token), retry=Retry(total=0))
-
-    cutoff = (
-        _format_incremental_value(db_incremental_field_last_value)
-        if should_use_incremental_field and db_incremental_field_last_value
-        else None
-    )
-
-    @retry(
-        retry=retry_if_exception_type((SurveyMonkeyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise SurveyMonkeyRetryableError(
-                f"SurveyMonkey API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"SurveyMonkey API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-
-    if config.extract_questions_from_details:
-        yield from _iter_questions(base_url, config, fetch_page, resumable_source_manager, resume, logger)
-    elif config.is_fanout:
-        yield from _iter_fanout(
-            base_url, config, cutoff, incremental_field, fetch_page, resumable_source_manager, resume, logger
-        )
-    else:
-        yield from _iter_top_level(
-            base_url, config, cutoff, incremental_field, fetch_page, resumable_source_manager, resume
-        )
-
-
-def _list_all_survey_ids(
-    base_url: str,
-    fetch_page: Callable[[str], dict[str, Any]],
-) -> list[str]:
-    """Enumerate every survey id by paging `/surveys` (ids only; no include/filter)."""
-    survey_ids: list[str] = []
-    url: str | None = f"{base_url}/surveys?{urlencode({'per_page': DEFAULT_PAGE_SIZE})}"
-    while url:
-        page = fetch_page(url)
-        for item in page.get("data", []) or []:
-            # Direct access: a survey without an id is a malformed response, and silently
-            # skipping it would drop all of that survey's child records (pages, questions,
-            # responses, collectors) with no trace. Fail loudly instead.
-            survey_ids.append(str(item["id"]))
-        url = page.get("links", {}).get("next")
-    return survey_ids
-
-
-def _iter_top_level(
-    base_url: str,
-    config: SurveyMonkeyEndpointConfig,
-    cutoff: str | None,
-    incremental_field: str | None,
-    fetch_page: Callable[[str], dict[str, Any]],
-    manager: ResumableSourceManager[SurveyMonkeyResumeConfig],
-    resume: SurveyMonkeyResumeConfig | None,
-) -> Iterator[list[dict[str, Any]]]:
-    url: str | None = (
-        resume.next_url if resume and resume.next_url else _build_list_url(base_url, config, cutoff, incremental_field)
-    )
-
-    while url:
-        page = fetch_page(url)
-        items = page.get("data", []) or []
-        next_url = page.get("links", {}).get("next")
-
-        if items:
-            yield items
-            # Checkpoint the page we just yielded (not the next one) so a crash re-yields it
-            # rather than skipping rows the pipeline may not have flushed yet.
-            manager.save_state(SurveyMonkeyResumeConfig(next_url=url))
-
-        url = next_url
-
-
-def _iter_fanout(
-    base_url: str,
-    config: SurveyMonkeyEndpointConfig,
-    cutoff: str | None,
-    incremental_field: str | None,
-    fetch_page: Callable[[str], dict[str, Any]],
-    manager: ResumableSourceManager[SurveyMonkeyResumeConfig],
-    resume: SurveyMonkeyResumeConfig | None,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    if resume and resume.remaining_survey_ids is not None:
-        remaining = list(resume.remaining_survey_ids)
-        current_url = resume.next_url
-    else:
-        remaining = _list_all_survey_ids(base_url, fetch_page)
-        current_url = None
-
-    logger.debug(f"SurveyMonkey: fanning out {config.name} across {len(remaining)} surveys")
-
-    while remaining:
-        survey_id = remaining[0]
-        if current_url is None:
-            current_url = _build_list_url(base_url, config, cutoff, incremental_field, survey_id=survey_id)
-
-        page = fetch_page(current_url)
-        items = page.get("data", []) or []
-        next_url = page.get("links", {}).get("next")
-
-        if items:
-            yield [_attach_survey_id(item, survey_id) for item in items]
-            manager.save_state(SurveyMonkeyResumeConfig(next_url=current_url, remaining_survey_ids=remaining))
-
-        if next_url:
-            current_url = next_url
-        else:
-            remaining = remaining[1:]
-            current_url = None
-
-
-def _iter_questions(
-    base_url: str,
-    config: SurveyMonkeyEndpointConfig,
-    fetch_page: Callable[[str], dict[str, Any]],
-    manager: ResumableSourceManager[SurveyMonkeyResumeConfig],
-    resume: SurveyMonkeyResumeConfig | None,
-    logger: FilteringBoundLogger,
-) -> Iterator[list[dict[str, Any]]]:
-    if resume and resume.remaining_survey_ids is not None:
-        remaining = list(resume.remaining_survey_ids)
-    else:
-        remaining = _list_all_survey_ids(base_url, fetch_page)
-
-    logger.debug(f"SurveyMonkey: extracting questions across {len(remaining)} surveys")
-
-    while remaining:
-        survey_id = remaining[0]
-        details = fetch_page(f"{base_url}{config.path.format(survey_id=survey_id)}")
-        questions = _extract_questions(details, survey_id)
-        if questions:
-            yield questions
-
-        remaining = remaining[1:]
-        # Checkpoint with the current survey already dropped — the `/details` call is idempotent,
-        # so on resume we continue with the next survey.
-        manager.save_state(SurveyMonkeyResumeConfig(remaining_survey_ids=remaining))
-
-
-def surveymonkey_source(
-    access_token: str,
-    base_url: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[SurveyMonkeyResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
-) -> SourceResponse:
-    config = SURVEYMONKEY_ENDPOINTS[endpoint]
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            access_token=access_token,
-            base_url=base_url,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
-        primary_keys=[config.primary_key],
-        sort_mode="asc",
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-    )

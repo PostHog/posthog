@@ -25,6 +25,7 @@ use bytes::Bytes;
 use dashmap::DashMap;
 use http::HeaderMap;
 use tokio::sync::{oneshot, Mutex};
+use tokio_util::sync::CancellationToken;
 use tonic::body::BoxBody;
 
 /// Fixed per-request overhead estimate that approximates the bookkeeping
@@ -148,6 +149,14 @@ impl StashTable {
             max_messages,
             max_bytes,
         }
+    }
+
+    /// Whether the partition currently has a stash entry — a live
+    /// window, or backlog a yielded drain left parked. The entry only
+    /// disappears through drain's settle-and-evict, so its existence is
+    /// exactly "the stash lifecycle for this partition is not closed".
+    pub fn has_entry(&self, partition: u32) -> bool {
+        self.inner.contains_key(&partition)
     }
 
     fn get_or_create(&self, partition: u32) -> Arc<PartitionStash> {
@@ -276,8 +285,17 @@ impl StashTable {
     /// continues. Per-request bounded latency is the caller's
     /// responsibility (e.g. a deadline check inside `forward_batch`
     /// that fail-fasts past-deadline requests with `UNAVAILABLE`).
-    pub async fn drain<F, Fut>(&self, partition: u32, mut forward_batch: F)
-    where
+    ///
+    /// `cancel` stops the loop at the next batch boundary, leaving the
+    /// queue and its entry live: a cancelled drain has been superseded
+    /// (or the router is shutting down), and whatever remains parked
+    /// belongs to the successor drain.
+    pub async fn drain<F, Fut>(
+        &self,
+        partition: u32,
+        cancel: &CancellationToken,
+        mut forward_batch: F,
+    ) where
         F: FnMut(Vec<StashedRequest>) -> Fut,
         Fut: std::future::Future<Output = ()>,
     {
@@ -287,6 +305,9 @@ impl StashTable {
         };
 
         loop {
+            if cancel.is_cancelled() {
+                return;
+            }
             let batch = {
                 let mut guard = stash.queue.lock().await;
                 let Some(q) = guard.as_mut() else {
@@ -335,7 +356,7 @@ mod tests {
         let collected = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = std::sync::Arc::clone(&collected);
         table
-            .drain(partition, move |batch| {
+            .drain(partition, &CancellationToken::new(), move |batch| {
                 let sink = std::sync::Arc::clone(&sink);
                 async move {
                     sink.lock().unwrap().extend(batch);
@@ -439,6 +460,41 @@ mod tests {
         assert!(
             !table.inner.contains_key(&0),
             "drain must remove the entry so future requests skip the lock path"
+        );
+    }
+
+    /// A cancelled drain yields at the batch boundary without touching
+    /// the entry: whatever is parked belongs to the successor drain, and
+    /// new requests must keep stashing in the meantime. Evicting on
+    /// cancel instead would let requests bypass the stash and race ahead
+    /// of the parked backlog.
+    #[tokio::test]
+    async fn cancelled_drain_leaves_queue_live_for_successor() {
+        let table = StashTable::with_bounds(usize::MAX, usize::MAX);
+        table.begin_stash(0).await;
+        let _rx = match enqueue(&table, 0, 1).await {
+            StashDecision::Stashed(rx) => rx,
+            _ => panic!("expected Stashed"),
+        };
+
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        table.drain(0, &cancelled, |_batch| async {}).await;
+        assert!(
+            table.inner.contains_key(&0),
+            "cancelled drain must leave the entry live"
+        );
+
+        // Requests keep parking, and a successor drain collects everything.
+        let _rx2 = match enqueue(&table, 0, 2).await {
+            StashDecision::Stashed(rx) => rx,
+            _ => panic!("expected Stashed while entry is live"),
+        };
+        let drained = drain_to_vec(&table, 0).await;
+        assert_eq!(
+            drained.len(),
+            2,
+            "successor drain must see the full backlog"
         );
     }
 
@@ -672,7 +728,9 @@ mod tests {
             // subsequent enqueue sees it and parks.
             let drain_table = table.clone();
             let drain_handle = tokio::spawn(async move {
-                drain_table.drain(0, |_batch| async {}).await;
+                drain_table
+                    .drain(0, &CancellationToken::new(), |_batch| async {})
+                    .await;
             });
             let begin_table = table.clone();
             let begin_handle = tokio::spawn(async move { begin_table.begin_stash(0).await });

@@ -6,7 +6,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zapiersupportedstorage import (
     ZapierSupportedStorageSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.settings import ENDPOINTS

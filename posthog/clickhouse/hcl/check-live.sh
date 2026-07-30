@@ -68,7 +68,7 @@ sys.exit(1 if drift else 0)
 
 rc=0
 for role in "${ROLES[@]}"; do
-  golden="$GOLDEN/$ENV/$role.hcl"
+  golden="$GOLDEN/$ENV/$(golden_name "$role").hcl"
   live="$DUMPDIR/$ENV-$role.hcl"          # transient dump, flat name from dump-live.sh
 
   if [ ! -f "$golden" ]; then

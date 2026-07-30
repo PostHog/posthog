@@ -23,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _connect_to_postgres,
     _connect_with_dropped_retry,
+    _is_connection_dropped_error,
+    _safe_close_connection,
     get_primary_key_columns,
 )
 
@@ -109,7 +111,15 @@ class PgCDCStreamReader:
         # read paths and absorb those drops in-process instead of failing the whole
         # extraction activity; permanent errors (auth, SSL-required) are re-raised
         # immediately by the helper.
-        self._conn = _connect_with_dropped_retry(
+        self._conn = self._open_streaming_connection()
+
+    def _open_streaming_connection(self) -> psycopg.Connection:
+        """Open a streaming connection to the source through the current tunnel endpoint.
+
+        Shared by the initial ``connect()`` and the in-process reconnect ``read_changes`` runs
+        after a transient mid-peek drop, so both use identical server-side timeouts.
+        """
+        return _connect_with_dropped_retry(
             lambda: _connect_to_postgres(
                 host=self._effective_host,
                 port=self._effective_port,
@@ -204,6 +214,21 @@ class PgCDCStreamReader:
                 self._last_rows_consumed = 0
                 logger.warning("slot_read_busy_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
                 time.sleep(0.5 * 2**attempt)
+            except psycopg.OperationalError as e:
+                # A transient drop on the peek fetch (pooler/firewall idle cull, failover, network
+                # blip — e.g. "consuming input failed: SSL SYSCALL error: EOF detected") is the same
+                # class connect()/confirm_position() already absorb in-process. Reconnect and
+                # re-peek: the peek is non-consuming, so re-reading from the slot's last confirmed
+                # position is safe. Only retry before the first row lands — once events have been
+                # yielded the caller has buffered them, so a re-peek would duplicate; let it surface
+                # and Temporal replays the whole run from the last confirmed LSN.
+                if slot_acquired or not _is_connection_dropped_error(e) or attempt == _SLOT_READ_MAX_ATTEMPTS - 1:
+                    raise
+                _safe_close_connection(conn)
+                self._last_rows_consumed = 0
+                logger.warning("slot_read_dropped_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
+                time.sleep(0.5 * 2**attempt)
+                self._conn = conn = self._open_streaming_connection()
 
     def confirm_position(self, position: str) -> None:
         """Advance the replication slot to the given LSN.

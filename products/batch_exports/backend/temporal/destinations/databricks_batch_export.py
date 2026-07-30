@@ -75,8 +75,8 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksSchemaNotFoundError",
     # Raised when the Databricks warehouse is stopped.
     "DatabricksWarehouseStoppedError",
-    # Raised when the destination table's column types are incompatible with the exported data
-    # (e.g. the table column is VARIANT but the export is configured to write STRING).
+    # Raised when the destination table's column names or types are incompatible with the exported
+    # data (e.g. the table column is VARIANT but the export is configured to write STRING).
     "DatabricksIncompatibleSchemaError",
 ]
 
@@ -155,26 +155,28 @@ class DatabricksWarehouseStoppedError(DatabricksOperationError):
 
 
 class DatabricksIncompatibleSchemaError(DatabricksOperationError):
-    """Raised when the destination table's column types are incompatible with the exported data.
+    """Raised when the destination table's columns are incompatible with the exported data.
 
-    This happens when an existing table column has a type that can't accept the data we're
-    exporting into it. One common cause is the export's `use_variant_type` setting not matching
-    the existing table (e.g. a column is VARIANT in the table but the export is configured to
-    write STRING, or vice versa).
+    This happens, for example, when an existing table column has a type that can't accept the data
+    we're exporting into it. One common cause is the export's `use_variant_type` setting not
+    matching the existing table (e.g. a column is VARIANT in the table but the export is configured
+    to write STRING, or vice versa).
     """
 
-    def __init__(self, operation: str, reason: str, export_schema: list[DatabricksField] | None = None):
+    def __init__(
+        self, operation: str, reason: str, export_schema: collections.abc.Iterable[DatabricksField] | None = None
+    ):
         detail = reason
         if export_schema is not None:
             # We only report the schema of the data we're exporting (which the user already controls)
             # and deliberately not the destination table's schema: this error is surfaced to users via
             # the batch export run APIs, and the table could be any table the integration can reach.
             export_schema_str = ", ".join(f"`{name}` {type_name}" for name, type_name in export_schema)
-            detail += f" Exported data schema: {export_schema_str}."
+            detail += f". Exported data schema: {export_schema_str}"
         super().__init__(
             operation,
             detail,
-            "This means the destination table's column types don't match the data being exported. "
+            "This means the destination table's column names/types don't match the data being exported. "
             "Please check the schema of your destination table.",
         )
 
@@ -798,6 +800,19 @@ class DatabricksClient:
         try:
             async with handle_common_errors("Merge into target table", timeout):
                 await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
+        except ServerOperationError as err:
+            if err.message and "[DELTA_MERGE_UNRESOLVED_EXPRESSION]" in err.message:
+                # don't return the full error message as it reveals information about the
+                # destination table schema
+                raise DatabricksIncompatibleSchemaError(
+                    operation=f"MERGE INTO `{target_table}`",
+                    reason="[DELTA_MERGE_UNRESOLVED_EXPRESSION]",
+                    export_schema=source_table_fields,
+                ) from err
+            self.logger.exception(
+                "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
+            )
+            raise
         except Exception:
             self.logger.exception(
                 "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query

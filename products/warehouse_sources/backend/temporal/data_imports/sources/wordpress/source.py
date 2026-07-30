@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WordpressSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wordpress import (
+    WordpressSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.wordpress.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -103,6 +105,10 @@ To sync private content or authenticate, create an [Application Password](https:
             "404 Client Error": "WordPress returned 404 (Not Found) for this collection. The REST API or this specific endpoint (for example /users, which security plugins often block to prevent user enumeration) may be disabled or restricted on your site. Enable REST API access for it, or remove this table from the sync.",
             HOST_NOT_ALLOWED_ERROR: "The WordPress site URL is not allowed. Please use a publicly reachable site URL.",
             HTTP_NOT_ALLOWED_ERROR: "The WordPress site URL must use HTTPS when credentials are provided. Please update the site URL to use https://.",
+            # A 2xx response whose body isn't JSON (an HTML error/login/maintenance page, often from
+            # a security or caching plugin) can't be turned into rows by retrying. Matches the stable
+            # prefix RESTClientNonRetryableError uses, not the variable URL that follows.
+            "Non-JSON response from": "The WordPress site returned a non-JSON response (for example an HTML error, login, or maintenance page) instead of data. Confirm the REST API is enabled and reachable at this URL and isn't blocked by a security or caching plugin, then try again.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -119,6 +125,7 @@ To sync private content or authenticate, create an [Application Password](https:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -135,7 +142,11 @@ To sync private content or authenticate, create an [Application Password](https:
         return schemas
 
     def validate_credentials(
-        self, config: WordpressSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WordpressSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_wordpress_credentials(config.site_url, config.username, config.application_password, team_id)
 

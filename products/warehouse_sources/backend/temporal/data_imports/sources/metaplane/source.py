@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MetaplaneSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaplane import (
+    MetaplaneSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.metaplane.metaplane import (
     METAPLANE_BASE_URL,
     MetaplaneResumeConfig,
@@ -101,6 +103,7 @@ You can generate an API key in your Metaplane account settings. A paid Metaplane
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "monitor_evaluations":
@@ -135,7 +138,11 @@ You can generate an API key in your Metaplane account settings. A paid Metaplane
         return schemas
 
     def validate_credentials(
-        self, config: MetaplaneSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MetaplaneSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Metaplane API keys are account-wide (no per-endpoint scopes), so the same probe
         # covers source-create and per-schema validation.

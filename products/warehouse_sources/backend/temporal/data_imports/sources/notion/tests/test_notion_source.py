@@ -9,8 +9,12 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NotionSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import NotionResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.notion import NotionSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion import (
+    NOTION_VERSION_2025_09_03,
+    NOTION_VERSION_2026_03_11,
+    NotionResumeConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.source import NotionSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -146,6 +150,17 @@ class TestNotionSource:
             for pattern in non_retryable
         )
 
+    def test_retryable_marker_matches_raised_message(self) -> None:
+        # notion.py's _request raises this exact message on a 5xx after tenacity's internal
+        # retries exhaust; matching it here keeps that self-recovering failure out of error
+        # tracking as noise instead of being logged as an unclassified exception.
+        markers = self.source.get_retryable_errors()
+        assert markers
+        assert any(
+            marker in "Notion API error (retryable): status=522, url=https://api.notion.com/v1/comments"
+            for marker in markers
+        )
+
 
 @pytest.mark.parametrize("status_code", [500, 503])
 def test_http_error_message_format_matches_non_retryable(status_code: int) -> None:
@@ -157,3 +172,24 @@ def test_http_error_message_format_matches_non_retryable(status_code: int) -> No
         mock_response.raise_for_status()
     non_retryable = NotionSource().get_non_retryable_errors()
     assert not any(pattern in str(exc_info.value) for pattern in non_retryable)
+
+
+class TestValidateCredentialsResolvedPin:
+    @parameterized.expand(
+        [
+            (NOTION_VERSION_2025_09_03, NOTION_VERSION_2025_09_03),
+            (NOTION_VERSION_2026_03_11, NOTION_VERSION_2026_03_11),
+            # No pin (pre-creation) resolves to the default the new row is stamped with.
+            (None, NOTION_VERSION_2026_03_11),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.notion.source.validate_notion_credentials"
+    )
+    def test_probe_receives_resolved_pin(self, pin, expected, mock_validate: mock.Mock) -> None:
+        # The probe sends the `Notion-Version` header, so a pinned source must revalidate
+        # under its own version rather than always the default.
+        mock_validate.return_value = (True, None)
+        NotionSource().validate_credentials(NotionSourceConfig(api_key="secret_x"), 1, api_version=pin)
+
+        assert mock_validate.call_args.args[-1] == expected

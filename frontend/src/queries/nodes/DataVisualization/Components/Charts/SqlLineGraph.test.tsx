@@ -338,8 +338,12 @@ describe('SqlLineGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xAxisLabel()).toBe(expectedX)
-            expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears, so read them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe(expectedX)
+                expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            })
         })
     })
 

@@ -1,12 +1,8 @@
-import json
-import time
 from urllib.parse import quote
 
-from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -15,24 +11,47 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
 
-DUMMY_CALLBACK = "https://marketplace.stripe.com/oauth/callback"
+PARTNER_CALLBACK = "https://partner.example.com/callback"
 
 
-@override_settings(STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
-class TestAgenticAuthorize(APIBaseTest):
-    def _set_pending_auth(self, state: str, email: str, **extra):
+class AuthorizeTestBase(ProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    def _set_pending_auth(self, state: str, email: str, partner: OAuthApplication | None = None, **extra):
+        partner = partner or self.partner
         data = {
             "email": email,
             "scopes": ["query:read", "project:read"],
-            "stripe_account_id": "acct_123",
+            "partner_id": str(partner.id),
+            "partner_name": partner.name,
             "region": "US",
             **extra,
         }
         cache.set(f"{PENDING_AUTH_CACHE_PREFIX}{state}", data, timeout=600)
 
+    def _make_skip_consent_partner(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id="authorize-skip-consent-partner",
+            name="Skip Consent Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=PARTNER_CALLBACK,
+            algorithm="RS256",
+            is_first_party=True,
+            scopes=TEST_PARTNER_SCOPES,
+            provisioning_auth_method="bearer",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_skip_existing_user_consent=True,
+        )
+
+
+class TestAgenticAuthorize(AuthorizeTestBase):
     def test_requires_login(self):
         self.client.logout()
         res = self.client.get("/api/agentic/authorize?state=test_state")
@@ -59,22 +78,15 @@ class TestAgenticAuthorize(APIBaseTest):
         assert "partner_name=Test+Partner" in res["Location"]
         assert "state=state_mismatch" in res["Location"]
 
-    def test_redirects_to_callback_with_code(self):
-        self._set_pending_auth("state_ok", self.user.email)
+    def test_trusted_partner_auto_redirects_with_code(self):
+        partner = self._make_skip_consent_partner()
+        self._set_pending_auth("state_ok", self.user.email, partner=partner, consent_required=False)
         res = self.client.get("/api/agentic/authorize?state=state_ok")
         assert res.status_code == 302
-        assert res["Location"].startswith(DUMMY_CALLBACK)
+        assert res["Location"].startswith(PARTNER_CALLBACK)
         assert "code=" in res["Location"]
         assert "state=state_ok" in res["Location"]
 
-    def test_pending_auth_deleted_after_use(self):
-        self._set_pending_auth("state_once", self.user.email)
-        self.client.get("/api/agentic/authorize?state=state_once")
-        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_once") is None
-
-    def test_auth_code_created_in_cache(self):
-        self._set_pending_auth("state_code", self.user.email)
-        res = self.client.get("/api/agentic/authorize?state=state_code")
         code = res["Location"].split("code=")[1].split("&")[0]
         code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
         assert code_data is not None
@@ -82,22 +94,8 @@ class TestAgenticAuthorize(APIBaseTest):
         assert code_data["org_id"] == str(self.team.organization.id)
         assert code_data["team_id"] == self.team.id
         assert code_data["scopes"] == ["query:read", "project:read"]
-
-    def _make_skip_consent_partner(self) -> OAuthApplication:
-        return OAuthApplication.objects.create(
-            client_id="authorize-skip-consent-partner",
-            name="Skip Consent Partner",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://partner.example.com/callback",
-            algorithm="RS256",
-            is_first_party=True,
-            provisioning_auth_method="hmac",
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_skip_existing_user_consent=True,
-        )
+        assert code_data["partner_id"] == str(partner.id)
+        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_ok") is None
 
     @parameterized.expand(
         [
@@ -112,50 +110,49 @@ class TestAgenticAuthorize(APIBaseTest):
     def test_skip_consent_partner_not_auto_approved(self, name, extra):
         partner = self._make_skip_consent_partner()
         state = f"state_{name}"
-        self._set_pending_auth(
-            state,
-            self.user.email,
-            partner_id=str(partner.id),
-            partner_name=partner.name,
-            **extra,
-        )
+        self._set_pending_auth(state, self.user.email, partner=partner, **extra)
         res = self.client.get(f"/api/agentic/authorize?state={state}")
         assert res.status_code == 302
         assert "/agentic/authorize?" in res["Location"]
-        assert not res["Location"].startswith("https://partner.example.com/callback")
+        assert not res["Location"].startswith(PARTNER_CALLBACK)
         assert "code=" not in res["Location"]
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}") is not None
 
-    @override_settings(
-        STRIPE_SIGNING_SECRET=HMAC_SECRET,
-        STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
-    )
-    def test_full_a1_flow_with_token_exchange(self):
-        # The token exchange resolves the legacy Stripe OAuth app by client_id and now
-        # hard-fails if it's missing, so the e2e flow needs the app row to exist.
-        OAuthApplication.objects.create(
-            name="PostHog Stripe App",
-            client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://localhost",
-            algorithm="RS256",
+    def test_pending_state_without_partner_not_auto_trusted(self):
+        self._set_pending_auth("state_no_partner", self.user.email, partner_id="", partner_name="")
+        res = self.client.get("/api/agentic/authorize?state=state_no_partner")
+        assert res.status_code == 302
+        assert "/agentic/authorize?" in res["Location"]
+        assert "code=" not in res["Location"]
+        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_no_partner") is not None
+
+    def test_user_without_org_redirects_with_error(self):
+        orphan = User.objects.create(email="orphan@example.com", first_name="Orphan")
+        self.client.force_login(orphan)
+        self._set_pending_auth("state_no_org", "orphan@example.com", scopes=[])
+        res = self.client.get("/api/agentic/authorize?state=state_no_org")
+        assert res.status_code == 302
+        assert "error=no_organization" in res["Location"]
+
+    def test_full_authorize_flow_with_token_exchange(self):
+        partner = self._make_skip_consent_partner()
+        verifier, challenge = self._pkce_pair()
+        self._set_pending_auth(
+            "state_e2e",
+            self.user.email,
+            partner=partner,
+            consent_required=False,
+            code_challenge=challenge,
+            code_challenge_method="S256",
         )
-        self._set_pending_auth("state_e2e", self.user.email)
 
         res = self.client.get("/api/agentic/authorize?state=state_e2e")
         assert res.status_code == 302
         code = res["Location"].split("code=")[1].split("&")[0]
 
-        body = json.dumps({"grant_type": "authorization_code", "code": code}).encode()
-        ts = int(time.time())
-        sig = compute_signature(HMAC_SECRET, ts, body)
-        token_res = self.client.post(
+        token_res = self._post_api(
             "/api/agentic/oauth/token",
-            data=body,
-            content_type="application/json",
-            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
+            {"grant_type": "authorization_code", "code": code, "code_verifier": verifier},
         )
         assert token_res.status_code == 200
         data = token_res.json()
@@ -164,25 +161,14 @@ class TestAgenticAuthorize(APIBaseTest):
         assert data["token_type"] == "bearer"
 
 
-class AgenticAuthorizeMultiOrgBase(APIBaseTest):
+class AgenticAuthorizeMultiOrgBase(AuthorizeTestBase):
     def setUp(self):
         super().setUp()
         self.org2 = Organization.objects.create(name="Second Org")
         OrganizationMembership.objects.create(user=self.user, organization=self.org2, level=15)
         self.team2 = Team.objects.create(organization=self.org2, name="Second Project", api_token="token_2")
 
-    def _set_pending_auth(self, state: str, email: str, **extra):
-        data = {
-            "email": email,
-            "scopes": ["query:read", "project:read"],
-            "stripe_account_id": "acct_123",
-            "region": "US",
-            **extra,
-        }
-        cache.set(f"{PENDING_AUTH_CACHE_PREFIX}{state}", data, timeout=600)
 
-
-@override_settings(STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
 class TestAgenticAuthorizeMultiOrg(AgenticAuthorizeMultiOrgBase):
     def test_multi_org_redirects_to_spa(self):
         self._set_pending_auth("state_multi", self.user.email)
@@ -197,18 +183,16 @@ class TestAgenticAuthorizeMultiOrg(AgenticAuthorizeMultiOrgBase):
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_preserve") is not None
 
 
-@override_settings(STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
 class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
+    def _confirm(self, state: str, team_id):
+        return self._post_api("/api/agentic/authorize/confirm/", {"state": state, "team_id": team_id})
+
     def test_confirm_creates_auth_code_for_selected_team(self):
         self._set_pending_auth("state_confirm", self.user.email)
-        res = self.client.post(
-            "/api/agentic/authorize/confirm/",
-            {"state": "state_confirm", "team_id": self.team2.id},
-            content_type="application/json",
-        )
+        res = self._confirm("state_confirm", self.team2.id)
         assert res.status_code == 200
         data = res.json()
-        assert data["redirect_url"].startswith(DUMMY_CALLBACK)
+        assert data["redirect_url"].startswith(PARTNER_CALLBACK)
         assert "code=" in data["redirect_url"]
         assert "state=state_confirm" in data["redirect_url"]
 
@@ -219,11 +203,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
 
     def test_confirm_consumes_pending_state(self):
         self._set_pending_auth("state_consume", self.user.email)
-        self.client.post(
-            "/api/agentic/authorize/confirm/",
-            {"state": "state_consume", "team_id": self.team.id},
-            content_type="application/json",
-        )
+        self._confirm("state_consume", self.team.id)
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_consume") is None
 
     @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
@@ -234,18 +214,14 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             client_secret="",
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris=DUMMY_CALLBACK,
+            redirect_uris=PARTNER_CALLBACK,
             algorithm="RS256",
             provisioning_auth_method="pkce",
             provisioning_partner_type="test_partner",
             provisioning_active=True,
         )
-        self._set_pending_auth("state_attr", self.user.email, partner_id=str(partner.id), partner_name=partner.name)
-        res = self.client.post(
-            "/api/agentic/authorize/confirm/",
-            {"state": "state_attr", "team_id": self.team.id},
-            content_type="application/json",
-        )
+        self._set_pending_auth("state_attr", self.user.email, partner=partner)
+        res = self._confirm("state_attr", self.team.id)
         assert res.status_code == 200
 
         success_calls = [
@@ -254,22 +230,20 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert len(success_calls) == 1
         assert success_calls[0].kwargs["partner"] == partner
 
+    def test_confirm_without_partner_returns_missing_callback(self):
+        self._set_pending_auth("state_no_partner", self.user.email, partner_id="")
+        res = self._confirm("state_no_partner", self.team.id)
+        assert res.status_code == 400
+        assert res.json()["error"] == "missing_callback"
+
     def test_confirm_rejects_expired_state(self):
-        res = self.client.post(
-            "/api/agentic/authorize/confirm/",
-            {"state": "nonexistent", "team_id": self.team.id},
-            content_type="application/json",
-        )
+        res = self._confirm("nonexistent", self.team.id)
         assert res.status_code == 400
         assert res.json()["error"] == "expired_or_invalid_state"
 
     def test_confirm_rejects_email_mismatch(self):
         self._set_pending_auth("state_wrong_email", "other@example.com")
-        res = self.client.post(
-            "/api/agentic/authorize/confirm/",
-            {"state": "state_wrong_email", "team_id": self.team.id},
-            content_type="application/json",
-        )
+        res = self._confirm("state_wrong_email", self.team.id)
         assert res.status_code == 403
         assert res.json()["error"] == "email_mismatch"
 
@@ -278,43 +252,16 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Project", api_token="token_other")
 
-        res = self.client.post(
-            "/api/agentic/authorize/confirm/",
-            {"state": "state_no_access", "team_id": other_team.id},
-            content_type="application/json",
-        )
+        res = self._confirm("state_no_access", other_team.id)
         assert res.status_code == 403
         assert res.json()["error"] == "team_not_accessible"
 
     def test_confirm_rejects_nonexistent_team(self):
         self._set_pending_auth("state_bad_team", self.user.email)
-        res = self.client.post(
-            "/api/agentic/authorize/confirm/",
-            {"state": "state_bad_team", "team_id": 999999},
-            content_type="application/json",
-        )
+        res = self._confirm("state_bad_team", 999999)
         assert res.status_code == 404
         assert res.json()["error"] == "team_not_found"
 
     def test_confirm_rejects_missing_params(self):
-        res = self.client.post(
-            "/api/agentic/authorize/confirm/",
-            {"state": "something"},
-            content_type="application/json",
-        )
+        res = self._post_api("/api/agentic/authorize/confirm/", {"state": "something"})
         assert res.status_code == 400
-
-
-@override_settings(STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
-class TestAgenticAuthorizeNoOrg(APIBaseTest):
-    def test_user_without_org_redirects_with_error(self):
-        orphan = User.objects.create(email="orphan@example.com", first_name="Orphan")
-        self.client.force_login(orphan)
-        cache.set(
-            f"{PENDING_AUTH_CACHE_PREFIX}state_no_org",
-            {"email": "orphan@example.com", "scopes": [], "stripe_account_id": "", "region": "US"},
-            timeout=600,
-        )
-        res = self.client.get("/api/agentic/authorize?state=state_no_org")
-        assert res.status_code == 302
-        assert "error=no_organization" in res["Location"]

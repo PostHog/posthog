@@ -17,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cody.cody 
     CodyRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cody.source import CodySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CodySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cody import CodySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ALL_ENDPOINTS = [

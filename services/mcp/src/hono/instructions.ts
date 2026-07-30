@@ -139,11 +139,11 @@ export class InstructionsBuilder {
     }
 
     formatExecuteSqlDescription(toolFeatureFlags?: EvaluatedFlags): string {
-        // Data-catalog discovery is spliced into the same section so a flag-off render stays
-        // byte-identical to the un-gated prompt (no stray placeholder gaps).
         const dataCatalogEnabled = toolFeatureFlags?.[PRODUCT_DATA_CATALOG_FLAG] === true
+        // Metric discovery leads the splice so catalog-first routing still precedes
+        // raw schema discovery, without displacing the tool's own intro line.
         const schemaDiscovery = dataCatalogEnabled
-            ? `${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}\n\n${METRIC_DISCOVERY.trim()}`
+            ? `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
             : SCHEMA_DISCOVERY.trim()
         return formatPrompt(EXECUTE_SQL_PROMPT, {
             guidelines: this.guidelines.trim(),

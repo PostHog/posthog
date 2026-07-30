@@ -29,8 +29,7 @@ from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.hogql.errors import QueryError
 
-from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -824,13 +823,39 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "recording_ttl": 29,
             "snapshot_source": "web",
             "snapshot_library": None,
-            "ongoing": None,
+            # ingestion just happened in this test, so the session still counts as ongoing
+            "ongoing": True,
             "activity_score": None,
             "has_summary": False,
             "summary_outcome": None,
             "external_references": [],
             "matches_filters": True,
         }
+
+    @parameterized.expand(
+        [
+            ("recently_ingested", 1, True),
+            ("ingested_long_ago", 30, False),
+        ]
+    )
+    def test_single_session_recording_reports_ongoing(
+        self, _name: str, ingested_minutes_ago: int, expected_ongoing: bool
+    ) -> None:
+        session_recording_id = str(uuid7())
+        base_time = (now() - relativedelta(minutes=45)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="d1",
+            kafka_timestamp=now() - timedelta(minutes=ingested_minutes_ago),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ongoing"] is expected_ongoing
 
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata_has_summary_true(self):
@@ -1330,9 +1355,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             (
-                "too_many_queries",
-                CHQueryErrorTooManySimultaneousQueries("Too many simultaneous queries"),
-                "Too many simultaneous queries. Try again later.",
+                "at_capacity",
+                ClickHouseAtCapacity(),
+                "ClickHouse is at capacity. Try again later.",
             ),
             (
                 "timeout_exceeded",
@@ -1379,14 +1404,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # the real reason must reach the client, not a generic "internal server error"
         assert expected_detail_substring in response.json()["detail"]
 
-    def test_sync_execute_ch_cannot_schedule_task_retry_then_503(self):
-        """Test that list_blocks throws CHQueryErrorCannotScheduleTask multiple times and eventually returns 503"""
+    def test_sync_execute_ch_at_capacity_retry_then_503(self):
+        """Test that list_blocks throws ClickHouseAtCapacity multiple times and eventually returns 503"""
         call_count = 0
 
         def mock_list_blocks(*args, **kwargs):
             nonlocal call_count
             call_count += 1
-            raise CHQueryErrorCannotScheduleTask("Cannot schedule task", code=439)
+            raise ClickHouseAtCapacity()
 
         # Patch list_blocks where it's imported and used in session_recording_v2_service
         with patch(

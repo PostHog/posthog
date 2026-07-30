@@ -2,7 +2,7 @@ import datetime
 import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
 
@@ -140,6 +140,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 
+    # `True` only for sources whose engine supports xmin-based incremental replication
+    # (Postgres). Gates the xmin sync type at the source-type level; per-table availability is
+    # still decided by `SourceSchema.supports_xmin` at discovery. The API branches on this flag
+    # instead of naming the source type.
+    supports_xmin: bool = False
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -165,11 +171,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     @property
     def _config_class(self) -> type[ConfigType]:
-        config = get_config_for_source(self.source_type)
-        if not config:
-            raise ValueError(f"Config class for {self.source_type} does not exist in SOURCE_CONFIG_MAPPING")
-
-        return config
+        return cast(type[ConfigType], get_config_for_source(self.source_type))
 
     def resolve_api_version(self, pinned: str | None) -> str:
         """Effective vendor API version for a source instance's stored pin.
@@ -196,6 +198,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def get_retryable_errors(self) -> set[str]:
+        """Returns partial error messages the source already retries internally.
+
+        A source that exhausts its own retries (rate limits, transient 5xx) and re-raises still
+        lets Temporal retry the whole activity, so the failure is transient and self-recovering.
+        Matching errors are logged at `warning` rather than `exception`, keeping benign,
+        recoverable failures out of error tracking as noise.
+
+        Each entry is a partial error message matched against `str(error)`.
+        """
+
+        return set()
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 
@@ -215,12 +230,20 @@ class _BaseSource(ABC, Generic[ConfigType]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         """Return the list of schemas available for this source.
 
         ``force_refresh=True`` instructs the source to bypass any internal cache
         of upstream schema discovery (e.g. paginated API listings). Sources
         without caches can ignore the flag.
+
+        ``api_version`` is the source instance's resolved vendor API version pin (``None``
+        means `default_version`) — callers with a source row pass it so a pinned source
+        discovers schemas on the version it actually syncs with. Sources whose discovery
+        doesn't vary by version can ignore it; sources that consume it resolve with
+        ``self.resolve_api_version(api_version)`` (a no-op on already-resolved values)
+        instead of special-casing ``None``.
         """
         raise NotImplementedError()
 
@@ -278,13 +301,20 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return None
 
     def validate_credentials(
-        self, config: ConfigType, team_id: int, schema_name: Optional[str] = None
+        self, config: ConfigType, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        """Check whether the provided credentials are valid for this source. Returns an optional error message"""
+        """Check whether the provided credentials are valid for this source. Returns an optional error message.
+
+        ``api_version`` follows the `get_schemas` contract: the resolved pin of the source
+        instance being validated, or ``None`` (→ `default_version`) before a row exists."""
         return True, None
 
-    def get_endpoint_permissions(self, config: ConfigType, team_id: int, endpoints: list[str]) -> dict[str, str | None]:
-        """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable."""
+    def get_endpoint_permissions(
+        self, config: ConfigType, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable.
+
+        ``api_version`` follows the `get_schemas` contract."""
         return dict.fromkeys(endpoints)
 
     @property
@@ -297,6 +327,41 @@ class _BaseSource(ABC, Generic[ConfigType]):
         the SSH tunnel target are handled separately, so sources whose connection target lives in
         a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
         return []
+
+    def server_managed_job_input_fields(
+        self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
+    ) -> list[str]:
+        """``job_inputs`` fields the client may not set/repoint on update — the server pins them
+        to the stored value (or drops them when unset). Used for server-owned markers and pointers
+        (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
+        incoming and existing inputs so a source can gate on context. Default: none."""
+        return []
+
+    # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
+    # sources are capped; everything else is open. The API enforces this at create.
+    max_instances_per_team: int | None = None
+
+    def job_inputs_add_connection_host(
+        self, incoming_job_inputs: dict[str, Any], existing_job_inputs: dict[str, Any]
+    ) -> bool:
+        """Whether an update introduces a new outbound connection host that isn't a named
+        ``connection_host_fields`` change — e.g. Custom's target lives inside its manifest. When
+        ``True`` the API requires credential re-entry (same exfiltration gate as a host change).
+        Default: no such field."""
+        return False
+
+    def has_preserved_row_backed_credentials(
+        self, source_model: "ExternalDataSource", incoming_job_inputs: dict[str, Any]
+    ) -> bool:
+        """For sources whose secrets live in a bound row (not ``job_inputs``) — Custom's
+        ``CustomOAuth2Integration``: whether the row still holds secrets the editor did NOT re-enter
+        on this update. ``has_preserved_credentials`` can't see those, so a host change would still
+        redirect the row's injected token. Default: no row-backed credentials."""
+        return False
+
+    def on_source_created(self, source_model: "ExternalDataSource", team_id: int) -> None:
+        """Post-create hook. Custom claims its OAuth2 integration row here. No-op by default."""
+        return None
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
@@ -374,11 +439,17 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         raise NotImplementedError()
 
-    def create_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookCreationResult:
+    def create_webhook(
+        self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
         """Create a webhook on the external source pointing to our webhook_url.
 
         Returns a WebhookCreationResult. If the source doesn't support automatic
         webhook creation, returns a failed result so the user can set it up manually.
+
+        ``api_version`` follows the `get_schemas` contract — webhook management talks to the
+        vendor outside sync time, so a pinned source must create/reconcile on its pin (vendor
+        webhook payload versions often key off it).
         """
         raise NotImplementedError()
 
@@ -393,15 +464,18 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook_url: str,
         team_id: int,
         eligible_schema_names: list[str],
+        api_version: str | None = None,
     ) -> WebhookSyncResult:
         """Reconcile the provider's subscribed events with the selected schemas. No-op default
-        for sources without a provider-side subscription; override where one exists (Stripe)."""
+        for sources without a provider-side subscription; override where one exists (Stripe).
+        ``api_version`` follows the `create_webhook` contract."""
         return WebhookSyncResult(success=True)
 
     def webhook_inputs_updated(
-        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]
+        self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any], api_version: str | None = None
     ) -> tuple[bool, str | None]:
         """Called when webhook inputs have been set on the underlying hog function.
+        ``api_version`` follows the `create_webhook` contract.
 
         Returns ``(success, error)``. Implementations that need to call out to the
         external service (e.g. enabling a previously-disabled webhook) should return
@@ -434,20 +508,24 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         return {}
 
     def get_external_webhook_info(
-        self, config: ConfigType, webhook_url: str, team_id: int
+        self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo | None:
         """Check the external source for webhook status.
 
         Returns None if the source doesn't support checking webhook info.
         Sources should override this to query their API (e.g. list Stripe webhook endpoints).
+        ``api_version`` follows the `create_webhook` contract.
         """
         return None
 
-    def delete_webhook(self, config: ConfigType, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+    def delete_webhook(
+        self, config: ConfigType, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
         """Delete the webhook on the external source that matches webhook_url.
 
         Sources should override this to call their API (e.g. delete Stripe webhook endpoint).
         Returns a WebhookDeletionResult indicating success or failure.
+        ``api_version`` follows the `create_webhook` contract.
         """
         return WebhookDeletionResult(success=False, error="This source does not support automatic webhook deletion.")
 

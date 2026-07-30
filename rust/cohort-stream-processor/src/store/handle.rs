@@ -26,9 +26,13 @@ use metrics::{gauge, histogram};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinError;
 
-use super::keys::{PendingTransferKey, Stage2Key, TombstoneKey};
+use super::keys::{
+    PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey, Stage2Key, TombstoneKey,
+};
 use super::keyspace::{BehavioralKey, PersonPrefix, PersonRecordKey};
-use super::rocks::{CohortStore, EventSnapshotRaw, StoreError, StoreStats};
+use super::rocks::{
+    CohortStore, EventSnapshotRaw, Stage2DirtyTrackingGuard, StoreError, StoreStats,
+};
 use super::staged::StagedBatch;
 use crate::observability::metrics::{
     STORE_OFFLOAD_EXEC_DURATION_SECONDS, STORE_OFFLOAD_INFLIGHT,
@@ -337,6 +341,38 @@ impl StoreHandle {
             store.multi_get_stage2(&keys)
         })
         .await
+    }
+
+    /// Scan one bounded page of a partition/team/cohort `cf_stage2` slice on the maintenance lane.
+    pub async fn scan_stage2_cohort(
+        &self,
+        prefix: Stage2CohortPrefix,
+        start_after: Option<Vec<u8>>,
+        limit: usize,
+    ) -> Result<Vec<Stage2Key>, StoreError> {
+        self.read("scan_stage2_cohort", ReadLane::Maintenance, move |store| {
+            store.scan_stage2_cohort(prefix, start_after.as_deref(), limit)
+        })
+        .await
+    }
+
+    /// Scan one bounded page of a cohort's dirty-person markers on the maintenance lane.
+    pub async fn scan_stage2_dirty(
+        &self,
+        prefix: Stage2CohortPrefix,
+        start_after: Option<Vec<u8>>,
+        limit: usize,
+    ) -> Result<Vec<Stage2DirtyKey>, StoreError> {
+        self.read("scan_stage2_dirty", ReadLane::Maintenance, move |store| {
+            store.scan_stage2_dirty(prefix, start_after.as_deref(), limit)
+        })
+        .await
+    }
+
+    /// Start process-local dirty capture for one queued reconcile job. The returned lease owns the
+    /// registration and disables it on drop.
+    pub fn track_stage2_dirty(&self, prefix: Stage2CohortPrefix) -> Stage2DirtyTrackingGuard {
+        self.store.track_stage2_dirty(prefix)
     }
 
     /// Point-read one redirect tombstone.

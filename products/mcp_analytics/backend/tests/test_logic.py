@@ -138,10 +138,20 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         snapshot = logic.get_intent_cluster_snapshot(self.team)
 
         assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
-        assert "did not complete" in snapshot.error_message
+        assert "didn't finish" in snapshot.error_message
 
         row.refresh_from_db()
         assert row.status == MCPIntentClusterSnapshot.Status.ERROR
+
+    def test_stale_threshold_exceeds_activity_timeout_budget(self) -> None:
+        from posthog.temporal.mcp_analytics.intent_clustering.constants import COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT
+
+        from products.mcp_analytics.backend.logic import STALE_COMPUTING_THRESHOLD
+
+        # If the sweep threshold drops below the activity's total timeout budget
+        # (queue wait + retries), the sweep flips runs to ERROR while they are
+        # still legitimately queued or retrying.
+        assert STALE_COMPUTING_THRESHOLD > COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT
 
     def test_fresh_computing_snapshot_is_left_alone(self) -> None:
         MCPIntentClusterSnapshot.objects.create(

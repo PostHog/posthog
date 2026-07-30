@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.source import AircallSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AircallSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aircall import (
+    AircallSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -130,6 +132,8 @@ class TestAircallSource:
         assert kwargs["api_id"] == "api-id"
         assert kwargs["api_token"] == "api-token"
         assert kwargs["endpoint"] == "calls"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000

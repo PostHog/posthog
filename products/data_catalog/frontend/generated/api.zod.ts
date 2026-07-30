@@ -36,6 +36,9 @@ export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
 
+export const dataCatalogMetricsCreateBodyConfidenceMin = 0
+export const dataCatalogMetricsCreateBodyConfidenceMax = 1
+
 export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -76,7 +79,12 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsCreateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsCreateBodyConfidenceMin)
+        .max(dataCatalogMetricsCreateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -93,6 +101,9 @@ export const dataCatalogMetricsUpdateBodyUnitMax = 64
 export const dataCatalogMetricsUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsUpdateBodyAiModelMax = 128
+
+export const dataCatalogMetricsUpdateBodyConfidenceMin = 0
+export const dataCatalogMetricsUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -134,7 +145,12 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsUpdateBodyConfidenceMin)
+        .max(dataCatalogMetricsUpdateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 
@@ -151,6 +167,9 @@ export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
+
+export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
+export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -193,7 +212,12 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod.number().nullish().describe("AI author's confidence in the proposal, 0-1."),
+    confidence: zod
+        .number()
+        .min(dataCatalogMetricsPartialUpdateBodyConfidenceMin)
+        .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
+        .nullish()
+        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
 })
 

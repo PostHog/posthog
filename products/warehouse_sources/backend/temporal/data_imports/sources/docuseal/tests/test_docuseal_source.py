@@ -17,7 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal i
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.docuseal import DocusealResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.source import DocusealSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DocusealSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docuseal import (
+    DocusealSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -141,9 +143,9 @@ class TestDocusealPipelineWiring:
 
         inputs = MagicMock()
         inputs.schema_name = "submissions"
+        inputs.team_id = 7
+        inputs.job_id = "job-123"
         manager = MagicMock()
-        logger = MagicMock()
-        inputs.logger = logger
 
         with patch.object(source_module, "docuseal_source", side_effect=fake_source) as mock_source:
             result = DocusealSource().source_for_pipeline(_config(region="eu"), manager, inputs)
@@ -153,5 +155,6 @@ class TestDocusealPipelineWiring:
         assert captured["api_key"] == "tok"
         assert captured["region"] == "eu"
         assert captured["endpoint"] == "submissions"
+        assert captured["team_id"] == 7
+        assert captured["job_id"] == "job-123"
         assert captured["resumable_source_manager"] is manager
-        assert captured["logger"] is logger

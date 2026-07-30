@@ -171,6 +171,8 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    context_window: str | None = None,
+    fast_mode: bool | None = None,
     initial_permission_mode: str | None = None,
     event_ingest_token: str | None = None,
     event_ingest_url: str | None = None,
@@ -183,6 +185,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        "POSTHOG_CODE_CONTEXT_WINDOW": context_window,
+        # Explicit false pins fast mode off even if a stale env value survives in a resumed sandbox.
+        "POSTHOG_CODE_FAST_MODE": None if fast_mode is None else ("true" if fast_mode else "false"),
         "POSTHOG_CODE_INITIAL_PERMISSION_MODE": initial_permission_mode,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
@@ -248,6 +253,15 @@ class SandboxBase(ABC):
         CLI options, so probe the installed binary before passing --autoPublish; unsupported
         binaries degrade to review-first instead of crashing at launch."""
         result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        return result.exit_code == 0
+
+    def agent_server_supports_exec_permission_regex(self) -> bool:
+        """Same probe as --autoPublish: check the installed binary before passing
+        --posthogExecPermissionRegex; unsupported binaries degrade to server-side auto-approval of
+        exec sub-tools instead of crashing at launch."""
+        result = self.execute(
+            "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
+        )
         return result.exit_code == 0
 
     def clone_repository(
@@ -324,6 +338,8 @@ class SandboxBase(ABC):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         relayed_mcp_servers: list[str] | None = None,

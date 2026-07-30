@@ -1,131 +1,118 @@
 import json
-import time
-from urllib.parse import urlencode
+import base64
+import hashlib
+import secrets
 
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.utils import timezone
 
 from rest_framework.test import APIClient
 
-from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
 
-HMAC_SECRET = "test_hmac_secret"
-TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
+TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
+
+# Broad ceiling so token exchanges in tests aren't rejected by the per-app scope cap.
+TEST_PARTNER_SCOPES = [
+    "query:read",
+    "feature_flag:read",
+    "insight:read",
+    "organization:read",
+    "person:read",
+    "project:read",
+    "user:read",
+]
 
 
-@override_settings(
-    STRIPE_SIGNING_SECRET=HMAC_SECRET,
-    STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
-)
 class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
-        self._ensure_stripe_oauth_app()
+        self.partner = self._ensure_partner_app()
 
-    def _ensure_stripe_oauth_app(self):
+    def _ensure_partner_app(self):
         from posthog.models.oauth import OAuthApplication
 
-        OAuthApplication.objects.get_or_create(
-            client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
+        app, _ = OAuthApplication.objects.get_or_create(
+            client_id=TEST_PARTNER_CLIENT_ID,
             defaults={
-                "name": "PostHog Stripe App",
+                "name": "Test Provisioning Partner",
                 "client_secret": "",
                 "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                "redirect_uris": "https://localhost",
+                "redirect_uris": "https://partner.example.com/callback",
                 "algorithm": "RS256",
+                "scopes": TEST_PARTNER_SCOPES,
+                "provisioning_auth_method": "bearer",
+                "provisioning_partner_type": "test_partner",
+                "provisioning_active": True,
+                "provisioning_can_create_accounts": True,
+                "provisioning_can_provision_resources": True,
                 "provisioning_can_issue_deep_links": True,
-                # The test app stands in for the grandfathered legacy Stripe app, which is
-                # the one app that still mints a provisioned PAT.
+                # Stands in for the one grandfathered app that still mints a provisioned PAT.
                 "provisioning_issues_personal_api_key": True,
             },
         )
+        return app
 
-    def _sign_body(self, body: bytes, timestamp: int | None = None) -> str:
-        ts = timestamp if timestamp is not None else int(time.time())
-        sig = compute_signature(HMAC_SECRET, ts, body)
-        return f"t={ts},v1={sig}"
-
-    def _post_signed(
-        self, url: str, data: dict | bytes | None = None, content_type: str = "application/json", **kwargs
-    ):
+    def _post_api(self, url: str, data: dict | bytes | None = None, content_type: str = "application/json", **kwargs):
         body: bytes
         if content_type == "application/json":
             body = json.dumps(data or {}).encode()
         elif isinstance(data, bytes):
             body = data
-        elif data is not None:
-            body = urlencode(data).encode()
         else:
             body = b""
-        sig = self._sign_body(body)
         return self.client.post(
             url,
             data=body,
             content_type=content_type,
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
             **kwargs,
         )
 
-    def _get_signed(self, url: str, **kwargs):
-        sig = self._sign_body(b"")
-        return self.client.get(
-            url,
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
-            **kwargs,
-        )
+    def _get_api(self, url: str, **kwargs):
+        return self.client.get(url, **kwargs)
 
-    def _get_signed_with_bearer(self, url: str, token: str, **kwargs):
-        sig = self._sign_body(b"")
-        return self.client.get(
-            url,
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-            **kwargs,
-        )
+    def _get_with_bearer(self, url: str, token: str, **kwargs):
+        return self._get_api(url, HTTP_AUTHORIZATION=f"Bearer {token}", **kwargs)
 
-    def _post_signed_with_bearer(self, url: str, data: dict | None = None, token: str = "", **kwargs):
-        body = json.dumps(data or {}).encode()
-        sig = self._sign_body(body)
-        return self.client.post(
-            url,
-            data=body,
-            content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=sig,
-            HTTP_API_VERSION="0.1d",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-            **kwargs,
-        )
+    def _post_with_bearer(self, url: str, data: dict | None = None, token: str = "", **kwargs):
+        return self._post_api(url, data, HTTP_AUTHORIZATION=f"Bearer {token}", **kwargs)
 
-    def _request_bearer_token(self):
-        code = f"test_code_{id(self)}"
+    def _pkce_pair(self) -> tuple[str, str]:
+        verifier = secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode()
+        return verifier, challenge
+
+    def _mint_auth_code(self, scopes: list[str] | None = None, partner=None) -> tuple[str, str]:
+        """Seed an auth code in the cache for the test partner. Returns (code, code_verifier)."""
+        partner = partner or self.partner
+        verifier, challenge = self._pkce_pair()
+        code = secrets.token_urlsafe(16)
         cache.set(
             f"{AUTH_CODE_CACHE_PREFIX}{code}",
             {
+                "issued_at": timezone.now().isoformat(),
                 "user_id": self.user.id,
                 "org_id": str(self.organization.id),
                 "team_id": self.team.id,
-                "stripe_account_id": "acct_123",
-                "scopes": ["query:read"],
+                "partner_id": str(partner.id),
+                "scopes": scopes if scopes is not None else ["query:read"],
                 "region": "US",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
             },
             timeout=300,
         )
-        body = urlencode({"grant_type": "authorization_code", "code": code}).encode()
-        ts = int(time.time())
-        sig = compute_signature(HMAC_SECRET, ts, body)
+        return code, verifier
+
+    def _request_bearer_token(self, scopes: list[str] | None = None, partner=None):
+        code, verifier = self._mint_auth_code(scopes=scopes, partner=partner)
         return self.client.post(
             "/api/agentic/oauth/token",
-            data=body,
-            content_type="application/x-www-form-urlencoded",
-            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
+            data={"grant_type": "authorization_code", "code": code, "code_verifier": verifier},
         )
 
     def _get_bearer_token(self) -> str:

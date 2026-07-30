@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PlainSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain import (
     plain_source,
     validate_credentials as validate_plain_credentials,
@@ -61,6 +61,8 @@ Make sure to grant the following read permissions:
 - timeline:read
 - user:read
 - label:read
+- company:read
+- machineUser:read
 """,
             iconPath="/static/services/plain.png",
             fields=cast(
@@ -89,9 +91,10 @@ Make sure to grant the following read permissions:
         return {
             "401 Client Error": "Invalid Plain credentials. Please check your API key.",
             # Plain fails the whole GraphQL request when the key lacks a scope any requested field needs.
-            # Our customers/threads queries read assignee (user:read) and label (label:read) data on top
-            # of the basics, so name every required scope — retrying a key missing one never succeeds.
-            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read.",
+            # Our customers/threads/timeline_entries queries read assignee (user:read), label (label:read),
+            # company (company:read), and machine-user actor (machineUser:read) data on top of the basics,
+            # so name every required scope — retrying a key missing one never succeeds.
+            "403 Client Error": "Access forbidden. Grant your Plain API key these read permissions, then reconnect: customer:read, thread:read, timeline:read, user:read, label:read, company:read, machineUser:read.",
         }
 
     def get_schemas(
@@ -101,6 +104,7 @@ Make sure to grant the following read permissions:
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -117,7 +121,7 @@ Make sure to grant the following read permissions:
         return schemas
 
     def validate_credentials(
-        self, config: PlainSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: PlainSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_plain_credentials(config.api_key)
 

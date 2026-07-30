@@ -461,8 +461,8 @@ describe('llmTaggerLogic', () => {
             })
         })
 
-        it('sets model configuration from trial provider key', async () => {
-            logic.actions.selectModelFromPicker('gpt-5', 'trial:openai')
+        it('sets model configuration from playground provider key', async () => {
+            logic.actions.selectModelFromPicker('gpt-5', 'playground:openai')
 
             await expectLogic(logic).toMatchValues({
                 selectedModel: 'gpt-5',

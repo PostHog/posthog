@@ -1,29 +1,26 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.chartmogul.settings import (
-    CHARTMOGUL_ENDPOINTS,
-    ChartMogulEndpointConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.chartmogul.settings import CHARTMOGUL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 CHARTMOGUL_BASE_URL = "https://api.chartmogul.com"
 DEFAULT_PAGE_SIZE = 200
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRY_ATTEMPTS = 5
-
-
-class ChartMogulRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -35,10 +32,55 @@ class ChartMogulResumeConfig:
     cursor: str
 
 
-def _get_session(api_key: str) -> requests.Session:
-    # ChartMogul uses HTTP Basic auth with the API key as the username and an
-    # empty password. Redact the key from logged URLs / captured samples.
-    return make_tracked_session(redact_values=(api_key,))
+class ChartMogulPaginator(BasePaginator):
+    """Cursor pagination gated on ChartMogul's `has_more` flag.
+
+    ChartMogul returns both `cursor` and `has_more` on every page; a next page
+    exists only when `has_more` is true AND a cursor is present, so the
+    built-in cursor paginator (cursor presence alone) can't be used.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._cursor: Optional[str] = None
+
+    def init_request(self, request: Request) -> None:
+        # Honour a seeded resume cursor on the first request.
+        if self._cursor is not None:
+            if request.params is None:
+                request.params = {}
+            request.params["cursor"] = self._cursor
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+
+        if not isinstance(body, dict):
+            self._has_next_page = False
+            return
+
+        cursor = body.get("cursor")
+        if body.get("has_more", False) and cursor:
+            self._cursor = cursor
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["cursor"] = self._cursor
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = str(cursor)
+            self._has_next_page = True
 
 
 def _format_start_date(value: Any) -> str:
@@ -52,111 +94,81 @@ def _format_start_date(value: Any) -> str:
 
 
 def validate_credentials(api_key: str) -> bool:
-    url = f"{CHARTMOGUL_BASE_URL}/v1/data_sources"
-    try:
-        response = _get_session(api_key).get(url, auth=(api_key, ""), timeout=REQUEST_TIMEOUT_SECONDS)
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-def _build_initial_params(
-    config: ChartMogulEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {}
-
-    if config.paginated:
-        params["per_page"] = DEFAULT_PAGE_SIZE
-
-    if config.incremental_param and should_use_incremental_field and db_incremental_field_last_value:
-        params[config.incremental_param] = _format_start_date(db_incremental_field_last_value)
-
-    return params
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ChartMogulResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = CHARTMOGUL_ENDPOINTS[endpoint]
-    session = _get_session(api_key)
-    base_url = f"{CHARTMOGUL_BASE_URL}{config.path}"
-
-    params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        params["cursor"] = resume_config.cursor
-        logger.debug(f"ChartMogul: resuming {endpoint} from cursor: {resume_config.cursor}")
-
-    @retry(
-        retry=retry_if_exception_type((ChartMogulRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    # ChartMogul uses HTTP Basic auth with the API key as the username and an
+    # empty password.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{CHARTMOGUL_BASE_URL}/v1/data_sources",
+        auth=HTTPBasicAuth(api_key, ""),
+        timeout=60.0,
     )
-    def fetch_page(page_params: dict[str, Any]) -> dict[str, Any]:
-        url = f"{base_url}?{urlencode(page_params)}" if page_params else base_url
-        response = session.get(url, auth=(api_key, ""), timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise ChartMogulRetryableError(
-                f"ChartMogul API error (retryable): status={response.status_code}, url={base_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"ChartMogul API error: status={response.status_code}, body={response.text}, url={base_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(params)
-
-        items = data.get(config.data_key, [])
-        if items:
-            yield items
-
-        if not config.paginated:
-            break
-
-        has_more = data.get("has_more", False)
-        cursor = data.get("cursor")
-        if not has_more or not cursor:
-            break
-
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(ChartMogulResumeConfig(cursor=cursor))
-        params["cursor"] = cursor
+    return ok
 
 
 def chartmogul_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[ChartMogulResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CHARTMOGUL_ENDPOINTS[endpoint]
 
+    params: dict[str, Any] = {}
+    if config.paginated:
+        params["per_page"] = DEFAULT_PAGE_SIZE
+    if config.incremental_param and should_use_incremental_field and db_incremental_field_last_value:
+        params[config.incremental_param] = _format_start_date(db_incremental_field_last_value)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": CHARTMOGUL_BASE_URL,
+            "auth": {"type": "http_basic", "username": api_key, "password": ""},
+            # Some endpoints (data_sources) return the full list without pagination.
+            "paginator": ChartMogulPaginator() if config.paginated else SinglePagePaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # ChartMogul wraps results per resource (customers/activities
+                    # use "entries", plans use "plans", etc.); a missing key is
+                    # treated as an empty page, matching the historical behavior.
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None:
+            initial_paginator_state = {"cursor": resume_config.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the checkpoint is saved AFTER
+        # the page is yielded so a crash re-yields the last page (merge dedupes
+        # on primary key) rather than skipping it.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(ChartMogulResumeConfig(cursor=str(state["cursor"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

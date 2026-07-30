@@ -4,7 +4,7 @@ Lago is an open-source usage-based billing platform offered both as Lago Cloud
 (``https://api.getlago.com``) and self-hosted (a customer-supplied host), so the API base URL
 must be configurable. Auth is a single Bearer API key. List endpoints are page-number paginated
 (``page`` / ``per_page``) and wrap their records under a resource key alongside a ``meta`` object
-that carries ``next_page``.
+that carries ``total_pages`` / ``next_page``.
 
 Every stream is full-refresh. Lago's REST API exposes no universal server-side ``created_at`` /
 ``updated_at`` cursor across resources — only a handful of endpoints offer ad-hoc date filters
@@ -12,6 +12,11 @@ Every stream is full-refresh. Lago's REST API exposes no universal server-side `
 record-creation timestamp, so they are unsafe to treat as an incremental cursor. Incremental sync
 can be layered on later for a specific endpoint once its server-side filter is verified against the
 live API.
+
+Pagination, retries, auth-header redaction, and the redirect / off-host SSRF guards are provided by
+the shared ``rest_source`` framework (page-number paginator, ``allowed_hosts`` host-pinning,
+``allow_redirects=False``). The DNS-based internal-IP check for customer-supplied self-hosted hosts
+has no framework equivalent, so it stays here as a run-time pre-check.
 """
 
 import re
@@ -21,12 +26,17 @@ from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.settings import (
     LAGO_ENDPOINTS,
@@ -36,17 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lago.setti
 DEFAULT_API_HOST = "https://api.getlago.com"
 API_VERSION_PATH = "/api/v1"
 
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-MAX_RETRY_AFTER_SECONDS = 60
-
 HOST_NOT_ALLOWED_ERROR = "Lago API URL is not allowed"
-
-
-class LagoRetryableError(Exception):
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
-        super().__init__(message)
-        self.retry_after = retry_after
 
 
 class LagoHostNotAllowedError(Exception):
@@ -98,6 +98,10 @@ def validate_credentials(
     At source-create (``schema_name is None``) a 403 is accepted: the token is valid but may lack
     permission for this particular probe. A scoped probe (``schema_name`` set) treats 403 as a hard
     failure.
+
+    Kept hand-rolled rather than routed through ``validate_via_probe`` because the probe must run
+    with ``allow_redirects=False`` and reject any 3xx — the validated host could 3xx to an internal
+    address, defeating the internal-IP check below (SSRF). ``validate_via_probe`` follows redirects.
     """
     base_url = normalize_base_url(api_url)
     host = _host_of(base_url)
@@ -142,121 +146,80 @@ def validate_credentials(
         return False, response.text
 
 
-def _parse_retry_after(response: requests.Response) -> float | None:
-    """Honor a whole-second ``Retry-After`` on 429. HTTP-date forms are ignored."""
-    raw = response.headers.get("Retry-After")
-    if raw and raw.strip().isdigit():
-        return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
-    return None
-
-
-def _retry_wait(retry_state: RetryCallState) -> float:
-    """Use a server-provided Retry-After when present, else exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, LagoRetryableError) and exc.retry_after is not None:
-        return exc.retry_after
-    return wait_exponential_jitter(initial=1, max=30)(retry_state)
-
-
-def get_rows(
-    api_url: Optional[str],
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[LagoResumeConfig],
-    team_id: int,
-) -> Iterator[list[dict[str, Any]]]:
-    config: LagoEndpointConfig = LAGO_ENDPOINTS[endpoint]
-    base_url = normalize_base_url(api_url)
-    host = _host_of(base_url)
-
-    # Re-check at run time (not just at source-create) in case the URL was edited or now resolves
-    # to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    host_ok, host_err = _is_host_safe(host, team_id)
-    if not host_ok:
-        raise LagoHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
-
-    headers = _get_headers(api_key)
-    request_url = f"{base_url}{config.path}"
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume_config.next_page if resume_config is not None else 1
-    if resume_config is not None:
-        logger.debug(f"Lago: resuming {endpoint} from page {page}")
-
-    @retry(
-        retry=retry_if_exception_type((LagoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=_retry_wait,
-        reraise=True,
-    )
-    def fetch_page(page_number: int) -> requests.Response:
-        query = urlencode({"page": page_number, "per_page": config.page_size})
-        # Don't follow redirects: an attacker-controlled host could 3xx to an internal address,
-        # bypassing the host validation done before the request (SSRF).
-        response = make_tracked_session().get(
-            f"{request_url}?{query}", headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
-        )
-
-        if response.status_code == 429 or response.status_code >= 500:
-            retry_after = _parse_retry_after(response) if response.status_code == 429 else None
-            raise LagoRetryableError(
-                f"Lago API error (retryable): status={response.status_code}, url={request_url}",
-                retry_after=retry_after,
-            )
-
-        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
-        # silently parsing the redirect body as data.
-        if response.is_redirect or response.is_permanent_redirect:
-            raise LagoHostNotAllowedError(
-                f"Lago API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
-
-        if not response.ok:
-            logger.error(f"Lago API error: status={response.status_code}, body={response.text}, url={request_url}")
-            response.raise_for_status()
-
-        return response
-
-    while True:
-        response = fetch_page(page)
-        body = response.json()
-        rows = body.get(config.data_key) or []
-        if not isinstance(rows, list) or not rows:
-            break
-
-        yield rows
-
-        next_page = (body.get("meta") or {}).get("next_page")
-        if not next_page:
-            break
-        page = int(next_page)
-
-        # Checkpoint AFTER yielding the page: a crash before this write re-yields the page on resume
-        # (dedupes on the primary key), while a crash after it resumes at the next page.
-        resumable_source_manager.save_state(LagoResumeConfig(next_page=page))
-
-
 def lago_source(
     api_url: Optional[str],
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[LagoResumeConfig],
     team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[LagoResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = LAGO_ENDPOINTS[endpoint]
+    config: LagoEndpointConfig = LAGO_ENDPOINTS[endpoint]
+    base_url = normalize_base_url(api_url)
+    host = _host_of(base_url)
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+            # logs and raised errors; only the non-secret accept/content headers are set here.
+            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+            "auth": {"type": "bearer", "token": api_key},
+            # Pin every request to the base host and refuse redirects: a self-hosted host is
+            # customer-controlled, so a tampered pagination link or a 3xx to an internal address must
+            # not carry the Authorization header off-host (SSRF). `allowed_hosts=[]` means
+            # "same host as base_url only".
+            "allowed_hosts": [],
+            "allow_redirects": False,
+            # Page-number pagination; `meta.total_pages` stops after the last page so no extra empty
+            # page is fetched. `stop_after_empty_page` (default) covers a 0-row / missing-key body.
+            "paginator": PageNumberPaginator(base_page=1, total_path="meta.total_pages"),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"per_page": config.page_size},
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.next_page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on `lago_id`) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(LagoResumeConfig(next_page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        # Re-check at run time (not just at source-create) in case the URL was edited or now resolves
+        # to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+        host_ok, host_err = _is_host_safe(host, team_id)
+        if not host_ok:
+            raise LagoHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+        yield from resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_url=api_url,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            team_id=team_id,
-        ),
+        items=items,
         primary_keys=[config.primary_key],
         # Full-refresh replace: Lago exposes no `sort` param and no incremental cursor, so there is
         # no watermark to checkpoint. The default ascending mode is harmless here.
