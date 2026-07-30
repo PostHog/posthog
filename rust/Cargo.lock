@@ -8527,6 +8527,8 @@ dependencies = [
  "envconfig",
  "foyer",
  "health",
+ "k8s-awareness",
+ "kube",
  "lifecycle",
  "metrics",
  "personhog-common",

@@ -714,6 +714,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "WebBotsTableQuery":
+        from products.web_analytics.backend.hogql_queries.web_bots import WebBotsTableQueryRunner
+
+        return WebBotsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "WebVitalsPathBreakdownQuery":
         from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import (
             WebVitalsPathBreakdownQueryRunner,

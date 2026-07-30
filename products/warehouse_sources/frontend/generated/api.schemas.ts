@@ -136,6 +136,9 @@ export type ExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
 } | null
 
+/**
+ * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+ */
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
@@ -241,6 +244,11 @@ export interface ExternalDataSchemaApi {
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
     readonly api_version_deprecation: ExternalDataSourceApiVersionDeprecationApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -288,6 +296,9 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly supported_api_versions?: string[]
 } | null
 
+/**
+ * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+ */
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
     readonly name?: string
@@ -393,6 +404,11 @@ export interface PatchedExternalDataSchemaApi {
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin. */
     readonly api_version_deprecation?: ExternalDataSourceApiVersionDeprecationApi | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
