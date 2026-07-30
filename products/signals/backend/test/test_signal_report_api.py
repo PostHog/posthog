@@ -2437,6 +2437,32 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         user_github.assert_not_called()
 
+    def test_personal_api_key_cannot_write_review_comments_as_the_user(self):
+        # A personal API key is issued to automate against the API, not to act as its owner on
+        # GitHub. Only a browser session is admitted, so holding task:write must not be enough to
+        # reach the user's linked GitHub account. One endpoint is enough: every write resolves the
+        # caller through the same guard.
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        key_value = self.create_personal_api_key_with_scopes(["task:read", "task:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/",
+                data={"body": "hi", "in_reply_to": "1"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        user_github.assert_not_called()
+
     def test_pr_checks_404_when_report_has_no_implementation_pr(self):
         report = self._create_report()
         with patch(

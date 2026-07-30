@@ -2507,15 +2507,18 @@ class SignalReportViewSet(
         error (404 no PR, 403 not a human caller or no personal GitHub connection) to return as-is.
 
         Every write that reaches GitHub under a human's own identity funnels through here, so the
-        human-caller check lives here too rather than on each action. Sandbox agent tokens are minted
-        as the task actor and carry ``task:write``, so without it a prompt-injected run could comment,
-        edit, delete, or merge as the person who started it.
+        human-caller check lives here too rather than on each action. It admits only a browser
+        session instead of rejecting known token types, because every credential that authenticates
+        *as* the user would otherwise inherit their linked GitHub account: a sandbox agent token is
+        minted as the task actor and carries ``task:write``, and a personal API key holding the same
+        scope is issued for automation rather than for acting as that person on GitHub. Either one
+        could comment, edit, delete, or merge as them.
 
         ``comment_id``, when given, is resolved and required to sit on the report's own PR. GitHub's
         review-comment edit, delete, and reaction endpoints are repository-wide, so this is the only
         thing keeping a report from reaching comments on every other PR in its repository.
         """
-        if isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
             return Response(
                 {"error": "This must be done by a signed-in user, not an automated token."},
                 status=status.HTTP_403_FORBIDDEN,
