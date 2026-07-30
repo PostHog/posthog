@@ -6,17 +6,17 @@ physical table on a schedule, so reads are fast and cheap. Both are managed over
 
 ## The tools
 
-| Tool | Purpose |
-|------|---------|
-| `posthog:view-create` | Create (or upsert) a view from HogQL. Same `name` → updates the existing view. |
-| `posthog:view-get` / `posthog:view-list` | Read one / list all views with status, materialization flag, last run, latest error. |
-| `posthog:view-update` | Change name / query / description / `sync_frequency`. Editing the query re-infers columns and needs the current `edited_history_id` (optimistic concurrency — get it from `view-get` first). |
-| `posthog:view-materialize` | Turn a virtual view into a materialized table + a sync schedule (defaults to every 24h). Rate-limited. |
-| `posthog:view-run` | Trigger a materialization refresh now (view must already be materialized). |
-| `posthog:view-run-history` | Recent materialization run statuses (debug failures). |
-| `posthog:view-unmaterialize` | Drop the physical table + schedule; keep the view definition as virtual. |
-| `posthog:view-delete` | Soft-delete a view. Refused if other views depend on it, or if it's owned by a managed viewset (e.g. `revenue_analytics_*`). |
-| `posthog:saved-query-column-annotations-*` | Attach human/agent-readable descriptions to the view and its columns (discoverability). |
+| Tool                                       | Purpose                                                                                                                                                                                      |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog:view-create`                      | Create (or upsert) a view from HogQL. Same `name` → updates the existing view.                                                                                                               |
+| `posthog:view-get` / `posthog:view-list`   | Read one / list all views with status, materialization flag, last run, latest error.                                                                                                         |
+| `posthog:view-update`                      | Change name / query / description / `sync_frequency`. Editing the query re-infers columns and needs the current `edited_history_id` (optimistic concurrency — get it from `view-get` first). |
+| `posthog:view-materialize`                 | Turn a virtual view into a materialized table + a sync schedule (defaults to every 24h). Rate-limited.                                                                                       |
+| `posthog:view-run`                         | Trigger a materialization refresh now (view must already be materialized).                                                                                                                   |
+| `posthog:view-run-history`                 | Recent materialization run statuses (debug failures).                                                                                                                                        |
+| `posthog:view-unmaterialize`               | Drop the physical table + schedule; keep the view definition as virtual.                                                                                                                     |
+| `posthog:view-delete`                      | Soft-delete a view. Refused if other views depend on it, or if it's owned by a managed viewset (e.g. `revenue_analytics_*`).                                                                 |
+| `posthog:saved-query-column-annotations-*` | Attach human/agent-readable descriptions to the view and its columns (discoverability).                                                                                                      |
 
 ## The workflow
 
@@ -34,6 +34,7 @@ physical table on a schedule, so reads are fast and cheap. Both are managed over
    FROM events
    GROUP BY month
    ```
+
 3. **Create it:** `posthog:view-create {"name": "monthly_events", "query": {"kind": "HogQLQuery", "query": "..."}}`.
    (Inspect the exact input shape once with `posthog:exec info view-create` / `schema view-create query`.)
    Names are lowercase snake_case, unique, and become the table name you query later.

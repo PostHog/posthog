@@ -45,14 +45,14 @@ Discover the exact names (they're prefixed by source, e.g. `stripe.<prefix>.…`
 SELECT name FROM system.information_schema.tables WHERE name ILIKE '%revenue_analytics%'
 ```
 
-| Managed view | Grain | Use for |
-|--------------|-------|---------|
-| `revenue_item` (**start here**) | 1 / invoice line item | Gross revenue, monthly recurring revenue, revenue by product/customer/period. Implements deferred revenue + currency. |
-| `mrr` | 1 / (customer, subscription) | **Live snapshot** of current MRR — not a time series. |
-| `customer` | 1 / customer | `dim_customer`: email, country, cohort, metadata. |
-| `subscription` | 1 / subscription | Subscription state for churn/expansion logic. |
-| `charge` | 1 / charge | Raw charges; prefer `revenue_item` unless you specifically need charges. |
-| `product` | 1 / product | Product dimension. |
+| Managed view                    | Grain                        | Use for                                                                                                               |
+| ------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `revenue_item` (**start here**) | 1 / invoice line item        | Gross revenue, monthly recurring revenue, revenue by product/customer/period. Implements deferred revenue + currency. |
+| `mrr`                           | 1 / (customer, subscription) | **Live snapshot** of current MRR — not a time series.                                                                 |
+| `customer`                      | 1 / customer                 | `dim_customer`: email, country, cohort, metadata.                                                                     |
+| `subscription`                  | 1 / subscription             | Subscription state for churn/expansion logic.                                                                         |
+| `charge`                        | 1 / charge                   | Raw charges; prefer `revenue_item` unless you specifically need charges.                                              |
+| `product`                       | 1 / product                  | Product dimension.                                                                                                    |
 
 Key `revenue_item` columns: `amount` (already converted to the project **base currency**), `currency` (that
 base currency), `original_amount` / `original_currency` (as charged), `is_recurring`, `customer_id`,
@@ -63,11 +63,11 @@ base currency), `original_amount` / `original_currency` (as charged), `is_recurr
 1. **MRR is empty without a subscription config.** For event-based revenue, MRR only populates when a
    subscription property is configured. Empty MRR + populated gross revenue is **expected behaviour**, not a
    bug — say so instead of "fixing" it.
-2. **The `mrr` managed view is a current snapshot**, not history ("MRR at the current time"). For MRR *over
-   time*, sum recurring `amount` per month from `revenue_item` (see the recipe), or materialize a monthly
+2. **The `mrr` managed view is a current snapshot**, not history ("MRR at the current time"). For MRR _over
+   time_, sum recurring `amount` per month from `revenue_item` (see the recipe), or materialize a monthly
    snapshot of the `mrr` view on a schedule.
 3. **`amount` is already in base currency.** Use it directly for reporting. Only call
-   `convertCurrency(original_currency, 'XXX', original_amount, timestamp)` when you need a *different* target
+   `convertCurrency(original_currency, 'XXX', original_amount, timestamp)` when you need a _different_ target
    currency, or when working from raw events.
 4. **Link revenue to people via metadata.** Person/group-level revenue needs
    `posthog_person_distinct_id` metadata on the Stripe customer (or the person join). Without it, revenue is
@@ -92,11 +92,11 @@ headline number, propose it to the semantic layer.
 
 ## File map
 
-| File | Read when |
-|------|-----------|
+| File                                                                                   | Read when                                                                         |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | [`references/revenue-metric-definitions.md`](references/revenue-metric-definitions.md) | Precise definitions: MRR, ARR, gross, new/expansion/contraction/churn, ARPU, LTV. |
-| [`references/posthog/`](references/posthog/) | HogQL view recipes on the managed views. |
-| [`references/dbt/`](references/dbt/) | dbt staging + `fct_*`/`dim_*` marts + `schema.yml` tests. |
+| [`references/posthog/`](references/posthog/)                                           | HogQL view recipes on the managed views.                                          |
+| [`references/dbt/`](references/dbt/)                                                   | dbt staging + `fct_*`/`dim_*` marts + `schema.yml` tests.                         |
 
 ## Companions
 

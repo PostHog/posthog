@@ -35,7 +35,7 @@ activation model** — and, just as importantly, keeps you from hard-coding a gu
 ## The method (do this before modeling)
 
 1. **List candidate early actions** from the event taxonomy (`read-data-schema`) — the things a new user
-   *could* do in their first session/week.
+   _could_ do in their first session/week.
 2. **Measure retention lift** for each candidate: compare the N-week retention of users who did it early vs
    those who didn't. This is where `modeling-product-usage-metrics` (retention) plugs in.
 3. **Pick the definition** that maximizes predictive power while keeping reach acceptable. Try combinations
@@ -66,11 +66,11 @@ activated_at) + tests. Recipes: [`references/dbt/`](references/dbt/).
 
 ## File map
 
-| File | Read when |
-|------|-----------|
+| File                                                                 | Read when                                                      |
+| -------------------------------------------------------------------- | -------------------------------------------------------------- |
 | [`references/activation-method.md`](references/activation-method.md) | The candidate → retention-lift → reach×power selection method. |
-| [`references/posthog/`](references/posthog/) | HogQL activated-flag + retention-lift recipes. |
-| [`references/dbt/`](references/dbt/) | dbt `dim_activation_criteria` + `fct_user_activation` + tests. |
+| [`references/posthog/`](references/posthog/)                         | HogQL activated-flag + retention-lift recipes.                 |
+| [`references/dbt/`](references/dbt/)                                 | dbt `dim_activation_criteria` + `fct_user_activation` + tests. |
 
 ## Companions
 

@@ -11,12 +11,12 @@ uses, setup steps, collaboration actions. Include count-based candidates ("did X
 
 ## 2. Retention lift
 
-For each candidate, split new users into *did it early* vs *didn't*, and compare their retention N weeks
+For each candidate, split new users into _did it early_ vs _didn't_, and compare their retention N weeks
 later (use `modeling-product-usage-metrics`). Lift = retention(did) − retention(didn't). A good activation
 candidate has **large, stable lift**.
 
 Beware confounds: an action can correlate with retention without being causal (e.g. "visited settings" might
-just mark already-engaged users). Prefer actions that plausibly *deliver* the product's value.
+just mark already-engaged users). Prefer actions that plausibly _deliver_ the product's value.
 
 ## 3. Reach × predictive power
 
@@ -25,7 +25,7 @@ Score each candidate (or combination) on two axes:
 - **Reach** — share of new users who hit it within the window. Too low and the metric describes a tiny elite.
 - **Predictive power** — the retention lift above.
 
-Pick the definition that keeps reach acceptable (rule of thumb: a large minority to a majority of *good-fit*
+Pick the definition that keeps reach acceptable (rule of thumb: a large minority to a majority of _good-fit_
 signups can hit it) while maximizing lift. Combinations ("created a dashboard AND invited a teammate") and
 thresholds ("≥3 queries") usually beat any single one-time action.
 

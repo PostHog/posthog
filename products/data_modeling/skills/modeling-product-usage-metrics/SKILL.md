@@ -22,11 +22,11 @@ together. Read `modeling-warehouse-foundations` first. Definitions:
 
 ## Pick the lens
 
-| Lens | Question | Output | Model when |
-|------|----------|--------|-----------|
-| **Retention** | Do users come back? | Cohort matrix: entry period × intervals-later × % retained | Measuring churn / stickiness of the core action over time. |
-| **Stickiness** | How *often* do they engage? | Distribution: users by # of active intervals | Finding power users, feature stickiness, DAU/WAU/MAU shape. |
-| **Lifecycle** | Is growth healthy? | Per interval: new / returning / resurrecting / dormant | Judging growth *quality*, spotting a leaky bucket. |
+| Lens           | Question                    | Output                                                     | Model when                                                  |
+| -------------- | --------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------- |
+| **Retention**  | Do users come back?         | Cohort matrix: entry period × intervals-later × % retained | Measuring churn / stickiness of the core action over time.  |
+| **Stickiness** | How _often_ do they engage? | Distribution: users by # of active intervals               | Finding power users, feature stickiness, DAU/WAU/MAU shape. |
+| **Lifecycle**  | Is growth healthy?          | Per interval: new / returning / resurrecting / dormant     | Judging growth _quality_, spotting a leaky bucket.          |
 
 All three key off **one chosen event/action**, an **interval** (day/week/month), and an **aggregation unit**
 (person or group). Fix those three, then pick the lens.
@@ -37,8 +37,8 @@ All three key off **one chosen event/action**, an **interval** (day/week/month),
    very different stories. Model the action that means "got value", not just "opened the app".
 2. **Interval matters.** Daily retention looks brutal for a weekly-use product; match the interval to the
    product's natural cadence.
-3. **Recurring vs first-time.** Decide whether "retained in interval N" means active *in* N (recurring) or
-   active in N *and every prior* interval. State it.
+3. **Recurring vs first-time.** Decide whether "retained in interval N" means active _in_ N (recurring) or
+   active in N _and every prior_ interval. State it.
 4. **Person vs group**, consistent with your other models.
 5. **Read lifecycle as a system**: dormant growing faster than returning = leaky bucket; a resurrection spike
    = a win-back working. Model it so those signals are visible.
@@ -58,11 +58,11 @@ or joined (e.g. by `modeling-activation-metrics`).
 
 ## File map
 
-| File | Read when |
-|------|-----------|
-| [`references/usage-metric-definitions.md`](references/usage-metric-definitions.md) | Precise definitions of retention, stickiness, lifecycle buckets. |
-| [`references/posthog/`](references/posthog/) | HogQL recipes for each lens. |
-| [`references/dbt/`](references/dbt/) | dbt `fct_retention` / `fct_stickiness` / `fct_lifecycle` + tests. |
+| File                                                                               | Read when                                                         |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| [`references/usage-metric-definitions.md`](references/usage-metric-definitions.md) | Precise definitions of retention, stickiness, lifecycle buckets.  |
+| [`references/posthog/`](references/posthog/)                                       | HogQL recipes for each lens.                                      |
+| [`references/dbt/`](references/dbt/)                                               | dbt `fct_retention` / `fct_stickiness` / `fct_lifecycle` + tests. |
 
 ## Companions
 

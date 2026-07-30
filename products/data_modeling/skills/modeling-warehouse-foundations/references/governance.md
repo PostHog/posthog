@@ -31,7 +31,7 @@ A model nobody can find gets re-derived by the next person. Make yours discovera
 
 - **Annotate columns.** Use `posthog:saved-query-column-annotations-create` to describe the view and each
   column in business terms. This is what lets an agent (or a teammate) understand and reuse the model later.
-- **Propose headline metrics to the catalog.** If a derivation is worth reusing as *the* definition of a KPI,
+- **Propose headline metrics to the catalog.** If a derivation is worth reusing as _the_ definition of a KPI,
   propose it to the semantic layer so it can be reviewed and approved. Curating the catalog — proposing
   metrics, certifying sources, reviewing the queue — is covered by the `setting-up-data-catalog` skill.
   Everything an agent proposes lands **unapproved** for a human to promote; never present your own proposal

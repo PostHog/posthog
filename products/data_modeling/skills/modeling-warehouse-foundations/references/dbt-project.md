@@ -8,7 +8,7 @@ the user's own environment, against a warehouse — not inside PostHog. Two real
 
 1. **PostHog is a source, your warehouse is the modeling layer.** You already have (or set up) a warehouse
    (Snowflake / BigQuery / Postgres / DuckDB / …). PostHog event/person data reaches it via a batch export or
-   your own pipeline; other business data lands there too. dbt models it. PostHog can then read the *results*
+   your own pipeline; other business data lands there too. dbt models it. PostHog can then read the _results_
    back by connecting your warehouse as a **data-warehouse source** (see `setting-up-a-data-warehouse-source`)
    so the modeled tables show up alongside events.
 2. **PostHog's managed warehouse (beta, waitlist).** PostHog offers a managed DuckDB-backed warehouse that
@@ -49,14 +49,14 @@ your_dbt_project/
 
 A domain skill ships both. The metric definition is identical; only the substrate differs:
 
-| PostHog-native | dbt |
-|----------------|-----|
-| staging view (virtual) | `staging/stg_*.sql` (`materialized: view`) |
-| metric view, materialized | `marts/fct_*.sql` (`materialized: table`) |
-| `sync_frequency` | your dbt scheduler / CI cadence (`dbt build` on cron) |
-| column annotations | `schema.yml` descriptions |
-| aliasing rule enforced by `view-create` | `unique`/`not_null` tests in `schema.yml` |
-| `convertCurrency()` (built in) | you must supply an exchange-rate seed/source — dbt has no equivalent |
+| PostHog-native                          | dbt                                                                  |
+| --------------------------------------- | -------------------------------------------------------------------- |
+| staging view (virtual)                  | `staging/stg_*.sql` (`materialized: view`)                           |
+| metric view, materialized               | `marts/fct_*.sql` (`materialized: table`)                            |
+| `sync_frequency`                        | your dbt scheduler / CI cadence (`dbt build` on cron)                |
+| column annotations                      | `schema.yml` descriptions                                            |
+| aliasing rule enforced by `view-create` | `unique`/`not_null` tests in `schema.yml`                            |
+| `convertCurrency()` (built in)          | you must supply an exchange-rate seed/source — dbt has no equivalent |
 
 Currency is the one place the stacks genuinely diverge: PostHog gives you `convertCurrency()` for free; in
 dbt you provide your own rate table (a dbt seed or a synced source) and join to it. Call this out whenever a

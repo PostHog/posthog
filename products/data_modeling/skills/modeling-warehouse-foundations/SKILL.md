@@ -22,10 +22,10 @@ relevant reference on demand — this entry point is a map, not the whole story.
 A "model" here is a named, queryable object that encodes a metric or dimension once so every insight,
 dashboard, and downstream model reuses the same definition instead of re-deriving it. Two ways to build one:
 
-| Stack | What a model is | Build with | Best when |
-|-------|-----------------|-----------|-----------|
+| Stack              | What a model is                                                             | Build with                                                 | Best when                                                                                                                                            |
+| ------------------ | --------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **PostHog-native** | A **saved query (view)**, optionally **materialized** into a physical table | `posthog:view-create` → `posthog:view-materialize` (HogQL) | Data already lives in PostHog (events, persons, or a connected warehouse source); you want it usable in insights/dashboards/SQL with no extra infra. |
-| **dbt / external** | A dbt model (`.sql`) in `staging/` → `marts/`, tested via `schema.yml` | dbt, run in the user's own scheduler/CI | The team already runs dbt, needs multi-step lineage/tests/CI, or models data that lives outside PostHog. |
+| **dbt / external** | A dbt model (`.sql`) in `staging/` → `marts/`, tested via `schema.yml`      | dbt, run in the user's own scheduler/CI                    | The team already runs dbt, needs multi-step lineage/tests/CI, or models data that lives outside PostHog.                                             |
 
 Pick one per model; you can run both stacks side by side across a project. Details:
 [`references/posthog-views.md`](references/posthog-views.md) and
@@ -41,10 +41,10 @@ Pick one per model; you can run both stacks side by side across a project. Detai
 3. **Decide the aggregation unit up front: person vs group.** B2C models aggregate by `person_id`; B2B
    models aggregate by a group key (`$group_0`, org id, account). This choice is load-bearing across every
    domain — pick it once per model and keep it consistent.
-4. **Don't build on the revenue *dashboard*.** PostHog's standalone Revenue analytics dashboard is being
+4. **Don't build on the revenue _dashboard_.** PostHog's standalone Revenue analytics dashboard is being
    retired (~2026-06-30) in favour of revenue-as-properties + the managed `revenue_analytics_*` views. Model
    against the views/properties, never the dashboard UI.
-5. **dbt is not integrated into PostHog.** There is no PostHog dbt connector — dbt runs *externally*. See the
+5. **dbt is not integrated into PostHog.** There is no PostHog dbt connector — dbt runs _externally_. See the
    honest picture in [`references/dbt-project.md`](references/dbt-project.md) before promising a dbt workflow.
 
 ## PostHog-native path
@@ -78,18 +78,18 @@ for headline numbers, propose it to the semantic layer so other models discover 
 
 ## File map
 
-| File | Read when |
-|------|-----------|
-| [`references/posthog-views.md`](references/posthog-views.md) | Creating/materializing a PostHog view; the `view-*` tools, aliasing rule, `sync_frequency`, nesting, cleanup. |
-| [`references/dbt-project.md`](references/dbt-project.md) | Building the dbt version; project layout, where dbt runs, the managed-warehouse note, when dbt beats a view. |
-| [`references/dbt-skeleton/`](references/dbt-skeleton/) | Copy-paste starting files: `dbt_project.yml`, `sources.yml`, a staging model, a mart, `schema.yml`. |
-| [`references/joins-and-dimensions.md`](references/joins-and-dimensions.md) | Joining warehouse tables, star-schema dimensions, person joins, `convertCurrency()`. |
-| [`references/governance.md`](references/governance.md) | The semantic-layer check before deriving, and registering a model after building. |
+| File                                                                       | Read when                                                                                                     |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [`references/posthog-views.md`](references/posthog-views.md)               | Creating/materializing a PostHog view; the `view-*` tools, aliasing rule, `sync_frequency`, nesting, cleanup. |
+| [`references/dbt-project.md`](references/dbt-project.md)                   | Building the dbt version; project layout, where dbt runs, the managed-warehouse note, when dbt beats a view.  |
+| [`references/dbt-skeleton/`](references/dbt-skeleton/)                     | Copy-paste starting files: `dbt_project.yml`, `sources.yml`, a staging model, a mart, `schema.yml`.           |
+| [`references/joins-and-dimensions.md`](references/joins-and-dimensions.md) | Joining warehouse tables, star-schema dimensions, person joins, `convertCurrency()`.                          |
+| [`references/governance.md`](references/governance.md)                     | The semantic-layer check before deriving, and registering a model after building.                             |
 
 ## Companions
 
 - Domain models built on these foundations: `modeling-revenue-metrics`, `modeling-conversion-metrics`,
   `modeling-activation-metrics`, `modeling-product-usage-metrics`, `modeling-dimension-tables`.
-- Getting data *into* the warehouse first: `setting-up-a-data-warehouse-source`, `suggesting-data-imports`.
+- Getting data _into_ the warehouse first: `setting-up-a-data-warehouse-source`, `suggesting-data-imports`.
 - Writing the HogQL itself: `querying-posthog-data`. Checking view health afterwards:
   `auditing-warehouse-view-health`.

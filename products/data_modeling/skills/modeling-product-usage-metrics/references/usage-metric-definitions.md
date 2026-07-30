@@ -9,7 +9,7 @@ For a cohort defined by the interval of their **start event** (often first-ever 
 performed the **return event** in each subsequent interval.
 
 - Output: a matrix — rows = entry interval, columns = "N intervals later", cells = retained count / %.
-- **Recurring** retention: active *in* interval N (independent per interval). The common default.
+- **Recurring** retention: active _in_ interval N (independent per interval). The common default.
 - **Cumulative / "rolling"** variant: active in N and every interval up to N.
 - Start event and return event can differ (e.g. `signed_up` → `ran_query`).
 
@@ -26,12 +26,12 @@ intervals** they were active, then count units per bucket.
 
 Classify each unit's activity in each interval relative to the previous one and its first-ever activity:
 
-| Bucket | Meaning |
-|--------|---------|
-| **New** | Active this interval, first-ever activity is this interval. |
-| **Returning** | Active this interval and the immediately previous interval. |
+| Bucket           | Meaning                                                                                |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| **New**          | Active this interval, first-ever activity is this interval.                            |
+| **Returning**    | Active this interval and the immediately previous interval.                            |
 | **Resurrecting** | Active this interval, inactive the previous interval, but active at some point before. |
-| **Dormant** | Not active this interval, but active the previous interval (plotted negative). |
+| **Dormant**      | Not active this interval, but active the previous interval (plotted negative).         |
 
 - Output: stacked bars per interval (dormant negative). New + returning + resurrecting = active users;
   dormant shows churn out.

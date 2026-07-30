@@ -5,9 +5,9 @@ dimensions themselves) is the `modeling-dimension-tables` skill; this is the sha
 
 ## PostHog: three ways to join
 
-1. **Saved table join** (persistent). Define once (SQL editor → source table → *Add join*), specifying
+1. **Saved table join** (persistent). Define once (SQL editor → source table → _Add join_), specifying
    `source_table.key = joined_table.key`. After that the joined table's columns are addressable as nested
-   fields on the source table in *any* query, filter, or breakdown — e.g. after joining
+   fields on the source table in _any_ query, filter, or breakdown — e.g. after joining
    `events.distinct_id → stripe_customer.email`, you can `SELECT stripe_customer.plan FROM events`. This is
    the built-in way to hang a dimension off a fact stream without repeating JOIN syntax.
 2. **Person join** (persistent, special case). Join a warehouse/dimension table onto `persons` so its columns

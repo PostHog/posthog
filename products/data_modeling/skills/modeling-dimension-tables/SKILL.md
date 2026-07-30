@@ -27,9 +27,9 @@ common dimensions: [`references/dimension-catalog.md`](references/dimension-cata
 per entity, descriptive. You model a dimension in three moves:
 
 1. **Source it** — where does the dimension data come from?
-   - *Upload / seed* a lookup (country→region, plan→tier) as a CSV (warehouse source or dbt seed).
-   - *Sync* it from a system of record (your app DB, Stripe products) as a warehouse source.
-   - *Derive* it from events (distinct countries seen, a plan property observed per person).
+   - _Upload / seed_ a lookup (country→region, plan→tier) as a CSV (warehouse source or dbt seed).
+   - _Sync_ it from a system of record (your app DB, Stripe products) as a warehouse source.
+   - _Derive_ it from events (distinct countries seen, a plan property observed per person).
 2. **Shape it** — an **aliased** `SELECT` with clean column names, **one row per entity** (dedupe hard).
    Save as a view; **materialize** it on a **slow** `sync_frequency` (`7day`/`30day`) since dimensions change
    rarely and are read constantly.
@@ -65,11 +65,11 @@ in **dbt** (which has no equivalent), or if you need a rate provider PostHog doe
 
 ## File map
 
-| File | Read when |
-|------|-----------|
+| File                                                                 | Read when                                                   |
+| -------------------------------------------------------------------- | ----------------------------------------------------------- |
 | [`references/dimension-catalog.md`](references/dimension-catalog.md) | Common dimensions, how to source each, and the natural key. |
-| [`references/posthog/`](references/posthog/) | HogQL aliased-dimension view recipes. |
-| [`references/dbt/`](references/dbt/) | dbt `dim_date` / `dim_country` + `schema.yml` tests. |
+| [`references/posthog/`](references/posthog/)                         | HogQL aliased-dimension view recipes.                       |
+| [`references/dbt/`](references/dbt/)                                 | dbt `dim_date` / `dim_country` + `schema.yml` tests.        |
 
 ## Companions
 

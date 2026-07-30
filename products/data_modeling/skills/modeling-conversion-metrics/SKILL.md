@@ -28,8 +28,8 @@ and reached a later step. Four parameters define it:
 - **Conversion window** — a hard time-box: a unit only counts as converted if it completes the steps within
   N seconds/days of entering. This is the parameter people most often forget to pin down.
 - **Aggregation unit** — `person_id` (B2C) or a group key (`$group_0`, account — B2B). Decide once.
-- **Order mode** — *ordered* (later steps after earlier, anything allowed in between), *strict* (no other
-  event between steps), or *any order*.
+- **Order mode** — _ordered_ (later steps after earlier, anything allowed in between), _strict_ (no other
+  event between steps), or _any order_.
 
 ## Two conversion numbers — don't conflate them
 
@@ -41,7 +41,7 @@ A model should expose both, plus **time-to-convert** (median/avg seconds between
 ## View vs saved insight vs dbt
 
 - **Saved funnel insight** (`posthog:query-funnel`) — best for interactive analysis, native breakdowns, and
-  dashboards. Reach for this first when the user just wants to *see* the funnel.
+  dashboards. Reach for this first when the user just wants to _see_ the funnel.
 - **Warehouse view** — best when the conversion metric must be **reused**: joined to other models, exposed in
   SQL, or fed into revenue/activation models. That's what this skill builds.
 - **dbt** — when the team models in dbt or the events live outside PostHog.
@@ -69,11 +69,11 @@ aggregate the max step reached into conversion rates. Recipes:
 
 ## File map
 
-| File | Read when |
-|------|-----------|
+| File                                                                                         | Read when                                                                       |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | [`references/conversion-metric-definitions.md`](references/conversion-metric-definitions.md) | Precise definitions: overall vs relative, window, time-to-convert, attribution. |
-| [`references/posthog/`](references/posthog/) | HogQL `windowFunnel` view recipes. |
-| [`references/dbt/`](references/dbt/) | dbt staging + `fct_conversion` mart + tests. |
+| [`references/posthog/`](references/posthog/)                                                 | HogQL `windowFunnel` view recipes.                                              |
+| [`references/dbt/`](references/dbt/)                                                         | dbt staging + `fct_conversion` mart + tests.                                    |
 
 ## Companions
 
