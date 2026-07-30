@@ -13,6 +13,8 @@ from posthog.schema import (
     FunnelConversionWindowTimeUnit,
     FunnelExclusionEventsNode,
     HogQLPropertyFilter,
+    PathsV2Anchor,
+    PathsV2AnchorType,
     PathsV2Filter,
     PathsV2Item,
     PathsV2Query,
@@ -24,7 +26,11 @@ from posthog.schema import (
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.test.test_journeys import journeys_for
 
-from products.product_analytics.backend.hogql_queries.paths_v2.funnel_converter import edge_to_funnels_query
+from products.product_analytics.backend.hogql_queries.paths_v2.funnel_converter import (
+    anchored_segment_to_funnels_query,
+    edge_to_funnels_query,
+    segment_to_funnels_query,
+)
 from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
 
 DATE_RANGE = DateRange(date_from="2023-03-01", date_to="2023-03-31")
@@ -407,3 +413,104 @@ class TestEdgeToFunnelsQuery(APIBaseTest):
         query = PathsV2Query(pathsV2Filter=PathsV2Filter(stepSources=_sources("a")))
         with self.assertRaises(ValidationError):
             edge_to_funnels_query(query, self.team, _item("a"), _item("unknown"))
+
+    def test_segment_funnel_shape(self):
+        query = PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=PathsV2Filter(stepSources=SIMPLE_SOURCES))
+
+        funnels_query = segment_to_funnels_query(
+            query,
+            self.team,
+            [_item("a"), _item("b"), _item("c")],
+            15,
+            FunnelConversionWindowTimeUnit.MINUTE,
+        )
+
+        self.assertEqual([step.event for step in funnels_query.series], ["a", "b", "c"])
+        assert funnels_query.funnelsFilter is not None
+        self.assertEqual(funnels_query.funnelsFilter.funnelWindowInterval, 15)
+        self.assertEqual(funnels_query.funnelsFilter.funnelOrderType, StepOrderValue.ORDERED)
+
+        assert funnels_query.funnelsFilter.exclusions is not None
+        exclusion = funnels_query.funnelsFilter.exclusions[0]
+        assert isinstance(exclusion, FunnelExclusionEventsNode)
+        # The exclusion spans every step, so an intervening included item anywhere in the chain drops it.
+        self.assertEqual(exclusion.funnelFromStep, 0)
+        self.assertEqual(exclusion.funnelToStep, 2)
+        assert exclusion.properties is not None
+        universe_filter = exclusion.properties[0]
+        assert isinstance(universe_filter, HogQLPropertyFilter)
+        self.assertIn("tuple('a', '')", universe_filter.key)
+        self.assertIn("tuple('b', '')", universe_filter.key)
+        self.assertIn("tuple('c', '')", universe_filter.key)
+
+    def test_anchored_segment_reads_window_from_query(self):
+        query = PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(
+                stepSources=SIMPLE_SOURCES,
+                conversionWindowInterval=2,
+                conversionWindowIntervalUnit=FunnelConversionWindowTimeUnit.HOUR,
+            ),
+        )
+
+        funnels_query = anchored_segment_to_funnels_query(query, self.team, [_item("a"), _item("b")])
+
+        assert funnels_query.funnelsFilter is not None
+        self.assertEqual(funnels_query.funnelsFilter.funnelWindowInterval, 2)
+        self.assertEqual(funnels_query.funnelsFilter.funnelWindowIntervalUnit, FunnelConversionWindowTimeUnit.HOUR)
+
+    def test_segment_requires_two_items(self):
+        query = PathsV2Query(pathsV2Filter=PathsV2Filter(stepSources=SIMPLE_SOURCES))
+        with self.assertRaises(ValueError):
+            segment_to_funnels_query(query, self.team, [_item("a")], 30, FunnelConversionWindowTimeUnit.MINUTE)
+
+
+ANCHORED_SEGMENT_CASES: list[tuple[str, list[PathsV2Item], int]] = [
+    # Segment items in funnel (forward-time) order; expected count is both the displayed chain's prefix
+    # count and the plain funnel's count — the anchored contract holds when the two agree.
+    ("edge", [_item("a"), _item("b")], 4),
+    ("three_step", [_item("a"), _item("b"), _item("c")], 2),
+    ("revisit", [_item("a"), _item("b"), _item("a")], 1),
+]
+
+
+class TestPathsV2AnchoredSegmentContract(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
+    def _query(self) -> PathsV2Query:
+        return PathsV2Query(
+            dateRange=DATE_RANGE,
+            pathsV2Filter=PathsV2Filter(
+                stepSources=SIMPLE_SOURCES, anchor=PathsV2Anchor(type=PathsV2AnchorType.START, item=_item("a"))
+            ),
+        )
+
+    def _prefix_count(self, query: PathsV2Query, chain: list[PathsV2Item]) -> float:
+        results = PathsV2QueryRunner(query=query, team=self.team).calculate().results
+        wanted = [(item.event, item.label) for item in chain]
+        for prefix in results.prefixes:
+            if [(item.event, item.label) for item in prefix.items] == wanted:
+                return prefix.count
+        return 0
+
+    def _funnel_count(self, query: PathsV2Query, chain: list[PathsV2Item]) -> float:
+        funnels_query = anchored_segment_to_funnels_query(query, self.team, list(chain))
+        results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
+        return results[len(chain) - 1]["count"]
+
+    @parameterized.expand(ANCHORED_SEGMENT_CASES)
+    def test_anchored_segment_equals_plain_funnel(self, _name: str, chain: list[PathsV2Item], expected: int):
+        journeys_for(
+            team=self.team,
+            events_by_person={
+                "p1": _timeline("a", "b", "c"),
+                "p2": _timeline("a", "b"),
+                "p3": _timeline("a", "b", "c"),
+                "p4": _timeline("a", "b", "a"),
+            },
+        )
+        query = self._query()
+
+        # The displayed anchored chain and the plain funnel with window W count the same actors.
+        self.assertEqual(self._prefix_count(query, chain), expected)
+        self.assertEqual(self._funnel_count(query, chain), expected)

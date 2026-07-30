@@ -7,9 +7,12 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedPathsV2QueryResponse,
     FunnelConversionWindowTimeUnit,
+    PathsV2Anchor,
+    PathsV2AnchorType,
     PathsV2Edge,
     PathsV2Filter,
     PathsV2Item,
+    PathsV2Prefix,
     PathsV2Query,
     PathsV2QueryResponse,
     PathsV2Results,
@@ -33,19 +36,29 @@ from posthog.hogql_queries.validation.validation import QueryValidationContext, 
 
 from products.product_analytics.backend.hogql_queries.paths_v2.path_item import (
     DEFAULT_COLLAPSE_REPEATS,
+    DEFAULT_CONVERSION_WINDOW_INTERVAL,
+    DEFAULT_CONVERSION_WINDOW_INTERVAL_UNIT,
     DEFAULT_GAP_INTERVAL,
     DEFAULT_GAP_INTERVAL_UNIT,
     DEFAULT_MAX_ROWS_PER_STEP,
     DEFAULT_MAX_STEPS,
     PATHS_V2_OTHER,
+    item_tuple_expr,
     path_item_expr,
     resolve_step_sources,
     source_events_filter_expr,
+    step_source_for_event,
 )
 
 ELEMENT_KIND_NODE = "node"
 ELEMENT_KIND_EDGE = "edge"
 ELEMENT_KIND_DROP_OFF = "dropoff"
+
+# Anchored mode carries per-chain prefix counts for the hover funnel preview. This caps how many the
+# runner returns, keeping the response bounded on large teams; the most common chains (which include
+# every visible top-item chain) survive the descending-count ordering, and the long tail of chains
+# through non-top items is dropped from the hover data only — the grid and persons modal stay whole.
+MAX_PREFIX_ROWS = 10_000
 
 
 class ValidateGapBounds:
@@ -82,12 +95,49 @@ class ValidateStepSources:
             raise ValidationError("stepSources must not contain duplicate events.", code=self.code)
 
 
+class ValidateWindowBounds:
+    """Reject anchored windows outside the shared funnel conversion window bounds; never clamp. The
+    window is reused verbatim as the emitted funnel's conversion window, so it must stay in bounds."""
+
+    code = "paths_v2_window_out_of_bounds"
+
+    def validate(self, context: QueryValidationContext[PathsV2Query]) -> None:
+        paths_filter = context.query.pathsV2Filter
+        if paths_filter is None or paths_filter.conversionWindowInterval is None:
+            return
+        unit = paths_filter.conversionWindowIntervalUnit or DEFAULT_CONVERSION_WINDOW_INTERVAL_UNIT
+        lower, upper = CONVERSION_WINDOW_INTERVAL_BOUNDS[unit]
+        if not lower <= paths_filter.conversionWindowInterval <= upper:
+            raise ValidationError(
+                f"conversionWindowInterval must be between {lower} and {upper} for unit {unit.value!r}.",
+                code=self.code,
+            )
+
+
+class ValidateAnchor:
+    """An anchor's event must be one of the step sources, otherwise no event could ever derive it and
+    the chart would be empty for a reason the config does not reveal."""
+
+    code = "paths_v2_anchor_invalid"
+
+    def validate(self, context: QueryValidationContext[PathsV2Query]) -> None:
+        paths_filter = context.query.pathsV2Filter
+        if paths_filter is None or paths_filter.anchor is None:
+            return
+        source_events = {source.event for source in resolve_step_sources(context.query)}
+        if paths_filter.anchor.item.event not in source_events:
+            raise ValidationError(
+                f"The anchor event {paths_filter.anchor.item.event!r} must be one of the step sources.",
+                code=self.code,
+            )
+
+
 class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     query: PathsV2Query
     cached_response: CachedPathsV2QueryResponse
 
     def validators(self) -> tuple[QueryValidationRule[PathsV2Query], ...]:
-        return (ValidateGapBounds(), ValidateStepSources())
+        return (ValidateGapBounds(), ValidateWindowBounds(), ValidateStepSources(), ValidateAnchor())
 
     @cached_property
     def paths_v2_filter(self) -> PathsV2Filter:
@@ -127,6 +177,28 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             return self.paths_v2_filter.collapseRepeats
         return DEFAULT_COLLAPSE_REPEATS
 
+    @property
+    def anchor(self) -> PathsV2Anchor | None:
+        return self.paths_v2_filter.anchor
+
+    @property
+    def is_anchored(self) -> bool:
+        """Anchored mode when an anchor is set: one sequence per actor within window W, every segment a
+        plain funnel. Otherwise open mode: gap-split journeys."""
+        return self.anchor is not None
+
+    @property
+    def window_interval(self) -> int:
+        if self.paths_v2_filter.conversionWindowInterval is not None:
+            return self.paths_v2_filter.conversionWindowInterval
+        return DEFAULT_CONVERSION_WINDOW_INTERVAL
+
+    @property
+    def window_interval_unit(self) -> FunnelConversionWindowTimeUnit:
+        if self.paths_v2_filter.conversionWindowIntervalUnit is not None:
+            return self.paths_v2_filter.conversionWindowIntervalUnit
+        return DEFAULT_CONVERSION_WINDOW_INTERVAL_UNIT
+
     @cached_property
     def query_date_range(self) -> QueryDateRange:
         return QueryDateRange(date_range=self.query.dateRange, team=self.team, interval=None, now=datetime.now())
@@ -149,6 +221,30 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         return parse_expr(
             f"toIntervalSecond({conversion_window_to_seconds(self.gap_interval, self.gap_interval_unit)})"
         )
+
+    def _window_interval_expr(self) -> ast.Expr:
+        # Window W realized the same fixed-seconds way as the gap, so it always equals the emitted
+        # funnel's conversion window.
+        return parse_expr(
+            f"toIntervalSecond({conversion_window_to_seconds(self.window_interval, self.window_interval_unit)})"
+        )
+
+    def _split_interval_expr(self) -> ast.Expr:
+        """The interval that splits an actor's events into journeys. Open mode splits on gap G. Anchored
+        mode splits on window W: the anchor prefilter already bounds every kept event to within W of the
+        anchor, so no adjacent pair can exceed W and the actor's events stay a single sequence."""
+        if self.is_anchored:
+            return self._window_interval_expr()
+        return self._gap_expr()
+
+    def _sorted_events_expr(self) -> ast.Expr:
+        """The per-actor event tuples in the order the grid reads them. Ascending time everywhere except
+        an end anchor, which sorts descending so the anchor (each actor's latest anchor event) lands at
+        step 0 and the grid reads backward in time toward it."""
+        events = "groupArray(tuple(timestamp, path_item))"
+        if self.is_anchored and self.anchor is not None and self.anchor.type == PathsV2AnchorType.END:
+            return parse_expr(f"arrayReverseSort(x -> x.1, {events})")
+        return parse_expr(f"arraySort(x -> x.1, {events})")
 
     def _event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """One row per in-range event matching a step source: (timestamp, actor_id, path_item)."""
@@ -192,12 +288,69 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             },
         )
 
+    def _anchor_source(self) -> PathsV2StepSource:
+        assert self.anchor is not None
+        return step_source_for_event(self.step_sources, self.anchor.item.event)
+
+    def _anchor_item_expr(self) -> ast.Expr:
+        assert self.anchor is not None
+        return item_tuple_expr(self.anchor.item, self._anchor_source())
+
+    def _anchored_event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Anchored mode's prefilter (a performance guardrail, not an optimization): resolve the anchor
+        actors and each actor's anchor timestamp first, then keep only those actors' events within
+        window W of their anchor. A start anchor takes the actor's first anchor-item occurrence and the
+        events from it forward; an end anchor takes the last occurrence and the events up to it. Either
+        way each kept actor contributes exactly the events of their single anchored sequence."""
+        assert self.anchor is not None
+        if self.anchor.type == PathsV2AnchorType.END:
+            anchor_ts_expr = parse_expr("max(timestamp)")
+            window_bounds = parse_expr(
+                "base.timestamp <= anchor.anchor_ts AND base.timestamp >= anchor.anchor_ts - {window}",
+                {"window": self._window_interval_expr()},
+            )
+        else:
+            anchor_ts_expr = parse_expr("min(timestamp)")
+            window_bounds = parse_expr(
+                "base.timestamp >= anchor.anchor_ts AND base.timestamp <= anchor.anchor_ts + {window}",
+                {"window": self._window_interval_expr()},
+            )
+        return parse_select(
+            """
+            WITH ranged_events AS ({event_base_query})
+            SELECT base.timestamp AS timestamp, base.actor_id AS actor_id, base.path_item AS path_item
+            FROM ranged_events AS base
+            INNER JOIN (
+                SELECT actor_id, {anchor_ts} AS anchor_ts
+                FROM ranged_events
+                WHERE path_item = {anchor_item}
+                GROUP BY actor_id
+            ) AS anchor ON base.actor_id = anchor.actor_id
+            WHERE {window_bounds}
+            """,
+            placeholders={
+                "event_base_query": self._event_base_query(),
+                "anchor_ts": anchor_ts_expr,
+                "anchor_item": self._anchor_item_expr(),
+                "window_bounds": window_bounds,
+            },
+        )
+
+    def _events_for_journeys_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """The event rows the journey builder groups: prefiltered to the anchored window in anchored
+        mode, the full in-range set in open mode."""
+        if self.is_anchored:
+            return self._anchored_event_base_query()
+        return self._event_base_query()
+
     def _elements_per_actor_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """Per actor: build journeys, then flatten them into the elements the actor touches.
 
-        - Events sort by time and split into journeys wherever the inactivity gap exceeds gap G
-          (a gap of exactly G keeps the journey together, matching the funnel conversion window's
-          inclusive comparison).
+        - Events sort by time and split into journeys wherever the gap exceeds the split interval
+          (a gap of exactly the interval keeps the journey together, matching the funnel conversion
+          window's inclusive comparison). Open mode splits on gap G; anchored mode splits on window W
+          over events the prefilter already bounded to within W of the anchor, so the actor keeps a
+          single sequence.
         - Immediate repeats of the same path item collapse when collapseRepeats is on.
         - Journeys keep only their first maxSteps items.
         - Elements are tuples of (kind, step index, item, target item):
@@ -215,7 +368,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             """
             SELECT
                 actor_id,
-                arraySort(x -> x.1, groupArray(tuple(timestamp, path_item))) AS event_tuples,
+                {sorted_events} AS event_tuples,
                 arrayPopBack(arrayPushFront(arrayMap(x -> x.1, event_tuples), NULL)) AS previous_timestamps,
                 arraySplit((x, previous_timestamp) -> ifNull(x.1 > previous_timestamp + {gap}, 1), event_tuples, previous_timestamps) AS journeys,
                 arrayMap(journey -> arrayMap(event_tuple -> event_tuple.2, journey), journeys) AS journey_items,
@@ -229,8 +382,9 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             GROUP BY actor_id
             """,
             placeholders={
-                "event_base_query": self._event_base_query(),
-                "gap": self._gap_expr(),
+                "event_base_query": self._events_for_journeys_query(),
+                "sorted_events": self._sorted_events_expr(),
+                "gap": self._split_interval_expr(),
                 "collapsed_journeys": collapsed_journeys_expr,
                 "max_steps": ast.Constant(value=self.max_steps),
                 "node_kind": ast.Constant(value=ELEMENT_KIND_NODE),
@@ -329,6 +483,31 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         query.limit = ast.Constant(value=self.result_row_limit)
         return query
 
+    def _anchored_prefix_counts_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        """Per-chain prefix counts for the hover funnel preview (anchored mode only). Each actor has
+        one sequence, so its prefixes nest into the chain tree the hover walks; a prefix's count is the
+        unique actors whose sequence begins with exactly that chain. Ordered by descending count and
+        capped at MAX_PREFIX_ROWS, so the visible top-item chains are always carried and only long-tail
+        chains through non-top items can be dropped from the hover data."""
+        return parse_select(
+            """
+            WITH sequences AS (
+                SELECT actor_id, arrayElement(trimmed_journeys, 1) AS sequence
+                FROM {elements_per_actor_query}
+            )
+            SELECT arraySlice(sequence, 1, prefix_length) AS prefix, uniqExact(actor_id) AS actor_count
+            FROM sequences
+            ARRAY JOIN arrayEnumerate(sequence) AS prefix_length
+            GROUP BY prefix
+            ORDER BY length(prefix) ASC, actor_count DESC, prefix ASC
+            LIMIT {max_prefix_rows}
+            """,
+            placeholders={
+                "elements_per_actor_query": self._elements_per_actor_query(),
+                "max_prefix_rows": ast.Constant(value=MAX_PREFIX_ROWS),
+            },
+        )
+
     def _to_path_item(self, item: tuple[str, str]) -> PathsV2Item | None:
         event, label = item
         if event == PATHS_V2_OTHER:
@@ -338,7 +517,19 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
                 return PathsV2Item(event=event, label=label if source.namingProperty is not None else None)
         return PathsV2Item(event=event, label=label)
 
-    def _to_results(self, rows: list[tuple[Any, ...]]) -> PathsV2Results:
+    def _to_prefixes(self, rows: list[tuple[Any, ...]]) -> list[PathsV2Prefix]:
+        prefixes: list[PathsV2Prefix] = []
+        for prefix_items, actor_count in rows:
+            items: list[PathsV2Item] = []
+            for raw_item in prefix_items:
+                item = self._to_path_item(raw_item)
+                # Raw sequence items always name a real path item, never the other bucket.
+                assert item is not None
+                items.append(item)
+            prefixes.append(PathsV2Prefix(items=items, count=actor_count))
+        return prefixes
+
+    def _to_results(self, rows: list[tuple[Any, ...]], prefixes: list[PathsV2Prefix]) -> PathsV2Results:
         steps: dict[int, PathsV2Step] = {}
         edges: list[PathsV2Edge] = []
 
@@ -379,14 +570,10 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             key=lambda edge: (edge.stepIndex, -edge.count, item_sort_key(edge.source), item_sort_key(edge.target))
         )
 
-        return PathsV2Results(steps=[steps[index] for index in sorted(steps)], edges=edges)
+        return PathsV2Results(steps=[steps[index] for index in sorted(steps)], edges=edges, prefixes=prefixes)
 
-    def _calculate(self) -> PathsV2QueryResponse:
-        query = self.to_query()
-        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
-        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
-
-        response = execute_hogql_query(
+    def _execute(self, query: ast.SelectQuery | ast.SelectSetQuery) -> Any:
+        return execute_hogql_query(
             query_type="PathsV2Query",
             query=query,
             team=self.team,
@@ -400,9 +587,24 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             ),
         )
 
+    def _calculate(self) -> PathsV2QueryResponse:
+        query = self.to_query()
+        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
+        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+
+        response = self._execute(query)
         assert response.results is not None
+
+        prefixes: list[PathsV2Prefix] = []
+        if self.is_anchored:
+            # A second aggregation over the same anchored sequences: the grid carries positional
+            # counts, this carries the per-chain counts the hover preview reads.
+            prefix_response = self._execute(self._anchored_prefix_counts_query())
+            assert prefix_response.results is not None
+            prefixes = self._to_prefixes(prefix_response.results)
+
         return PathsV2QueryResponse(
-            results=self._to_results(response.results),
+            results=self._to_results(response.results, prefixes),
             timings=response.timings,
             hogql=hogql,
             modifiers=self.modifiers,
