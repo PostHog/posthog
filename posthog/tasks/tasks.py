@@ -1634,15 +1634,17 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     Called during project creation to avoid request timeouts for large organizations.
     """
     from posthog.models.file_system.user_product_list import add_default_products_for_user
+    from posthog.models.organization import Organization
     from posthog.models.team import Team
 
     try:
         team = Team.objects.get(id=team_id)
-    except Team.DoesNotExist:
-        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        users = list(team.all_users_with_access())
+    except (Team.DoesNotExist, Organization.DoesNotExist):
+        # Bootstrapping sidebar defaults must never take down whatever created the team (e.g. signup)
+        logger.info("sync_user_product_lists_for_new_team: Team or organization not found, skipping", team_id=team_id)
         return
 
-    users = list(team.all_users_with_access())
     logger.info(
         "sync_user_product_lists_for_new_team: Starting sync",
         team_id=team_id,

@@ -1,6 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -166,10 +166,18 @@ class TeamManager(models.Manager):
         from posthog.tasks.tasks import sync_user_product_lists_for_new_team
 
         user_count = OrganizationMembership.objects.filter(organization_id=team.organization_id).count()
-        if user_count > ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD:
-            sync_user_product_lists_for_new_team.delay(team.id)
+        run_sync = (
+            partial(sync_user_product_lists_for_new_team.delay, team.id)
+            if user_count > ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD
+            else partial(sync_user_product_lists_for_new_team, team.id)
+        )
+
+        # The sync re-reads the team and its organization, which an uncommitted transaction
+        # (or a read replica) can't see yet, so wait for the commit, as with demo data above.
+        if connection.in_atomic_block and not settings.TEST:
+            transaction.on_commit(run_sync)
         else:
-            sync_user_product_lists_for_new_team(team.id)
+            run_sync()
 
         return team
 
