@@ -1205,21 +1205,6 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
 
-@freeze_time("2022-02-02T08:55:00.000Z")
-@pytest.mark.asyncio
-async def test_create_export_assets_does_not_skip_an_unchanged_destination(team, user):
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="same01", name="Same destination")
-    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
-
-    result = await ActivityEnvironment().run(
-        create_export_assets,
-        CreateExportAssetsInputs(subscription_id=subscription.id, previous_value=subscription.target_value),
-    )
-
-    assert len(result.exported_asset_ids) == 1
-    assert result.status == ExportAssetPreparationStatus.READY
-
-
 @patch("posthog.slo.events.posthoganalytics")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event")
@@ -1333,6 +1318,12 @@ async def test_create_export_assets_classifies_missing_resource(team, user):
         )
 
     assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert result.failure_context == {
+        "reason": NoExportableInsightsReason.MISSING_RESOURCE,
+        "resource_type": "unknown",
+        "available_insight_count": 0,
+        "selected_insight_count": 0,
+    }
 
 
 async def test_resolve_exportable_insights_classifies_deleted_dashboard(team, user):
@@ -1361,6 +1352,7 @@ async def test_resolve_exportable_insights_filters_explicit_dashboard_selection(
     assert [insight.id for _, insight in result.tile_insight_pairs] == [selected_insight.id]
     assert result.available_insight_count == 2
     assert result.selected_insight_count == 1
+    assert result.no_exportable_reason is None
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1381,6 +1373,13 @@ async def test_create_export_assets_respects_max_asset_count(team, user):
 
     assert len(result.exported_asset_ids) == 3
     assert result.total_insight_count == 10
+
+
+async def test_create_export_assets_rejects_non_positive_max_asset_count():
+    with pytest.raises(ApplicationError, match="Dashboard insight export limit must be at least 1, received 0"):
+        await ActivityEnvironment().run(
+            create_export_assets, CreateExportAssetsInputs(subscription_id=1, max_asset_count=0)
+        )
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")

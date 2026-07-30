@@ -70,7 +70,7 @@ class ResolvedExportableInsights:
     tile_insight_pairs: list[tuple[DashboardTile | None, Insight]]
     available_insight_count: int
     selected_insight_count: int
-    no_exportable_reason: str
+    no_exportable_reason: str | None
 
 
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
@@ -113,9 +113,7 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
                 available_insight_count=available_insight_count,
                 selected_insight_count=len(selected_ids),
                 no_exportable_reason=(
-                    NoExportableInsightsReason.MISSING_RESOURCE
-                    if selected_pairs
-                    else NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE
+                    None if selected_pairs else NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE
                 ),
             )
 
@@ -123,11 +121,7 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
             tile_insight_pairs=tile_insight_pairs,
             available_insight_count=available_insight_count,
             selected_insight_count=0,
-            no_exportable_reason=(
-                NoExportableInsightsReason.MISSING_RESOURCE
-                if tile_insight_pairs
-                else NoExportableInsightsReason.EMPTY_DASHBOARD
-            ),
+            no_exportable_reason=None if tile_insight_pairs else NoExportableInsightsReason.EMPTY_DASHBOARD,
         )
 
     if subscription.insight and not subscription.insight.deleted:
@@ -135,7 +129,7 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
             tile_insight_pairs=[(None, subscription.insight)],
             available_insight_count=1,
             selected_insight_count=0,
-            no_exportable_reason=NoExportableInsightsReason.MISSING_RESOURCE,
+            no_exportable_reason=None,
         )
 
     return ResolvedExportableInsights(
@@ -282,8 +276,11 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     total_insight_count = len(tile_insight_pairs)
 
     if not tile_insight_pairs:
+        no_exportable_reason = resolved_insights.no_exportable_reason
+        if no_exportable_reason is None:
+            raise RuntimeError("No-exportable-insights resolution missing a failure reason")
         failure_context: NoExportableInsightsContext = {
-            "reason": resolved_insights.no_exportable_reason,
+            "reason": no_exportable_reason,
             "resource_type": "dashboard" if dashboard else "insight" if subscription.insight_id else "unknown",
             "available_insight_count": resolved_insights.available_insight_count,
             "selected_insight_count": resolved_insights.selected_insight_count,
@@ -297,7 +294,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         )
         _capture_delivery_failed_event(
             subscription,
-            NoExportableInsightsError(resolved_insights.no_exportable_reason),
+            NoExportableInsightsError(no_exportable_reason),
             failure_context,
         )
         return CreateExportAssetsResult(
