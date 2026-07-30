@@ -76,6 +76,7 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
 })
 
 export const MembersListQueryParams = /* @__PURE__ */ zod.object({
+    email: zod.string().optional().describe('Return only the member with this exact email address.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
@@ -85,6 +86,10 @@ export const MembersListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters."
         ),
+    updated_after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Return only members whose membership was updated after this timestamp (ISO 8601).'),
 })
 
 export const MembersGithubLoginRetrieveParams = /* @__PURE__ */ zod.object({
@@ -93,7 +98,11 @@ export const MembersGithubLoginRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
         ),
-    user__uuid: zod.string(),
+    user__uuid: zod
+        .string()
+        .describe(
+            "The member's user UUID (the `user.uuid` field of a member in the list response), or the membership `id`. Pass `@me` to target the member making the request."
+        ),
 })
 
 /**

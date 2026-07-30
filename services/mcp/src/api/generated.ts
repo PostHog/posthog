@@ -73271,6 +73271,10 @@ export namespace Schemas {
 
     export type MembersListParams = {
     /**
+     * Return only the member with this exact email address.
+     */
+    email?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -73286,6 +73290,10 @@ export namespace Schemas {
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string;
+    /**
+     * Return only members whose membership was updated after this timestamp (ISO 8601).
+     */
+    updated_after?: string;
     };
 
     export type OauthApplicationsListParams = {

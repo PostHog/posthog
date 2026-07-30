@@ -523,10 +523,12 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/`,
             query: {
+                email: params.email,
                 limit: params.limit,
                 offset: params.offset,
                 order: params.order,
                 search: params.search,
+                updated_after: params.updated_after,
             },
         })
         return result
