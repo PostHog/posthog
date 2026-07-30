@@ -71,10 +71,39 @@ class TestFinopsUsageMeter:
 
     def test_accumulates_quantity_duration_count_on_shared_key(self) -> None:
         meter = FinopsUsageMeter(enabled=True)
-        shared = {"product": "batch_exports", "billable_unit": "actions", "system": "temporal", "workload": "s3-export"}
-        meter.queue(FinopsUsageMeterInput(**shared, quantity=1, duration_ms=100, count=1))
-        meter.queue(FinopsUsageMeterInput(**shared, quantity=1, duration_ms=200, count=1))
-        meter.queue(FinopsUsageMeterInput(**shared, quantity=1, duration_ms=50, count=1))
+        meter.queue(
+            FinopsUsageMeterInput(
+                product="batch_exports",
+                billable_unit="actions",
+                system="temporal",
+                workload="s3-export",
+                quantity=1,
+                duration_ms=100,
+                count=1,
+            )
+        )
+        meter.queue(
+            FinopsUsageMeterInput(
+                product="batch_exports",
+                billable_unit="actions",
+                system="temporal",
+                workload="s3-export",
+                quantity=1,
+                duration_ms=200,
+                count=1,
+            )
+        )
+        meter.queue(
+            FinopsUsageMeterInput(
+                product="batch_exports",
+                billable_unit="actions",
+                system="temporal",
+                workload="s3-export",
+                quantity=1,
+                duration_ms=50,
+                count=1,
+            )
+        )
 
         mock_producer = MagicMock()
         with (
