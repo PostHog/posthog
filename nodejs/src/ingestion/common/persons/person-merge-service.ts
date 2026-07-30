@@ -64,7 +64,7 @@ export const mergeFoldSizeHistogram = new Histogram({
 
 export const mergeDistinctIdOverrideCounter = new Counter({
     name: 'person_merge_distinct_id_override_total',
-    help: 'Merge-added distinct id mapping rows, split by whether their version writes a ClickHouse override row.',
+    help: 'Distinct id mapping rows written during merges, split by whether their version writes a ClickHouse override row.',
     labelNames: ['call', 'overrideWritten'],
 })
 
@@ -597,6 +597,9 @@ export class PersonMergeService {
                 if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
                     throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
                 }
+                mergeDistinctIdOverrideCounter
+                    .labels({ call: 'bothExistMove', overrideWritten: 'true' })
+                    .inc(moveResult.distinctIdsMoved.length)
 
                 const addMessages: PersonMessage[] = []
                 for (const pair of missingPairs) {
@@ -911,6 +914,9 @@ export class PersonMergeService {
             } else {
                 allDistinctIdMessages.push(...distinctIdResult.messages)
                 hasProcessedAnyDistinctIds = true
+                mergeDistinctIdOverrideCounter
+                    .labels({ call: 'bothExistMove', overrideWritten: 'true' })
+                    .inc(distinctIdResult.distinctIdsMoved.length)
 
                 // Check if we moved fewer than the batch size, indicating we're done
                 hasMore = distinctIdResult.distinctIdsMoved.length >= batchSize
@@ -960,6 +966,7 @@ export class PersonMergeService {
                 throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
             }
         }
+        mergeDistinctIdOverrideCounter.labels({ call: 'bothExistMove', overrideWritten: 'true' }).inc(movedCount)
 
         return allDistinctIdMessages
     }
