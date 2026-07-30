@@ -30,9 +30,11 @@ from products.mcp_analytics.backend.intent_clustering import (
     DESCRIPTION_EMBEDDING_PREFIX,
     EMBEDDING_MODEL,
     JOURNEY_DEPTH,
+    MAX_ADVERTISED_LIST_EVENTS_PER_SESSION,
     MAX_DESCRIPTION_LENGTH,
     MAX_INTENT_TEXT_LENGTH,
     MAX_TOOL_NAME_LENGTH,
+    MAX_TOOLS_PER_ADVERTISED_LIST,
     MIN_ADVERTISED_SESSIONS,
     NO_INTENT_RECORDED_FALLBACK,
     SNAPSHOT_VERSION,
@@ -848,6 +850,21 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         advertised = fetch_advertised_tools(self.team, ["session-a", "session-no-list"])
 
         assert advertised == {"session-a": {"exec", "render-ui", "query_trends"}}
+
+    def test_advertised_catalog_is_bounded_per_list_and_per_session(self) -> None:
+        # Both the array and the number of tools-list events are sender-controlled, and the
+        # union aggregates both — without the SQL bounds one session can make the
+        # advertised-catalog aggregation arbitrarily large in ClickHouse memory.
+        oversized = [f"tool-{i}" for i in range(MAX_TOOLS_PER_ADVERTISED_LIST + 50)]
+        self._seed_tools_list("session-wide", oversized)
+        for i in range(MAX_ADVERTISED_LIST_EVENTS_PER_SESSION + 5):
+            self._seed_tools_list("session-chatty", [f"chatty-{i}"])
+        flush_persons_and_events()
+
+        advertised = fetch_advertised_tools(self.team, ["session-wide", "session-chatty"])
+
+        assert len(advertised["session-wide"]) == MAX_TOOLS_PER_ADVERTISED_LIST
+        assert len(advertised["session-chatty"]) <= MAX_ADVERTISED_LIST_EVENTS_PER_SESSION
 
     def test_window_stats_count_calls_intents_and_sessions(self) -> None:
         self._seed_tool_call("session-a", "execute_sql", intent="find slow queries")

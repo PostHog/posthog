@@ -88,6 +88,12 @@ with an observed tools-list catalog enter discovery denominators, and sessions
 in exec-wrapper mode advertise only the wrapper, so per-tool discovery is
 measured on full-catalog sessions.
 
+`computed_with` is not a completeness check for everything, though. Only the
+top-level tool and overlap-pair caps report what they dropped, via
+`dropped_tools` and `dropped_overlap_pairs`. The per-tool and per-cluster lists
+are capped silently, so treat a tool showing 20 clusters, a cluster showing 10
+switches, or 5 self-retries as "at least that many", not "exactly".
+
 ## Workflow: handle an empty or stale snapshot
 
 - **Empty / idle with no clusters** (`status: idle`, `clusters: []`): no run has

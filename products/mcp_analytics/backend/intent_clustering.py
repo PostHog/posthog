@@ -63,8 +63,10 @@ MAX_SAMPLE_INTENTS_PER_CLUSTER = 3
 MAX_DESCRIPTION_LENGTH = 512
 # Below this many advertised sessions a discovery rate is noise, so it stays null.
 MIN_ADVERTISED_SESSIONS = 5
-# Payload bounds for the snapshot blob. Every cap reports its dropped count in
-# computed_with so truncation is visible, never silent.
+# Payload bounds for the snapshot blob. Only the two top-level caps report what they
+# dropped (`dropped_tools`, `dropped_overlap_pairs` in computed_with); the per-tool and
+# per-cluster caps below truncate silently, so `computed_with` is not a completeness
+# check for them — a tool showing 20 clusters may have had more.
 MAX_TOOLS_IN_SNAPSHOT = 300
 MAX_CLUSTERS_PER_TOOL = 20
 MAX_SWITCHES_PER_CLUSTER = 10
@@ -165,6 +167,14 @@ MAX_INTENT_TEXT_LENGTH = 1000
 # oversized names. Real tool names are well under 100 chars.
 MAX_TOOL_NAME_LENGTH = 256
 
+# The advertised catalog is a sender-controlled array inside a sender-controlled number
+# of $mcp_tools_list events, and the union aggregates both. Clipping name *length* alone
+# leaves two unbounded dimensions, so each event's array is sliced and each session's
+# events are capped before the union materializes. A real catalog is a few hundred tools
+# listed once or twice per session, so both bounds sit far above honest traffic.
+MAX_TOOLS_PER_ADVERTISED_LIST = 500
+MAX_ADVERTISED_LIST_EVENTS_PER_SESSION = 20
+
 # Sessions that recorded at least one $mcp_intent, sampled deterministically.
 # Ordering by cityHash64(session_id) is a pseudo-random sample: unbiased across
 # the window (newest-first would collapse the corpus to the last few hours at
@@ -209,15 +219,24 @@ LIMIT {max_rows}
 # JSONExtract of a Nullable into Array(String) is a ClickHouse type error.
 _SESSION_ADVERTISED_TOOLS_SQL = """
 SELECT
-    $session_id AS session_id,
-    arrayDistinct(arrayMap(x -> left(x, {max_tool_len}), arrayFlatten(groupArray(
-        JSONExtract(coalesce(toString(properties.$mcp_listed_tool_names), '[]'), 'Array(String)')
-    )))) AS advertised_tools
-FROM events
-WHERE event = {event}
-    AND $session_id IN {session_ids}
-    AND timestamp >= now() - INTERVAL {lookback_days} DAY
-    AND $session_id != ''
+    session_id,
+    arrayDistinct(arrayMap(x -> left(x, {max_tool_len}), arrayFlatten(groupArray(listed)))) AS advertised_tools
+FROM (
+    SELECT
+        $session_id AS session_id,
+        arraySlice(
+            JSONExtract(coalesce(toString(properties.$mcp_listed_tool_names), '[]'), 'Array(String)'),
+            1,
+            {max_tools_per_list}
+        ) AS listed
+    FROM events
+    WHERE event = {event}
+        AND $session_id IN {session_ids}
+        AND timestamp >= now() - INTERVAL {lookback_days} DAY
+        AND $session_id != ''
+    ORDER BY timestamp
+    LIMIT {max_list_events} BY session_id
+)
 GROUP BY session_id
 LIMIT {max_rows}
 """
@@ -338,6 +357,8 @@ def fetch_advertised_tools(
             "lookback_days": ast.Constant(value=lookback_days),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
             "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
+            "max_tools_per_list": ast.Constant(value=MAX_TOOLS_PER_ADVERTISED_LIST),
+            "max_list_events": ast.Constant(value=MAX_ADVERTISED_LIST_EVENTS_PER_SESSION),
         },
     )
     out: dict[str, set[str]] = {}
@@ -851,14 +872,20 @@ def compute_tool_pivot(
         for call in calls:
             sessions_calling[call.tool].add(session_id)
 
+    # Inverted once rather than per tool: the tool set is sender-controlled and uncapped
+    # at this point, so scanning every advertised session for each of them is O(tools x
+    # sessions) on values a caller chooses.
+    advertised_sessions_by_tool: dict[str, set[str]] = defaultdict(set)
+    for session_id, advertised in advertised_by_session.items():
+        for advertised_tool in advertised:
+            advertised_sessions_by_tool[advertised_tool].add(session_id)
+
     tools: list[dict[str, Any]] = []
     for tool, cluster_entries in per_tool_clusters.items():
         call_count = call_totals[tool]
         weighted_entropy = sum(entry["calls"] * entry["cluster_entropy"] for entry in cluster_entries)
-        advertised_sessions = [
-            session_id for session_id, advertised in advertised_by_session.items() if tool in advertised
-        ]
-        called_when_advertised = sum(1 for session_id in advertised_sessions if session_id in sessions_calling[tool])
+        advertised_sessions = advertised_sessions_by_tool[tool]
+        called_when_advertised = len(advertised_sessions & sessions_calling[tool])
         discovery_rate_pct = (
             round(100.0 * called_when_advertised / len(advertised_sessions), 1)
             if len(advertised_sessions) >= MIN_ADVERTISED_SESSIONS
