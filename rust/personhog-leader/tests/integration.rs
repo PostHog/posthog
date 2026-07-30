@@ -24,6 +24,7 @@ use personhog_leader::cache::{
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::warming::WarmClientPools;
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
@@ -433,11 +434,18 @@ async fn writes_fenced_after_drain_reads_still_served() {
     );
     // The handler shares the cache, inflight tracker, dirty index, and
     // recovery pool with the service, exactly as main.rs wires them.
+    let warming = test_warming_config("fence-pod", KAFKA_BOOTSTRAP);
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        "fence-pod",
+        &warming.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config("fence-pod", KAFKA_BOOTSTRAP),
+        warming,
+        pools,
     );
 
     cache.create_partition(0);
@@ -542,11 +550,18 @@ async fn drain_fences_before_waiting_on_inflight() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
+    let warming = test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP);
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        "fence-race-pod",
+        &warming.writer_consumer_group,
+    ));
     let handler = Arc::new(LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP),
+        warming,
+        pools,
     ));
 
     cache.create_partition(0);
@@ -1161,7 +1176,7 @@ async fn e2e_update_produces_to_local_kafka() {
 
 // ============================================================
 // Test 8: PG fallback on cache miss
-// Requires local Postgres with posthog_person data.
+// Requires local Postgres.
 // ============================================================
 
 #[tokio::test]
@@ -1169,18 +1184,25 @@ async fn pg_fallback_loads_person_on_cache_miss() {
     let cancel = CancellationToken::new();
     let (addr, cache, _mock_cluster) = start_leader_with_pg_fallback(cancel.clone()).await;
 
-    // Find a real person in the local DB to query
+    // Seed a person under this test's own team id. Sampling an arbitrary
+    // existing row instead would race concurrently-running tests that
+    // delete their transient rows between our sample and the fallback read.
     let pool = common::create_persons_pool().await;
-    let row: Option<(i64, i32)> = sqlx::query_as("SELECT id, team_id FROM posthog_person LIMIT 1")
-        .fetch_optional(&pool)
+    let team_id: i32 = 99_061;
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
         .await
         .unwrap();
-
-    let Some((person_id, team_id)) = row else {
-        println!("No persons in posthog_person, skipping PG fallback test");
-        cancel.cancel();
-        return;
-    };
+    let (person_id,): (i64,) = sqlx::query_as(
+        "INSERT INTO posthog_person (created_at, properties, is_identified, uuid, version, team_id)
+         VALUES (now(), '{\"plan\": \"pro\"}'::jsonb, false, gen_random_uuid(), 1, $1)
+         RETURNING id",
+    )
+    .bind(team_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
     // Warm the key's own partition (the cache is empty — no persons seeded)
     let partition = partition_for_person(team_id as i64, person_id, NUM_PARTITIONS);
@@ -1208,6 +1230,11 @@ async fn pg_fallback_loads_person_on_cache_miss() {
         "person should be cached after PG fallback"
     );
 
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     cancel.cancel();
 }
 
@@ -1245,7 +1272,7 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
         team_id: team_id as i64,
         person_id: row.0,
     };
-    let person = personhog_leader::pg::load_person_from_pg(&pool, &key)
+    let person = personhog_leader::pg::load_person_from_pg(&pool, "posthog_person", &key)
         .await
         .expect("load must not fail")
         .expect("person exists");
@@ -1298,18 +1325,24 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
     let cancel = CancellationToken::new();
     let (addr, cache, _mock_cluster) = start_leader_with_pg_fallback(cancel.clone()).await;
 
-    // Find a real person to update
+    // Seed a person under this test's own team id (see the cache-miss
+    // test above for why sampling an arbitrary row is not safe).
     let pool = common::create_persons_pool().await;
-    let row: Option<(i64, i32)> = sqlx::query_as("SELECT id, team_id FROM posthog_person LIMIT 1")
-        .fetch_optional(&pool)
+    let team_id: i32 = 99_062;
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
         .await
         .unwrap();
-
-    let Some((person_id, team_id)) = row else {
-        println!("No persons in posthog_person, skipping PG fallback update test");
-        cancel.cancel();
-        return;
-    };
+    let (person_id,): (i64,) = sqlx::query_as(
+        "INSERT INTO posthog_person (created_at, properties, is_identified, uuid, version, team_id)
+         VALUES (now(), '{\"plan\": \"pro\"}'::jsonb, false, gen_random_uuid(), 1, $1)
+         RETURNING id",
+    )
+    .bind(team_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
     let partition = partition_for_person(team_id as i64, person_id, NUM_PARTITIONS);
     cache.create_partition(partition);
@@ -1343,6 +1376,11 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
     let props: serde_json::Value = serde_json::from_slice(&updated_person.properties).unwrap();
     assert_eq!(props["pg_fallback_test"], "it_works");
 
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     cancel.cancel();
 }
 

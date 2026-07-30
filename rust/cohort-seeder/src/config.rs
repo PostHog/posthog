@@ -135,6 +135,17 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub clickhouse_secure: bool,
 
+    /// Validate the server certificate against the public root CAs. Defaults on so an unconfigured
+    /// deployment fails closed; the chart sets it to `false` for internal ClickHouse.
+    #[envconfig(default = "true")]
+    pub clickhouse_verify: bool,
+
+    /// PEM CA bundle to validate the ClickHouse server certificate against, as Django's
+    /// `CLICKHOUSE_CA`. Naming a CA is an explicit request to authenticate the server, so it wins
+    /// over `clickhouse_verify` rather than being downgraded by an inherited `CLICKHOUSE_VERIFY=false`.
+    #[envconfig(default = "")]
+    pub clickhouse_ca: String,
+
     #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
     pub team_allowlist: TeamAllowlist,
 
@@ -166,6 +177,33 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub seeder_bands_per_day: u16,
 
+    /// Enable the person-property seed path: discovery widens to `person_property` runs and the
+    /// planning/scan/emission pipeline arms. Default off — the processor's decode arm and
+    /// `COHORT_SEED_PERSON_APPLY_ENABLED` must be deployed everywhere first, or an old processor
+    /// skip-and-commits the seeds.
+    #[envconfig(default = "false")]
+    pub seeder_person_seeds_enabled: bool,
+
+    /// Person-seed produce rate, shared across concurrent person chunks and separate from
+    /// `seeder_tiles_per_sec` so the two throughputs tune independently.
+    #[envconfig(default = "2000")]
+    pub seeder_person_seeds_per_sec: u32,
+
+    /// Target persons per planned UUID-range chunk; the planning scan keeps every Nth id as a
+    /// range boundary. Sized so one chunk's paced emission completes in single-digit minutes —
+    /// settings validation refuses a value the ClickHouse execution-time budget cannot cover.
+    #[envconfig(default = "1000000")]
+    pub seeder_persons_per_chunk: u64,
+
+    /// The person path's own chunk-slot budget, so a person scan never occupies a behavioral slot.
+    #[envconfig(default = "1")]
+    pub seeder_person_max_concurrent_chunks: usize,
+
+    /// Emit empty-`matched` seeds for scanned non-matchers. They heal stale-TRUE state and cost
+    /// only a point-read on absent records (the consumer's no-create rule).
+    #[envconfig(default = "true")]
+    pub seeder_person_emit_nonmatchers: bool,
+
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
 
@@ -175,11 +213,65 @@ pub struct Config {
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_before_external_sort: u64,
 
+    /// Runaway guard on sets built from `IN (SELECT …)` subqueries, which nothing else bounds — the
+    /// person boundary scan's horizon prefilter builds one id set covering a whole team, unchunked.
+    /// Exceeding it throws a set-size error naming the limit rather than pushing the server toward
+    /// an OOM that takes unrelated queries down with it.
+    #[envconfig(default = "20000000000")]
+    pub seeder_ch_max_bytes_in_set: u64,
+
     #[envconfig(default = "grace_hash")]
     pub seeder_ch_join_algorithm: String,
 
     #[envconfig(default = "100")]
     pub seeder_queue_full_backoff_ms: u64,
+
+    /// Enable the dark-by-default automatic reconcile dispatch driver. Enabling it without
+    /// [`Config::seeder_confirm_register_backfilled`] is a startup error.
+    #[envconfig(default = "false")]
+    pub seeder_reconcile_auto_dispatch_enabled: bool,
+
+    /// Attest that every run's data tiles were seeded after membership-register writers deployed —
+    /// the automatic equivalent of the CLI's `--confirm-register-backfilled`. Required to arm
+    /// automatic dispatch.
+    #[envconfig(default = "false")]
+    pub seeder_confirm_register_backfilled: bool,
+
+    /// How many reconcile dispatches this replica may run at once — the bound on how hard a backlog
+    /// of completed runs can press the producer queue the chunk pipeline shares. Separate from
+    /// [`Config::seeder_max_inflight_tiles`], which bounds a single dispatch.
+    #[envconfig(default = "4")]
+    pub seeder_reconcile_max_concurrent_dispatches: usize,
+
+    /// The membership-change topic whose high watermarks anchor the marker watcher's start
+    /// positions, captured at dispatch time. The observer reads markers from the same topic.
+    #[envconfig(default = "cohort_membership_changed_shadow")]
+    pub cohort_membership_changed_topic: String,
+
+    /// Enable the dark-by-default reconcile observer: the marker-watch task and the driver's
+    /// observation pass. A separate gate from auto-dispatch — observation can run against
+    /// CLI-dispatched runs without auto-dispatch, and vice versa.
+    #[envconfig(default = "false")]
+    pub seeder_reconcile_observer_enabled: bool,
+
+    /// The seed processor's consumer group id. The observer queries this group's committed offsets on
+    /// the seed topic as the reconcile-liveness signal; it never commits to it.
+    #[envconfig(default = "cohort-stream-seeds")]
+    pub kafka_seed_consumer_group: String,
+
+    /// Timeout for the seed-group OffsetFetch and membership-topic watermark metadata calls the
+    /// observer makes.
+    #[envconfig(default = "10000")]
+    pub seeder_reconcile_offsets_timeout_ms: u64,
+
+    /// Flush the marker watcher's accumulated bits and positions at least this often.
+    #[envconfig(default = "5000")]
+    pub seeder_reconcile_persist_interval_ms: u64,
+
+    /// Flush the marker watcher after this many consumed messages even if the interval has not
+    /// elapsed, bounding how many observations a crash can lose.
+    #[envconfig(default = "5000")]
+    pub seeder_reconcile_persist_max_batch: u64,
 }
 
 impl Config {
@@ -286,6 +378,14 @@ mod tests {
                 .cohort_partition_count,
             8
         );
+    }
+
+    /// The fail-closed TLS posture lives entirely in these defaults, so pin them.
+    #[test]
+    fn clickhouse_tls_defaults_are_fail_closed() {
+        let config = default_config();
+        assert!(config.clickhouse_verify);
+        assert!(config.clickhouse_ca.is_empty());
     }
 
     #[test]

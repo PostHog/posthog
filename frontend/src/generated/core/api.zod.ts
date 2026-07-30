@@ -669,7 +669,6 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -721,6 +720,13 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -1270,7 +1276,6 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -1322,6 +1327,13 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -1873,7 +1885,6 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -1925,6 +1936,13 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -2488,7 +2506,6 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -2542,6 +2559,13 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -3097,7 +3121,6 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -3151,6 +3174,13 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -3726,7 +3756,6 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -3780,6 +3809,13 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -3976,7 +4012,8 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsCreateBodyNameMax = 200
 
@@ -4343,7 +4380,6 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -4397,6 +4433,13 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -4593,7 +4636,8 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultReleaseConditionsUpdateBodyNameMax = 200
 
@@ -4960,7 +5004,6 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -5014,6 +5057,13 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -5585,7 +5635,6 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -5639,6 +5688,13 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -6202,7 +6258,6 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -6256,6 +6311,13 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -6831,7 +6893,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -6885,6 +6946,13 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -7439,7 +7507,6 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -7493,6 +7560,13 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -8044,7 +8118,6 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -8098,6 +8171,13 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -8661,7 +8741,6 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
                         '\* `AED` - AED\n\* `AFN` - AFN\n\* `ALL` - ALL\n\* `AMD` - AMD\n\* `ANG` - ANG\n\* `AOA` - AOA\n\* `ARS` - ARS\n\* `AUD` - AUD\n\* `AWG` - AWG\n\* `AZN` - AZN\n\* `BAM` - BAM\n\* `BBD` - BBD\n\* `BDT` - BDT\n\* `BGN` - BGN\n\* `BHD` - BHD\n\* `BIF` - BIF\n\* `BMD` - BMD\n\* `BND` - BND\n\* `BOB` - BOB\n\* `BRL` - BRL\n\* `BSD` - BSD\n\* `BTC` - BTC\n\* `BTN` - BTN\n\* `BWP` - BWP\n\* `BYN` - BYN\n\* `BZD` - BZD\n\* `CAD` - CAD\n\* `CDF` - CDF\n\* `CHF` - CHF\n\* `CLP` - CLP\n\* `CNY` - CNY\n\* `COP` - COP\n\* `CRC` - CRC\n\* `CVE` - CVE\n\* `CZK` - CZK\n\* `DJF` - DJF\n\* `DKK` - DKK\n\* `DOP` - DOP\n\* `DZD` - DZD\n\* `EGP` - EGP\n\* `ERN` - ERN\n\* `ETB` - ETB\n\* `EUR` - EUR\n\* `FJD` - FJD\n\* `GBP` - GBP\n\* `GEL` - GEL\n\* `GHS` - GHS\n\* `GIP` - GIP\n\* `GMD` - GMD\n\* `GNF` - GNF\n\* `GTQ` - GTQ\n\* `GYD` - GYD\n\* `HKD` - HKD\n\* `HNL` - HNL\n\* `HRK` - HRK\n\* `HTG` - HTG\n\* `HUF` - HUF\n\* `IDR` - IDR\n\* `ILS` - ILS\n\* `INR` - INR\n\* `IQD` - IQD\n\* `IRR` - IRR\n\* `ISK` - ISK\n\* `JMD` - JMD\n\* `JOD` - JOD\n\* `JPY` - JPY\n\* `KES` - KES\n\* `KGS` - KGS\n\* `KHR` - KHR\n\* `KMF` - KMF\n\* `KRW` - KRW\n\* `KWD` - KWD\n\* `KYD` - KYD\n\* `KZT` - KZT\n\* `LAK` - LAK\n\* `LBP` - LBP\n\* `LKR` - LKR\n\* `LRD` - LRD\n\* `LTL` - LTL\n\* `LVL` - LVL\n\* `LSL` - LSL\n\* `LYD` - LYD\n\* `MAD` - MAD\n\* `MDL` - MDL\n\* `MGA` - MGA\n\* `MKD` - MKD\n\* `MMK` - MMK\n\* `MNT` - MNT\n\* `MOP` - MOP\n\* `MRU` - MRU\n\* `MTL` - MTL\n\* `MUR` - MUR\n\* `MVR` - MVR\n\* `MWK` - MWK\n\* `MXN` - MXN\n\* `MYR` - MYR\n\* `MZN` - MZN\n\* `NAD` - NAD\n\* `NGN` - NGN\n\* `NIO` - NIO\n\* `NOK` - NOK\n\* `NPR` - NPR\n\* `NZD` - NZD\n\* `OMR` - OMR\n\* `PAB` - PAB\n\* `PEN` - PEN\n\* `PGK` - PGK\n\* `PHP` - PHP\n\* `PKR` - PKR\n\* `PLN` - PLN\n\* `PYG` - PYG\n\* `QAR` - QAR\n\* `RON` - RON\n\* `RSD` - RSD\n\* `RUB` - RUB\n\* `RWF` - RWF\n\* `SAR` - SAR\n\* `SBD` - SBD\n\* `SCR` - SCR\n\* `SDG` - SDG\n\* `SEK` - SEK\n\* `SGD` - SGD\n\* `SRD` - SRD\n\* `SSP` - SSP\n\* `STN` - STN\n\* `SYP` - SYP\n\* `SZL` - SZL\n\* `THB` - THB\n\* `TJS` - TJS\n\* `TMT` - TMT\n\* `TND` - TND\n\* `TOP` - TOP\n\* `TRY` - TRY\n\* `TTD` - TTD\n\* `TWD` - TWD\n\* `TZS` - TZS\n\* `UAH` - UAH\n\* `UGX` - UGX\n\* `USD` - USD\n\* `UYU` - UYU\n\* `UZS` - UZS\n\* `VES` - VES\n\* `VND` - VND\n\* `VUV` - VUV\n\* `WST` - WST\n\* `XAF` - XAF\n\* `XCD` - XCD\n\* `XOF` - XOF\n\* `XPF` - XPF\n\* `YER` - YER\n\* `ZAR` - ZAR\n\* `ZMW` - ZMW'
                     ),
                 events: zod.unknown().optional(),
-                goals: zod.unknown().optional(),
                 filter_test_accounts: zod.boolean().optional(),
             })
             .optional(),
@@ -8715,6 +8794,13 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -9791,6 +9877,12 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 /**
@@ -9876,6 +9968,12 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersHedgehogConfigPartialUpdateBodyFirstNameMax = 150
@@ -9958,6 +10056,12 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 /**
@@ -9993,7 +10097,7 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
     team_id: zod
         .number()
         .nullish()
-        .describe("Optional team\/project id (e.g. PostHog Code); web UI uses the session's current team."),
+        .describe("Optional team\/project id (e.g. PostHog Desktop); web UI uses the session's current team."),
     connect_from: zod
         .string()
         .optional()
@@ -10174,6 +10278,12 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 /**
@@ -10258,6 +10368,12 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10344,6 +10460,12 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersTwoFactorValidateCreateBodyFirstNameMax = 150
@@ -10425,6 +10547,12 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10508,6 +10636,12 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersCancelEmailChangeRequestPartialUpdateBodyFirstNameMax = 150
@@ -10589,6 +10723,12 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10672,6 +10812,12 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersVerifyEmailCreateBodyFirstNameMax = 150
@@ -10753,5 +10899,11 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })

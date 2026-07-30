@@ -111,6 +111,15 @@ export interface LoopTriggerDTOApi {
     updated_at: string
 }
 
+export interface LoopSkillBundleDTOApi {
+    id: string
+    skill_name: string
+    skill_source: string
+    size: number
+    content_sha256: string
+    uploaded_at: string
+}
+
 /**
  * Detail/create/update response for a loop, including its triggers.
  */
@@ -156,6 +165,8 @@ export interface LoopDTOApi {
     updated_at: string
     /** Triggers attached to this loop. */
     triggers: LoopTriggerDTOApi[]
+    /** Skill bundles attached to this loop, seeded into every fired run. */
+    skill_bundles: LoopSkillBundleDTOApi[]
 }
 
 export interface PaginatedLoopDTOListApi {
@@ -199,6 +210,7 @@ export const RuntimeAdapterEnumApi = {
  * * `high` - high
  * * `xhigh` - xhigh
  * * `max` - max
+ * * `ultracode` - ultracode
  */
 export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
 
@@ -208,6 +220,7 @@ export const ReasoningEffortEnumApi = {
     High: 'high',
     Xhigh: 'xhigh',
     Max: 'max',
+    Ultracode: 'ultracode',
 } as const
 
 export interface LoopRepositoryEntryApi {
@@ -393,7 +406,8 @@ export interface LoopWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -459,7 +473,8 @@ export interface PatchedLoopWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -596,6 +611,72 @@ export interface LoopRunPageApi {
      * @nullable
      */
     next_cursor: string | null
+}
+
+/**
+ * * `user` - user
+ * * `repo` - repo
+ * * `marketplace` - marketplace
+ * * `codex` - codex
+ */
+export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
+
+export const SkillSourceEnumApi = {
+    User: 'user',
+    Repo: 'repo',
+    Marketplace: 'marketplace',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `zip` - zip
+ */
+export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
+
+export const BundleFormatEnumApi = {
+    Zip: 'zip',
+} as const
+
+/**
+ * One zipped local skill in a skill-bundle replace request.
+ */
+export interface LoopSkillBundleUploadApi {
+    /**
+     * File name for the stored bundle, e.g. `my-skill.zip`.
+     * @maxLength 255
+     */
+    file_name: string
+    /**
+     * Name of the skill inside the bundle.
+     * @maxLength 255
+     */
+    skill_name: string
+    /** Local source the bundle was built from, such as user or repo.
+     *
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex */
+    skill_source: SkillSourceEnumApi
+    /**
+     * SHA-256 hex digest of the bundle bytes.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    content_sha256: string
+    /** Archive format used for the bundle.
+     *
+     * * `zip` - zip */
+    bundle_format: BundleFormatEnumApi
+    /** Base64-encoded bundle bytes. */
+    content_base64: string
+}
+
+/**
+ * Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+ * list to detach every skill.
+ */
+export interface LoopSkillBundlesWriteApi {
+    bundles: LoopSkillBundleUploadApi[]
 }
 
 /**
@@ -826,6 +907,98 @@ export interface PatchedSandboxEnvironmentWriteApi {
      * @nullable
      */
     custom_image_id?: string | null
+}
+
+/**
+ * * `awaiting_input` - awaiting_input
+ * * `completed` - completed
+ * * `mention` - mention
+ * * `message` - message
+ * * `created` - created
+ */
+export type ActivityKindEnumApi = (typeof ActivityKindEnumApi)[keyof typeof ActivityKindEnumApi]
+
+export const ActivityKindEnumApi = {
+    AwaitingInput: 'awaiting_input',
+    Completed: 'completed',
+    Mention: 'mention',
+    Message: 'message',
+    Created: 'created',
+} as const
+
+/**
+ * Response shape for one task in the requester's activity feed (one row per task).
+ */
+export interface TaskActivityDTOApi {
+    id: string
+    task_id: string
+    task_title: string
+    /** @nullable */
+    channel_id: string | null
+    /** @nullable */
+    channel_name: string | null
+    activity_at: string
+    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+     *
+     * * `awaiting_input` - awaiting_input
+     * * `completed` - completed
+     * * `mention` - mention
+     * * `message` - message
+     * * `created` - created */
+    activity_kind: ActivityKindEnumApi
+    /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+    snippet: string
+    /** Author of the thread message tied to the latest activity, when one applies. */
+    latest_author?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    latest_message_id?: string | null
+    /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
+    is_unread: boolean
+}
+
+/**
+ * A page of the requester's activity feed, plus the unread total across the whole feed.
+ */
+export interface TaskActivityPageDTOApi {
+    /** Tasks with activity, most recent first. */
+    results: TaskActivityDTOApi[]
+    /** Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge. */
+    unread_count: number
+    /**
+     * Activity timestamp to pass as before for the next page, or null on the final page.
+     * @nullable
+     */
+    next_before?: string | null
+    /**
+     * Activity ID to pass as before_id for the next page, or null on the final page.
+     * @nullable
+     */
+    next_before_id?: string | null
+}
+
+export interface TaskActivityReadMarkerApi {
+    /** Task whose displayed activity should be marked read. */
+    task_id: string
+    /** Mark activity at or before this timestamp read without clearing newer activity. */
+    seen_before: string
+}
+
+/**
+ * Request body for clearing the unread flag on specific tasks.
+ */
+export interface TaskActivityMarkReadApi {
+    /**
+     * Displayed task activities to mark read if they have not changed.
+     * @maxItems 500
+     */
+    activities: TaskActivityReadMarkerApi[]
+}
+
+export interface TaskActivityMarkReadResponseApi {
+    /** How many feed rows changed from unread to read. */
+    marked_read: number
+    /** The requester's remaining unread total after the update. */
+    unread_count: number
 }
 
 /**
@@ -1090,30 +1263,6 @@ export const TaskRunDetailDTOProviderEnumApi = {
     Openai: 'openai',
 } as const
 
-/**
- * * `user` - user
- * * `repo` - repo
- * * `marketplace` - marketplace
- * * `codex` - codex
- */
-export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
-
-export const SkillSourceEnumApi = {
-    User: 'user',
-    Repo: 'repo',
-    Marketplace: 'marketplace',
-    Codex: 'codex',
-} as const
-
-/**
- * * `zip` - zip
- */
-export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
-
-export const BundleFormatEnumApi = {
-    Zip: 'zip',
-} as const
-
 export interface TaskRunArtifactMetadataApi {
     /**
      * Name of the local skill included in a skill_bundle artifact.
@@ -1210,7 +1359,8 @@ export interface TaskRunDetailDTOApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
@@ -1311,6 +1461,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `review_hog` - ReviewHog
  * * `image_builder` - Image Builder
  * * `loop` - Loop
+ * * `mcp_analytics` - MCP Analytics
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -1332,6 +1483,7 @@ export const OriginProductEnumApi = {
     ReviewHog: 'review_hog',
     ImageBuilder: 'image_builder',
     Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
 } as const
 
 /**
@@ -1369,7 +1521,8 @@ export interface TaskCreateApi {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1430,7 +1583,8 @@ export interface TaskCreateApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -1504,7 +1658,8 @@ export interface TaskWriteApi {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1565,7 +1720,8 @@ export interface TaskWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -1624,7 +1780,8 @@ export interface PatchedTaskWriteApi {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
-     * * `loop` - Loop */
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1685,7 +1842,8 @@ export interface PatchedTaskWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -1707,6 +1865,18 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     channel?: string | null
+}
+
+export interface TaskPinRequestApi {
+    /** Whether the task should be pinned for the requester. */
+    pinned: boolean
+}
+
+export interface TaskPinResponseApi {
+    /** Task whose pin state was updated. */
+    task_id: string
+    /** Current pin state for the requester. */
+    pinned: boolean
 }
 
 /**
@@ -1806,6 +1976,17 @@ export const ClaudeRuntimeAdapterEnumApi = {
 } as const
 
 /**
+ * * `200k` - 200k
+ * * `1m` - 1m
+ */
+export type ContextWindowEnumApi = (typeof ContextWindowEnumApi)[keyof typeof ContextWindowEnumApi]
+
+export const ContextWindowEnumApi = {
+    '200k': '200k',
+    '1m': '1m',
+} as const
+
+/**
  * * `default` - default
  * * `acceptEdits` - acceptEdits
  * * `plan` - plan
@@ -1828,12 +2009,12 @@ export const InitialPermissionModeEnumApi = {
  */
 export interface ClaudeTaskRunCreateSchemaApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -1890,9 +2071,20 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Claude runtimes.
      *
@@ -1939,12 +2131,12 @@ export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
  */
 export interface CodexTaskRunCreateSchemaApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -2001,9 +2193,20 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
      *
@@ -2051,7 +2254,7 @@ export interface TaskRunResumeRequestSchemaApi {
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
 }
 
@@ -2261,12 +2464,12 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
  */
 export interface TaskRunBootstrapCreateRequestApi {
     /**
-     * Local url-based MCP servers from the creating client (PostHog Code) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
      * @nullable
      */
     imported_mcp_servers?: ImportedMcpServerApi[] | null
     /**
-     * Names of desktop-only MCP servers the creating client (PostHog Code) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
      * @nullable
      */
     relayed_mcp_servers?: RelayedMcpServerApi[] | null
@@ -2320,9 +2523,20 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
+    /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
     github_user_token?: string
     /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
      *
@@ -2636,6 +2850,9 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `pi/rpc` - pi/rpc
+ * * `queue_get` - queue_get
+ * * `queue_clear` - queue_clear
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -2646,6 +2863,9 @@ export const MethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    PiRpc: 'pi/rpc',
+    QueueGet: 'queue_get',
+    QueueClear: 'queue_clear',
 } as const
 
 /**
@@ -2663,18 +2883,16 @@ export interface TaskRunCommandRequestApi {
      * * `close` - close
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response */
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
     /** Optional JSON-RPC request ID (string or number) */
     id?: unknown
 }
-
-/**
- * Command result on success
- */
-export type TaskRunCommandResponseApiResult = { [key: string]: unknown }
 
 /**
  * Error details on failure
@@ -2690,7 +2908,7 @@ export interface TaskRunCommandResponseApi {
     /** Request ID echoed back (string or number) */
     id?: unknown
     /** Command result on success */
-    result?: TaskRunCommandResponseApiResult
+    result?: unknown
     /** Error details on failure */
     error?: TaskRunCommandResponseApiError
 }
@@ -2755,6 +2973,28 @@ export interface StreamReadTokenResponseApi {
      * @nullable
      */
     stream_base_url: string | null
+}
+
+export interface TaskSessionResponseApi {
+    /** Task session identifier */
+    id: string
+    /**
+     * Temporary URL for downloading the session
+     * @nullable
+     */
+    download_url: string | null
+    /**
+     * SHA-256 digest of the current session content
+     * @nullable
+     */
+    content_sha256: string | null
+}
+
+export interface TaskSessionSyncResponseApi {
+    /** Task session identifier */
+    id: string
+    /** SHA-256 digest of the uploaded session content */
+    content_sha256: string
 }
 
 /**
@@ -3060,6 +3300,11 @@ export interface WizardCloudRunDTOApi {
      * @nullable
      */
     started_at?: string | null
+}
+
+export interface PinnedTaskIdsResponseApi {
+    /** Visible task IDs pinned by the requester, newest pin first. */
+    task_ids: string[]
 }
 
 export interface TaskRepositoriesResponseApi {
@@ -3408,7 +3653,8 @@ export interface WarmTaskRequestApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Optional sandbox environment to provision before the task is submitted.
@@ -3483,6 +3729,23 @@ export type SandboxListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type TaskActivityListParams = {
+    /**
+     * Activity timestamp from the final row of the previous page.
+     */
+    before?: string
+    /**
+     * Activity ID from the final row of the previous page.
+     */
+    before_id?: string
+    /**
+     * Maximum number of tasks to return (most recent activity first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
 }
 
 export type TaskAutomationsListParams = {

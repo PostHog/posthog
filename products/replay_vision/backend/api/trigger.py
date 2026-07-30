@@ -20,12 +20,19 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
+from products.replay_vision.backend.enqueue_claims import (
+    pending_enqueue_claims_for_scanner,
+    pending_enqueue_claims_for_team,
+    release_enqueue_claim,
+    try_claim_enqueue_slot,
+)
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
+    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
@@ -41,12 +48,14 @@ class WorkflowStartOutcome(enum.Enum):
     STARTED = "started"
     # A workflow with our deterministic id is already running — the scan is effectively in progress.
     ALREADY_RUNNING = "already_running"
+    # The atomic enqueue-slot claim was refused: the in-flight caps have no headroom.
+    CAPPED = "capped"
     FAILED = "failed"
 
 
 def check_team_in_flight_capacity(team_id: int) -> None:
-    """Raise 429 when the team is already at its in-flight apply cap."""
-    count = ReplayObservation.in_flight_for_team(team_id).count()
+    """Raise 429 when in-flight rows plus enqueued-but-not-yet-persisted claims hit the team cap."""
+    count = ReplayObservation.in_flight_for_team(team_id).count() + pending_enqueue_claims_for_team(team_id)
     if count >= MAX_IN_FLIGHT_APPLIES_PER_TEAM:
         raise Throttled(detail=f"This team already has {count} observations running. Try again in a few minutes.")
 
@@ -66,15 +75,46 @@ def check_observation_quota(organization_id: UUID, observation_credits: int) -> 
         )
 
 
+def _admission_still_within_caps(scanner: ReplayScanner) -> bool:
+    """Validate a fresh claim against fresh counts. The claim is already registered, so this read
+    sees every competitor, and rows younger than the decay grace are still covered by their claims;
+    a pre-claim row snapshot staler than the grace self-corrects here instead of over-admitting."""
+    in_flight = ReplayObservation.in_flight_for_team(scanner.team_id)
+    if in_flight.count() + pending_enqueue_claims_for_team(scanner.team_id) > MAX_IN_FLIGHT_APPLIES_PER_TEAM:
+        return False
+    scanner_rows = in_flight.filter(scanner_id=scanner.id).count()
+    return scanner_rows + pending_enqueue_claims_for_scanner(scanner.id) <= MAX_IN_FLIGHT_APPLIES_PER_SCANNER
+
+
 def start_apply_scanner_workflow(
     scanner: ReplayScanner,
     session_id: str,
     *,
     triggered_by_user_id: int,
     trigger: ObservationTrigger,
+    team_in_flight_rows: int | None = None,
+    scanner_in_flight_rows: int | None = None,
 ) -> tuple[str, WorkflowStartOutcome]:
-    """Start the deterministic apply-scanner workflow for one (scanner, session); never raises."""
+    """Start the deterministic apply-scanner workflow for one (scanner, session); never raises.
+    An atomic enqueue-slot claim guards the in-flight caps; pass row counts to save two queries."""
     workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
+    if team_in_flight_rows is None:
+        team_in_flight_rows = ReplayObservation.in_flight_for_team(scanner.team_id).count()
+    if scanner_in_flight_rows is None:
+        scanner_in_flight_rows = (
+            ReplayObservation.in_flight_for_team(scanner.team_id).filter(scanner_id=scanner.id).count()
+        )
+    if not try_claim_enqueue_slot(
+        team_id=scanner.team_id,
+        scanner_id=scanner.id,
+        workflow_id=workflow_id,
+        team_in_flight_rows=team_in_flight_rows,
+        scanner_in_flight_rows=scanner_in_flight_rows,
+    ):
+        return workflow_id, WorkflowStartOutcome.CAPPED
+    if not _admission_still_within_caps(scanner):
+        release_enqueue_claim(team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id)
+        return workflow_id, WorkflowStartOutcome.CAPPED
     try:
         client = sync_connect()
         async_to_sync(client.start_workflow)(  # type: ignore[misc]
@@ -102,11 +142,19 @@ def start_apply_scanner_workflow(
         # Pin to our own workflow_id so a future id_reuse_policy change can't silently accept an unrelated run.
         if exc.workflow_id != workflow_id:
             logger.exception("replay_vision.observe.workflow_id_mismatch", workflow_id=workflow_id)
+            release_enqueue_claim(team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id)
             return workflow_id, WorkflowStartOutcome.FAILED
         logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
+        # A persisted row already counts this run, so our claim is a resurrected duplicate — drop
+        # it. Without a row the running workflow is still in the enqueue gap: keep the claim.
+        if ReplayObservation.objects.filter(scanner_id=scanner.id, session_id=session_id).exists():
+            release_enqueue_claim(
+                team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id, immediately=True
+            )
         return workflow_id, WorkflowStartOutcome.ALREADY_RUNNING
     except Exception:
         logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
+        release_enqueue_claim(team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id)
         return workflow_id, WorkflowStartOutcome.FAILED
     return workflow_id, WorkflowStartOutcome.STARTED
 

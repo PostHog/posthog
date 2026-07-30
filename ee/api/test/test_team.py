@@ -42,6 +42,8 @@ def team_enterprise_api_test_factory():
             activity = starting_log_response.json()["results"]
             for item in activity:
                 item.pop("id", None)
+                for envelope_key in ("is_system", "was_impersonated", "client"):
+                    item.pop(envelope_key, None)
             assert activity == expected
 
         # Deleting projects
@@ -269,15 +271,19 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore
         self.assertEqual(Team.objects.count(), 2)
         self.assertEqual(Project.objects.count(), 2)
 
-    def test_rename_team_as_org_member_allowed(self):
+    def test_rename_team_as_org_member_forbidden(self):
+        # Renaming is admin-only (mirrors the settings UI, which gates rename behind admin access).
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
+        # In an access-control org, a member with no explicit project access defaults to effective admin;
+        # set default member access so the admin-only rename gate actually applies.
+        self._set_project_default_member_access(self.team)
 
         response = self.client.patch(f"/api/environments/@current/", {"name": "Erinaceus europaeus"})
         self.team.refresh_from_db()
 
-        self.assertEqual(response.status_code, HTTP_200_OK)
-        self.assertEqual(self.team.name, "Erinaceus europaeus")
+        self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
+        self.assertNotEqual(self.team.name, "Erinaceus europaeus")
 
     def test_list_teams_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

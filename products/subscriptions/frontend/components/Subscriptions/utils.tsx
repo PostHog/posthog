@@ -3,7 +3,6 @@ import { RRule } from 'rrule'
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
@@ -19,10 +18,6 @@ export interface SubscriptionBaseProps {
 }
 
 export type SubscriptionsLogicProps = SubscriptionBaseProps
-
-export function formatNextDeliveryDate(date: string | Date): string {
-    return dayjs(date).format('ddd, MMM D [at] HH:mm')
-}
 
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {
     if (insightShortId) {

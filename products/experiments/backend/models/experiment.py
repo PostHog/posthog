@@ -139,9 +139,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         blank=True,
     )
 
-    # Latest flag-cleanup Code task opened when this experiment ended. A bare UUID, not a FK —
+    # Latest flag-cleanup Desktop task opened when this experiment ended. A bare UUID, not a FK —
     # tasks is an isolated product, so details are read through its facade.
     flag_cleanup_task_id = models.UUIDField(null=True, blank=True)
+
+    # GitHub repository (`org/repo`) holding this experiment's flag code, used for the
+    # flag-cleanup PR. When null, cleanup falls back to the team's only cached repo and
+    # is skipped when the team has several — never inferred.
+    repository = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_experiment"
@@ -498,6 +503,7 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Trigger(models.TextChoices):
         MANUAL = "manual", "Manual"
+        AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"

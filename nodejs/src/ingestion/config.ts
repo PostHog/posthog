@@ -162,9 +162,19 @@ export type IngestionConsumerConfig = {
     // Defaults to team 2 only. Unlike the Rust REALTIME_COHORT_TEAM_ALLOWLIST, an empty value here
     // means "no teams", not "all teams"; use '*' to open the gate.
     PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: string
+    // Fold consecutive runs of $identify merges for the same distinct_id in a batch into a single
+    // merge operation (merge-storm mitigation). Master switch; when off, the planning step passes
+    // every event through unplanned and merges stay sequential.
+    PERSON_MERGE_FOLD_ENABLED: boolean
+    // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
+    PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
+    // Defer creation of new groups to flush time and insert them in a single
+    // batched statement, instead of an inline single-row insert per new group
+    // during event processing. When off, behavior is unchanged.
+    GROUP_BATCH_WRITING_USE_BATCH_CREATES: boolean
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
@@ -211,6 +221,21 @@ export type IngestionConsumerConfig = {
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: string
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
+
+    // AI blob offload: content-addressed S3 storage for multimodal payloads.
+    // Empty bucket or empty teams list disables the offload step entirely.
+    AI_BLOB_S3_BUCKET: string
+    AI_BLOB_S3_PREFIX: string
+    AI_BLOB_S3_ENDPOINT: string
+    AI_BLOB_S3_REGION: string
+    AI_BLOB_S3_ACCESS_KEY_ID: string
+    AI_BLOB_S3_SECRET_ACCESS_KEY: string
+    AI_BLOB_S3_TIMEOUT_MS: number
+    AI_BLOB_OFFLOAD_TEAMS: string
+    AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: number
+    AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: number
+    AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: number
+    AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: number
 
     // Cookieless server hash mode config
     COOKIELESS_DISABLED: boolean
@@ -283,9 +308,12 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
+        PERSON_MERGE_FOLD_ENABLED: false,
+        PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
 
         // Group batch writing config
-        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: false,
+        GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
+        GROUP_BATCH_WRITING_USE_BATCH_CREATES: false,
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
@@ -326,6 +354,26 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_AI_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+
+        // AI blob offload: content-addressed S3 storage for multimodal payloads.
+        // Empty bucket or empty teams list disables the offload step entirely.
+        AI_BLOB_S3_BUCKET: '',
+        // Bucket+prefix are a shared contract with the Django read side (posthog/settings/
+        // object_storage.py) — defaults must agree or reads 404 while writes succeed.
+        AI_BLOB_S3_PREFIX: 'aio/',
+        AI_BLOB_S3_ENDPOINT: '',
+        AI_BLOB_S3_REGION: 'us-east-1',
+        AI_BLOB_S3_ACCESS_KEY_ID: '',
+        AI_BLOB_S3_SECRET_ACCESS_KEY: '',
+        AI_BLOB_S3_TIMEOUT_MS: 30000,
+        AI_BLOB_OFFLOAD_TEAMS: '',
+        // Keep the floor above base64-packed embedding vectors so logged embeddings stay inline as text.
+        AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH: 20480,
+        AI_BLOB_OFFLOAD_MAX_BLOBS_PER_EVENT: 50,
+        // Chunk-wide cap on concurrent blob uploads, so blob-heavy traffic
+        // can't monopolize the S3 socket pool.
+        AI_BLOB_OFFLOAD_UPLOAD_MAX_CONCURRENCY: 8,
+        AI_BLOB_OFFLOAD_TOUCH_AFTER_HOURS: 20,
 
         // Cookieless server hash mode config
         COOKIELESS_DISABLED: false,

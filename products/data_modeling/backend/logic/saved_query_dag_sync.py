@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 import structlog
 
@@ -7,6 +7,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
@@ -20,6 +21,26 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+
+# properties["system"] marker set by consolidate_dags --adopt-unresolvable when a query's SQL
+# would not resolve and its node was created without edges. A successful sync clears it.
+DEGRADED_SYNC_KEY = "degraded_sync"
+
+
+class DegradedSyncMarker(TypedDict):
+    error: str
+    at: str
+
+
+def node_type_for(saved_query: "DataWarehouseSavedQuery") -> NodeType:
+    """The node type a saved query's DAG node should carry."""
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        return NodeType.ENDPOINT
+    if saved_query.table_id is not None:
+        return NodeType.MAT_VIEW
+    return NodeType.VIEW
 
 
 def get_dag_id(team_id: int) -> str:
@@ -132,7 +153,6 @@ def sync_saved_query_to_dag(
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
     Raises ManagedDAGError if dag is system-managed and allow_managed is False.
     """
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     extra_properties = extra_properties or {}
     team = saved_query.team
@@ -144,13 +164,7 @@ def sync_saved_query_to_dag(
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
 
-    # determine node type
-    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
-        node_type = NodeType.ENDPOINT
-    elif saved_query.table:
-        node_type = NodeType.MAT_VIEW
-    else:
-        node_type = NodeType.VIEW
+    node_type = node_type_for(saved_query)
 
     target, _ = Node.objects.get_or_create(
         team=team,
@@ -184,8 +198,18 @@ def sync_saved_query_to_dag(
         target.delete()
         raise
 
+    # resolution succeeded, so an edge-less adoption marker no longer describes this node
+    system = (target.properties or {}).get("system")
+    if isinstance(system, dict):
+        system.pop(DEGRADED_SYNC_KEY, None)
+        if not system:
+            target.properties.pop("system", None)
+
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])
+    # After the save, so it reads fresh state under a row lock rather than riding along on the
+    # whole-blob write above.
+    clear_suspension_if_query_changed(target, saved_query.query)
     if reconcile:
         maybe_reconcile_dag(dag)
     return target

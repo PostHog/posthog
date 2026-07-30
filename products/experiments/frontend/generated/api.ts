@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     ArchiveExperimentApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
@@ -21,7 +22,10 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentSessionContextResponseApi,
+    ExperimentSessionContextsRequestApi,
+    ExperimentSessionContextsResponseApi,
     ExperimentWriteApi,
+    ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsSessionContextRetrieveParams,
@@ -403,6 +407,45 @@ export const experimentsDestroy = async (projectId: string, id: number, options?
     })
 }
 
+export const getExperimentsActivityRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: ExperimentsActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/activity/`
+}
+
+/**
+ * Change history for this experiment.
+ *
+ * Returns a paginated audit trail of changes to the experiment and its holdouts
+ * and shared metrics: who made each change, what changed (field-level before/after
+ * values), and when. Ordered newest first.
+ */
+export const experimentsActivityRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: ExperimentsActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getExperimentsActivityRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/archive/`
 }
@@ -548,9 +591,9 @@ export const getExperimentsFlagCleanupTaskRetrieveUrl = (projectId: string, id: 
 }
 
 /**
- * Status of the flag-cleanup Code task opened for this experiment.
+ * Status of the flag-cleanup Desktop task opened for this experiment.
  *
- * When an experiment was ended or shipped with open_cleanup_pr=true, a Code task
+ * When an experiment was ended or shipped with open_cleanup_pr=true, a Desktop task
  * removes the experiment's feature-flag code and opens a draft pull request. This
  * returns that task's latest run status and the PR URL once one is opened. Poll
  * until is_terminal is true. Returns 404 when no cleanup task was opened.
@@ -1023,6 +1066,36 @@ export const experimentsSessionContextRetrieve = async (
     return apiMutator<ExperimentSessionContextResponseApi>(getExperimentsSessionContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExperimentsSessionContextsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/session_contexts/`
+}
+
+/**
+ * Resolve experiment context for a batch of session recordings.
+ *
+ * Batch variant of `session_context`, used to prefetch the replay player's experiments
+ * box for a whole recordings list in one request. POST because the id list doesn't fit a
+ * query string; the endpoint only reads. Already-computed sessions are served from (and
+ * cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+ * uses, so opening any prefetched recording renders its context instantly. Sessions whose
+ * recording metadata doesn't exist yet are omitted from the response, as are recordings
+ * the caller can't access and sessions beyond the batch's recording-day budget (each
+ * distinct recording day costs its own set of ClickHouse scans, so only the most recent
+ * days are computed per request).
+ */
+export const experimentsSessionContextsCreate = async (
+    projectId: string,
+    experimentSessionContextsRequestApi: ExperimentSessionContextsRequestApi,
+    options?: RequestInit
+): Promise<ExperimentSessionContextsResponseApi> => {
+    return apiMutator<ExperimentSessionContextsResponseApi>(getExperimentsSessionContextsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSessionContextsRequestApi),
     })
 }
 

@@ -23,7 +23,6 @@ from typing import Any, Optional
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -35,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postmark.settings import (
     POSTMARK_ENDPOINTS,
     POSTMARK_MAX_PAGE_SIZE,
@@ -84,17 +84,18 @@ def _get_headers(server_token: str) -> dict[str, str]:
     }
 
 
-def validate_credentials(server_token: str) -> bool:
+def validate_credentials(server_token: str) -> tuple[bool, int | None]:
     # /message-streams is a cheap read-only call any valid server token can make. Postmark
-    # returns 401 (ErrorCode 10) for an invalid/missing token and 200 otherwise.
-    ok, _status = validate_via_probe(
+    # returns 401 (ErrorCode 10) for an invalid/missing token and 200 otherwise. Return the
+    # status so the caller can tell a rejected token (401) from a permissions problem (403) or
+    # an unreachable/erroring API (None/5xx), rather than reporting them all as "invalid token".
+    return validate_via_probe(
         # `X-Postmark-Server-Token` is not in the sample-capture header denylist, so mask the
         # token by value to keep it out of any captured HTTP sample.
         lambda: make_tracked_session(redact_values=(server_token,)),
         f"{POSTMARK_BASE_URL}/message-streams",
         headers=_get_headers(server_token),
     )
-    return ok
 
 
 def postmark_source(

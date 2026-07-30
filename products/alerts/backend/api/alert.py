@@ -2,6 +2,7 @@ import uuid
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
 from django.db.models import OuterRef, Q, QuerySet, Subquery
 
 import posthoganalytics
@@ -10,7 +11,7 @@ from pydantic import (
     Field as PydanticField,
     RootModel,
 )
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -18,7 +19,6 @@ from rest_framework.response import Response
 from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
-    AlertState,
     DetectorConfig,
     FunnelsAlertConfig,
     HogQLAlertConfig,
@@ -33,6 +33,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     NAME_FIELD,
@@ -41,14 +42,20 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models import User
 from posthog.permissions import get_authenticator_scopes
+from posthog.rate_limit import AlertTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
+from posthog.tasks.alerts.utils import (
+    next_check_at_after_schedule_restriction_change,
+    send_test_alert_email,
+    trigger_alert_hog_functions,
+)
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -56,8 +63,17 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
+from products.alerts.backend.insight_alert_state_machine import (
+    apply_disable,
+    apply_enable,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
+
+INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
 def _validate_interval_entitlement(
@@ -356,7 +372,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     investigation_inconclusive_action = serializers.ChoiceField(
         choices=[("notify", "Notify"), ("suppress", "Suppress")],
         required=False,
-        help_text="How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.",
+        help_text="How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.",
     )
     state = serializers.CharField(
         read_only=True,
@@ -463,29 +479,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         return instance
 
+    @transaction.atomic
     def update(self, instance, validated_data):
-        if "snoozed_until" in validated_data:
-            snoozed_until_param = validated_data.pop("snoozed_until")
+        enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
+        resulting_enabled = validated_data.get("enabled", instance.enabled)
+        if enabled_changed and validated_data["enabled"]:
+            apply_enable(instance)
 
-            if snoozed_until_param is None:
-                instance.state = AlertState.NOT_FIRING
-                instance.snoozed_until = None
-            else:
-                # always store snoozed_until as UTC time
-                # as we look at current UTC time to check when to run alerts
-                snoozed_until = relative_date_parse(
-                    snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
-                )
-                instance.state = AlertState.SNOOZED
-                instance.snoozed_until = snoozed_until
-
-            AlertCheck.objects.create(
-                alert_configuration=instance,
-                calculated_value=None,
-                condition=instance.condition,
-                targets_notified={},
-                state=instance.state,
-                error=None,
+        snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
+        snooze_changed = snoozed_until_param is not serializers.empty
+        snoozed_until = None
+        if snooze_changed and snoozed_until_param is not None:
+            snoozed_until = relative_date_parse(
+                snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
             )
 
         conditions_or_threshold_changed = False
@@ -522,7 +528,29 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
         if conditions_or_threshold_changed or calculation_interval_changed:
-            instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
+            if conditions_or_threshold_changed:
+                apply_threshold_change(instance)
+            instance.next_check_at = None
+
+        if snooze_changed:
+            instance.snoozed_until = snoozed_until
+            if snoozed_until_param is None:
+                apply_unsnooze(instance)
+            else:
+                apply_snooze(instance)
+
+        if not resulting_enabled:
+            apply_disable(instance)
+
+        if snooze_changed:
+            AlertCheck.objects.create(
+                alert_configuration=instance,
+                calculated_value=None,
+                condition=instance.condition,
+                targets_notified={},
+                state=instance.state,
+                error=None,
+            )
 
         schedule_restriction_changed = False
         if "schedule_restriction" in validated_data:
@@ -873,6 +901,15 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertTestDeliveryResponseSerializer(serializers.Serializer):
+    destination_count = serializers.IntegerField(help_text="Number of active destinations queued for test delivery.")
+    email_recipient_count = serializers.IntegerField(help_text="Number of subscribed users sent a test email.")
+    failed_delivery_channels = serializers.ListField(
+        child=serializers.ChoiceField(choices=("email", "destination")),
+        help_text="Configured delivery channels that failed to schedule or send.",
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1076,6 +1113,83 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={202: AlertTestDeliveryResponseSerializer},
+        description="Send a synthetic test notification to subscribed users and every active destination on this alert.",
+    )
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="test-delivery",
+        required_scopes=["alert:write"],
+        throttle_classes=[AlertTestDeliveryThrottle],
+    )
+    def test_delivery(self, request, *args, **kwargs):
+        alert = self.get_object()
+        destination_count = count_active_alert_destinations(
+            team_id=alert.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
+        )
+        email_targets = alert.get_subscribed_users_emails()
+        if destination_count == 0 and not email_targets:
+            return Response(
+                {"detail": "Add an email recipient or active destination before sending a test."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        failed_delivery_channels: list[str] = []
+        successful_email_count = 0
+        successful_destination_count = 0
+        if email_targets:
+            try:
+                send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4()))
+                successful_email_count = len(email_targets)
+            except Exception as error:
+                capture_exception(
+                    error,
+                    additional_properties={"alert_id": str(alert.id), "feature": "alerts", "channel": "email"},
+                )
+                failed_delivery_channels.append("email")
+        if destination_count and trigger_alert_hog_functions(
+            alert,
+            {
+                "breaches": "Test alert from PostHog. No action is needed.",
+                "is_test": True,
+                "alert_name": f"[TEST] {alert.name}",
+            },
+        ):
+            successful_destination_count = destination_count
+        elif destination_count:
+            failed_delivery_channels.append("destination")
+
+        if successful_email_count == 0 and successful_destination_count == 0:
+            return Response(
+                {"detail": "Unable to start the test delivery. Check the configured channels and try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert test delivery scheduled",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "destination_count": successful_destination_count,
+                "email_recipient_count": successful_email_count,
+                "failed_delivery_channels": failed_delivery_channels,
+                "team_id": alert.team_id,
+            },
+        )
+        return Response(
+            {
+                "destination_count": successful_destination_count,
+                "email_recipient_count": successful_email_count,
+                "failed_delivery_channels": failed_delivery_channels,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         request=AlertSimulateSerializer,

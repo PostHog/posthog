@@ -1,5 +1,6 @@
 import json
 import hashlib
+import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -23,14 +24,20 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT, MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.constants import (
+    MAX_SNAPSHOT_CLUSTERS,
+    MCP_MISSING_CAPABILITY_EVENT,
+    MCP_TOOL_CALL_EVENT,
+)
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
-# How long a snapshot may sit in COMPUTING before we assume the task died and
-# auto-recover. Generous because a real recompute completes in well under a
-# minute even at the top_n=500 cap; anything past 10 minutes is a dead task.
-STALE_COMPUTING_THRESHOLD = timedelta(minutes=10)
+# How long a snapshot may sit in COMPUTING before we assume the run died and
+# auto-recover. Must exceed the compute activity's schedule_to_close budget
+# (400s, covering queue wait + both attempts — see intent_clustering
+# constants); past that, nothing can still legitimately write a final status,
+# so the row is a dead run whose worker never reached _mark_error.
+STALE_COMPUTING_THRESHOLD = timedelta(minutes=8)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -335,30 +342,74 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
 
 
 INTENT_DIGEST_CACHE_TTL = 60 * 60
+# Floor on how often a project can trigger a fresh generation. The corpus hash alone cannot bound
+# this: a busy server cycles its hundred most recent intents in well under a minute, so every
+# dashboard refresh would miss the content-addressed key and call the LLM again. Serving the
+# previous digest for a few minutes costs nothing: the card answers "what are agents working on
+# lately", not "what happened in the last thirty seconds".
+INTENT_DIGEST_MIN_REGENERATE_SECONDS = 10 * 60
+
+
+def _cached_digest(cached: object) -> contracts.IntentDigest | None:
+    """Rehydrate a cached digest, or None when the payload is absent or predates the current shape.
+
+    Returning None sends the caller back to the LLM rather than raising, so a shape change that
+    outlives its cache key degrades into one extra generation instead of a 500.
+    """
+    if not isinstance(cached, dict) or not isinstance(cached.get("themes"), list):
+        return None
+    try:
+        themes = [contracts.IntentTheme(**theme) for theme in cached["themes"]]
+    except TypeError:
+        return None
+    # Frozen dataclasses don't validate, so a payload with the right keys and wrong value types
+    # would construct here and only fail later in the serializer, past the 503 handler.
+    if any(not isinstance(theme.intent_count, int) or not isinstance(theme.tools, list) for theme in themes):
+        return None
+    return contracts.IntentDigest(
+        digest=cached.get("summary"), intent_count=cached.get("intent_count", 0), themes=themes
+    )
 
 
 def generate_intent_digest(team: Team) -> contracts.IntentDigest:
-    """Return a project-level LLM digest of what agents are trying to do, for the activity stage.
+    """Return a project-level LLM digest of what agents are trying to do, for the activity tab.
 
-    Content-addressed cache: the digest is keyed by the current intent corpus, so it only
-    regenerates when new intents arrive (and at most refreshes hourly via the TTL). A project
-    with no recorded intents returns a null digest without an LLM call, so the frontend can
-    fall back to its verbatim list. Raises ``contracts.IntentGenerationUnavailable`` if the
-    LLM is unreachable.
+    A one-sentence summary plus up to five semantic themes. The LLM only groups the intents and
+    names each group; counts, tools, and the verbatim example are resolved from the corpus by
+    ``intent_generation.resolve_themes``, so nothing countable on the card is model-generated.
+
+    Two cache layers, because the two ends of the volume range want opposite things. The
+    content-addressed key means a quiet project never pays for a regeneration while its intents sit
+    unchanged. The recency key bounds a busy project, whose corpus is different on every request, to
+    one generation per ``INTENT_DIGEST_MIN_REGENERATE_SECONDS``. ``intent_count`` travels in the
+    payload so a served digest always reports the corpus it was actually derived from, keeping the
+    theme shares consistent with the total the card displays.
+
+    A project with no recorded intents returns a null digest without an LLM call. Raises
+    ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
     """
     intents = intent_generation.fetch_recent_project_intents(team)
     if not intents:
         return contracts.IntentDigest(digest=None, intent_count=0)
 
-    corpus_hash = hashlib.sha256("\n".join(intents).encode()).hexdigest()
-    cache_key = generate_cache_key(team.pk, f"mcp_intent_digest/{corpus_hash}")
-    cached = cache.get(cache_key)
-    if cached:
-        return contracts.IntentDigest(digest=cached, intent_count=len(intents))
+    corpus_hash = hashlib.sha256("\x00".join(f"{intent}\x01{tool}" for intent, tool in intents).encode()).hexdigest()
+    corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
+    recent_key = generate_cache_key(team.pk, "mcp_intent_digest_v3/recent")
+    for key in (corpus_key, recent_key):
+        cached = _cached_digest(cache.get(key))
+        if cached is not None:
+            return cached
 
-    digest = intent_generation.summarize_project_intents(intents, team)
-    cache.set(cache_key, digest, INTENT_DIGEST_CACHE_TTL)
-    return contracts.IntentDigest(digest=digest, intent_count=len(intents))
+    parsed = intent_generation.summarize_project_intents(intents, team)
+    themes = intent_generation.resolve_themes(parsed, intents)
+    payload = {
+        "summary": parsed.summary,
+        "intent_count": len(intents),
+        "themes": [dataclasses.asdict(theme) for theme in themes],
+    }
+    cache.set(corpus_key, payload, INTENT_DIGEST_CACHE_TTL)
+    cache.set(recent_key, payload, INTENT_DIGEST_MIN_REGENERATE_SECONDS)
+    return contracts.IntentDigest(digest=parsed.summary, intent_count=len(intents), themes=themes)
 
 
 # The activity queries read `properties.*`, which decompresses the properties column for
@@ -395,13 +446,25 @@ ORDER BY calls DESC
 LIMIT {limit}
 """
 
+# Agents report the same client under many spellings — "claude-code", "Claude Code",
+# "CLAUDE_CODE" — so grouping on the raw property splits one client across several rows
+# and lets each land below the top-N cut. Case and separators are both normalised away
+# for grouping (matching the frontend's harness-label rules, which already treat
+# `[ ._-]` as interchangeable), and the most-seen spelling becomes the display name.
 _ACTIVITY_CLIENTS_SQL = """
 SELECT
-    properties.$mcp_client_name AS client,
-    count() AS calls
-FROM events
-WHERE event = {tool_call_event} AND timestamp >= {date_from}
-GROUP BY client
+    argMax(client_name, spelling_calls) AS client,
+    sum(spelling_calls) AS calls
+FROM (
+    SELECT
+        properties.$mcp_client_name AS client_name,
+        replaceRegexpAll(lower(properties.$mcp_client_name), '[ ._-]+', '') AS client_key,
+        count() AS spelling_calls
+    FROM events
+    WHERE event = {tool_call_event} AND timestamp >= {date_from}
+    GROUP BY client_name, client_key
+)
+GROUP BY client_key
 ORDER BY calls DESC
 LIMIT {limit}
 """
@@ -648,9 +711,9 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
     Defensive side effect: any row stuck in COMPUTING past
     STALE_COMPUTING_THRESHOLD is auto-flipped to ERROR so the UI can offer
-    a retry. The Celery task may have died between writing COMPUTING and
-    writing its final status (worker restart, OOM, etc.) and otherwise has
-    no path back to a usable state.
+    a retry. The Temporal activity may have died between writing COMPUTING
+    and writing its final status (no worker on the queue, worker OOM, etc.)
+    and otherwise has no path back to a usable state.
     """
     MCPIntentClusterSnapshot.objects.filter(
         team=team,
@@ -658,7 +721,7 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
         updated_at__lt=timezone.now() - STALE_COMPUTING_THRESHOLD,
     ).update(
         status=MCPIntentClusterSnapshot.Status.ERROR,
-        error_message="Recompute task did not complete within the expected window. Retry to try again.",
+        error_message="Clustering didn't finish in time. Retry to start a new run.",
     )
 
     snapshot = MCPIntentClusterSnapshot.objects.filter(team=team).select_related("last_computed_by").first()
@@ -675,6 +738,16 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
     blob = snapshot.clusters or {}
     clusters_raw = blob.get("clusters", []) if isinstance(blob, dict) else []
     meta_raw = blob.get("computed_with") if isinstance(blob, dict) else None
+
+    # Snapshots persisted before build_snapshot capped its output can hold
+    # hundreds of clusters — cap at read time too, keeping the highest-volume
+    # ones (the same ranking build_snapshot persists).
+    if len(clusters_raw) > MAX_SNAPSHOT_CLUSTERS:
+        clusters_raw = sorted(
+            (item for item in clusters_raw if isinstance(item, dict)),
+            key=lambda item: int(item.get("call_count", 0) or 0),
+            reverse=True,
+        )[:MAX_SNAPSHOT_CLUSTERS]
 
     return contracts.IntentClusterSnapshot(
         status=snapshot.status,

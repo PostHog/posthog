@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 # whose pipeline uses a different key can override via the `logs_config` endpoint.
 DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = "posthogDistinctId"
 
+DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY]
+
+
+def default_logs_distinct_id_attribute_keys() -> list[str]:
+    return list(DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS)
+
+
 # Default log attribute keys whose values hold the PostHog session ID. `posthogSessionId`
 # is the key the posthog-js / posthog-react-native SDKs auto-attach to every log they
 # emit (see https://posthog.com/docs/logs/link-session-replay). Ordered: detection checks
@@ -47,13 +54,22 @@ class TeamLogsConfig(models.Model):
     # access to. Mirrors the `TeamExperimentsConfig` precedent.
     team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
 
-    # Log attribute key whose value matches a PostHog person's distinct_id. Used by the
-    # person profile Logs tab and the `query-logs` MCP tool to filter logs to a single
-    # user without needing per-team prompt engineering.
+    # Legacy single-key predecessor of `logs_distinct_id_attribute_keys`, kept in sync
+    # with its first entry so pre-plural readers stay coherent. Do not write directly.
     logs_distinct_id_attribute_key = models.CharField(
         max_length=200,
         default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
         db_default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
+    )
+
+    # Log attribute keys whose values match a PostHog person's distinct_id — a log links
+    # to a person when any of these attributes equals one of the person's distinct IDs.
+    # Used by the person profile Logs tab and the `query-logs` MCP tool to filter logs
+    # to a single user without needing per-team prompt engineering.
+    logs_distinct_id_attribute_keys = ArrayField(
+        models.CharField(max_length=200),
+        default=default_logs_distinct_id_attribute_keys,
+        db_default=Value("{posthogDistinctId}"),
     )
 
     # Ordered list of log attribute keys whose values hold the PostHog session ID.
@@ -381,6 +397,42 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         db_table = "logs_logsexclusionrule"
         indexes = [
             models.Index(fields=["team_id", "enabled", "priority"], name="logs_exclusion_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"
+
+
+class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined rules that override how long matching log lines are retained (evaluated in ingestion
+    when enabled). First matching rule by (priority, created_at) wins; logs matching no rule keep the
+    team's default retention (`Team.logs_settings.retention_days`)."""
+
+    # Plain team FK — like LogsExclusionRule and TeamLogsConfig, retention rules are per-environment,
+    # so this deliberately does not use TeamScopedRootMixin (whose canonical-team save() rewrite would
+    # let one child environment mutate a sibling's rules). Tenant isolation is enforced at the API layer
+    # via safely_get_queryset filtering on team_id; the model is tracked in scoping/baseline_unmigrated.txt.
+    # db_constraint=False on the hot-table FKs (team, created_by) keeps the CreateModel migration
+    # lock-free — creating a real FK constraint would take a SHARE ROW EXCLUSIVE lock on the parent.
+    # Enforcement stays at the ORM level (cascade/set-null run through the Django collector).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins. Ties use created_at ascending (same as ingestion query order).",
+    )
+    # {"filter_group": <PropertyGroupFilter>, "retention_days": <14|30|90>}
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "logs_logsretentionrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_retention_team_en_pr_idx"),
         ]
 
     def __str__(self) -> str:
