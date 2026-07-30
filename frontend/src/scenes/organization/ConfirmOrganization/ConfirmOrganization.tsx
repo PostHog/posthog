@@ -71,7 +71,7 @@ export function ConfirmOrganization(): JSX.Element {
                 </LemonField>
 
                 <LemonField name="first_name" label="Your name">
-                    <LemonInput className="ph-ignore-input" placeholder="Jane Doe" />
+                    <LemonInput className="ph-ignore-input" placeholder="e.g. Jane Doe" />
                 </LemonField>
 
                 <LemonField
@@ -79,7 +79,7 @@ export function ConfirmOrganization(): JSX.Element {
                     label="Organization name"
                     help="You can always rename your organization later"
                 >
-                    <LemonInput className="ph-ignore-input" placeholder="Hogflix Movies" />
+                    <LemonInput className="ph-ignore-input" placeholder="e.g. Hogflix Movies" />
                 </LemonField>
 
                 <SignupRoleSelect />
