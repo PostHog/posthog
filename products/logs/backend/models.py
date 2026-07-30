@@ -27,7 +27,13 @@ logger = logging.getLogger(__name__)
 # whose pipeline uses a different key can override via the `logs_config` endpoint.
 DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = "posthogDistinctId"
 
-DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = [DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY]
+# The SDKs auto-attach the person's distinct_id under both `posthogDistinctId` (backend
+# SDKs / OTel convention) and `distinctId` (posthog-js). Both are SDK-controlled and carry
+# a genuine distinct_id, so both are safe defaults; a log links to a person when either
+# matches. Generic application-log keys like a bare `distinct_id` are deliberately NOT
+# defaulted — their values are unreliable person identifiers — teams opt into those via
+# the `logs_config` endpoint.
+DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS = ["posthogDistinctId", "distinctId"]
 
 
 def default_logs_distinct_id_attribute_keys() -> list[str]:
@@ -69,7 +75,7 @@ class TeamLogsConfig(models.Model):
     logs_distinct_id_attribute_keys = ArrayField(
         models.CharField(max_length=200),
         default=default_logs_distinct_id_attribute_keys,
-        db_default=Value("{posthogDistinctId}"),
+        db_default=Value("{posthogDistinctId,distinctId}"),
     )
 
     # Ordered list of log attribute keys whose values hold the PostHog session ID.

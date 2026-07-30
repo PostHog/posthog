@@ -50,7 +50,7 @@ The `value` field accepts a string, number, or array of strings depending on the
 
 ## Filtering logs by a PostHog person
 
-When the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via `log_attribute` filters. The attribute keys are configurable per project (they default to `["posthogDistinctId"]`); read `logs_distinct_id_attribute_keys` from the `/api/projects/:id/logs_config/` endpoint and use those as the filter `key`s.
+When the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via `log_attribute` filters. The attribute keys are configurable per project (they default to `["posthogDistinctId", "distinctId"]`); read `logs_distinct_id_attribute_keys` from the `/api/projects/:id/logs_config/` endpoint and use those as the filter `key`s.
 
 If a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them):
 

@@ -235,7 +235,8 @@ class TestTeamLogsConfig(BaseTest):
         # Matches the JS SDK / docs convention so logs from posthog-js are linked to
         # their person without any team configuration.
         assert config.logs_distinct_id_attribute_key == "posthogDistinctId"
-        assert config.logs_distinct_id_attribute_keys == ["posthogDistinctId"]
+        # Both keys are SDK-auto-attached distinct_id carriers, so both link out of the box.
+        assert config.logs_distinct_id_attribute_keys == ["posthogDistinctId", "distinctId"]
 
     def test_custom_attribute_keys_persist(self):
         config = get_or_create_team_extension(self.team, TeamLogsConfig)
