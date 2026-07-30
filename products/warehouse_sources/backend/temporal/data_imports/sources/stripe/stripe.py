@@ -389,7 +389,9 @@ def _credit_balance_transaction_lister(client: StripeClient) -> Callable[..., Li
     grant) so each row is a transaction against a grant we already sync."""
 
     def _list(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
-        return client.billing.credit_balance_transactions.list(params={**params, "credit_grant": credit_grant})
+        return client.billing.credit_balance_transactions.list(
+            params=cast(Any, {**params, "credit_grant": credit_grant})
+        )
 
     return _list
 
