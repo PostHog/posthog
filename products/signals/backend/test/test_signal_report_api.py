@@ -20,8 +20,15 @@ from social_django.models import UserSocialAuth
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_CLIENT_ID_EU,
+    ARRAY_APP_CLIENT_ID_US,
+    create_oauth_access_token_for_user,
+)
 
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
@@ -33,6 +40,23 @@ from products.signals.backend.task_run_artefacts import append_task_run_artefact
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import Task, TaskRun
+
+
+def authenticate_as_sandbox_token(test: APIBaseTest) -> None:
+    for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
+        OAuthApplication.objects.get_or_create(
+            client_id=client_id,
+            defaults={
+                "name": "Array Test App",
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://app.posthog.com/callback",
+                "algorithm": "RS256",
+            },
+        )
+    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=["task:read", "task:write"])
+    test.client.logout()
+    test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
 
 class TestSignalReportDeleteAPI(APIBaseTest):
@@ -2380,6 +2404,38 @@ class TestSignalReportPrEndpoints(APIBaseTest):
                 self._review_comment_url(str(report.id), "99") + suffix, data=payload, format="json"
             )
         assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"body": "hi", "in_reply_to": "1"}),
+            ("edit", "patch", "99/", {"body": "edited"}),
+            ("delete", "delete", "99/", None),
+            ("react", "post", "99/reactions/", {"content": "+1"}),
+            ("unreact", "delete", "99/reactions/5/", None),
+        ]
+    )
+    def test_sandbox_oauth_token_cannot_write_review_comments_as_the_user(self, _name, method, suffix, payload):
+        # These writes reach GitHub under the requesting human's personal connection. A sandbox/agent
+        # token is minted as the task actor and carries task:write, so without the guard a prompt-injected
+        # run could comment, edit, delete, or react as the person who started it.
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        self.addCleanup(patch.stopall)
+        authenticate_as_sandbox_token(self)
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/pr_review_comments/{suffix}",
+                data=payload,
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        user_github.assert_not_called()
 
     def test_pr_checks_404_when_report_has_no_implementation_pr(self):
         report = self._create_report()
