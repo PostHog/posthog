@@ -53276,7 +53276,7 @@ export namespace Schemas {
      * Editable schedule, enablement, and emit posture for one scout config.
      */
     export interface PatchedSignalScoutConfigUpdate {
-      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       emit?: boolean;
@@ -56664,10 +56664,15 @@ export namespace Schemas {
          */
       last_emitted_at: string | null;
       /**
-         * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+         * Why this scout is in the `disabled` bucket: `turned_off` (a person or seed posture set it off), `auto_paused` (the system paused it), or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
          * @nullable
          */
       not_running_reason: string | null;
+      /**
+         * The cause behind an `auto_paused` entry: `no_output`, `ignored`, or `repeated_failures`. Null for every other entry.
+         * @nullable
+         */
+      pause_reason: string | null;
     }
 
     /**
@@ -62055,6 +62060,36 @@ export namespace Schemas {
     }
 
     /**
+     * * `no_output` - No output
+     * * `ignored` - Ignored
+     * * `repeated_failures` - Repeated failures
+     */
+    export type ScoutConfigPauseReasonEnum = typeof ScoutConfigPauseReasonEnum[keyof typeof ScoutConfigPauseReasonEnum];
+
+
+    export const ScoutConfigPauseReasonEnum = {
+      NoOutput: 'no_output',
+      Ignored: 'ignored',
+      RepeatedFailures: 'repeated_failures',
+    } as const;
+
+    /**
+     * * `active` - Active
+     * * `pending_pause` - Pending pause
+     * * `paused_by_system` - Paused by system
+     * * `paused_by_user` - Paused by user
+     */
+    export type ScoutConfigStatusEnum = typeof ScoutConfigStatusEnum[keyof typeof ScoutConfigStatusEnum];
+
+
+    export const ScoutConfigStatusEnum = {
+      Active: 'active',
+      PendingPause: 'pending_pause',
+      PausedBySystem: 'paused_by_system',
+      PausedByUser: 'paused_by_user',
+    } as const;
+
+    /**
      * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
      *
      * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
@@ -62768,8 +62803,21 @@ export namespace Schemas {
       readonly description: string;
       /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
       readonly scout_origin: ScoutOriginEnum;
-      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
       readonly enabled: boolean;
+      /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
+       *
+       * * `active` - Active
+       * * `pending_pause` - Pending pause
+       * * `paused_by_system` - Paused by system
+       * * `paused_by_user` - Paused by user */
+      readonly status: ScoutConfigStatusEnum;
+      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (its output received no human engagement), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+       *
+       * * `no_output` - No output
+       * * `ignored` - Ignored
+       * * `repeated_failures` - Repeated failures */
+      readonly pause_reason: ScoutConfigPauseReasonEnum | null;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       readonly emit: boolean;
       /**
