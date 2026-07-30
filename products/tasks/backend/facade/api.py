@@ -135,6 +135,7 @@ __all__ = [
     "claim_and_fail_stale_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
+    "ensure_personal_channel",
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
@@ -864,9 +865,11 @@ def create_and_run_task(
     model). Less-common keyword arguments are forwarded verbatim via ``**extra``.
 
     ``channel_id`` files the task into a channel's feed (the channel it was kicked off in);
-    left NULL for non-channel surfaces. A stale/foreign id is ignored rather than raising —
-    feed placement must never break task creation.
+    left NULL for non-channel surfaces. A channel the creator can't file into — unknown,
+    deleted, or someone else's personal channel — is ignored rather than raising: feed
+    placement must never break task creation.
     """
+    channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
         team=team,
         title=title,
@@ -874,6 +877,7 @@ def create_and_run_task(
         origin_product=origin_product,
         user_id=user_id,
         repository=repository,
+        channel=channel,
         create_pr=create_pr,
         mode=mode,
         start_workflow=start_workflow,
@@ -883,11 +887,6 @@ def create_and_run_task(
         sandbox_environment_id=sandbox_environment_id,
         **extra,
     )
-    if channel_id is not None:
-        channel = Channel.objects.for_team(task.team_id).filter(id=channel_id, deleted=False).first()
-        if channel is not None:
-            task.channel = channel
-            task.save(update_fields=["channel", "updated_at"])
     latest = task.latest_run
     return contracts.CreatedTaskDTO(
         task_id=task.id,
@@ -5015,29 +5014,17 @@ def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
     # for_team so this works outside request scope too (Temporal activities filing a
     # Slack task into #me) — the fail-closed manager raises on a bare read without it.
     # select_related so _channel_to_dto doesn't lazy-load created_by per call.
+    channels = Channel.objects.for_team(team_id).select_related("created_by")
+    lookup = {
+        "team_id": team_id,
+        "created_by_id": user_id,
+        "channel_type": Channel.ChannelType.PERSONAL,
+        "deleted": False,
+    }
     try:
-        channel, _ = (
-            Channel.objects.for_team(team_id)
-            .select_related("created_by")
-            .get_or_create(
-                team_id=team_id,
-                created_by_id=user_id,
-                channel_type=Channel.ChannelType.PERSONAL,
-                deleted=False,
-                defaults={"name": Channel.PERSONAL_CHANNEL_NAME},
-            )
-        )
+        channel, _ = channels.get_or_create(**lookup, defaults={"name": Channel.PERSONAL_CHANNEL_NAME})
     except IntegrityError:
-        channel = (
-            Channel.objects.for_team(team_id)
-            .select_related("created_by")
-            .get(
-                team_id=team_id,
-                created_by_id=user_id,
-                channel_type=Channel.ChannelType.PERSONAL,
-                deleted=False,
-            )
-        )
+        channel = channels.get(**lookup)
     return channel
 
 
@@ -5160,8 +5147,15 @@ def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.Chann
 
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
     """A channel the requester may read: any live public channel on the team, or their
-    own personal channel. ``None`` when it's missing or someone else's personal channel."""
-    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
+    own personal channel. ``None`` when it's missing or someone else's personal channel.
+
+    Scoped via ``for_team`` rather than a bare ``team_id`` filter so it also resolves outside
+    request scope (Temporal activities), where the fail-closed manager raises on an
+    unscoped read.
+    """
+    channel = (
+        Channel.objects.for_team(team_id).select_related("created_by").filter(id=channel_id, deleted=False).first()
+    )
     if channel is None:
         return None
     if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:

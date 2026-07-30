@@ -1,7 +1,7 @@
 import importlib
 from datetime import timedelta
 from typing import ClassVar
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -561,13 +561,38 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "full")
         self.assertEqual(run.state["pending_dispatch"]["user_id"], self.user.id)
 
-    @parameterized.expand([("valid_channel", True), ("stale_channel", False)])
+    def _make_channel(self, **kwargs) -> Channel:
+        # unscoped: no ambient team_scope in these tests, and the fail-closed manager
+        # raises on a bare write just as it does on a bare read.
+        defaults = {
+            "team": self.team,
+            "name": "engineering",
+            "channel_type": Channel.ChannelType.PUBLIC,
+            "created_by": self.user,
+        }
+        return Channel.objects.unscoped().create(**{**defaults, **kwargs})
+
+    @parameterized.expand(["public", "unknown", "other_users_personal"])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_task_files_into_channel(self, _name, use_real_channel, _mock_workflow):
+    def test_create_and_run_task_files_into_channel(self, channel_kind, _mock_workflow):
         Integration.objects.create(team=self.team, kind="github", config={})
-        channel = Channel.objects.create(
-            team=self.team, name="engineering", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
-        )
+        expected: UUID | None
+        if channel_kind == "public":
+            channel_id = self._make_channel().id
+            expected = channel_id
+        elif channel_kind == "unknown":
+            channel_id, expected = uuid4(), None
+        else:
+            # Someone else's "#me" is private: filing into it would leak the task into
+            # their personal feed, so it must be dropped like an unknown id.
+            teammate = User.objects.create(email="teammate@test.com", distinct_id="teammate")
+            channel_id = self._make_channel(
+                name=Channel.PERSONAL_CHANNEL_NAME,
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=teammate,
+            ).id
+            expected = None
+
         created = facade.create_and_run_task(
             team=self.team,
             title="Created via facade",
@@ -575,12 +600,11 @@ class TestFacadeReadsAndMappers(TestCase):
             origin_product=facade.TaskOriginProduct.USER_CREATED,
             user_id=self.user.id,
             repository="posthog/posthog",
-            channel_id=str(channel.id) if use_real_channel else str(uuid4()),
+            channel_id=channel_id,
         )
-        task = Task.objects.get(id=created.task_id)
-        # A real id files the task into that channel's feed; a stale/foreign id is dropped
+        # A channel the creator can file into lands on the task; anything else is dropped
         # rather than raising, so feed placement never breaks task creation.
-        self.assertEqual(task.channel_id, channel.id if use_real_channel else None)
+        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, expected)
 
     def test_ensure_personal_channel_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — the fail-closed manager
