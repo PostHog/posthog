@@ -890,7 +890,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     undefined,
                     emptySceneParams,
                     clickedLink,
-                    values.exportedScenes[sceneId]
+                    values.exportedScenes[Scene.Error404]
                 )
                 return
             }
@@ -935,7 +935,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     // previous scene still mounted, which reads as a frozen page.
                     console.error(`Error loading scene ${sceneId}`, error)
                     posthog.captureException(error, { extra: { source: 'sceneLogic.loadScene', sceneId } })
-                    actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
+                    actions.setScene(
+                        Scene.ErrorNetwork,
+                        undefined,
+                        emptySceneParams,
+                        clickedLink,
+                        values.exportedScenes[Scene.ErrorNetwork]
+                    )
                     return
                 } finally {
                     window.clearTimeout(timeout)
