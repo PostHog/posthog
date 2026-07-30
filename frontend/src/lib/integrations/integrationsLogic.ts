@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError, getCookie, GitHubAvailableInstallation } from 'lib/api'
+import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
 import { describeOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
@@ -20,7 +20,11 @@ import {
     integrationsGithubReposRetrieve,
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
-import type { GitHubRepoApi, IntegrationKindEnumApi } from 'products/integrations/frontend/generated/api.schemas'
+import type {
+    GitHubAvailableInstallationApi,
+    GitHubRepoApi,
+    IntegrationKindEnumApi,
+} from 'products/integrations/frontend/generated/api.schemas'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../generated/core/api.schemas'
@@ -86,11 +90,11 @@ export interface integrationsLogicValues {
             | 'vercel'
         )[]
     ) => IntegrationType[]
+    githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
+    githubAvailableInstallationsLoading: boolean
     githubIntegrations: IntegrationType[]
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
-    githubAvailableInstallations: GitHubAvailableInstallation[] | null
-    githubAvailableInstallationsLoading: boolean
     integrations: IntegrationType[] | null
     integrationsLoading: boolean
     linkedGithubInstallation: IntegrationType | null
@@ -164,7 +168,7 @@ export interface integrationsLogicActions {
             | 'vercel'
         searchParams: any
     }
-    linkExistingGithubInstallation: (installationId?: string) => string | undefined
+    linkExistingGithubInstallation: (installationId?: string) => string
     linkExistingGithubInstallationFailure: (
         error: string,
         errorObject?: any
@@ -174,25 +178,10 @@ export interface integrationsLogicActions {
     }
     linkExistingGithubInstallationSuccess: (
         linkedGithubInstallation: IntegrationType,
-        payload?: any
+        payload?: string
     ) => {
         linkedGithubInstallation: IntegrationType
-        payload?: any
-    }
-    loadGithubAvailableInstallations: () => any
-    loadGithubAvailableInstallationsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadGithubAvailableInstallationsSuccess: (
-        githubAvailableInstallations: GitHubAvailableInstallation[],
-        payload?: any
-    ) => {
-        githubAvailableInstallations: GitHubAvailableInstallation[]
-        payload?: any
+        payload?: string
     }
     loadGitHubRepositories: (integrationId: number) => {
         integrationId: number
@@ -215,6 +204,21 @@ export interface integrationsLogicActions {
         hasMore: boolean
         integrationId: number
         repositories: GitHubRepoApi[]
+    }
+    loadGithubAvailableInstallations: () => any
+    loadGithubAvailableInstallationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadGithubAvailableInstallationsSuccess: (
+        githubAvailableInstallations: GitHubAvailableInstallationApi[],
+        payload?: any
+    ) => {
+        githubAvailableInstallations: GitHubAvailableInstallationApi[]
+        payload?: any
     }
     loadIntegrations: () => any
     loadIntegrationsFailure: (
@@ -849,7 +853,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         githubAvailableInstallations: [
-            null as GitHubAvailableInstallation[] | null,
+            null as GitHubAvailableInstallationApi[] | null,
             {
                 loadGithubAvailableInstallations: async () => {
                     return await api.integrations.githubAvailableInstallations()

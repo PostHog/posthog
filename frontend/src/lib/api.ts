@@ -233,6 +233,7 @@ import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/Err
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
+    GitHubAvailableInstallationApi,
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
@@ -292,15 +293,6 @@ import type { ProductIntentProperties } from './utils/product-intents'
  */
 
 export type CheckboxValueType = string | number | boolean
-
-// Mirrors GitHubAvailableInstallationSerializer. Replace with the generated `GitHubAvailableInstallationApi`
-// once `hogli build:openapi` has been run against the new github/available_installations endpoint.
-export interface GitHubAvailableInstallation {
-    installation_id: string
-    account_name: string | null
-    account_type: string | null
-    source_team_id: number
-}
 
 const PAGINATION_DEFAULT_MAX_PAGES = 10
 
@@ -6323,7 +6315,7 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrations(teamId).withAction('github/link_existing').create({ data })
         },
-        async githubAvailableInstallations(teamId?: TeamType['id']): Promise<GitHubAvailableInstallation[]> {
+        async githubAvailableInstallations(teamId?: TeamType['id']): Promise<GitHubAvailableInstallationApi[]> {
             return await new ApiRequest().integrations(teamId).withAction('github/available_installations').get()
         },
         async githubOAuthAuthorize(
