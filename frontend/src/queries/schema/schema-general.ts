@@ -8168,6 +8168,9 @@ export const externalDataSources = [
     'FirstPromoter',
     'Zero',
     'Inth',
+    'BCMS',
+    'Convonite',
+    'Hookdeck',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
