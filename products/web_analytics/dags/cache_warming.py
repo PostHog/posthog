@@ -1,10 +1,11 @@
+import os
 import re
 import gzip
 import json
 import time
 import threading
 import statistics
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from typing import TYPE_CHECKING, Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -615,6 +616,19 @@ WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
 # identity churn re-warming old days, one team's pathological filters).
 WARMING_SLOW_SHAPE_SECONDS = 15
 
+# A ClickHouse node dying mid-pass can leave every worker thread blocked in a
+# socket read that never returns: no futures complete, the heartbeat (which
+# lives in the consumption loop) goes silent, and because pool threads are
+# non-daemon the process cannot even exit — the run wedges indefinitely,
+# mutual exclusion then blocks every subsequent scheduled tick, and the fleet
+# goes stale until a human terminates the run. If nothing has completed for
+# this long WHILE there is still queued work beyond the in-flight set (threads
+# should be turning over constantly), the pass is presumed wedged and the
+# process hard-exits so Dagster records a step failure and the next tick runs.
+# A quiet tail (pending <= concurrency, e.g. one slow deep-range straggler) is
+# legitimate and only logs.
+WARMING_STALL_TIMEOUT_SECONDS = 1800
+
 
 def _team_still_exists(team_id: int) -> bool:
     # Thin DB boundary so tests can pin the answer: pool worker threads hold their
@@ -854,21 +868,49 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
         # workers finish thousands of shapes. Consuming on the op thread also keeps
         # context.log here safe, unlike the worker-thread logging inside _warm_one.
         futures = [pool.submit(_warm_one, query_info) for query_info in queries]
-        for future in as_completed(futures):
-            outcome = future.result()
-            outcomes[outcome] = outcomes.get(outcome, 0) + 1
-            processed += 1
-            now = time.monotonic()
-            if now - last_log_at >= WARMING_PROGRESS_LOG_INTERVAL_SECONDS:
-                elapsed = now - started_at
-                rate = processed / elapsed
-                eta_min = (total - processed) / rate / 60 if rate > 0 else 0
-                breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
-                context.log.info(
-                    f"Warming progress: {processed}/{total} ({100 * processed // total}%) "
-                    f"at {rate:.0f}/s, ETA ~{eta_min:.0f}m — {breakdown}"
-                )
-                last_log_at = now
+        pending = set(futures)
+        try:
+            while pending:
+                done, pending = wait(pending, timeout=WARMING_STALL_TIMEOUT_SECONDS, return_when=FIRST_COMPLETED)
+                if not done:
+                    if len(pending) <= concurrency:
+                        context.log.warning(
+                            f"No shape completed in {WARMING_STALL_TIMEOUT_SECONDS}s with only "
+                            f"{len(pending)} in flight — slow tail, still waiting"
+                        )
+                        continue
+                    context.log.error(
+                        f"No shape completed in {WARMING_STALL_TIMEOUT_SECONDS}s with {len(pending)} shapes "
+                        f"pending — presuming worker threads wedged on dead connections; exiting so the "
+                        f"step fails and the next scheduled run takes over"
+                    )
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    # Blocked pool threads are non-daemon: a raise would still hang
+                    # at interpreter shutdown joining them. Hard exit is the only
+                    # way out of a wedged process; Dagster records a step failure.
+                    os._exit(1)
+                for future in done:
+                    outcome = future.result()
+                    outcomes[outcome] = outcomes.get(outcome, 0) + 1
+                    processed += 1
+                now = time.monotonic()
+                if now - last_log_at >= WARMING_PROGRESS_LOG_INTERVAL_SECONDS:
+                    elapsed = now - started_at
+                    rate = processed / elapsed
+                    eta_min = (total - processed) / rate / 60 if rate > 0 else 0
+                    breakdown = ", ".join(f"{k}={v}" for k, v in sorted(outcomes.items()))
+                    context.log.info(
+                        f"Warming progress: {processed}/{total} ({100 * processed // total}%) "
+                        f"at {rate:.0f}/s, ETA ~{eta_min:.0f}m — {breakdown}"
+                    )
+                    last_log_at = now
+        except BaseException:
+            # Cancellation or a crash must not hand the context manager a full
+            # queue to drain: shutdown(wait=True) on exit would keep warming the
+            # entire backlog long after the run was cancelled (observed as a
+            # cancelled run that kept processing for hours).
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
 
     queries_warmed = outcomes.get("warmed", 0)
     queries_skipped = outcomes.get("skipped_fresh", 0)
