@@ -258,7 +258,7 @@ const ExperimentsTable = ({
                         description={
                             experiment.description ? (
                                 // Hypotheses can run many paragraphs, so clamp to keep list rows compact
-                                <LemonMarkdown className="max-w-[30rem] line-clamp-2" lowKeyHeadings>
+                                <LemonMarkdown className="max-w-[30rem] line-clamp-2" lowKeyHeadings disableImages>
                                     {experiment.description}
                                 </LemonMarkdown>
                             ) : undefined
