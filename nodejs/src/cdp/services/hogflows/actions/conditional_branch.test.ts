@@ -5,6 +5,7 @@ import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
@@ -23,6 +24,18 @@ const pollOnlyAdvanceLabels = async (): Promise<Record<string, string | number> 
 
 const rekeyWakeCount = async (outcome: 'advanced' | 'reparked'): Promise<number> =>
     (await counterHogflowRekeyWake.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+
+const setPerson = (invocation: CyclotronJobInvocationHogFlow, properties: Record<string, any>): void => {
+    // Mirror the worker: it resolves the person on dequeue and rebuilds filterGlobals from it, so the
+    // condition and any wake timer always read the same scope.
+    invocation.person = { id: 'uuid', properties } as any
+    invocation.filterGlobals = convertToHogFunctionFilterGlobal({
+        event: invocation.state.event!,
+        person: invocation.person,
+        groups: {},
+        variables: invocation.state.variables,
+    })
+}
 
 describe('action.conditional_branch', () => {
     let invocation: CyclotronJobInvocationHogFlow
@@ -291,9 +304,7 @@ describe('action.conditional_branch', () => {
                 // is the cap winning over a resolvable timer, which silently restores polling.
                 waitAction.config.max_wait_duration = '30d'
                 waitAction.config.wake_plan = { streams: ['person'], timers: [dueAtTimer] }
-                waitInvocation.person = {
-                    properties: { due_at: DateTime.utc().plus({ days: 6 }).toISO() },
-                } as any
+                setPerson(waitInvocation, { due_at: DateTime.utc().plus({ days: 6 }).toISO() })
 
                 const result = await handler.execute({
                     invocation: waitInvocation,
@@ -329,12 +340,10 @@ describe('action.conditional_branch', () => {
                     streams: ['person'],
                     timers: [timerFor('later_at'), timerFor('sooner_at')],
                 }
-                waitInvocation.person = {
-                    properties: {
-                        later_at: DateTime.utc().plus({ days: 9 }).toISO(),
-                        sooner_at: DateTime.utc().plus({ days: 2 }).toISO(),
-                    },
-                } as any
+                setPerson(waitInvocation, {
+                    later_at: DateTime.utc().plus({ days: 9 }).toISO(),
+                    sooner_at: DateTime.utc().plus({ days: 2 }).toISO(),
+                })
 
                 const result = await handler.execute({
                     invocation: waitInvocation,
@@ -350,9 +359,7 @@ describe('action.conditional_branch', () => {
                 // overshooting it would strand the run instead of letting it take the timeout branch.
                 waitAction.config.max_wait_duration = '1h'
                 waitAction.config.wake_plan = { streams: ['person'], timers: [dueAtTimer] }
-                waitInvocation.person = {
-                    properties: { due_at: DateTime.utc().plus({ days: 6 }).toISO() },
-                } as any
+                setPerson(waitInvocation, { due_at: DateTime.utc().plus({ days: 6 }).toISO() })
 
                 const result = await handler.execute({
                     invocation: waitInvocation,
@@ -371,7 +378,7 @@ describe('action.conditional_branch', () => {
                 // unresolvable cannot cost more churn than the poll it replaces.
                 waitAction.config.max_wait_duration = '30d'
                 waitAction.config.wake_plan = { streams: ['person'], timers: [dueAtTimer] }
-                waitInvocation.person = { properties: {} } as any
+                setPerson(waitInvocation, {})
 
                 const result = await handler.execute({
                     invocation: waitInvocation,
@@ -478,7 +485,7 @@ describe('action.conditional_branch', () => {
             ])('schedules %s from real analyzer output', async (_name, timer, properties, expected) => {
                 waitAction.config.max_wait_duration = '30d'
                 waitAction.config.wake_plan = { streams: ['person'], timers: [timer] }
-                waitInvocation.person = { properties } as any
+                setPerson(waitInvocation, properties)
 
                 const result = await handler.execute({
                     invocation: waitInvocation,

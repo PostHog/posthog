@@ -222,10 +222,27 @@ def _collect_thresholds(node: ast.Expr) -> tuple[list[ast.Expr], Optional[str]]:
     return [], f"clock reference in unsupported position ({type(node).__name__})"
 
 
-# Roots the executor puts in scope when it evaluates a timer (see earliestFutureTimer). A threshold
-# reading anything else - a data warehouse table, a group - compiles fine and then resolves to null at
-# runtime, which would look like "data hasn't landed yet" forever instead of an honest refusal.
-_RUNTIME_TIMER_ROOTS = {"person", "event"}
+# The keys HogFunctionFilterGlobals actually carries (convertToHogFunctionFilterGlobal). It's a closed
+# set: a threshold reading anything outside it - a data warehouse table, say - compiles fine and then
+# resolves to null on every wake, which would look like "the data hasn't landed yet" forever instead
+# of an honest refusal. The condition around it can't read those either; it just fails quietly.
+_RUNTIME_TIMER_ROOTS = {
+    "event",
+    "uuid",
+    "timestamp",
+    "properties",
+    "person",
+    "pdi",
+    "distinct_id",
+    "variables",
+    "elements_chain",
+    "elements_chain_href",
+    "elements_chain_texts",
+    "elements_chain_ids",
+    "elements_chain_elements",
+    *{f"group_{i}" for i in range(5)},
+    *{f"$group_{i}" for i in range(5)},
+}
 
 
 def _unevaluable_roots(node: ast.Expr) -> set[str]:

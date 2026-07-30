@@ -201,7 +201,10 @@ async function parkCapSeconds(
  * job re-parks), while waking late means sleeping through the moment the condition flipped.
  */
 async function earliestFutureTimer(invocation: CyclotronJobInvocationHogFlow, timers: any[]): Promise<DateTime | null> {
-    const globals = { event: invocation.state?.event, person: invocation.person }
+    // The same globals the condition is evaluated against, so a threshold can reach exactly what the
+    // predicate around it can. Passing a different shape here (raw event/person) silently narrows it:
+    // a top-level `properties.x` resolves for the condition and not for the timer.
+    const globals = { ...invocation.filterGlobals, variables: invocation.state.variables }
     const now = DateTime.utc()
     let earliest: DateTime | null = null
 
