@@ -57,12 +57,19 @@ pub fn record_write_ok(lane: &'static str, elapsed: Duration) {
 /// Record a write the stack refused or dropped. Latency is deliberately
 /// not recorded: a timeout's duration is the deadline, not the stack's
 /// service time, and mixing the two distorts the percentiles.
-pub fn record_write_failed(lane: &'static str, err: &anyhow::Error) {
+/// Reason label for failures observed after the shutdown signal: the
+/// harness's exit races its own in-flight requests (and any deploy
+/// rolling the stack under it), so these are quarantined under one
+/// reason instead of polluting the genuine failure reasons the
+/// dashboards are read by.
+pub const REASON_SHUTDOWN: &str = "shutdown";
+
+pub fn record_write_failed(lane: &'static str, err: &anyhow::Error, shutting_down: bool) {
     counter!(
         "personhog_traffic_writes_total",
         "lane" => lane,
         "outcome" => "failed",
-        "reason" => status_reason(err),
+        "reason" => if shutting_down { REASON_SHUTDOWN } else { status_reason(err) },
     )
     .increment(1);
 }
