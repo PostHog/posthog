@@ -753,6 +753,13 @@ class TestExperimentService(APIBaseTest):
                 {"exclusions": [{"key": "plan", "type": "event", "value": ["paid"]}]},
                 "Unsupported exposure_criteria.exclusions type 'event'",
             ),
+            (
+                # Rejected on save rather than raising a raw pydantic error on every later
+                # results query.
+                "exclusions_malformed_filter",
+                {"exclusions": [{"key": "consent_withdrawn", "type": "person", "value": ["true"]}]},
+                "Invalid exposure_criteria.exclusions",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -793,7 +800,11 @@ class TestExperimentService(APIBaseTest):
             ),
             (
                 "exclusions_on_default_exposure",
-                {"exclusions": [{"key": "consent_withdrawn", "type": "person", "value": ["true"]}]},
+                {
+                    "exclusions": [
+                        {"key": "consent_withdrawn", "type": "person", "value": ["true"], "operator": "exact"}
+                    ]
+                },
             ),
             (
                 "cohort_exclusion",
