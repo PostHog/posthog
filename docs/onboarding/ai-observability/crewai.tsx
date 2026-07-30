@@ -62,7 +62,7 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                         code={dedent`
                             import os
                             import litellm
-                            from crewai import Agent, Task, Crew
+                            from crewai import Agent, Task, Crew, LLM
 
                             # Set PostHog environment variables
                             os.environ["POSTHOG_API_KEY"] = "<ph_project_token>"
@@ -76,9 +76,21 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
-                            CrewAI uses LiteLLM under the hood for LLM provider access. By configuring PostHog as a
-                            LiteLLM callback, all LLM calls made through CrewAI are automatically captured as
-                            `$ai_generation` events without proxying your calls.
+                            CrewAI can route LLM calls either through its own provider clients or through LiteLLM.
+                            PostHog hooks into LiteLLM's callback system, so you need `is_litellm=True` on the `LLM` you
+                            pass to your agents. With it, every call is captured as an `$ai_generation` event without
+                            proxying your calls.
+                        </Markdown>
+                    </CalloutBox>
+
+                    <CalloutBox type="caution" icon="IconWarning" title="PostHog SDK version">
+                        <Markdown>
+                            {dedent`
+                                CrewAI installs \`chromadb\`, which pins \`posthog<6.0.0\`. The AI observability
+                                wrappers and the LangChain handler work on 5.x, so CrewAI tracing is unaffected.
+                                But \`posthog.ai.otel\` was added in 7.12.0, so the OpenTelemetry integration
+                                cannot be installed alongside CrewAI unless you override chromadb's pin.
+                            `}
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -97,10 +109,16 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="python"
                         code={dedent`
+                            # is_litellm=True routes calls through LiteLLM so the PostHog
+                            # callback fires. Without it, CrewAI uses its own provider client
+                            # and no events are captured.
+                            llm = LLM(model="gpt-4o-mini", is_litellm=True)
+
                             researcher = Agent(
                                 role="Researcher",
                                 goal="Find interesting facts about hedgehogs",
                                 backstory="You are an expert wildlife researcher.",
+                                llm=llm,
                             )
 
                             task = Task(
