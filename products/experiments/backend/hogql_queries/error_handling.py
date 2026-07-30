@@ -58,6 +58,18 @@ ERROR_TYPE_MESSAGES: dict[type, str] = {
 }
 
 
+# Failures that cannot succeed on a retry: the metric configuration itself is invalid (malformed
+# user HogQL, failed validation) or there isn't enough data to compute statistics. Callers that own
+# retries — the scheduled recalculation activities — record these and stop instead of burning
+# attempts on an outcome that can't change.
+PERMANENT_METRIC_ERRORS: tuple[type[Exception], ...] = (
+    StatisticError,
+    ZeroDivisionError,
+    ExposedHogQLError,
+    ValidationError,
+)
+
+
 def get_user_friendly_message(error: Exception) -> str | None:
     """Convert technical error messages to user-friendly ones based on error type.
     Returns None if the error type is not in the mapping (should be re-raised as-is).

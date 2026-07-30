@@ -26,7 +26,11 @@ from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_
 
 from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
-from products.experiments.backend.hogql_queries.error_handling import capture_experiment_metric_error_event
+from products.experiments.backend.hogql_queries.error_handling import (
+    PERMANENT_METRIC_ERRORS,
+    capture_experiment_metric_error_event,
+    classify_experiment_query_error,
+)
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -34,7 +38,6 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult as ExperimentMetricResultModel,
 )
-from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
 
@@ -199,8 +202,9 @@ def _calculate_experiment_regular_metric_sync(
             # warehouse HogQL access control is enforced.
             user=experiment.created_by,
             # Internal caller: keep exceptions raw so the except branches below see original types
-            # (StatisticError must not arrive pre-converted to ValidationError). Also silences the
-            # runner-level error event — this activity emits its own, on the final attempt.
+            # (a StatisticError or HogQL error pre-converted to ValidationError would lose its
+            # classification). Also silences the runner-level error event — this activity emits its
+            # own, on the final attempt.
             user_facing=False,
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
@@ -242,7 +246,7 @@ def _calculate_experiment_regular_metric_sync(
             success=True,
         )
 
-    except (StatisticError, ZeroDivisionError) as e:
+    except PERMANENT_METRIC_ERRORS as e:
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -259,9 +263,10 @@ def _calculate_experiment_regular_metric_sync(
         )
 
         logger.warning(
-            "Experiment metric calculation failed due to insufficient data",
+            "Experiment metric calculation failed permanently",
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
+            error_type=classify_experiment_query_error(e),
             error=str(e),
         )
 
@@ -504,8 +509,9 @@ def _calculate_experiment_saved_metric_sync(
             # warehouse HogQL access control is enforced.
             user=experiment.created_by,
             # Internal caller: keep exceptions raw so the except branches below see original types
-            # (StatisticError must not arrive pre-converted to ValidationError). Also silences the
-            # runner-level error event — this activity emits its own, on the final attempt.
+            # (a StatisticError or HogQL error pre-converted to ValidationError would lose its
+            # classification). Also silences the runner-level error event — this activity emits its
+            # own, on the final attempt.
             user_facing=False,
         )
         # .run() writes to the response cache. The "warming/*" trigger tells
@@ -547,7 +553,7 @@ def _calculate_experiment_saved_metric_sync(
             success=True,
         )
 
-    except (StatisticError, ZeroDivisionError) as e:
+    except PERMANENT_METRIC_ERRORS as e:
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -564,9 +570,10 @@ def _calculate_experiment_saved_metric_sync(
         )
 
         logger.warning(
-            "Experiment saved metric calculation failed due to insufficient data",
+            "Experiment saved metric calculation failed permanently",
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
+            error_type=classify_experiment_query_error(e),
             error=str(e),
         )
 
