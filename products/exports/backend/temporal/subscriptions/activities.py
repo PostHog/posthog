@@ -397,7 +397,7 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
         asset_count=len(inputs.exported_asset_ids),
-        is_new=inputs.is_new_subscription_target,
+        is_new=(inputs.previous_target_value is not None and inputs.previous_target_value != subscription.target_value),
         resource_type=subscription.resource_type,
     )
 
@@ -412,6 +412,9 @@ async def _deliver_insight_dashboard_subscription(
     inputs: DeliverSubscriptionInputs,
     recipient_results: list[RecipientResult],
 ) -> DeliverSubscriptionResult:
+    send_only_to_new_recipients = (
+        inputs.previous_target_value is not None and inputs.previous_target_value != subscription.target_value
+    )
     if (
         get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
         == UNSUPPORTED_TARGET_DISABLE_REASON
@@ -463,7 +466,7 @@ async def _deliver_insight_dashboard_subscription(
                 email,
                 subscription,
                 assets,
-                invite_message=inputs.invite_message or "" if inputs.is_new_subscription_target else None,
+                invite_message=inputs.invite_message or "" if send_only_to_new_recipients else None,
                 total_asset_count=inputs.total_insight_count,
                 send_async=False,
                 change_summary=inputs.change_summary,
@@ -480,7 +483,7 @@ async def _deliver_insight_dashboard_subscription(
                 subscription,
                 assets,
                 total_asset_count=inputs.total_insight_count,
-                is_new_subscription=inputs.is_new_subscription_target,
+                is_new_subscription=send_only_to_new_recipients,
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
             ),

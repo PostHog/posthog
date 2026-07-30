@@ -78,8 +78,8 @@ async def deliver_email(
     """Send to each recipient via `send_one`. Partial success is kept; only an all-failed run
     raises, so a Temporal retry won't re-send to recipients who already succeeded."""
     emails = list(dict.fromkeys(e.strip() for e in subscription.target_value.split(",") if e.strip()))
-    if inputs.is_new_subscription_target and inputs.previous_value is not None:
-        previous = {e.strip() for e in inputs.previous_value.split(",") if e.strip()}
+    if inputs.previous_target_value is not None and inputs.previous_target_value != subscription.target_value:
+        previous = {e.strip() for e in inputs.previous_target_value.split(",") if e.strip()}
         emails = [e for e in emails if e not in previous]
 
     await LOGGER.ainfo(

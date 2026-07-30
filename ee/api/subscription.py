@@ -711,7 +711,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         )
 
         invite_message = validated_data.pop("invite_message", "")
-        # The immediate confirmation delivery (TARGET_CHANGE below) is separate from the
+        # The immediate confirmation delivery (SUBSCRIPTION_UPDATE below) is separate from the
         # recurring schedule, which the scheduler drives off next_delivery_date. Creators
         # can opt out of that first send via send_test_now; the schedule is unaffected.
         send_test_now = validated_data.pop("send_test_now", True)
@@ -765,9 +765,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         distinct_id=str(instance.created_by.distinct_id)
                         if instance.created_by
                         else str(instance.team_id),
-                        previous_value="",
+                        previous_target_value="",
                         invite_message=invite_message,
-                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_UPDATE,
                         resource_type=instance.resource_type,
                     ),
                     id=workflow_id,
@@ -779,7 +779,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
-        previous_value = instance.target_value
+        previous_target_value = instance.target_value
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
@@ -835,19 +835,19 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Re-enabling clears the stale next_delivery_date that was frozen while
         # disabled. Without this, the scheduler picks the sub up on its next tick
         # (the past date matches `next_delivery_date__lte=now`) and fires a second
-        # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
+        # SCHEDULED delivery right after the immediate SUBSCRIPTION_UPDATE confirmation.
         if is_re_enabling:
             instance.set_next_delivery_date()
             instance.save(update_fields=["next_delivery_date"])
 
-        delivery_target_changed = any(
+        delivery_content_changed = any(
             getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
         ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
 
         # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
         # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
         # delivery. Disabled subscriptions never fire regardless.
-        wants_delivery = send_test_now if send_test_now is not None else (is_re_enabling or delivery_target_changed)
+        wants_delivery = send_test_now if send_test_now is not None else (is_re_enabling or delivery_content_changed)
         delivery_triggered = wants_delivery and instance.enabled
 
         # Explicit observability for the delivery decision on edits — the canonical
@@ -892,9 +892,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         distinct_id=str(instance.created_by.distinct_id)
                         if instance.created_by
                         else str(instance.team_id),
-                        previous_value=previous_value,
+                        previous_target_value=previous_target_value,
                         invite_message=invite_message,
-                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_UPDATE,
                         resource_type=instance.resource_type,
                     ),
                     id=workflow_id,
@@ -1212,7 +1212,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                         distinct_id=str(subscription.created_by.distinct_id)
                         if subscription.created_by
                         else str(subscription.team_id),
-                        previous_value=None,
+                        previous_target_value=None,
                         invite_message=None,
                         trigger_type=SubscriptionTriggerType.MANUAL,
                         resource_type=subscription.resource_type,
@@ -1322,7 +1322,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "subscription": {"help_text": "Parent subscription id."},
             "temporal_workflow_id": {"help_text": "Temporal workflow id for this delivery run."},
             "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
-            "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, target_change)."},
+            "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, subscription update)."},
             "scheduled_at": {"help_text": "Planned send time when applicable."},
             "target_type": {"help_text": "Channel snapshot at send time (email or slack)."},
             "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},

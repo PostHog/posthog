@@ -370,17 +370,13 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # a "failed to generate" placeholder in the email/Slack message)
             delivery_asset_ids = prepare_result.exported_asset_ids
 
-            # is_new is true for target change triggers, false for scheduled and manual sends
-            is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
-
             deliver_result: DeliverSubscriptionResult = await temporalio.workflow.execute_activity(
                 deliver_subscription,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=delivery_asset_ids,
                     total_insight_count=prepare_result.total_insight_count,
-                    is_new_subscription_target=is_new,
-                    previous_value=inputs.previous_value,
+                    previous_target_value=inputs.previous_target_value,
                     invite_message=inputs.invite_message,
                     change_summary=change_summary,
                     summary_skipped_over_budget=summary_skipped_over_budget,
@@ -549,16 +545,14 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 final_status = DeliveryStatus.SKIPPED
                 return
 
-            # Phase 2: ship the persisted report. is_new only for target-change triggers.
-            is_new = inputs.trigger_type == SubscriptionTriggerType.TARGET_CHANGE
+            # Phase 2: ship the persisted report.
             deliver_result = await temporalio.workflow.execute_activity(
                 deliver_subscription,
                 DeliverSubscriptionInputs(
                     subscription_id=inputs.subscription_id,
                     exported_asset_ids=[],
                     total_insight_count=0,
-                    is_new_subscription_target=is_new,
-                    previous_value=inputs.previous_value,
+                    previous_target_value=inputs.previous_target_value,
                     invite_message=inputs.invite_message,
                     delivery_id=delivery_id,
                 ),
@@ -649,7 +643,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
             subscription_id=inputs.subscription_id,
             team_id=inputs.team_id,
             distinct_id=inputs.distinct_id,
-            previous_value=inputs.previous_value,
+            previous_target_value=inputs.previous_target_value,
             invite_message=inputs.invite_message,
             trigger_type=inputs.trigger_type,
             resource_type=inputs.resource_type,

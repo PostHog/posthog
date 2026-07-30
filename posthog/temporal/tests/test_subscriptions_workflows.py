@@ -286,6 +286,13 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
+@pytest.mark.parametrize(
+    ("previous_target_value", "expected_recipients"),
+    [
+        ("test_existing@posthog.com", ["test_new@posthog.com"]),
+        ("test_existing@posthog.com,test_new@posthog.com", ["test_existing@posthog.com", "test_new@posthog.com"]),
+    ],
+)
 @pytest.mark.asyncio
 async def test_handle_subscription_value_change_email(
     mock_send_email: MagicMock,
@@ -296,6 +303,8 @@ async def test_handle_subscription_value_change_email(
     subscriptions_worker,
     team,
     user,
+    previous_target_value: str,
+    expected_recipients: list[str],
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="xyz789", name="Insight")
 
@@ -329,16 +338,14 @@ async def test_handle_subscription_value_change_email(
                     subscription_id=subscription.id,
                     team_id=subscription.team_id,
                     distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    previous_value="test_existing@posthog.com",
+                    previous_target_value=previous_target_value,
                     invite_message="My invite message",
                 ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
 
-    # Only new address should be emailed
-    assert mock_send_email.call_count == 1
-    assert mock_send_email.call_args_list[0][0][0] == "test_new@posthog.com"
+    assert [call.args[0] for call in mock_send_email.call_args_list] == expected_recipients
 
     # SLO events emitted exactly once (child only, not parent)
     started_calls = [
@@ -1570,7 +1577,7 @@ async def test_new_subscription_sends_invite_email(
                     subscription_id=subscription.id,
                     team_id=subscription.team_id,
                     distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    previous_value="",
+                    previous_target_value="",
                     invite_message="Welcome!",
                 ),
                 id=str(uuid.uuid4()),
@@ -1629,7 +1636,7 @@ async def test_manual_send_uses_regular_template_not_invite(
                     subscription_id=subscription.id,
                     team_id=subscription.team_id,
                     distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    previous_value=None,
+                    previous_target_value=None,
                     invite_message=None,
                     trigger_type=SubscriptionTriggerType.MANUAL,
                 ),

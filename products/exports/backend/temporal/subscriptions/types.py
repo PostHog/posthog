@@ -69,7 +69,7 @@ class SubscriptionTriggerType:
     """
 
     SCHEDULED = "scheduled"  # Regular cron-based delivery
-    TARGET_CHANGE = "target_change"  # Target changed (previous_value is the old target)
+    SUBSCRIPTION_UPDATE = "target_change"  # Serialized value retained for Temporal compatibility.
     MANUAL = "manual"  # User clicked "Test delivery"
 
 
@@ -129,8 +129,7 @@ class DeliverSubscriptionInputs:
     subscription_id: int
     exported_asset_ids: list[int]
     total_insight_count: int
-    is_new_subscription_target: bool = False
-    previous_value: typing.Optional[str] = None
+    previous_target_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     change_summary: typing.Optional[str] = None
     summary_skipped_over_budget: bool = False
@@ -144,9 +143,9 @@ class ProcessSubscriptionWorkflowInputs:
     subscription_id: int
     team_id: int = 0
     distinct_id: str = ""
-    previous_value: typing.Optional[str] = None
+    previous_target_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
-    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_UPDATE
     scheduled_at: typing.Optional[str] = None
     # Lets HandleSubscriptionValueChangeWorkflow route AI-prompt subs to
     # ProcessAISubscriptionWorkflow. Passed by the API from the loaded instance.
@@ -166,10 +165,10 @@ class TrackedSubscriptionInputs:
     subscription_id: int
     team_id: int = 0
     distinct_id: str = ""
-    previous_value: typing.Optional[str] = None
+    previous_target_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
-    trigger_type: str = SubscriptionTriggerType.TARGET_CHANGE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_UPDATE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
 
