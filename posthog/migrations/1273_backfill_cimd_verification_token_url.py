@@ -1,6 +1,24 @@
+from urllib.parse import urlparse
+
 from django.db import migrations
 
-from posthog.models.oauth import normalize_cimd_url
+
+def _normalize_cimd_url(url: str) -> str:
+    """Frozen copy of posthog.models.oauth.normalize_cimd_url.
+
+    Duplicated rather than imported: a migration module is loaded while Django
+    builds the migration graph, so importing app code here runs it far too early.
+    Migrations also have to stay pinned to the behavior they shipped with.
+    """
+    parsed = urlparse(url.strip())
+    try:
+        port = parsed.port
+    except ValueError:
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path.rstrip('/')}"
+    host = (parsed.hostname or "").lower()
+    if port and port != 443:
+        host = f"{host}:{port}"
+    return f"{parsed.scheme.lower()}://{host}{parsed.path.rstrip('/')}"
 
 
 def backfill_cimd_url(apps, schema_editor):
@@ -39,7 +57,7 @@ def backfill_cimd_url(apps, schema_editor):
         tokens = list(CIMDVerificationToken.objects.filter(organization_id=org_id)[:2])
         if len(tokens) != 1:
             continue
-        tokens[0].cimd_url = normalize_cimd_url(urls[0])
+        tokens[0].cimd_url = _normalize_cimd_url(urls[0])
         to_update.append(tokens[0])
 
     CIMDVerificationToken.objects.bulk_update(to_update, ["cimd_url"], batch_size=1000)
