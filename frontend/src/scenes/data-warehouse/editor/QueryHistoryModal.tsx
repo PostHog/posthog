@@ -56,6 +56,14 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
     )
 }
 
+function extractQuery(value: unknown): string {
+    if (value && typeof value === 'object' && 'query' in value) {
+        const query = (value as { query?: unknown }).query
+        return typeof query === 'string' ? query : ''
+    }
+    return ''
+}
+
 function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const changes = logItem.unprocessed?.detail.changes
 
@@ -67,8 +75,8 @@ function QueryHistoryLogDiff({ logItem }: { logItem: HumanizedActivityLogItem })
                         return (
                             <QueryDiffViewer
                                 key={i}
-                                original={change.before?.query ?? ''}
-                                modified={change.after?.query ?? ''}
+                                original={extractQuery(change.before)}
+                                modified={extractQuery(change.after)}
                             />
                         )
                     })

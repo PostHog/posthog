@@ -37,7 +37,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { ViewLinkModal } from '../ViewLinkModal'
-import { QueryDiffViewer } from './components/QueryDiffViewer'
+import { UpdateViewModal } from './components/UpdateViewModal'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -352,48 +352,6 @@ function AccessControlModal(): JSX.Element | null {
                 editingAccessControlObject.resource === AccessControlResourceType.WarehouseTable ? 'table' : 'view'
             }. Users without access won't see it and queries referencing it will fail for them.`}
         />
-    )
-}
-
-function UpdateViewModal(): JSX.Element | null {
-    const { isUpdateViewModalOpen, pendingViewUpdate, editingView, queryInput } = useValues(sqlEditorLogic)
-    const { updateView, closeUpdateViewModal } = useActions(sqlEditorLogic)
-
-    if (!editingView) {
-        return null
-    }
-
-    const isMaterialized = editingView.is_materialized === true
-    const confirmLabel = isMaterialized ? 'Update and re-materialize view' : 'Update view'
-
-    return (
-        <LemonModal
-            title="Review changes"
-            description="Compare the saved query with your edits before updating this view."
-            isOpen={isUpdateViewModalOpen}
-            onClose={closeUpdateViewModal}
-            width={800}
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={closeUpdateViewModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            if (pendingViewUpdate) {
-                                updateView(pendingViewUpdate.view, pendingViewUpdate.draftId)
-                            }
-                            closeUpdateViewModal()
-                        }}
-                    >
-                        {confirmLabel}
-                    </LemonButton>
-                </>
-            }
-        >
-            <QueryDiffViewer original={editingView.query?.query ?? ''} modified={queryInput ?? ''} />
-        </LemonModal>
     )
 }
 
