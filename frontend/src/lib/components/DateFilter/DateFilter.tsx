@@ -408,8 +408,9 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                     {showExplicitDateToggle && (
                         <div
                             className={clsx(
-                                'LemonSwitch LemonSwitch--full-width',
-                                `LemonSwitch--${optionsSize}`,
+                                // Deliberately medium at every optionsSize: LemonButton--small keeps the default
+                                // 14px font, while LemonSwitch--small would drop the label to 12px
+                                'LemonSwitch LemonSwitch--full-width LemonSwitch--medium',
                                 optionsSize === 'small' ? 'pb-1 pt-1' : 'pb-2 pt-2'
                             )}
                         >
