@@ -178,8 +178,9 @@ def list_sheets(team_id: int, upload_id: str, filename: str) -> list[tuple[str, 
     discovery runs in web requests that call this twice each (credential validation, then the schema
     list) — without the cache every call re-downloads and re-parses a workbook of up to 50 MB. The
     retained footprint is bounded: each entry holds at most MAX_TOTAL_COLUMNS names of at most
-    MAX_COLUMN_NAME_LENGTH characters, and discovery is a bursty setup activity so a handful of
-    recent workbooks per worker is plenty. Callers must not
+    MAX_COLUMN_NAME_LENGTH characters (~5 MB), so 8 entries cap retention at ~40 MB per worker in
+    the adversarial worst case — real workbooks are KBs. Discovery is a bursty setup activity (one
+    user configuring one upload), so a handful of recent workbooks per worker is plenty. Callers must not
     mutate the returned value.
     """
     workbook = _open_workbook(_uploaded_workbook_bytes(team_id, upload_id, filename))

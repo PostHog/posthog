@@ -1,4 +1,5 @@
 import io
+from contextlib import nullcontext
 
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.excel.exce
     list_sheets,
     read_sheet_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.excel.source import ExcelSource
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.excel.excel"
 
@@ -226,3 +228,41 @@ class TestWorkbookBudgets(SimpleTestCase):
                 with self.assertRaises(ExcelReadError) as ctx:
                     list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
         assert "too many columns" in str(ctx.exception)
+
+
+class TestNonRetryableClassification(SimpleTestCase):
+    def setUp(self) -> None:
+        list_sheets.cache_clear()
+
+    @parameterized.expand(
+        [
+            ("missing_file", None, None, None),
+            ("unreadable_bytes", b"not a workbook", None, None),
+            ("member_bomb", "simple", ("MAX_ZIP_MEMBERS", 1), None),
+            ("decompression_bomb", "simple", ("MAX_DECLARED_UNCOMPRESSED_BYTES", 10), None),
+            ("wide_sheet", "simple", ("MAX_COLUMNS_PER_SHEET", 2), None),
+            ("wide_workbook", "two_sheets", ("MAX_TOTAL_COLUMNS", 3), None),
+            ("stale_sheet", "simple", None, "Missing"),
+        ]
+    )
+    def test_reader_failures_are_classified_non_retryable(
+        self, _name: str, data_kind, override, read_sheet: str | None
+    ) -> None:
+        # Every ExcelReadError is a permanent property of the file, so a message the
+        # get_non_retryable_errors map doesn't match would leave a broken file retrying forever.
+        # This pins each raise site's wording to a fragment in the map.
+        if data_kind == "simple":
+            data = _workbook_bytes({"S1": [["a", "b", "c"], [1, 2, 3]]})
+        elif data_kind == "two_sheets":
+            data = _workbook_bytes({"S1": [["a", "b"], [1, 2]], "S2": [["c", "d"], [3, 4]]})
+        else:
+            data = data_kind
+        overrides = patch(f"{MODULE}.{override[0]}", override[1]) if override else nullcontext()
+        with overrides, patch(f"{MODULE}.get_s3_client", return_value=_FakeS3(data)):
+            with self.assertRaises(ExcelReadError) as ctx:
+                if read_sheet is not None:
+                    list(read_sheet_rows(1, "u1", "book.xlsx", read_sheet))
+                else:
+                    list_sheets(team_id=1, upload_id="u1", filename="book.xlsx")
+        keys = ExcelSource().get_non_retryable_errors()
+        assert any(key in str(ctx.exception) for key in keys), str(ctx.exception)

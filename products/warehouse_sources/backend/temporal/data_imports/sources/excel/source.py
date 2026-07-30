@@ -162,7 +162,15 @@ Supports `.xlsx` and `.xlsm`. Re-run the sync after replacing the file to pick u
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Every ExcelReadError is a deterministic property of the uploaded file, so retrying can never
+        # help — one fragment per raise site in excel.py. The raised messages are already user-safe
+        # (and more specific than a rewrite could be), so None keeps them as-is.
         return {
-            "Uploaded file not found": "The uploaded file is no longer in storage. Upload the workbook again.",
-            "Could not read the Excel file": "The file isn't a readable .xlsx or .xlsm workbook. Re-save it and upload again.",
+            "The uploaded file is no longer in storage": None,
+            "Could not read the Excel file": None,
+            "has too many internal parts": None,
+            "too large once decompressed": None,
+            "has too many columns (max": None,
+            "too many columns across its sheets": None,
+            "is no longer in the workbook": None,
         }
