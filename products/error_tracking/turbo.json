@@ -6,6 +6,7 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
+                "backend/models.py",
                 "backend/sql.py",
                 "backend/embedding.py",
                 "backend/indexed_embedding.py",

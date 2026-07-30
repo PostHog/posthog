@@ -150,6 +150,7 @@ from .bamboohr.source import BambooHRSource
 from .basecamp.source import BasecampSource
 from .baserow.source import BaserowSource
 from .baseten.source import BasetenSource
+from .bcms.source import BCMSSource
 from .beamer.source import BeamerSource
 from .beehiiv.source import BeehiivSource
 from .better_stack.source import BetterStackSource
@@ -291,6 +292,7 @@ from .conta_azul.source import ContaAzulSource
 from .contentsquare.source import ContentsquareSource
 from .convertkit.source import ConvertKitSource
 from .convex.source import ConvexSource
+from .convonite.source import ConvoniteSource
 from .copper.source import CopperSource
 from .coralogix.source import CoralogixSource
 from .cortex.source import CortexSource
@@ -556,6 +558,7 @@ from .hivebrite.source import HivebriteSource
 from .holded.source import HoldedSource
 from .honeybadger.source import HoneybadgerSource
 from .honeycomb.source import HoneycombSource
+from .hookdeck.source import HookdeckSource
 from .hoorayhr.source import HoorayHRSource
 from .hostaway.source import HostawaySource
 from .housecall_pro.source import HousecallProSource

@@ -2450,6 +2450,9 @@ class ExternalDataSourceType(StrEnum):
     FIRST_PROMOTER = "FirstPromoter"
     ZERO = "Zero"
     INTH = "Inth"
+    BCMS = "BCMS"
+    CONVONITE = "Convonite"
+    HOOKDECK = "Hookdeck"
 
 
 class ExternalQueryErrorCode(StrEnum):
