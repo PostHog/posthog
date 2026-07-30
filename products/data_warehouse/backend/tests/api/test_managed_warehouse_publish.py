@@ -29,8 +29,11 @@ class TestManagedWarehousePublish(APIBaseTest):
         defaults.update(overrides)
         return ManagedWarehousePublishedTable.objects.for_team(self.team.pk).create(**defaults)
 
+    @patch(f"{_LOGIC}.resolve_events_persons_tables", return_value=("events", "persons"))
     @patch(f"{_LOGIC}.execute_ducklake_query")
-    def test_modeled_tables_excludes_posthog_managed(self, mock_query: MagicMock) -> None:
+    def test_modeled_tables_excludes_posthog_managed(
+        self, mock_query: MagicMock, _mock_reserved_tables: MagicMock
+    ) -> None:
         mock_query.return_value = DuckLakeQueryResult(
             columns=["table_schema", "table_name"],
             types=[],
@@ -62,8 +65,11 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert response.json() == {"results": []}
         mock_query.assert_not_called()
 
+    @patch(f"{_LOGIC}.resolve_events_persons_tables", return_value=("events", "persons"))
     @patch(f"{_LOGIC}.execute_ducklake_query", side_effect=psycopg.OperationalError("connection timed out"))
-    def test_modeled_tables_reports_temporary_unavailability(self, _mock_query: MagicMock) -> None:
+    def test_modeled_tables_reports_temporary_unavailability(
+        self, _mock_query: MagicMock, _mock_reserved_tables: MagicMock
+    ) -> None:
         response = self.client.get(f"{self._base()}/managed-warehouse-modeled-tables/")
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE

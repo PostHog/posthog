@@ -17,8 +17,9 @@ from posthog.ducklake.common import (
     sanitize_ducklake_identifier,
     validate_duckgres_identifier,
 )
-from posthog.ducklake.models import DuckgresServerTeam, ManagedWarehousePublishedTable
-from posthog.ducklake.publish import ModeledTable, is_publishable_table, reserved_backfill_table_names
+from posthog.ducklake.models import ManagedWarehousePublishedTable
+from posthog.ducklake.publish import ModeledTable, is_publishable_table
+from posthog.ducklake.team_state import CPUnavailableError, resolve_events_persons_tables
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
@@ -53,17 +54,17 @@ def list_modeled_tables(team_id: int) -> list[ModeledTable]:
     if get_duckgres_server_by_team_org(team_id) is None and not is_dev_mode():
         return []
 
-    table_suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
-    reserved_table_names = reserved_backfill_table_names(table_suffix)
     try:
+        events_table, persons_table = resolve_events_persons_tables(team_id)
         result = execute_ducklake_query(
             team_id,
             sql=_MODELED_TABLES_SQL,
             connect_timeout_seconds=_DISCOVERY_CONNECT_TIMEOUT_SECONDS,
             statement_timeout_seconds=_DISCOVERY_STATEMENT_TIMEOUT_SECONDS,
         )
-    except psycopg.Error as error:
+    except (CPUnavailableError, psycopg.Error) as error:
         raise ModeledTableDiscoveryError("The managed warehouse is temporarily unavailable.") from error
+    reserved_table_names = frozenset({events_table, persons_table})
     return [
         ModeledTable(schema_name=str(row[0]), table_name=str(row[1]))
         for row in result.results

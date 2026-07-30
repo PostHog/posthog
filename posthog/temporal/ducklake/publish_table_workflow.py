@@ -36,8 +36,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 
+from products.warehouse_sources.backend.facade.constants import S3_DELETE_TIME_BUFFER
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.util import S3_DELETE_TIME_BUFFER
 
 LOGGER = get_logger(__name__)
 
