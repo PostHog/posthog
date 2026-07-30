@@ -692,7 +692,7 @@ class TestGitHubPRWebhook(TestCase):
 
 
 class TestGitHubPRWebhookResolvesSignalReports(TestCase):
-    """Webhook resolves any SignalReport linked to the merged PR's task."""
+    """Webhook resolves a SignalReport when its PR merges, and archives it when the PR closes unmerged."""
 
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -763,11 +763,11 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
                 SignalReport.Status.RESOLVED,
             ),
             (
-                "closed_without_merge_is_noop",
+                "closed_without_merge_archives_ready_report",
                 "closed",
                 False,
                 SignalReport.Status.READY,
-                SignalReport.Status.READY,
+                SignalReport.Status.SUPPRESSED,
             ),
             (
                 "suppressed_report_is_skipped",

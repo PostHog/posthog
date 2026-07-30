@@ -377,6 +377,41 @@ class TestProcessTaskFollowupDispatch:
 
         assert deliveries == [("from Slack", "message-123", False)]
 
+    async def test_duplicate_sender_message_id_is_queued_once(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("first", [], "message-123")
+        await workflow.send_followup_message("duplicate", [], "message-123")
+
+        assert [(item.message, item.message_id) for item in workflow._pending_followups] == [("first", "message-123")]
+
+    async def test_sender_message_id_deduplication_is_bounded(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        for index in range(501):
+            await workflow.send_followup_message(f"message {index}", [], f"message-{index}")
+        await workflow.send_followup_message("duplicate", [], "message-1")
+
+        assert len(workflow._accepted_message_ids) == 500
+        assert len(workflow._pending_followups) == 501
+
+    async def test_same_message_id_from_different_senders_is_not_deduplicated(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        await workflow.send_followup_message("first", [], "message-1", actor_user_id=1)
+        await workflow.send_followup_message("second", [], "message-1", actor_user_id=2)
+
+        assert [item.message for item in workflow._pending_followups] == ["first", "second"]
+
     async def test_native_steer_preserves_sender_identity(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)

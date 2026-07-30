@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 PaginatorKind = Literal["single", "cursor", "next_url", "search", "substream", "scroll"]
@@ -111,6 +111,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
+        coerce_string_fields=["admin_assignee_id", "team_assignee_id"],
     ),
     "tickets": IntercomEndpointConfig(
         # `POST /tickets/search` mirrors contacts/conversations: it accepts
@@ -122,6 +123,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
+        coerce_string_fields=["admin_assignee_id", "team_assignee_id"],
     ),
     "articles": IntercomEndpointConfig(
         name="articles",

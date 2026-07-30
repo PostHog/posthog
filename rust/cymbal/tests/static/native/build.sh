@@ -40,6 +40,15 @@ zig cc -target x86_64-linux-gnu -O1 -Wl,--build-id=sha1 -o test_binary_nodebug t
 llvm-objcopy --strip-debug test_binary_nodebug test_binary_nodebug
 zig cc -target x86_64-linux-gnu -g -O1 "-fdebug-prefix-map=$PWD=/cymbal_tests/native" -Wl,--build-id=none -o test_binary_nobuildid test_binary.c
 
+# Android NDK-shaped fixture: an aarch64-linux-android shared object with a
+# JNI entry, Itanium-mangled C++, and an inlined leaf. Freestanding because
+# zig ships no bionic libc; the tests only need DWARF + build id + symbols.
+# max-page-size matches the NDK's 16 KiB default, giving the executable
+# segment the nonzero load bias real Android .so mappings have.
+zig c++ -target aarch64-linux-android -shared -fPIC -g -O1 -nostdlib \
+    -fno-exceptions -fno-rtti "-fdebug-prefix-map=$PWD=/cymbal_tests/native" \
+    -Wl,--build-id=sha1 -Wl,-z,max-page-size=16384 -o libtest_android.so test_android.cpp
+
 # Rust fixture: real rustc-mangled symbols for the demangling assertions.
 # zig is used as the cross linker via the zigcc-x86_64-linux wrapper.
 cat > .zigcc-x86_64-linux <<'WRAP'

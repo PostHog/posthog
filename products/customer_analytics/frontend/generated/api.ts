@@ -19,6 +19,7 @@ import type {
     AccountsListParams,
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
+    AccountsSummariesListParams,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -44,6 +45,7 @@ import type {
     ExternalAccountListPageApi,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
+    PaginatedAccountChannelSummaryListApi,
     PaginatedAccountListApi,
     PaginatedAccountNoteListApi,
     PaginatedAccountNotebookListApi,
@@ -63,6 +65,7 @@ import type {
     PatchedCustomerProfileConfigApi,
     PatchedEventStreamApi,
     PatchedGroupUsageMetricApi,
+    SupportTicketApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -540,6 +543,49 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsSummariesListUrl = (projectId: string, id: string, params?: AccountsSummariesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/summaries/`
+}
+
+export const accountsSummariesList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsSummariesListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountChannelSummaryListApi> => {
+    return apiMutator<PaginatedAccountChannelSummaryListApi>(getAccountsSummariesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsSupportTicketsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/support_tickets/`
+}
+
+export const accountsSupportTicketsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SupportTicketApi[]> => {
+    return apiMutator<SupportTicketApi[]>(getAccountsSupportTicketsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
