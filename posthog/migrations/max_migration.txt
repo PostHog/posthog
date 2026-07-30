@@ -1,1 +1,1 @@
-1270_untrack_provisioning_auth_columns
+1276_untrack_legacy_provisioning_columns

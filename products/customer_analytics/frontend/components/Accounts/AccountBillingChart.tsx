@@ -201,7 +201,7 @@ function BillingComboChart({
  * embedded DataVisualization, so Customer analytics owns the per-series show/hide chips without
  * touching shared data-viz code. `dataVisualizationLogic` is still reused read-only for fetch +
  * SQL-results→series parsing, and the series/config builders come from `sqlLineGraphAdapter`'s
- * pure functions — but not the SQL chart's React layer (`LineGraph`, `useSqlChartModel`), so this
+ * pure functions — but not the SQL chart's React layer (`SqlChart`, `useSqlChartModel`), so this
  * stays clear of the legacy paths being cleaned up there. Hidden series go into quill's controlled
  * `legend.hiddenKeys`: excluded from drawing and scales, the rest rescale into the freed space.
  */
