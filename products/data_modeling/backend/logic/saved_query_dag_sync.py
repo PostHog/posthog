@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# properties["system"] marker set by consolidate_dags --adopt-unresolvable when a query's SQL
+# would not resolve and its node was created without edges. A successful sync clears it.
+DEGRADED_SYNC_KEY = "degraded_sync"
+
 
 def get_dag_id(team_id: int) -> str:
     """Return the standard dag_id for a team."""
@@ -184,6 +188,11 @@ def sync_saved_query_to_dag(
     except Exception:
         target.delete()
         raise
+
+    # resolution succeeded, so an edge-less adoption marker no longer describes this node
+    system = (target.properties or {}).get("system")
+    if isinstance(system, dict):
+        system.pop(DEGRADED_SYNC_KEY, None)
 
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])
