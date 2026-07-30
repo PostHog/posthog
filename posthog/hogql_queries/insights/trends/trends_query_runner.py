@@ -98,6 +98,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
     cached_response: CachedTrendsQueryResponse
     series: list[SeriesWithExtras]
+    _event_property_cache: dict[tuple[str, PropertyDefinition.Type, Optional[int]], str]
 
     def __init__(
         self,
@@ -143,6 +144,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 query.compareFilter = CompareFilter(compare=True)
             else:
                 query.compareFilter.compare = True
+
+        self._event_property_cache = {}
 
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
@@ -1255,6 +1258,25 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return bool_map.get(value) or value
 
     def _event_property(
+        self,
+        field: str,
+        field_type: PropertyDefinition.Type,
+        group_type_index: Optional[int],
+    ) -> str:
+        # A property's type is the same for every value it takes, but this is called once per
+        # breakdown value per breakdown dimension while formatting labels — memoize so a single
+        # insight doesn't issue hundreds of identical Postgres round trips.
+        cache_key = (field, field_type, group_type_index)
+        cached = self._event_property_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        self._event_property_cache[cache_key] = property_type = self._fetch_event_property(
+            field, field_type, group_type_index
+        )
+        return property_type
+
+    def _fetch_event_property(
         self,
         field: str,
         field_type: PropertyDefinition.Type,

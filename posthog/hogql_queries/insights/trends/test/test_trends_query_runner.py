@@ -2011,6 +2011,29 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 7
         assert response.results[1]["count"] == 3
 
+    def test_multiple_breakdowns_labels_resolve_property_types_once(self):
+        PropertyDefinition.objects.create(team=self.team, name="bool_field", property_type="Boolean")
+        PropertyDefinition.objects.create(team=self.team, name="prop", property_type="String")
+
+        runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdowns=[
+                    Breakdown(property="bool_field", type=MultipleBreakdownType.EVENT),
+                    Breakdown(property="prop", type=MultipleBreakdownType.EVENT),
+                ]
+            ),
+        )
+
+        with self.assertNumQueries(2):
+            labels = [runner._format_breakdown_label([value, "a"]) for value in ["1", "0", "1"]]
+
+        assert labels == ["true::a", "false::a", "true::a"]
+
     def test_trends_breakdowns_histogram(self):
         self._create_test_events()
 
