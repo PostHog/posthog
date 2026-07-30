@@ -48,7 +48,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+    SELECT DISTINCT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(__in_cohort.matched, 1)) 
@@ -58,7 +58,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+    SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id 
     FROM static_cohort_people 
     WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
   WHERE and(equals(1, 1), equals(__in_cohort.matched, 1)) 
@@ -70,7 +70,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events_json AS events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+    SELECT DISTINCT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(__in_cohort.matched, 1)) 
@@ -80,7 +80,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+    SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id 
     FROM static_cohort_people 
     WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
   WHERE and(equals(1, 1), equals(__in_cohort.matched, 1)) 
@@ -92,7 +92,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+    SELECT DISTINCT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(__in_cohort.matched, 1)) 
@@ -102,7 +102,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+    SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id 
     FROM static_cohort_people 
     WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
   WHERE and(equals(1, 1), equals(__in_cohort.matched, 1)) 
@@ -114,7 +114,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events_json AS events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+    SELECT DISTINCT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(__in_cohort.matched, 1)) 
@@ -124,7 +124,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+    SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id 
     FROM static_cohort_people 
     WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
   WHERE and(equals(1, 1), equals(__in_cohort.matched, 1)) 
@@ -136,7 +136,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+    SELECT DISTINCT person_static_cohort.person_id AS person_id, 1 AS matched 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
@@ -146,7 +146,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id, 1 AS matched 
+    SELECT DISTINCT person_id, 1 AS matched 
     FROM static_cohort_people 
     WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE equals(in_cohort__XX.matched, 1) 
@@ -158,7 +158,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events_json AS events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+    SELECT DISTINCT person_static_cohort.person_id AS person_id, 1 AS matched 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
@@ -168,7 +168,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id, 1 AS matched 
+    SELECT DISTINCT person_id, 1 AS matched 
     FROM static_cohort_people 
     WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE equals(in_cohort__XX.matched, 1) 
@@ -284,7 +284,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+    SELECT DISTINCT person_static_cohort.person_id AS person_id, 1 AS matched 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
@@ -294,7 +294,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id, 1 AS matched 
+    SELECT DISTINCT person_id, 1 AS matched 
     FROM static_cohort_people 
     WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE equals(in_cohort__XX.matched, 1) 
@@ -306,7 +306,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events_json AS events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+    SELECT DISTINCT person_static_cohort.person_id AS person_id, 1 AS matched 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
@@ -316,7 +316,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id, 1 AS matched 
+    SELECT DISTINCT person_id, 1 AS matched 
     FROM static_cohort_people 
     WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE equals(in_cohort__XX.matched, 1) 
@@ -328,7 +328,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+    SELECT DISTINCT person_static_cohort.person_id AS person_id, 1 AS matched 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
@@ -338,7 +338,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id, 1 AS matched 
+    SELECT DISTINCT person_id, 1 AS matched 
     FROM static_cohort_people 
     WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE equals(in_cohort__XX.matched, 1) 
@@ -350,7 +350,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events_json AS events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+    SELECT DISTINCT person_static_cohort.person_id AS person_id, 1 AS matched 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1)) 
@@ -360,7 +360,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id, 1 AS matched 
+    SELECT DISTINCT person_id, 1 AS matched 
     FROM static_cohort_people 
     WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE equals(in_cohort__XX.matched, 1) 
@@ -372,7 +372,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+    SELECT DISTINCT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */])) UNION ALL 
     SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
@@ -397,7 +397,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+    SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id 
     FROM static_cohort_people 
     WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */]) UNION ALL 
     SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
@@ -415,7 +415,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events_json AS events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
+    SELECT DISTINCT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), in(person_static_cohort.cohort_id, [1, 2, 3, 4, 5 /* ... */])) UNION ALL 
     SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
@@ -440,7 +440,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
+    SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id 
     FROM static_cohort_people 
     WHERE in(cohort_id, [1, 2, 3, 4, 5 /* ... */]) UNION ALL 
     SELECT id AS cohort_person_id, 1 AS matched, 99999 AS cohort_id 
@@ -760,7 +760,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+    SELECT DISTINCT person_static_cohort.person_id AS person_id, 1 AS matched 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1), equals(events.event, %(hogql_val_0)s)) 
@@ -770,7 +770,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id, 1 AS matched 
+    SELECT DISTINCT person_id, 1 AS matched 
     FROM static_cohort_people 
     WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE and(equals(in_cohort__XX.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
@@ -782,7 +782,7 @@
   -- ClickHouse
   SELECT events.event AS event 
   FROM events_json AS events LEFT JOIN (
-    SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
+    SELECT DISTINCT person_static_cohort.person_id AS person_id, 1 AS matched 
     FROM person_static_cohort 
     WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, XX))) AS in_cohort__XX ON equals(in_cohort__XX.person_id, events.person_id) 
   WHERE and(equals(events.team_id, 99999), equals(in_cohort__XX.matched, 1), equals(events.event, %(hogql_val_0)s)) 
@@ -792,7 +792,7 @@
   -- HogQL
   SELECT event 
   FROM events LEFT JOIN (
-    SELECT person_id, 1 AS matched 
+    SELECT DISTINCT person_id, 1 AS matched 
     FROM static_cohort_people 
     WHERE equals(cohort_id, XX)) AS in_cohort__XX ON equals(in_cohort__XX.person_id, person_id) 
   WHERE and(equals(in_cohort__XX.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
