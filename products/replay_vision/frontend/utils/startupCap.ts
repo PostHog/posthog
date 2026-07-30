@@ -23,5 +23,11 @@ export function applyStartupCap(quota: VisionQuotaApi | null, capCredits: number
     if (capped === quota.credit_limit) {
         return quota
     }
-    return { ...quota, credit_limit: capped, remaining: Math.max(capped - quota.credits_used, 0) }
+    return {
+        ...quota,
+        credit_limit: capped,
+        remaining: Math.max(capped - quota.credits_used, 0),
+        // Without this the meter can read over 100% while the status line still says "on track".
+        exhausted: quota.credits_used >= capped,
+    }
 }

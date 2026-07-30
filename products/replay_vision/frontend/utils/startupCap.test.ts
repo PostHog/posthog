@@ -20,9 +20,15 @@ describe('applyStartupCap', () => {
         expect(applyStartupCap(quota, cap)).toBe(quota)
     })
 
-    it('recomputes remaining against the capped limit', () => {
-        const quota = makeQuota({ credit_limit: null, credits_used: 1_000, remaining: null })
+    it.each([
+        ['under the cap', 1_000, STARTUP_CAP_CREDITS - 1_000, false],
+        ['past the cap', STARTUP_CAP_CREDITS + 5_000, 0, true],
+    ])(
+        'recomputes remaining and exhausted against the capped limit when spend is %s',
+        (_name, creditsUsed: number, remaining: number, exhausted: boolean) => {
+            const quota = makeQuota({ credit_limit: null, credits_used: creditsUsed, remaining: null })
 
-        expect(applyStartupCap(quota, STARTUP_CAP_CREDITS)?.remaining).toBe(STARTUP_CAP_CREDITS - 1_000)
-    })
+            expect(applyStartupCap(quota, STARTUP_CAP_CREDITS)).toMatchObject({ remaining, exhausted })
+        }
+    )
 })
