@@ -446,6 +446,26 @@ class TestValidateCredentials:
         assert "try again" in (message or "")
         assert "Internal error encountered" not in (message or "")
 
+    def test_invalid_argument_returns_actionable_message(self):
+        # A malformed request surfaces as a raw gRPC INVALID_ARGUMENT dump (with a per-request peer IP)
+        # at validate time. Surface a clean, actionable prompt rather than leaking the protobuf dump.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            'status = StatusCode.INVALID_ARGUMENT\n\tdetails = "Request contains an invalid argument."\n\t'
+            'debug_error_string = "peer_address:ipv4:172.217.112.4:443"'
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "customer ID" in (message or "")
+        assert "172.217.112.4" not in (message or "")
+        assert "StatusCode" not in (message or "")
+
 
 def _google_ads_exception(request_error: int) -> GoogleAdsException:
     failure = GoogleAdsFailure(

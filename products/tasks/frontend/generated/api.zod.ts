@@ -2604,7 +2604,7 @@ export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.
  * @summary Send command to task run
  */
 export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
@@ -2614,12 +2614,22 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
             .describe('\* `2.0` - 2.0')
             .describe("JSON-RPC version, must be '2.0'\n\n\* `2.0` - 2.0"),
         method: zod
-            .enum(['user_message', 'cancel', 'close', 'permission_response', 'set_config_option', 'mcp_response'])
+            .enum([
+                'user_message',
+                'cancel',
+                'close',
+                'permission_response',
+                'set_config_option',
+                'mcp_response',
+                'pi/rpc',
+                'queue_get',
+                'queue_clear',
+            ])
             .describe(
-                '\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response'
+                '\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response\n\* `pi\/rpc` - pi\/rpc\n\* `queue_get` - queue_get\n\* `queue_clear` - queue_clear'
             )
             .describe(
-                'Command method to execute on the agent server\n\n\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response'
+                'Command method to execute on the agent server\n\n\* `user_message` - user_message\n\* `cancel` - cancel\n\* `close` - close\n\* `permission_response` - permission_response\n\* `set_config_option` - set_config_option\n\* `mcp_response` - mcp_response\n\* `pi\/rpc` - pi\/rpc\n\* `queue_get` - queue_get\n\* `queue_clear` - queue_clear'
             ),
         params: zod.record(zod.string(), zod.unknown()).optional().describe('Parameters for the command'),
         id: zod.unknown().optional().describe('Optional JSON-RPC request ID (string or number)'),

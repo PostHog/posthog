@@ -735,6 +735,17 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         return value
 
 
+class TaskSessionResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Task session identifier")
+    download_url = serializers.URLField(allow_null=True, help_text="Temporary URL for downloading the session")
+    content_sha256 = serializers.CharField(allow_null=True, help_text="SHA-256 digest of the current session content")
+
+
+class TaskSessionSyncResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Task session identifier")
+    content_sha256 = serializers.CharField(help_text="SHA-256 digest of the uploaded session content")
+
+
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Relay status: 'accepted' or 'skipped'")
     relay_id = serializers.CharField(required=False, help_text="Relay workflow ID when accepted")
@@ -2429,6 +2440,9 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "permission_response",
         "set_config_option",
         "mcp_response",
+        "pi/rpc",
+        "queue_get",
+        "queue_clear",
     ]
 
     # Cap on the serialized mcp_response params (docs/cloud-mcp-relay.md): the relayed JSON-RPC
@@ -2456,7 +2470,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
     )
 
     def validate_id(self, value):
-        if value is not None and not isinstance(value, (str, int, float)):
+        if value is not None and not isinstance(value, str | int | float):
             raise serializers.ValidationError("id must be a string or number")
         return value
 
@@ -2501,6 +2515,18 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"params": "user_message requires a non-empty content string, artifact_ids, or both"}
                 )
+        elif method == "pi/rpc":
+            command = params.get("command")
+            if not isinstance(command, dict):
+                raise serializers.ValidationError({"params": "command must be an object"})
+            command_type = command.get("type")
+            if not isinstance(command_type, str) or not command_type:
+                raise serializers.ValidationError({"params": "command.type must be a non-empty string"})
+            command_id = command.get("id")
+            if not isinstance(command_id, str) or not command_id:
+                raise serializers.ValidationError({"params": "command.id must be a non-empty string"})
+            if attrs.get("id") != command_id:
+                raise serializers.ValidationError({"id": "id must match params.command.id"})
         elif method == "permission_response":
             self._require_nonempty_string(params, "requestId")
             self._require_nonempty_string(params, "optionId")
@@ -2535,7 +2561,7 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
 
     jsonrpc = serializers.CharField(help_text="JSON-RPC version")
     id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
-    result = serializers.DictField(required=False, help_text="Command result on success")
+    result = serializers.JSONField(required=False, help_text="Command result on success")
     error = serializers.DictField(required=False, help_text="Error details on failure")
 
 

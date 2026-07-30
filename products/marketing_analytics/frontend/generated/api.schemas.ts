@@ -7,13 +7,30 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `EventsNode` - EventsNode
+ * * `ActionsNode` - ActionsNode
+ * * `DataWarehouseNode` - DataWarehouseNode
+ */
+export type ConversionGoalKindEnumApi = (typeof ConversionGoalKindEnumApi)[keyof typeof ConversionGoalKindEnumApi]
+
+export const ConversionGoalKindEnumApi = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
+    DataWarehouseNode: 'DataWarehouseNode',
+} as const
+
 export interface ConversionGoalSummaryApi {
     /** Unique id of the goal (event name, action id, or DW goal id) */
     id: string
     /** Display name of the conversion goal */
     name: string
-    /** Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table) */
-    kind: string
+    /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+     *
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode */
+    kind: ConversionGoalKindEnumApi
     /** Human-readable target the goal matches (event/action name or table) */
     target_label: string
     /** Count of matching conversion events in the last 30 days */
@@ -271,8 +288,12 @@ export interface GoalExplanationApi {
     goal_id: string
     /** Display name of the conversion goal */
     goal_name: string
-    /** EventsNode/ActionsNode/DataWarehouseNode */
-    kind: string
+    /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+     *
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode */
+    kind: ConversionGoalKindEnumApi
     /** The period the breakdown was computed over */
     period: GoalExplanationPeriodApi
     /** Total matching conversion events in the period */
