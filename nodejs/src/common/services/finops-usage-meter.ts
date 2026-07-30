@@ -21,6 +21,15 @@ const finopsUsageMeterFlushedCounter = new Counter({
     labelNames: ['product', 'billable_unit'],
 })
 
+// The meter swallows its own errors to stay non-blocking, so failures are otherwise invisible
+// on dashboards (only in exception tracking). This counter makes them alertable; `operation`
+// distinguishes a buffering failure (queue) from a produce failure (flush).
+const finopsUsageMeterErrorsCounter = new Counter({
+    name: 'finops_usage_meter_errors_total',
+    help: 'FinOps usage meter errors, swallowed to keep metering non-blocking.',
+    labelNames: ['operation'],
+})
+
 /**
  * One usage-meter row, matching the ClickHouse `usage_meters` schema
  * (posthog/models/finops/usage_meters.py). The caller supplies the billable unit,
@@ -109,6 +118,7 @@ export class FinopsUsageMeter {
                 })
             }
         } catch (error) {
+            finopsUsageMeterErrorsCounter.inc({ operation: 'queue' })
             captureException(error)
         }
     }
@@ -156,6 +166,7 @@ export class FinopsUsageMeter {
                 finopsUsageMeterFlushedCounter.inc({ product: m.product, billable_unit: m.billableUnit })
             }
         } catch (error) {
+            finopsUsageMeterErrorsCounter.inc({ operation: 'flush' })
             captureException(error)
         }
     }

@@ -7,6 +7,7 @@ import {
     KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
     KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
+    KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
@@ -103,6 +104,9 @@ export const TEST_KAFKA_TOPICS = [
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
     KAFKA_PERSON_MERGE_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
+    // The ingestion consumer verifies every output topic at startup (checkTopics), so the
+    // finops usage-meters topic must exist even when the meter is disabled by default.
+    KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS,
 ]
 
 export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
