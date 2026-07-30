@@ -1,6 +1,7 @@
 import ipaddress
+from types import SimpleNamespace
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -26,6 +27,32 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         serializer = TaskWriteSerializer(data={"origin_product": origin_product})
         serializer.is_valid()
         assert ("origin_product" in serializer.errors) is expected_rejected
+
+    @parameterized.expand(
+        [
+            ("support_reply", False),
+            ("user_created", True),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.serializers.logger.warning")
+    def test_logs_client_writable_server_attribution(
+        self, origin_product: str, internal: bool, warning: MagicMock
+    ) -> None:
+        serializer = TaskWriteSerializer(
+            data={"origin_product": origin_product, "internal": internal},
+            context={"team_id": 123, "request": SimpleNamespace(user=SimpleNamespace(id=456))},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        warning.assert_called_once_with(
+            "Public task API accepted server-attributed task fields",
+            extra={
+                "team_id": 123,
+                "user_id": 456,
+                "origin_product": origin_product,
+                "internal": internal,
+            },
+        )
 
 
 class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):

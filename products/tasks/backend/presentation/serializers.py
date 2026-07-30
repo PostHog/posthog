@@ -646,6 +646,18 @@ class TaskWriteSerializer(serializers.Serializer):
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
+        if attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SUPPORT_REPLY or attrs.get("internal") is True:
+            request = self.context.get("request")
+            logger.warning(
+                "Public task API accepted server-attributed task fields",
+                extra={
+                    "team_id": self.context.get("team_id"),
+                    "user_id": getattr(getattr(request, "user", None), "id", None),
+                    "origin_product": attrs.get("origin_product"),
+                    "internal": attrs.get("internal", False),
+                },
+            )
+
         trusted_signal_report = self.context.get("trusted_signal_report", False)
         if trusted_signal_report:
             attrs["origin_product"] = tasks_facade.TaskOriginProduct.SIGNAL_REPORT
