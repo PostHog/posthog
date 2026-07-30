@@ -46,6 +46,13 @@ REPARTITION_COOLDOWN_SECONDS = 24 * 60 * 60
 # doesn't re-attempt the rewrite on every sync forever.
 MAX_REPARTITION_ATTEMPTS = 3
 
+# Worst-case assumed ratio between a partition's in-memory working set and its compressed at-rest
+# size — the amplification that justifies the oom_history trigger at all. When even this generous
+# multiple of the largest partition fits the budget, partition size can't be what's killing the
+# worker (heartbeat timeouts also come from slow merges, deploys, and pod churn), so repartitioning
+# finer can't help.
+OOM_WORKING_SET_AMPLIFICATION = 100
+
 
 def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000))
@@ -196,6 +203,22 @@ async def maybe_flag_for_repartition(
                 budget_bytes=budget,
                 recent_oom_count=oom_count,
                 partition_count=len(partition_bytes),
+            )
+            return
+
+        # A tiny largest partition can't be the OOM cause: without this guard, oom_history drives the
+        # scheme finer tier by tier until it bottoms out (e.g. datetime at hour) and then emits a
+        # skipped event + exception on every cooldown expiry forever — while the extra partitions
+        # multiply per-partition merge commits, slowing the sync that produced the timeouts.
+        if not over_budget and max_bytes * OOM_WORKING_SET_AMPLIFICATION < budget:
+            await logger.adebug(
+                f"repartition: OOM history present but largest partition is far under budget, "
+                f"partitioning is not the cause — leaving layout alone schema_id={schema.id} "
+                f"max_partition_bytes={max_bytes} budget_bytes={budget} recent_oom_count={oom_count}",
+                schema_id=str(schema.id),
+                max_partition_bytes=max_bytes,
+                budget_bytes=budget,
+                recent_oom_count=oom_count,
             )
             return
 
