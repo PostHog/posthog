@@ -2050,10 +2050,13 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             validated_data["schedule_changed_at"] = timezone.now()
         # This serializer is the human write path, so it moves `status` through `enabled`:
         # false is a user pause the system must never override, true resumes from any pause.
-        # An edit that doesn't touch `enabled` still clears a pending pause — a human tending
-        # the config is exactly the signal the warning exists to detect. An empty PATCH is not
-        # an edit and must not count as human contact.
-        if "enabled" in validated_data:
+        # Only a CHANGED `enabled` value is a lifecycle action — clients (MCP callers
+        # especially) resend whole config objects, and a re-sent `enabled=false` on a
+        # system-paused scout must not silently escalate it to a user pause the system may
+        # never resume. Any other non-empty edit still clears a pending pause, since a human
+        # tending the config is exactly the signal the warning exists to detect; an empty
+        # PATCH is not an edit and must not count as human contact.
+        if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             target = (
                 SignalScoutConfig.Status.ACTIVE
                 if validated_data["enabled"]

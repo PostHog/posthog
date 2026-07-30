@@ -78,6 +78,14 @@ class TestScoutStatusTransitions(BaseTest):
             ),
             ("user_pause_blocks_system_resume", Status.PAUSED_BY_USER, None, Status.ACTIVE, Reason.NO_OUTPUT, False),
             (
+                "pause_not_downgraded_to_warning",
+                Status.PAUSED_BY_SYSTEM,
+                Reason.NO_OUTPUT,
+                Status.PENDING_PAUSE,
+                Reason.NO_OUTPUT,
+                False,
+            ),
+            (
                 "same_state_is_a_noop",
                 Status.PENDING_PAUSE,
                 Reason.NO_OUTPUT,
@@ -206,14 +214,16 @@ class TestScoutColdStartGrace(BaseTest):
         with freeze_time("2026-07-20T00:00:00Z"):
             assert config.in_cold_start_grace() is True
 
-    def test_an_unattributed_reactivation_does_not_re_anchor(self) -> None:
+    def test_any_reactivation_grants_a_fresh_window(self) -> None:
+        # Deliberately independent of attribution, so the window survives the re-enabling
+        # user's account being deleted (the FK is SET_NULL).
         with freeze_time("2026-06-01T00:00:00Z"):
             config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
         with freeze_time("2026-07-15T00:00:00Z"):
             config.enabled = True
             config.save(update_fields=["enabled"])
         with freeze_time("2026-07-20T00:00:00Z"):
-            assert config.in_cold_start_grace() is False
+            assert config.in_cold_start_grace() is True
 
     def test_a_system_transition_does_not_re_anchor(self) -> None:
         # A sweep's own pending_pause warning re-anchoring grace would put the scout back

@@ -1327,6 +1327,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 return False
             if locked.status != self.Status.ACTIVE and locked.pause_reason != pause_reason:
                 return False
+            # A warning is weaker than a pause: a delayed or retried warn must not reopen a
+            # scout its own writer already paused (pending_pause is runnable).
+            if new_status == self.Status.PENDING_PAUSE and locked.status == self.Status.PAUSED_BY_SYSTEM:
+                return False
             recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
             if new_status == locked.status and recorded_reason == locked.pause_reason:
                 return False
@@ -1352,19 +1356,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     def in_cold_start_grace(self) -> bool:
         """True while the scout is provisional and system writers should not evaluate it.
 
-        Anchored on `created_at`, re-anchored only by a human move back to `active` (a human
-        re-enable grants a fresh window; `status_changed_by` is null on system transitions).
-        System transitions must not re-anchor: a sweep's own `pending_pause` warning would
-        otherwise put the scout back into grace and the sweep could never pause anything.
-        Time-based only; a consumer that also wants a minimum-runs floor applies that on top,
-        since the floor differs per writer.
+        Anchored on `created_at`, re-anchored by any move back to `active`: a re-enable or a
+        system resume grants a fresh window before the next evaluation. Deliberately not
+        keyed on `status_changed_by` so the window survives the actor's account being
+        deleted (`SET_NULL`). A `pending_pause` warning never re-anchors (status is not
+        `active`), so a sweep cannot put its own candidates back into grace. Time-based
+        only; a consumer that also wants a minimum-runs floor applies that on top, since the
+        floor differs per writer.
         """
         anchor = self.created_at
-        if (
-            self.status == self.Status.ACTIVE
-            and self.status_changed_at is not None
-            and self.status_changed_by_id is not None
-        ):
+        if self.status == self.Status.ACTIVE and self.status_changed_at is not None:
             anchor = max(anchor, self.status_changed_at)
         return timezone.now() < anchor + self.COLD_START_GRACE
 

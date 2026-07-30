@@ -1401,6 +1401,27 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.status == SignalScoutConfig.Status.ACTIVE
         assert config.pause_reason is None
 
+    def test_resending_enabled_false_does_not_escalate_a_system_pause(self) -> None:
+        # Clients resend whole config objects; an unchanged `enabled=false` must not convert
+        # a system pause into a user pause the system may never resume.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"enabled": False, "run_interval_minutes": 120}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert config.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+        assert config.run_interval_minutes == 120
+
     def test_empty_partial_update_does_not_clear_a_pending_pause(self) -> None:
         config = SignalScoutConfig.objects.create(
             team=self.team,
