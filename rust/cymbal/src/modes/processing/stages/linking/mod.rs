@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 pub mod issue;
+pub mod new_issue_limit;
 pub mod rule_suppression;
 pub mod suppression;
 

@@ -6,7 +6,7 @@ use rdkafka::producer::FutureProducer;
 use sqlx::PgPool;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use tokio::{sync::Semaphore, task::JoinHandle};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -14,6 +14,7 @@ use crate::{
     core::resolver::build_catalog,
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
+    stages::linking::new_issue_limit::NewIssueLimiter,
     stages::rate_limiting::RedisRateLimiter,
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
@@ -53,6 +54,8 @@ pub struct AppContext {
     // Error-tracking rate limiter. `None` when disabled (the default), in which
     // case `RateLimitingStage` is a pass-through no-op.
     pub rate_limiter: Option<Arc<RedisRateLimiter>>,
+    // Per-team new-issue creation guard. `None` when the configured limit is 0.
+    pub new_issue_limiter: Option<Arc<NewIssueLimiter>>,
     // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
     // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
     pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
@@ -186,6 +189,7 @@ impl AppContext {
             build_remote_resolution(config).await?;
 
         let rate_limiter = build_rate_limiter(config).await?;
+        let new_issue_limiter = build_new_issue_limiter(config).await;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
 
@@ -202,6 +206,7 @@ impl AppContext {
             team_manager,
             issue_buckets_redis_client,
             rate_limiter,
+            new_issue_limiter,
             rate_limiter_enabled_team_ids,
             symbol_resolver,
             issue_cache,
@@ -211,16 +216,12 @@ impl AppContext {
     }
 }
 
-async fn build_rate_limiter(
+/// Dedicated connection to the rate-limiter Redis. Defaults to localhost, which
+/// is shared with the issue-buckets Redis in local dev.
+async fn build_rate_limiter_redis_client(
     config: &ProcessingConfig,
-) -> Result<Option<Arc<RedisRateLimiter>>, UnhandledError> {
-    if !config.error_tracking_rate_limiter_enabled {
-        return Ok(None);
-    }
-
-    // Dedicated connection to the rate-limiter Redis. Defaults to localhost,
-    // which is shared with the issue-buckets Redis in local dev.
-    let client = RedisClient::with_config(
+) -> Result<RedisClient, UnhandledError> {
+    Ok(RedisClient::with_config(
         config.error_tracking_rate_limiter_redis_url.clone(),
         common_redis::CompressionConfig::disabled(),
         common_redis::RedisValueFormat::Utf8,
@@ -235,7 +236,17 @@ async fn build_rate_limiter(
             Some(Duration::from_millis(config.redis_connection_timeout_ms))
         },
     )
-    .await?;
+    .await?)
+}
+
+async fn build_rate_limiter(
+    config: &ProcessingConfig,
+) -> Result<Option<Arc<RedisRateLimiter>>, UnhandledError> {
+    if !config.error_tracking_rate_limiter_enabled {
+        return Ok(None);
+    }
+
+    let client = build_rate_limiter_redis_client(config).await?;
 
     info!("Error-tracking rate limiter enabled");
 
@@ -244,6 +255,41 @@ async fn build_rate_limiter(
         config.error_tracking_rate_limiter_key_prefix.clone(),
         config.error_tracking_rate_limiter_bucket_ttl_seconds,
     ))))
+}
+
+/// Builds the per-team new-issue creation guard. Shares the rate limiter's Redis
+/// deployment (its own key prefix keeps the buckets separate) but not its master
+/// switch: the guard is about our own visibility into runaway issue creation, so
+/// it measures whether or not the exception limiter is on.
+async fn build_new_issue_limiter(config: &ProcessingConfig) -> Option<Arc<NewIssueLimiter>> {
+    if config.new_issue_rate_limit == 0 {
+        return None;
+    }
+
+    // The guard is on by default, so a Redis it can't reach must not stop cymbal
+    // from booting — run without it, the same way it fails open per-event.
+    let client = match build_rate_limiter_redis_client(config).await {
+        Ok(client) => client,
+        Err(error) => {
+            warn!(error = %error, "could not connect to the new-issue limiter Redis, running without the guard");
+            return None;
+        }
+    };
+
+    info!(
+        limit = config.new_issue_rate_limit,
+        bucket_minutes = config.new_issue_rate_limit_bucket_minutes,
+        enforced = config.new_issue_rate_limit_enforced,
+        "Per-team new-issue creation guard enabled"
+    );
+
+    Some(Arc::new(NewIssueLimiter::new(
+        Arc::new(client),
+        config.new_issue_rate_limit_key_prefix.clone(),
+        config.new_issue_rate_limit,
+        config.new_issue_rate_limit_bucket_minutes,
+        config.new_issue_rate_limit_enforced,
+    )))
 }
 
 /// Parse a comma-separated team-id allowlist. `None` (empty input) means the

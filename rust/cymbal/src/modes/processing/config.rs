@@ -176,6 +176,38 @@ pub struct ProcessingConfig {
     )]
     pub error_tracking_rate_limiter_enabled_team_ids: String,
 
+    // ----------------------------------------------------------------------
+    // Per-team new-issue creation guard. Independent of the exception rate
+    // limiter above: that one caps how many events an *existing* issue (or a
+    // whole project) can take, which does nothing about a team whose
+    // fingerprinting is broken and mints a brand new issue per event.
+    //
+    // The bucket is always charged when a limit is set, so
+    // `NEW_ISSUE_RATE_LIMIT_EXCEEDED` reports runaway creation even while
+    // enforcement is off. Enforcement drops the event instead of creating the
+    // issue, so it is opt-in per deployment.
+    // ----------------------------------------------------------------------
+    #[envconfig(from = "ERROR_TRACKING_NEW_ISSUE_RATE_LIMIT", default = "1000")]
+    pub new_issue_rate_limit: u32,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_NEW_ISSUE_RATE_LIMIT_BUCKET_MINUTES",
+        default = "60"
+    )]
+    pub new_issue_rate_limit_bucket_minutes: u32,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_NEW_ISSUE_RATE_LIMIT_ENFORCED",
+        default = "false"
+    )]
+    pub new_issue_rate_limit_enforced: bool,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_NEW_ISSUE_RATE_LIMIT_KEY_PREFIX",
+        default = "@posthog/error-tracking-new-issue-limiter"
+    )]
+    pub new_issue_rate_limit_key_prefix: String,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]

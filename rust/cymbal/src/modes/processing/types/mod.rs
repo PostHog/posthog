@@ -202,6 +202,10 @@ impl ProcessedExceptionProperties {
         &self.0.fingerprint
     }
 
+    pub fn fingerprint_version(&self) -> Option<FingerprintVersion> {
+        self.0.fingerprint_version
+    }
+
     pub fn fingerprint_record(&self) -> &[FingerprintRecordPart] {
         &self.0.fingerprint_record
     }

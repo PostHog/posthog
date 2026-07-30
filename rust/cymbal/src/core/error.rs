@@ -236,6 +236,8 @@ pub enum EventError {
     RateLimitedPerIssue(Uuid),
     #[error("Rate limited (project): team {0}")]
     RateLimitedProject(i32),
+    #[error("Rate limited (new issues): team {0}")]
+    NewIssueRateLimited(i32),
 }
 
 impl JsResolveErr {

@@ -57,7 +57,8 @@ fn handle_result(
             EventError::Suppressed(_)
             | EventError::SuppressedByRule(_)
             | EventError::RateLimitedPerIssue(_)
-            | EventError::RateLimitedProject(_) => None,
+            | EventError::RateLimitedProject(_)
+            | EventError::NewIssueRateLimited(_) => None,
             err => {
                 original.attach_error(err.to_string())?;
                 Some(original)

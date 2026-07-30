@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
+    error::{EventError, UnhandledError},
     issue_resolution::{
         send_fingerprint_issue_state, send_issue_created_notification,
         send_issue_reopened_notification, Issue, IssueFingerprintOverride,
@@ -23,6 +23,33 @@ use crate::{
     },
 };
 
+/// Why linking could not produce an issue. `NewIssueRateLimited` is a per-event
+/// decision rather than a failure — the team is over its new-issue budget — so it
+/// becomes a dropped event, not a pipeline error.
+#[derive(Debug, thiserror::Error)]
+pub enum LinkError {
+    #[error(transparent)]
+    Unhandled(#[from] UnhandledError),
+    #[error("New issue creation rate limited for team {0}")]
+    NewIssueRateLimited(i32),
+}
+
+impl From<sqlx::Error> for LinkError {
+    fn from(error: sqlx::Error) -> Self {
+        LinkError::Unhandled(error.into())
+    }
+}
+
+// moka only hands back an `Arc` of the loader's error, and `UnhandledError` isn't
+// `Clone`, so unhandled failures degrade to their message (as they did before) while
+// the rate-limit decision survives as a typed variant.
+fn unwrap_cached(error: Arc<LinkError>) -> LinkError {
+    match &*error {
+        LinkError::NewIssueRateLimited(team_id) => LinkError::NewIssueRateLimited(*team_id),
+        LinkError::Unhandled(_) => LinkError::Unhandled(UnhandledError::Other(error.to_string())),
+    }
+}
+
 #[derive(Clone)]
 pub struct IssueLinker;
 
@@ -30,7 +57,7 @@ impl IssueLinker {
     pub async fn fetch_or_create_issue(
         input: &ExceptionEvent<Fingerprinted>,
         ctx: Arc<AppContext>,
-    ) -> Result<Issue, UnhandledError> {
+    ) -> Result<Issue, LinkError> {
         // Extract name and description for the issue
         let name = input
             .proposed_issue_name()
@@ -69,7 +96,7 @@ impl IssueLinker {
     ) -> Result<PipelineItem<Linked>, UnhandledError> {
         match item {
             Err(error) => Ok(Err(error)),
-            Ok(input) => self.link(input, ctx).await.map(Ok),
+            Ok(input) => self.link(input, ctx).await,
         }
     }
 
@@ -77,7 +104,7 @@ impl IssueLinker {
         &self,
         input: ExceptionEvent<Fingerprinted>,
         ctx: LinkingStage,
-    ) -> Result<ExceptionEvent<Linked>, UnhandledError> {
+    ) -> Result<PipelineItem<Linked>, UnhandledError> {
         let key = (input.team_id(), input.fingerprint().value().to_string());
 
         // Wrap the (large) event in an `Arc` so the cache-loader closures capture a cheap
@@ -97,19 +124,28 @@ impl IssueLinker {
         // and `maybe_reopen` never see stale state.
         let input_for_load = input.clone();
         let ctx_for_load = ctx.clone();
-        let issue: Issue = ctx
+        let resolved = ctx
             .batch_issue_cache
             .try_get_with(key, async move {
                 resolve_via_id_cache(input_for_load, &ctx_for_load).await
             })
-            .await
-            .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+            .await;
+
+        let issue: Issue = match resolved {
+            Ok(issue) => issue,
+            Err(error) => match unwrap_cached(error) {
+                LinkError::NewIssueRateLimited(team_id) => {
+                    return Ok(Err(EventError::NewIssueRateLimited(team_id)))
+                }
+                LinkError::Unhandled(error) => return Err(error),
+            },
+        };
 
         // The only `Arc` clones were captured by this call's loader closures, which have
         // all completed (or been dropped when moka deduped them), so we uniquely own the
         // event again and can reclaim it to write back the resolved issue.
         let input = Arc::into_inner(input).expect("input Arc uniquely held after cache resolution");
-        Ok(input.into_linked(issue))
+        Ok(Ok(input.into_linked(issue)))
     }
 }
 
@@ -122,7 +158,7 @@ impl IssueLinker {
 async fn resolve_via_id_cache(
     input: Arc<ExceptionEvent<Fingerprinted>>,
     ctx: &LinkingStage,
-) -> Result<Issue, UnhandledError> {
+) -> Result<Issue, LinkError> {
     let fingerprint = input.fingerprint().value().to_string();
     let key = (input.team_id(), fingerprint.clone());
 
@@ -140,10 +176,10 @@ async fn resolve_via_id_cache(
             let issue = IssueLinker::fetch_or_create_issue(&cloned_input, app_ctx).await?;
             let id = issue.id;
             *slot.lock().expect("just_resolved mutex poisoned") = Some(issue);
-            Ok::<Uuid, UnhandledError>(id)
+            Ok::<Uuid, LinkError>(id)
         })
         .await
-        .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+        .map_err(unwrap_cached)?;
 
     // If we ran the loader, the just-resolved Issue is current — return it directly.
     if let Some(issue) = just_resolved
@@ -238,7 +274,7 @@ async fn resolve_issue(
     description: String,
     event_timestamp: DateTime<Utc>,
     event_properties: &ExceptionEvent<Fingerprinted>,
-) -> Result<Issue, UnhandledError> {
+) -> Result<Issue, LinkError> {
     let team_id = event_properties.team_id();
     let fingerprint = event_properties.fingerprint().value().to_string();
 
@@ -278,6 +314,15 @@ async fn resolve_issue(
             .await?;
         }
         return Ok(issue);
+    }
+
+    // Nothing is keyed to this fingerprint yet, so we're about to mint a new issue.
+    // Charge the team's new-issue budget first: a team whose exceptions all fingerprint
+    // uniquely would otherwise create issues without bound.
+    if let Some(limiter) = &context.new_issue_limiter {
+        if !limiter.admit_new_issue(team_id).await {
+            return Err(LinkError::NewIssueRateLimited(team_id));
+        }
     }
 
     // Slow path - insert a new issue, and then insert the fingerprint override, rolling
