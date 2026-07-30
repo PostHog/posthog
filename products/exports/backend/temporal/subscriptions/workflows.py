@@ -46,6 +46,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryStatus,
+    ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
     ProcessSubscriptionWorkflowInputs,
@@ -199,6 +200,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         total_assets = 0
         asset_errors: list[ExportError] = []
         caught_error: BaseException | None = None
+        delivery_error: dict[str, str] | None = None
 
         # Delivery record tracking
         delivery_id: uuid.UUID | None = None
@@ -252,7 +254,6 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                 create_export_assets,
                 CreateExportAssetsInputs(
                     subscription_id=inputs.subscription_id,
-                    previous_value=inputs.previous_value,
                     delivery_id=delivery_id,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
@@ -264,7 +265,28 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             )
 
             if not prepare_result.exported_asset_ids:
-                # No assets to export — SKIPPED status, finalized in finally
+                if prepare_result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS:
+                    delivery_error = {
+                        "message": "This subscription has no available insights to export. Update its insight selection.",
+                        "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+                    }
+                    final_status = DeliveryStatus.FAILED
+                    temporalio.workflow.logger.warning(
+                        "process_subscription.no_exportable_insights",
+                        extra={
+                            "subscription_id": inputs.subscription_id,
+                            "trigger_type": inputs.trigger_type,
+                            "error_type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+                        },
+                    )
+                    if inputs.slo:
+                        inputs.slo.completion_properties.update(
+                            {
+                                "error_type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+                                "error_message": delivery_error["message"],
+                                "failure_type": "configuration",
+                            }
+                        )
                 return
 
             delivery_exported_asset_ids = prepare_result.exported_asset_ids
@@ -384,9 +406,11 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             exported_asset_ids=delivery_exported_asset_ids or None,
                             recipient_results=delivery_recipient_results or None,
                             change_summary=change_summary,
-                            error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
-                            if caught_error
-                            else None,
+                            error=(
+                                {"message": str(caught_error)[:500], "type": type(caught_error).__name__}
+                                if caught_error
+                                else delivery_error
+                            ),
                             finished=True,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),

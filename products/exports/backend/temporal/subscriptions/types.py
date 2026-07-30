@@ -20,6 +20,11 @@ class DeliveryStatus:
     SKIPPED = "skipped"
 
 
+class ExportAssetPreparationStatus:
+    READY = "ready"
+    NO_EXPORTABLE_INSIGHTS = "no_exportable_insights"
+
+
 # Mirrors Subscription.ResourceType.AI_PROMPT — a plain constant so the Temporal
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
@@ -99,6 +104,7 @@ class CreateExportAssetsResult:
     team_id: int = 0
     distinct_id: str = ""
     target_type: str = ""
+    status: str = ExportAssetPreparationStatus.READY
 
 
 @dataclasses.dataclass

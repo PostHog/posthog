@@ -57,6 +57,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
     DeliveryStatus,
+    ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
     ProcessSubscriptionWorkflowInputs,
@@ -1200,6 +1201,89 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
         c.kwargs.get("properties", {}).get("operation") == SloOperation.QUERY_SERVICE
         for c in mock_analytics.capture.call_args_list
     )
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_does_not_skip_an_unchanged_destination(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="same01", name="Same destination")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    result = await ActivityEnvironment().run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id, previous_value=subscription.target_value),
+    )
+
+    assert len(result.exported_asset_ids) == 1
+    assert result.status == ExportAssetPreparationStatus.READY
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_stale_dashboard_selection_fails_without_retrying(
+    mock_send_email: MagicMock,
+    mock_slo_analytics: MagicMock,
+    team,
+    user,
+):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Stale selection", created_by=user)
+    active_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="active01", name="Active")
+    stale_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="stale01", name="Removed")
+    await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=active_insight)
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+    await sync_to_async(subscription.dashboard_export_insights.add)(stale_insight)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                TrackedSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),
+                    ),
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription=subscription)
+    assert delivery.status == SubscriptionDelivery.Status.FAILED
+    assert delivery.error == {
+        "message": "This subscription has no available insights to export. Update its insight selection.",
+        "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+    }
+    mock_send_email.assert_not_called()
+
+    completed_calls = [
+        call
+        for call in mock_slo_analytics.capture.call_args_list
+        if call.kwargs.get("event") == "slo_operation_completed"
+        and call.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    assert len(completed_calls) == 1
+    properties = completed_calls[0].kwargs["properties"]
+    assert properties["outcome"] == SloOutcome.SUCCESS
+    assert properties["error_type"] == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert properties["failure_type"] == "configuration"
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")

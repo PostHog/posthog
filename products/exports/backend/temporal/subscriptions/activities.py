@@ -32,6 +32,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
+    ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     RecipientResult,
     SubscriptionAbortInfo,
@@ -179,19 +180,6 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         target_type=subscription.target_type,
     )
 
-    # Early exit if target value hasn't changed — avoids creating orphaned assets
-    # for subs whose payload is identical to the previous delivery.
-    if inputs.previous_value is not None and subscription.target_value == inputs.previous_value:
-        await LOGGER.ainfo(
-            "create_export_assets.no_change_skipping",
-            subscription_id=inputs.subscription_id,
-        )
-        return CreateExportAssetsResult(
-            exported_asset_ids=[],
-            total_insight_count=0,
-            team_id=team.id,
-        )
-
     if dashboard:
         tiles = await database_sync_to_async(
             lambda: list(
@@ -226,6 +214,23 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
     total_insight_count = len(tile_insight_pairs)
     export_pairs = tile_insight_pairs[: inputs.max_asset_count]
+
+    if not export_pairs:
+        await LOGGER.awarning(
+            "create_export_assets.no_exportable_insights",
+            subscription_id=inputs.subscription_id,
+            dashboard_id=subscription.dashboard_id,
+            insight_id=subscription.insight_id,
+            selected_insight_count=len(selected_ids) if dashboard and selected_ids else 0,
+        )
+        return CreateExportAssetsResult(
+            exported_asset_ids=[],
+            total_insight_count=total_insight_count,
+            team_id=team.id,
+            distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
+            target_type=subscription.target_type,
+            status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+        )
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [
