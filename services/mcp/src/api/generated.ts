@@ -31680,6 +31680,19 @@ export namespace Schemas {
       bucketing_identifier?: BucketingIdentifierEnum | null;
     }
 
+    /**
+     * Project-level link to an internal feature-flag best-practices / SOP doc.
+     */
+    export interface FeatureFlagGuidelines {
+      /** Whether the feature flag guidelines link is shown on the flag creation form and surfaced to AI agents. */
+      enabled?: boolean;
+      /**
+         * Link to your internal feature-flag best-practices or SOP doc (e.g. a Notion page).
+         * @maxLength 800
+         */
+      url?: string;
+    }
+
     export interface FeatureFlagRolloutSummary {
       /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
       effectively_full_rollout: boolean;
@@ -52457,6 +52470,8 @@ export namespace Schemas {
       readonly event_retention_months?: number;
       /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
       readonly events_retention_enforced?: boolean;
+      /** Project-level link to an internal feature-flag best-practices doc, surfaced on flag creation and to AI agents. */
+      readonly feature_flag_guidelines?: FeatureFlagGuidelines;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -56426,6 +56441,8 @@ export namespace Schemas {
       readonly event_retention_months: number;
       /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
       readonly events_retention_enforced: boolean;
+      /** Project-level link to an internal feature-flag best-practices doc, surfaced on flag creation and to AI agents. */
+      readonly feature_flag_guidelines: FeatureFlagGuidelines;
     }
 
     /**

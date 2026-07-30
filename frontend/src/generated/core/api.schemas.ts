@@ -1022,6 +1022,19 @@ export const CookielessServerHashModeEnumApi = {
 } as const
 
 /**
+ * Project-level link to an internal feature-flag best-practices / SOP doc.
+ */
+export interface FeatureFlagGuidelinesApi {
+    /** Whether the feature flag guidelines link is shown on the flag creation form and surfaced to AI agents. */
+    enabled?: boolean
+    /**
+     * Link to your internal feature-flag best-practices or SOP doc (e.g. a Notion page).
+     * @maxLength 800
+     */
+    url?: string
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface ProjectBackwardCompatApi {
@@ -1857,6 +1870,8 @@ export interface ProjectBackwardCompatApi {
     readonly event_retention_months: number
     /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
     readonly events_retention_enforced: boolean
+    /** Project-level link to an internal feature-flag best-practices doc, surfaced on flag creation and to AI agents. */
+    readonly feature_flag_guidelines: FeatureFlagGuidelinesApi
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2709,6 +2724,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly event_retention_months?: number
     /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
     readonly events_retention_enforced?: boolean
+    /** Project-level link to an internal feature-flag best-practices doc, surfaced on flag creation and to AI agents. */
+    readonly feature_flag_guidelines?: FeatureFlagGuidelinesApi
 }
 
 export interface SharePasswordApi {

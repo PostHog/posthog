@@ -381,6 +381,12 @@ tools:
     organizations-projects-evaluation-context-suggestions-destroy:
         operation: organizations_projects_evaluation_context_suggestions_destroy
         enabled: false
+    organizations-projects-feature-flag-guidelines-retrieve:
+        operation: organizations_projects_feature_flag_guidelines_retrieve
+        enabled: false
+    organizations-projects-feature-flag-guidelines-update:
+        operation: organizations_projects_feature_flag_guidelines_update
+        enabled: false
     scheduled-changes-create:
         operation: scheduled_changes_create
         enabled: true

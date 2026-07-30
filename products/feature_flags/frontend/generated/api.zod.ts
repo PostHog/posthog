@@ -147,6 +147,28 @@ export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @_
 })
 
 /**
+ * Manage the feature-flag guidelines link for this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
+ */
+export const organizationsProjectsFeatureFlagGuidelinesUpdateBodyUrlMax = 800
+
+export const OrganizationsProjectsFeatureFlagGuidelinesUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the feature flag guidelines link is shown on the flag creation form and surfaced to AI agents.'
+            ),
+        url: zod
+            .url()
+            .max(organizationsProjectsFeatureFlagGuidelinesUpdateBodyUrlMax)
+            .optional()
+            .describe('Link to your internal feature-flag best-practices or SOP doc (e.g. a Notion page).'),
+    })
+    .describe('Project-level link to an internal feature-flag best-practices \/ SOP doc.')
+
+/**
  * Hide an evaluation context name from the flag editor's suggestion list, or restore it.
  *
  * POST hides the name; DELETE restores it. The underlying context row and any flags already

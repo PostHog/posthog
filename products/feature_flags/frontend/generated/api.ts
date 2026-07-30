@@ -26,6 +26,7 @@ import type {
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
     FeatureFlagCreateRequestSchemaApi,
+    FeatureFlagGuidelinesApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
     FeatureFlagTestEvaluationResponseApi,
@@ -489,6 +490,53 @@ export const organizationsProjectsEvaluationContextSuggestionsDestroy = async (
         {
             ...options,
             method: 'DELETE',
+        }
+    )
+}
+
+export const getOrganizationsProjectsFeatureFlagGuidelinesRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/feature_flag_guidelines/`
+}
+
+/**
+ * Manage the feature-flag guidelines link for this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
+ */
+export const organizationsProjectsFeatureFlagGuidelinesRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FeatureFlagGuidelinesApi> => {
+    return apiMutator<FeatureFlagGuidelinesApi>(
+        getOrganizationsProjectsFeatureFlagGuidelinesRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsFeatureFlagGuidelinesUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/feature_flag_guidelines/`
+}
+
+/**
+ * Manage the feature-flag guidelines link for this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
+ */
+export const organizationsProjectsFeatureFlagGuidelinesUpdate = async (
+    organizationId: string,
+    id: number,
+    featureFlagGuidelinesApi?: FeatureFlagGuidelinesApi,
+    options?: RequestInit
+): Promise<FeatureFlagGuidelinesApi> => {
+    return apiMutator<FeatureFlagGuidelinesApi>(
+        getOrganizationsProjectsFeatureFlagGuidelinesUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(featureFlagGuidelinesApi),
         }
     )
 }

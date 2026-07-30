@@ -354,6 +354,19 @@ export interface EvaluationContextSuggestionResponseApi {
 }
 
 /**
+ * Project-level link to an internal feature-flag best-practices / SOP doc.
+ */
+export interface FeatureFlagGuidelinesApi {
+    /** Whether the feature flag guidelines link is shown on the flag creation form and surfaced to AI agents. */
+    enabled?: boolean
+    /**
+     * Link to your internal feature-flag best-practices or SOP doc (e.g. a Notion page).
+     * @maxLength 800
+     */
+    url?: string
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
