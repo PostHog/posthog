@@ -1,4 +1,5 @@
-import { MakeLogicType, BindLogic, connect, kea, path, selectors, useActions, useValues } from 'kea'
+import { MakeLogicType, BindLogic, connect, events, kea, path, selectors, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { IconCopy, IconQuestion } from '@posthog/icons'
@@ -86,6 +87,22 @@ export const newSourceSceneLogic = kea<newSourceSceneLogicType>([
                 },
             ],
         ],
+    }),
+    events(() => {
+        // The scene already presents the "request a source" survey in its own modal (see
+        // SOURCE_REQUEST_SURVEY_ID), and that survey's URL targeting matches this route too, so
+        // posthog-js drops its popover over the wizard as well. posthog-js has no per-survey
+        // opt-out, so hold popovers back for as long as the wizard owns the page.
+        let surveysPreviouslyDisabled: boolean | undefined
+        return {
+            afterMount: () => {
+                surveysPreviouslyDisabled = posthog.config?.disable_surveys
+                posthog.set_config({ disable_surveys: true })
+            },
+            beforeUnmount: () => {
+                posthog.set_config({ disable_surveys: surveysPreviouslyDisabled ?? false })
+            },
+        }
     }),
 ])
 
