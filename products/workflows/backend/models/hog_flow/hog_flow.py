@@ -38,6 +38,12 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "exit",
 ]
 
+# The trigger's own kinds, which live in the workflow's `trigger` field rather than on an action.
+# Callers confuse the two (a stored workflow had an action of type "webhook", which is a trigger
+# kind), so the rejection message can say which mistake was made. Mirrors HogFlowTriggerSchema in
+# nodejs/src/cdp/schema/hogflow.ts.
+TRIGGER_TYPES: Final[frozenset[str]] = frozenset({"event", "schedule", "manual", "batch", "tracking_pixel", "webhook"})
+
 # Billable action types that are subject to rate limiting and quota tracking
 # These action types incur costs and are counted against customer quotas
 BILLABLE_ACTION_TYPES: Final[set[str]] = {

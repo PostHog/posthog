@@ -3620,6 +3620,23 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            # Every unsupported type used to get the same person-properties example, so most of the
+            # stored offenders (webhooks, filters) were pointed at the wrong step.
+            ("person_property_family", "set_person_property", "template-posthog-update-person-properties"),
+            ("contact_family", "contact_update", "template-posthog-update-person-properties"),
+            ("outbound_call", "http", "template-webhook"),
+            # 'webhook' is a trigger kind, so the message has to say which of the two was confused.
+            ("trigger_kind", "webhook", "is a trigger type"),
+        ]
+    )
+    def test_rejection_points_at_the_step_the_caller_meant(self, _name, action_type, expected):
+        field = HogFlowActionSerializer().fields["type"]
+        with self.assertRaises(Exception) as ctx:
+            field.to_internal_value(action_type)
+        assert expected in str(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
             # A step type invented from the name of a real feature ("Update person properties", which
             # is really type 'function' + template-posthog-update-person-properties).
             ("invented_from_a_feature_name", "update_person_properties"),
@@ -3643,7 +3660,10 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         detail = response.json()["detail"]
         assert action_type in detail
-        assert "template-posthog-update-person-properties" in detail
+        # The valid set is what every caller needs; the template suggestion is per-type and is
+        # covered by test_rejection_points_at_the_step_the_caller_meant.
+        assert "Valid types are:" in detail
+        assert "wait_until_condition" in detail
 
     @parameterized.expand(
         [

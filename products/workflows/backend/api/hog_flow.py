@@ -91,6 +91,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
     SUPPORTED_ACTION_TYPES,
+    TRIGGER_TYPES,
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -620,10 +621,32 @@ class HogFlowActionTypeField(serializers.ChoiceField):
             f"Unsupported action type {self._describe(data)}. "
             f"Valid types are: {', '.join(SUPPORTED_ACTION_TYPES)}. "
             "Steps that act on PostHog data don't get a type of their own - they are type 'function' "
-            "with a template_id. To set person properties, use template_id "
-            "'template-posthog-update-person-properties' with inputs distinct_id, set_properties and "
-            "set_once_properties."
+            f"with a template_id.{self._hint(data)}"
         )
+
+    @staticmethod
+    def _hint(data: Any) -> str:
+        # The types actually seen in stored workflows cluster into a few mistakes, so point at the
+        # step the caller was reaching for rather than repeating one example to everyone.
+        if not isinstance(data, str):
+            return ""
+        lowered = data.lower()
+        if lowered in TRIGGER_TYPES:
+            hint = (
+                f" '{data}' is a trigger type, not an action type: the trigger is a single action of "
+                "type 'trigger' and its kind belongs in the workflow's trigger field."
+            )
+            if lowered == "webhook":
+                hint += " To call an external endpoint from a step, use template_id 'template-webhook'."
+            return hint
+        if "person" in lowered or "propert" in lowered or "contact" in lowered:
+            return (
+                " To set person properties, use template_id 'template-posthog-update-person-properties' "
+                "with inputs distinct_id, set_properties and set_once_properties."
+            )
+        if "webhook" in lowered or "http" in lowered or "request" in lowered:
+            return " To call an external endpoint, use template_id 'template-webhook'."
+        return ""
 
     @staticmethod
     def _describe(data: Any) -> str:
