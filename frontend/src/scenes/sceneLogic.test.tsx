@@ -1,6 +1,7 @@
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -27,10 +28,24 @@ const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
 
+// A module that throws while evaluating (circular-import TDZ, a throwing top-level side effect)
+const brokenSceneImport = (): any => {
+    throw new TypeError("Cannot access 'someExport' before initialization")
+}
+
+// An import that only resolves once the test says so, to drive navigation races
+let resolveSlowSceneImport: () => void = () => {}
+const slowSceneImport = (): any =>
+    new Promise((resolve) => {
+        resolveSlowSceneImport = () => resolve({ scene: { component: Component, logic: testLogic } })
+    })
+
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.Settings]: sceneImport,
+    [Scene.SavedInsights]: brokenSceneImport,
+    [Scene.Dashboards]: slowSceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -69,6 +84,30 @@ describe('sceneLogic', () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.Settings,
         })
+    })
+
+    it('falls back to an error scene when a scene module fails to load', async () => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        router.actions.push(urls.savedInsights())
+        await expectLogic(logic).delay(1)
+        // `activeSceneId` is what App.tsx renders from: if it stays on the previous scene, the URL
+        // and the sidebar highlight move on while the old page keeps rendering
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorNetwork)
+        expect(captureException).toHaveBeenCalled()
+        captureException.mockRestore()
+    })
+
+    it('does not render a scene whose load was superseded by a newer navigation', async () => {
+        router.actions.push(urls.dashboards())
+        await expectLogic(logic).delay(1)
+
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.sceneId).toEqual(Scene.Settings)
+
+        resolveSlowSceneImport()
+        await expectLogic(logic).delay(1)
+        expect(logic.values.sceneId).toEqual(Scene.Settings)
     })
 
     it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {

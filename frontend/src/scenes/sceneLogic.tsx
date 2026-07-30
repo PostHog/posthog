@@ -871,8 +871,14 @@ export const sceneLogic = kea<sceneLogicType>([
 
             actions.loadScene(sceneId, sceneKey, params, method)
         },
-        loadScene: async ({ sceneId, sceneKey, params, method }, breakpoint) => {
+        loadScene: async ({ sceneId, sceneKey, params, method }) => {
             const clickedLink = method === 'PUSH'
+            // Claim this load. Only the newest load may end without rendering — every other exit
+            // path below has to reach a `setScene`, otherwise the URL and the nav highlight advance
+            // while the previous scene stays mounted, and the user is left clicking a dead page.
+            const loadId = (cache.sceneLoadId = (cache.sceneLoadId ?? 0) + 1)
+            const supersededByNewerLoad = (): boolean => cache.sceneLoadId !== loadId
+
             if (values.sceneId === sceneId && values.exportedScenes[sceneId]) {
                 actions.setScene(sceneId, sceneKey, params, clickedLink, values.exportedScenes[sceneId])
                 return
@@ -893,8 +899,14 @@ export const sceneLogic = kea<sceneLogicType>([
             const wasNotLoaded = !exportedScene
 
             if (!exportedScene) {
-                // if we can't load the scene in a second, show a spinner
-                const timeout = window.setTimeout(() => actions.setScene(sceneId, sceneKey, params, true), 500)
+                // if we can't load the scene in a second, show a spinner. Skip it once a newer
+                // navigation has taken over, or we'd swap that scene out for a spinner that nothing
+                // is left to resolve.
+                const timeout = window.setTimeout(() => {
+                    if (!supersededByNewerLoad()) {
+                        actions.setScene(sceneId, sceneKey, params, true)
+                    }
+                }, 500)
                 let importedScene
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
@@ -917,12 +929,22 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                         return
                     }
-                    throw error
+                    // Anything else (a module that throws while evaluating, a circular-import TDZ,
+                    // an `ESBUILD_LOAD_CHUNKS` failure) has no recovery of its own, so land on an
+                    // error scene. Rethrowing instead leaves the URL on the new route with the
+                    // previous scene still mounted, which reads as a frozen page.
+                    console.error(`Error loading scene ${sceneId}`, error)
+                    posthog.captureException(error, { extra: { source: 'sceneLogic.loadScene', sceneId } })
+                    actions.setScene(Scene.ErrorNetwork, undefined, emptySceneParams, clickedLink)
+                    return
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                if (values.sceneId !== sceneId) {
-                    breakpoint()
+                // Compare against the load that's actually in flight, not `sceneId` (which lags
+                // behind until `setScene` runs, so it differs on every fresh navigation): a scene
+                // that finished importing is only thrown away when a newer navigation replaced it.
+                if (supersededByNewerLoad()) {
+                    return
                 }
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
