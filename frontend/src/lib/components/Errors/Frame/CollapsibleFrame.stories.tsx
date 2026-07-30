@@ -12,7 +12,7 @@ const frameContext: ErrorTrackingStackFrameContext = {
     before: [
         { number: 6, line: '    "use strict"' },
         { number: 7, line: '    const MAX_RETRIES = null' },
-        { number: 8, line: '' },
+        { number: 8, line: '    // Keep retries bounded before surfacing the error' },
         { number: 9, line: '    useEffect(() => {' },
     ],
     line: { number: 10, line: '        loadFrameContexts({ frames })' },
