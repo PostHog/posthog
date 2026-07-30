@@ -69,6 +69,12 @@ import {
     GroupsTypesMetricsRetrieveParams,
 } from '@/generated/customer_analytics/api'
 import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -578,11 +584,49 @@ const announcementsChannelsList = (): ToolBase<
 
 const AnnouncementsCreateSchema = AnnouncementsCreateBody
 
-const announcementsCreate = (): ToolBase<typeof AnnouncementsCreateSchema, Schemas.Announcement> => ({
-    name: 'announcements-create',
+const AnnouncementsCreateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const announcementsCreatePrepare = (): ToolBase<typeof AnnouncementsCreateSchema, PrepareConfirmedActionResult> => ({
+    name: 'announcements-create-prepare',
     schema: AnnouncementsCreateSchema,
     handler: async (context: Context, params: z.infer<typeof AnnouncementsCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'announcements-create',
+            actionLabel: 'send announcement',
+            messageTemplate:
+                "About to send this announcement as the SupportHog bot to the Slack channels {channels} — a real, outward-facing message to customers that cannot be recalled once posted. The message body is: {message}. Reply 'confirm' to send.\n",
+            codec: __runtime.codec,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchemaExecute, Schemas.Announcement> => ({
+    name: 'announcements-create-execute',
+    schema: AnnouncementsCreateSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof AnnouncementsCreateSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<typeof AnnouncementsCreateSchema>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'announcements-create',
+            codec: __runtime.codec,
+            ledger: __runtime.ledger,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
         const body: Record<string, unknown> = {}
         if (params.message !== undefined) {
             body['message'] = params.message
@@ -1306,7 +1350,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-retrieve': accountsRetrieve,
     'accounts-summaries-list': accountsSummariesList,
     'announcements-channels-list': announcementsChannelsList,
-    'announcements-create': announcementsCreate,
+    'announcements-create-prepare': announcementsCreatePrepare,
+    'announcements-create-execute': announcementsCreateExecute,
     'announcements-list': announcementsList,
     'announcements-retrieve': announcementsRetrieve,
     'custom-property-definitions-create': customPropertyDefinitionsCreate,
