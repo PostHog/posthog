@@ -172,6 +172,11 @@ impl PersonhogStore {
         Ok(self.inner.watch(&key).await?)
     }
 
+    pub async fn watch_routers_from(&self, start_revision: i64) -> Result<WatchStream> {
+        let key = self.key(StoreKey::RoutersPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
+    }
+
     // ── Assignment operations ───────────────────────────────────
 
     pub async fn get_assignment(&self, partition: u32) -> Result<Option<PartitionAssignment>> {
