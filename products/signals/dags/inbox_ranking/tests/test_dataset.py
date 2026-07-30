@@ -1,0 +1,189 @@
+import datetime
+from typing import Any
+
+import pytest
+
+from products.signals.dags.inbox_ranking import common
+from products.signals.dags.inbox_ranking.dataset.dag import MODEL_DATA_SCHEMA, assemble_model_rows, label_provenance_ok
+from products.signals.dags.inbox_ranking.dataset.queries import (
+    LABEL_DEFAULTS,
+    LABEL_STREAMS,
+    merge_label_streams,
+    valid_report_uuids,
+)
+
+SNAPSHOT_DATE = datetime.date(2026, 7, 29)
+BUILT_AT = datetime.datetime(2026, 7, 30, 2, 30, tzinfo=datetime.UTC)
+T1 = datetime.datetime(2026, 7, 20, 10, 0, tzinfo=datetime.UTC)
+T2 = datetime.datetime(2026, 7, 21, 10, 0, tzinfo=datetime.UTC)
+
+
+def test_s3_key_layout_is_stable():
+    # The layout is an external contract: the project-2 warehouse table url_pattern and mlhog
+    # training both point at these paths, so a change here silently breaks them.
+    assert (
+        common.partition_object_key("inbox_ranking", "inbox_report_model_data", "2026-07-29")
+        == "inbox_ranking/inbox_report_model_data/v1/dt=2026-07-29/part-00000.parquet"
+    )
+    assert (
+        common.latest_object_key("inbox_ranking", "inbox_report_model_data")
+        == "inbox_ranking/inbox_report_model_data/v1/latest/part-00000.parquet"
+    )
+
+
+@pytest.mark.parametrize(
+    "cloud_deployment,bucket,expected_unconfigured",
+    [
+        ("US", "", True),
+        ("US", "posthog-inbox-ranking", False),
+        (None, "", False),
+    ],
+)
+def test_cloud_requires_dedicated_bucket(monkeypatch, cloud_deployment, bucket, expected_unconfigured):
+    monkeypatch.setattr(common.settings, "CLOUD_DEPLOYMENT", cloud_deployment)
+    monkeypatch.setattr(common.settings, "INBOX_RANKING_DATASET_S3_BUCKET", bucket)
+    assert common.dataset_unconfigured() is expected_unconfigured
+
+
+@pytest.mark.parametrize(
+    "partition_key,today,expected",
+    [
+        ("2026-07-29", datetime.date(2026, 7, 30), True),
+        ("2026-07-20", datetime.date(2026, 7, 30), False),
+    ],
+)
+def test_only_newest_partition_rewrites_latest(partition_key, today, expected):
+    assert common.is_newest_partition(partition_key, today) is expected
+
+
+def test_snapshot_bounds_cover_the_partition_day():
+    start, end = common.snapshot_bounds("2026-07-29")
+    assert start == datetime.datetime(2026, 7, 29, tzinfo=datetime.UTC)
+    assert end == datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)
+
+
+def test_valid_report_uuids_drops_client_supplied_junk():
+    good = "0198c0e8-93c8-0000-38f5-a934eeb1b93e"
+    assert valid_report_uuids({good, "not-a-uuid", ""}) == {good}
+
+
+def test_merge_label_streams_fills_defaults_and_maps_columns():
+    stream_rows: dict[str, list[tuple[Any, ...]]] = {
+        "impressions": [("r1", T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
+        "opens": [("r1", T2, 4, 2), ("r2", T2, 1, 1)],
+        "actions": [],
+        "status_changes": [],
+        "pr_events": [],
+    }
+    rows = {row["report_id"]: row for row in merge_label_streams(stream_rows, SNAPSHOT_DATE)}
+
+    assert set(rows) == {"r1", "r2"}
+    r1 = rows["r1"]
+    assert r1["impression_unit_count"] == 5
+    assert r1["impressed_user_count"] == 2
+    assert r1["first_impression_rank"] == 3
+    assert r1["best_impression_rank"] == 1
+    assert r1["source_products"] == ["error_tracking"]
+    assert r1["first_impressed_at"] == T1
+    assert r1["open_count"] == 4
+    r2 = rows["r2"]
+    assert r2["impression_unit_count"] == 0
+    assert r2["first_impressed_at"] is None
+    assert r2["pr_created_count"] == 0
+
+
+def test_stream_row_width_mismatch_fails_loudly():
+    with pytest.raises(ValueError):
+        merge_label_streams({"opens": [("r1", T1, 4)]}, SNAPSHOT_DATE)
+
+
+def test_label_stream_columns_all_exist_in_defaults():
+    for _name, _sql, columns in LABEL_STREAMS:
+        assert set(columns) <= set(LABEL_DEFAULTS)
+
+
+@pytest.mark.parametrize(
+    "pg_status,pg_updated_at,latest_event,latest_event_at,expected",
+    [
+        (None, None, "resolved", T1, False),
+        ("resolved", T1, None, None, True),
+        ("resolved", T1, "resolved", T1, True),
+        ("potential", T2, "resolved", T1, True),
+        ("potential", T1, "resolved", T2, False),
+    ],
+)
+def test_label_provenance_cross_check(pg_status, pg_updated_at, latest_event, latest_event_at, expected):
+    assert label_provenance_ok(pg_status, pg_updated_at, latest_event, latest_event_at) is expected
+
+
+def _state_row(report_id: str, **overrides):
+    return {
+        "report_id": report_id,
+        "report_team_id": 2,
+        "region": "us",
+        "status": "ready",
+        "pg_updated_at": T2,
+        "features_observed_at": BUILT_AT,
+        **overrides,
+    }
+
+
+def _embedding_row(report_id: str, **overrides):
+    return {
+        "report_id": report_id,
+        "report_team_id": 2,
+        "embedding_small": [0.1, 0.2],
+        "embedding_inserted_at": T1,
+        "embedding_rendering": "title_summary_v1",
+        "is_tombstone": False,
+        **overrides,
+    }
+
+
+def test_assemble_model_rows_spine_and_join():
+    state = [_state_row("r1"), _state_row("r2")]
+    embeddings = [
+        _embedding_row("r1"),
+        _embedding_row("r2", embedding_small=None, is_tombstone=True),
+        _embedding_row("r4"),
+    ]
+    labels = [{"report_id": "r1", "open_count": 4, "latest_status_event": "resolved", "latest_status_event_at": T1}]
+
+    rows = {
+        row["report_id"]: row
+        for row in assemble_model_rows(
+            state, embeddings, labels, snapshot_date=SNAPSHOT_DATE, built_at=BUILT_AT, run_id="run-1"
+        )
+    }
+
+    # Spine is state union labels: the embedding-only report never promoted or labeled stays out.
+    assert set(rows) == {"r1", "r2"}
+    assert rows["r1"]["has_embedding"] is True
+    assert rows["r1"]["open_count"] == 4
+    assert rows["r1"]["label_provenance_ok"] is True
+    assert rows["r2"]["has_embedding"] is False
+    assert rows["r2"]["embedding_small"] is None
+    assert rows["r2"]["open_count"] == 0
+
+
+def test_assemble_model_rows_keeps_label_only_reports_with_null_state():
+    labels = [{"report_id": "r9", "pr_created_count": 2}]
+    rows = assemble_model_rows([], [], labels, snapshot_date=SNAPSHOT_DATE, built_at=BUILT_AT, run_id="run-1")
+    assert len(rows) == 1
+    assert rows[0]["status"] is None
+    assert rows[0]["pr_created_count"] == 2
+    assert rows[0]["label_provenance_ok"] is False
+
+
+def test_assembled_rows_match_the_parquet_schema_exactly():
+    # pa.Table.from_pylist silently drops dict keys missing from the schema, so a column added to
+    # the assembler but not the schema (or vice versa) would vanish without this check.
+    rows = assemble_model_rows(
+        [_state_row("r1")],
+        [_embedding_row("r1")],
+        [{"report_id": "r1"}],
+        snapshot_date=SNAPSHOT_DATE,
+        built_at=BUILT_AT,
+        run_id="run-1",
+    )
+    assert set(rows[0]) == set(MODEL_DATA_SCHEMA.names)

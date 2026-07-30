@@ -65,6 +65,14 @@ AGENT_BUNDLES_S3_BUCKET = os.getenv("AGENT_BUNDLES_S3_BUCKET") or OBJECT_STORAGE
 AI_BLOB_S3_BUCKET = os.getenv("AI_BLOB_S3_BUCKET", "ai-blobs")
 AI_BLOB_S3_PREFIX = os.getenv("AI_BLOB_S3_PREFIX", "aio/")
 
+# Inbox ranking modeling dataset (products/signals/dags/inbox_ranking): daily report-grain
+# Parquet snapshots the ranking model trains on. Unset bucket on Cloud means the dags skip until
+# the dedicated bucket is provisioned; local dev falls back to the object-storage service. The
+# bucket is written by Dagster via boto3 (node role on prod) and read by project-2 warehouse
+# tables and mlhog training via a separate read-only credential.
+INBOX_RANKING_DATASET_S3_BUCKET = os.getenv("INBOX_RANKING_DATASET_S3_BUCKET", "")
+INBOX_RANKING_DATASET_S3_PREFIX = os.getenv("INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
+
 # Identity matching scratch storage (products/growth `identity_matching_job`). The job writes
 # per-run Parquet objects via ClickHouse `INSERT INTO FUNCTION s3(...)` and the read API globs
 # them back with `s3(...)`, so only the ClickHouse cluster needs bucket access — the Dagster
