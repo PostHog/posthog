@@ -766,6 +766,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         if instance.created_by
                         else str(instance.team_id),
                         previous_target_value="",
+                        previous_value="",
                         invite_message=invite_message,
                         trigger_type=SubscriptionTriggerType.SUBSCRIPTION_UPDATE,
                         resource_type=instance.resource_type,
@@ -893,6 +894,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         if instance.created_by
                         else str(instance.team_id),
                         previous_target_value=previous_target_value,
+                        previous_value=previous_target_value,
                         invite_message=invite_message,
                         trigger_type=SubscriptionTriggerType.SUBSCRIPTION_UPDATE,
                         resource_type=instance.resource_type,
@@ -1213,6 +1215,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                         if subscription.created_by
                         else str(subscription.team_id),
                         previous_target_value=None,
+                        previous_value=None,
                         invite_message=None,
                         trigger_type=SubscriptionTriggerType.MANUAL,
                         resource_type=subscription.resource_type,

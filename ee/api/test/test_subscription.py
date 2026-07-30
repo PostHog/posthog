@@ -300,6 +300,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         wf_args, _ = self.mock_temporal_client.start_workflow.call_args
         activity_inputs = wf_args[1]
         assert activity_inputs.previous_target_value == "test@posthog.com"
+        assert activity_inputs.previous_value == "test@posthog.com"
         assert activity_inputs.invite_message == "hi new user"
 
     # Each setup builds a subscription and returns (sub_id, patch_payload) for the parameterized
@@ -1204,6 +1205,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
         assert activity_inputs.subscription_id == sub_id
         assert activity_inputs.previous_target_value is None
+        assert activity_inputs.previous_value is None
         assert activity_inputs.trigger_type == SubscriptionTriggerType.MANUAL
         assert wf_kwargs["id"] == f"test-delivery-subscription-{sub_id}"
 
