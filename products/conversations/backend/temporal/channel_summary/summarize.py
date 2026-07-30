@@ -7,7 +7,7 @@ from temporalio.exceptions import ApplicationError
 with workflow.unsafe.imports_passed_through():
     import re
     import asyncio
-    from datetime import datetime, timedelta
+    from datetime import UTC, datetime, timedelta
     from uuid import uuid5
 
     import structlog
@@ -68,7 +68,8 @@ One bullet per unresolved request or commitment: who asked, what they need. Writ
 Rules:
 - Be factual and specific. No filler, no speculation.
 - Cover every distinct thread or topic in the transcript at least briefly before going deep on any one.
-- For a thread marked as started before this period, write one bullet for the original message with its date in parentheses, then indented sub-bullets under it summarizing only this period's replies. Do not present the original message as new activity.
+- For each thread, write one bullet for the original message, then indented sub-bullets under it summarizing the replies. Never write sibling top-level bullets for messages that belong to the same thread.
+- For a thread marked as started before this period, add the original message's date in parentheses and summarize only this period's replies. Do not present the original message as new activity.
 - Back every claim with a citation: a markdown link on a short phrase pointing to the source message's link from the transcript, like [asked about SSO](https://...). Every bullet needs at least one citation.
 - When the transcript contains a GitHub URL for a PR or issue you mention, also hyperlink its number to that URL, like [PR #123](https://github.com/...). Never invent a GitHub URL; a reference with no URL in the transcript stays plain text.
 - Do not use em-dashes.
@@ -197,10 +198,14 @@ def _message_line(client: WebClient, channel_id: str, message: dict, tz, cache: 
 
 
 def _build_transcript(
-    client: WebClient, team: Team, channel_id: str, threads: list[tuple[dict, list[dict]]], period_start: float
+    client: WebClient,
+    team: Team,
+    channel_id: str,
+    threads: list[tuple[dict, list[dict]]],
+    period_start: float,
+    cache: dict[str, str],
 ) -> str:
     tz = team.timezone_info
-    cache: dict[str, str] = {}
     blocks: list[str] = []
     for parent, replies in threads:
         lines = [_message_line(client, channel_id, parent, tz, cache, "")]
@@ -220,6 +225,22 @@ def _build_transcript(
             break
         kept.append(block)
     return "\n\n".join(reversed(kept))
+
+
+def _message_refs(
+    client: WebClient, channel_id: str, threads: list[tuple[dict, list[dict]]], cache: dict[str, str]
+) -> list[dict]:
+    """Metadata (never text) for every message the summary covered, in transcript order —
+    the stored audit trail behind the summary's message count."""
+    return [
+        {
+            "author": _display_name(client, message["user"], cache) if message.get("user") else "unknown",
+            "sent_at": datetime.fromtimestamp(float(message["ts"]), tz=UTC).isoformat(),
+            "permalink": _slack_permalink(channel_id, message["ts"], message.get("thread_ts")),
+        }
+        for parent, replies in threads
+        for message in (parent, *replies)
+    ]
 
 
 def _message_count(threads: list[tuple[dict, list[dict]]]) -> int:
@@ -278,9 +299,14 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
         )
         return ChannelSummaryOutput(summary_id=None, message_count=0)
 
-    transcript = await asyncio.to_thread(
-        _build_transcript, client, team, input.slack_channel_id, threads, period_start.timestamp()
-    )
+    # One shared name cache: after the transcript resolves every author, the refs pass
+    # is lookup-free. Both stay off the event loop — cache misses call Slack.
+    def build_transcript_and_refs() -> tuple[str, list[dict]]:
+        cache: dict[str, str] = {}
+        transcript = _build_transcript(client, team, input.slack_channel_id, threads, period_start.timestamp(), cache)
+        return transcript, _message_refs(client, input.slack_channel_id, threads, cache)
+
+    transcript, message_refs = await asyncio.to_thread(build_transcript_and_refs)
 
     user_content = (
         f"Slack channel activity for account {input.account_name!r} "
@@ -311,6 +337,7 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
             period_end=period_end,
             content=content,
             message_count=_message_count(threads),
+            messages=message_refs,
             model_name=SUMMARY_MODEL,
         ),
         thread_sensitive=False,

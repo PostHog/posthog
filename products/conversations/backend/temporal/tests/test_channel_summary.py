@@ -11,6 +11,7 @@ from products.conversations.backend.temporal.channel_summary.coordinator import 
 from products.conversations.backend.temporal.channel_summary.summarize import (
     _fetch_period_messages,
     _include_message,
+    _message_refs,
     _resolve_mentions,
     _slack_permalink,
 )
@@ -114,6 +115,28 @@ class TestSummarizeHelpers:
     )
     def test_include_message(self, _name, message, expected):
         assert _include_message(message) is expected
+
+    def test_message_refs_cover_every_message_with_metadata_only(self):
+        parent = {"text": "secret question", "ts": "1721999999.123456", "thread_ts": "1721999999.123456", "user": "U1"}
+        reply = {"text": "secret answer", "ts": "1722000010.000200", "thread_ts": "1721999999.123456", "user": "U2"}
+        client = MagicMock()
+        client.users_info.return_value = {"user": {"profile": {"display_name": "alice", "real_name": "Alice A"}}}
+
+        refs = _message_refs(client, "C1", [(parent, [reply])], cache={"U2": "bob"})
+
+        assert refs == [
+            {
+                "author": "alice",
+                "sent_at": "2024-07-26T13:19:59.123456+00:00",
+                "permalink": "https://posthog.slack.com/archives/C1/p1721999999123456",
+            },
+            {
+                "author": "bob",
+                "sent_at": "2024-07-26T13:20:10.000200+00:00",
+                "permalink": "https://posthog.slack.com/archives/C1/p1722000010000200?thread_ts=1721999999.123456&cid=C1",
+            },
+        ]
+        assert not any("secret" in str(ref) for ref in refs)
 
     def test_thread_replies_after_the_period_are_excluded(self):
         parent = {"text": "question", "ts": "100.0", "thread_ts": "100.0", "user": "U1", "reply_count": 2}
