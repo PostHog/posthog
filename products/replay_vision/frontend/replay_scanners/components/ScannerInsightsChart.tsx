@@ -1,9 +1,14 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { router } from 'kea-router'
+import { useCallback, useMemo } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
 
+import { isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
+import { urls } from 'scenes/urls'
+
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -14,7 +19,6 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getReplayVisionRecordingViewDisabledReason } from '../../utils/accessControl'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { VisionInsightChart } from './VisionInsightChart'
@@ -134,6 +138,27 @@ function buildQuery(
     }
 }
 
+/**
+ * Search params for drilling from a chart data point into the Observations tab: the clicked day as an
+ * inclusive date range, plus the clicked tag for classifier breakdown series. Returns null when the
+ * clicked bucket isn't a plain date (nothing sensible to drill into).
+ */
+export function observationsDrilldownSearchParams(
+    day: string | number | undefined,
+    breakdown?: unknown
+): Record<string, string> | null {
+    if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(day)) {
+        return null
+    }
+    const date = day.slice(0, 10)
+    const params: Record<string, string> = { tab: 'observations', date_from: date, date_to: date }
+    const tag = Array.isArray(breakdown) ? breakdown[0] : breakdown
+    if (typeof tag === 'string' && tag && !isOtherBreakdown(tag) && !isNullBreakdown(tag)) {
+        params.tags = tag
+    }
+    return params
+}
+
 function chartTitle(scannerType: ScannerType): string {
     if (scannerType === 'monitor') {
         return 'Yes rate (%) over time'
@@ -178,9 +203,18 @@ export function ScannerInsightsChart({
         }),
         [scannerId]
     )
-    // Drill-down opens the actors modal, which surfaces the recordings behind a data point. Only enable it for
-    // users who can view recordings, so a scanner-only viewer denied session_recording access can't enumerate them.
-    const canDrillIntoRecordings = !getReplayVisionRecordingViewDisabledReason()
+    // Drill-down goes to the Observations tab filtered to the clicked day (and tag, for classifier series):
+    // that's where each scanned session shows its verdict/tags/score, unlike the generic persons modal,
+    // which can't represent these server-emitted events (see VisionInsightChart).
+    const onDataPointClick = useCallback<NonNullable<QueryContext['onDataPointClick']>>(
+        (series) => {
+            const searchParams = observationsDrilldownSearchParams(series.day, series.breakdown)
+            if (searchParams) {
+                router.actions.push(urls.replayVision(scannerId), searchParams)
+            }
+        },
+        [scannerId]
+    )
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
@@ -205,7 +239,7 @@ export function ScannerInsightsChart({
                 query={chartQuery}
                 insightProps={chartInsightProps}
                 className="InsightCard h-80"
-                drillable={canDrillIntoRecordings}
+                onDataPointClick={onDataPointClick}
             />
         </div>
     )

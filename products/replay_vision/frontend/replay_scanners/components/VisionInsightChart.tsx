@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
@@ -7,6 +8,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
 interface VisionInsightChartProps {
@@ -15,8 +17,8 @@ interface VisionInsightChartProps {
     insightProps: InsightLogicProps
     /** Sizing classes for the chart container — pass the same layout the chart sat in before, the chart sizes against it. */
     className?: string
-    /** When true, clicking a data point opens the persons/recordings modal. Off by default so summary charts stay static. */
-    drillable?: boolean
+    /** Custom handler for data point clicks (must be stable/memoized). Without one, charts stay static. */
+    onDataPointClick?: QueryContext['onDataPointClick']
 }
 
 export type ChartOverlayState = 'none' | 'loading' | 'error'
@@ -45,7 +47,7 @@ export function VisionInsightChart({
     query,
     insightProps,
     className,
-    drillable = false,
+    onDataPointClick,
 }: VisionInsightChartProps): JSX.Element {
     const logic = insightVizDataLogic(insightProps)
     const { insightData, insightDataLoading } = useValues(logic)
@@ -53,9 +55,15 @@ export function VisionInsightChart({
 
     const overlay = chartOverlayState(insightData, insightDataLoading)
 
+    // These charts count server-emitted $recording_observed events, which all belong to one synthetic
+    // "replay-vision" person, so the generic persons modal would only show meaningless actors and stays off.
+    // Products drill down via onDataPointClick instead. Memoized so the query prop doesn't churn per render.
+    const chartQuery = useMemo<InsightVizNode>(() => ({ ...query, hidePersonsModal: true }), [query])
+    const context = useMemo<QueryContext>(() => ({ insightProps, onDataPointClick }), [insightProps, onDataPointClick])
+
     return (
         <div className={clsx('relative', className)}>
-            <Query query={query} readOnly embedded inSharedMode={!drillable} context={{ insightProps }} />
+            <Query query={chartQuery} readOnly embedded inSharedMode={!onDataPointClick} context={context} />
             {overlay !== 'none' && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg-light">
                     {overlay === 'loading' ? (
