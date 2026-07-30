@@ -463,6 +463,30 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "output_variable" in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("nonexistent_type", "update_person_properties"),
+            ("close_to_a_real_type", "function_native_push"),
+            ("empty", ""),
+        ]
+    )
+    def test_unsupported_action_type_is_rejected_with_the_valid_types(self, _name, bad_type):
+        # No executor handler exists for these, so the flow saves cleanly and then fails per node on
+        # every run — reject at write time instead.
+        flow = self._make_delay_flow({"delay_duration": "5m"})
+        flow["actions"][1]["type"] = bad_type
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert "wait_until_time_window" in detail and "function_push" in detail
+        assert "template-posthog-update-person-properties" in detail
+
+    def test_unsupported_action_type_is_rejected_on_drafts_too(self):
+        flow = self._make_delay_flow({"delay_duration": "5m"}, status=None)
+        flow["actions"][1]["type"] = "update_person_properties"
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+
     def test_hog_flow_delay_validation_lenient_for_drafts(self):
         # status omitted defaults to draft; draft mode lets users save WIP with invalid configs
         response = self.client.post(

@@ -492,7 +492,8 @@ export class HogFlowExecutorService {
 
             const handler = this.actionHandlers[currentAction.type]
             if (!handler) {
-                throw new Error(`Action type '${currentAction.type}' not supported`)
+                const supported = Object.keys(this.actionHandlers).join(', ')
+                throw new Error(`Action type '${currentAction.type}' not supported. Supported types: ${supported}`)
             }
 
             try {

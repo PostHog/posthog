@@ -519,6 +519,24 @@ class HogFlowEdgeSerializer(serializers.Serializer):
         return fields
 
 
+# Mirrors the handler registry in nodejs/src/cdp/services/hogflows/hogflow-executor.service.ts (and the
+# zod union in nodejs/src/cdp/schema/hogflow.ts). Anything outside this set has no executor handler, so
+# it must be rejected at write time rather than failing per node on every run.
+HOG_FLOW_ACTION_TYPES = [
+    "trigger",
+    "conditional_branch",
+    "random_cohort_branch",
+    "delay",
+    "wait_until_condition",
+    "wait_until_time_window",
+    "function",
+    "function_email",
+    "function_sms",
+    "function_push",
+    "exit",
+]
+
+
 # Schema-only typing for the polymorphic action config. The MCP tool schema is generated from this
 # (via zod), the MCP server parses tool input with that zod schema, and handlers receive the PARSED
 # result — a matched zod object branch strips keys it doesn't declare. The free-form branch is
@@ -613,11 +631,18 @@ class HogFlowActionSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer(
         required=False, default=None, allow_null=True, help_text="Property filters gating this action."
     )
-    type = serializers.CharField(
-        max_length=100,
+    type = serializers.ChoiceField(
+        choices=HOG_FLOW_ACTION_TYPES,
+        error_messages={
+            "invalid_choice": (
+                '"{input}" is not a supported action type. Supported types: ' + ", ".join(HOG_FLOW_ACTION_TYPES) + ". "
+                "To update person properties, use a 'function' action with "
+                "config.template_id 'template-posthog-update-person-properties'."
+            )
+        },
         help_text=(
-            "trigger | function | function_email | function_sms | delay | "
-            "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
+            "trigger | conditional_branch | random_cohort_branch | delay | wait_until_condition | "
+            "wait_until_time_window | function | function_email | function_sms | function_push | exit."
         ),
     )
     config = HogFlowActionConfigField(
