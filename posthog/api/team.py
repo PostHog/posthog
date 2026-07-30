@@ -433,10 +433,40 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
-class MarketingAnalyticsConversionGoalList(PydanticRootModel):
-    """List wrapper for OpenAPI schema generation - the field stores an array of conversion goals."""
+class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
+    """A conversion goal counted from events."""
 
-    root: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
+    # `validate_conversion_goals` rejects a goal without a string name or an explicit kind, so the
+    # documented schema has to require both. `conversion_goal_id` is server-assigned on create.
+    kind: Literal["EventsNode"]
+    name: str
+    conversion_goal_id: str | None = None
+
+
+class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
+    """A conversion goal counted from an action."""
+
+    kind: Literal["ActionsNode"]
+    name: str
+    conversion_goal_id: str | None = None
+
+
+class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
+    """A conversion goal counted from a data warehouse table."""
+
+    kind: Literal["DataWarehouseNode"]
+    name: str
+    conversion_goal_id: str | None = None
+
+
+class MarketingAnalyticsConversionGoalList(PydanticRootModel):
+    """The conversion goals configured for marketing analytics, in display order."""
+
+    root: list[
+        MarketingAnalyticsEventConversionGoal
+        | MarketingAnalyticsActionConversionGoal
+        | MarketingAnalyticsWarehouseConversionGoal
+    ]
 
 
 class MarketingAnalyticsSourceMapping(PydanticRootModel):

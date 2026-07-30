@@ -1463,12 +1463,15 @@ export interface RevenueCurrencyPropertyConfigApi {
     static?: CurrencyCodeApi | null
 }
 
-export type ConversionGoalFilter1ApiResponse = { [key: string]: unknown } | null
+export type MarketingAnalyticsEventConversionGoalApiResponse = { [key: string]: unknown } | null
 
-export type ConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknown }
+export type MarketingAnalyticsEventConversionGoalApiSchemaMap = { [key: string]: string | unknown }
 
-export interface ConversionGoalFilter1Api {
-    conversion_goal_id: string
+/**
+ * A conversion goal counted from events.
+ */
+export interface MarketingAnalyticsEventConversionGoalApi {
+    conversion_goal_id?: string | null
     conversion_goal_name: string
     /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
     counts_as_customer?: boolean | null
@@ -1505,7 +1508,7 @@ export interface ConversionGoalFilter1Api {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
-    kind?: 'EventsNode'
+    kind: 'EventsNode'
     limit?: number | null
     math?:
         | BaseMathTypeApi
@@ -1523,7 +1526,7 @@ export interface ConversionGoalFilter1Api {
     math_property?: string | null
     math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
     math_property_type?: string | null
-    name?: string | null
+    name: string
     optionalInFunnel?: boolean | null
     /** Columns to order by */
     orderBy?: string[] | null
@@ -1555,18 +1558,21 @@ export interface ConversionGoalFilter1Api {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
-    response?: ConversionGoalFilter1ApiResponse
-    schema_map: ConversionGoalFilter1ApiSchemaMap
+    response?: MarketingAnalyticsEventConversionGoalApiResponse
+    schema_map: MarketingAnalyticsEventConversionGoalApiSchemaMap
     /** version of the node, used for schema migrations */
     version?: number | null
 }
 
-export type ConversionGoalFilter2ApiResponse = { [key: string]: unknown } | null
+export type MarketingAnalyticsActionConversionGoalApiResponse = { [key: string]: unknown } | null
 
-export type ConversionGoalFilter2ApiSchemaMap = { [key: string]: string | unknown }
+export type MarketingAnalyticsActionConversionGoalApiSchemaMap = { [key: string]: string | unknown }
 
-export interface ConversionGoalFilter2Api {
-    conversion_goal_id: string
+/**
+ * A conversion goal counted from an action.
+ */
+export interface MarketingAnalyticsActionConversionGoalApi {
+    conversion_goal_id?: string | null
     conversion_goal_name: string
     /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
     counts_as_customer?: boolean | null
@@ -1602,7 +1608,7 @@ export interface ConversionGoalFilter2Api {
           )[]
         | null
     id: number
-    kind?: 'ActionsNode'
+    kind: 'ActionsNode'
     math?:
         | BaseMathTypeApi
         | FunnelMathTypeApi
@@ -1619,7 +1625,7 @@ export interface ConversionGoalFilter2Api {
     math_property?: string | null
     math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
     math_property_type?: string | null
-    name?: string | null
+    name: string
     optionalInFunnel?: boolean | null
     /** Properties configurable in the interface */
     properties?:
@@ -1649,18 +1655,21 @@ export interface ConversionGoalFilter2Api {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
-    response?: ConversionGoalFilter2ApiResponse
-    schema_map: ConversionGoalFilter2ApiSchemaMap
+    response?: MarketingAnalyticsActionConversionGoalApiResponse
+    schema_map: MarketingAnalyticsActionConversionGoalApiSchemaMap
     /** version of the node, used for schema migrations */
     version?: number | null
 }
 
-export type ConversionGoalFilter3ApiResponse = { [key: string]: unknown } | null
+export type MarketingAnalyticsWarehouseConversionGoalApiResponse = { [key: string]: unknown } | null
 
-export type ConversionGoalFilter3ApiSchemaMap = { [key: string]: string | unknown }
+export type MarketingAnalyticsWarehouseConversionGoalApiSchemaMap = { [key: string]: string | unknown }
 
-export interface ConversionGoalFilter3Api {
-    conversion_goal_id: string
+/**
+ * A conversion goal counted from a data warehouse table.
+ */
+export interface MarketingAnalyticsWarehouseConversionGoalApi {
+    conversion_goal_id?: string | null
     conversion_goal_name: string
     /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
     counts_as_customer?: boolean | null
@@ -1699,7 +1708,7 @@ export interface ConversionGoalFilter3Api {
         | null
     id: string
     id_field: string
-    kind?: 'DataWarehouseNode'
+    kind: 'DataWarehouseNode'
     math?:
         | BaseMathTypeApi
         | FunnelMathTypeApi
@@ -1716,7 +1725,7 @@ export interface ConversionGoalFilter3Api {
     math_property?: string | null
     math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
     math_property_type?: string | null
-    name?: string | null
+    name: string
     optionalInFunnel?: boolean | null
     /** Properties configurable in the interface */
     properties?:
@@ -1746,8 +1755,8 @@ export interface ConversionGoalFilter3Api {
               | WorkflowVariablePropertyFilterApi
           )[]
         | null
-    response?: ConversionGoalFilter3ApiResponse
-    schema_map: ConversionGoalFilter3ApiSchemaMap
+    response?: MarketingAnalyticsWarehouseConversionGoalApiResponse
+    schema_map: MarketingAnalyticsWarehouseConversionGoalApiSchemaMap
     table_name: string
     timestamp_field: string
     /** version of the node, used for schema migrations */
@@ -1755,12 +1764,12 @@ export interface ConversionGoalFilter3Api {
 }
 
 /**
- * List wrapper for OpenAPI schema generation - the field stores an array of conversion goals.
+ * The conversion goals configured for marketing analytics, in display order.
  */
 export type MarketingAnalyticsConversionGoalListApi = (
-    | ConversionGoalFilter1Api
-    | ConversionGoalFilter2Api
-    | ConversionGoalFilter3Api
+    | MarketingAnalyticsEventConversionGoalApi
+    | MarketingAnalyticsActionConversionGoalApi
+    | MarketingAnalyticsWarehouseConversionGoalApi
 )[]
 
 /**

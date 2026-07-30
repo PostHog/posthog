@@ -503,9 +503,17 @@
                     "items": {
                         "anyOf": [
                             {
+                                "description": "A conversion goal counted from events.",
                                 "properties": {
                                     "conversion_goal_id": {
-                                        "type": "string"
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
                                     },
                                     "conversion_goal_name": {
                                         "type": "string"
@@ -2628,7 +2636,6 @@
                                     },
                                     "kind": {
                                         "const": "EventsNode",
-                                        "default": "EventsNode",
                                         "type": "string"
                                     },
                                     "limit": {
@@ -2979,14 +2986,7 @@
                                         ]
                                     },
                                     "name": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
+                                        "type": "string"
                                     },
                                     "optionalInFunnel": {
                                         "anyOf": [
@@ -5125,13 +5125,21 @@
                                         "description": "version of the node, used for schema migrations"
                                     }
                                 },
-                                "required": ["conversion_goal_id", "conversion_goal_name", "schema_map"],
+                                "required": ["conversion_goal_name", "kind", "name", "schema_map"],
                                 "type": "object"
                             },
                             {
+                                "description": "A conversion goal counted from an action.",
                                 "properties": {
                                     "conversion_goal_id": {
-                                        "type": "string"
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
                                     },
                                     "conversion_goal_name": {
                                         "type": "string"
@@ -7246,7 +7254,6 @@
                                     },
                                     "kind": {
                                         "const": "ActionsNode",
-                                        "default": "ActionsNode",
                                         "type": "string"
                                     },
                                     "math": {
@@ -7587,14 +7594,7 @@
                                         ]
                                     },
                                     "name": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
+                                        "type": "string"
                                     },
                                     "optionalInFunnel": {
                                         "anyOf": [
@@ -9719,13 +9719,21 @@
                                         "description": "version of the node, used for schema migrations"
                                     }
                                 },
-                                "required": ["conversion_goal_id", "conversion_goal_name", "id", "schema_map"],
+                                "required": ["conversion_goal_name", "id", "kind", "name", "schema_map"],
                                 "type": "object"
                             },
                             {
+                                "description": "A conversion goal counted from a data warehouse table.",
                                 "properties": {
                                     "conversion_goal_id": {
-                                        "type": "string"
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
                                     },
                                     "conversion_goal_name": {
                                         "type": "string"
@@ -11856,7 +11864,6 @@
                                     },
                                     "kind": {
                                         "const": "DataWarehouseNode",
-                                        "default": "DataWarehouseNode",
                                         "type": "string"
                                     },
                                     "math": {
@@ -12197,14 +12204,7 @@
                                         ]
                                     },
                                     "name": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
+                                        "type": "string"
                                     },
                                     "optionalInFunnel": {
                                         "anyOf": [
@@ -14336,11 +14336,12 @@
                                     }
                                 },
                                 "required": [
-                                    "conversion_goal_id",
                                     "conversion_goal_name",
                                     "distinct_id_field",
                                     "id",
                                     "id_field",
+                                    "kind",
+                                    "name",
                                     "schema_map",
                                     "table_name",
                                     "timestamp_field"
