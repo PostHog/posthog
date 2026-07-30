@@ -340,13 +340,6 @@ export function buildBulkEnablePayloads(
         )
 }
 
-export function clampFrequencyForSchema(
-    requested: DataWarehouseSyncInterval,
-    schema: ExternalDataSourceSchema
-): DataWarehouseSyncInterval {
-    return clampSyncFrequency(requested, schema.sync_type)
-}
-
 function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
     const succeeded = total - failed
     const parts = [`${verb} ${pluralize(succeeded, 'schema', 'schemas')}`]
@@ -1297,6 +1290,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
             },
+            pausePolling: () => {
+                // Cancel the refresh already scheduled by the last load. Skipping the *reschedule*
+                // isn't enough on its own — without this, one more poll would still fire within
+                // REFRESH_INTERVAL and re-render the table, dismissing anything open over it (e.g. a
+                // row's "more" menu).
+                cache.disposables.dispose('sourceRefreshTimeout')
+            },
             resumePolling: () => {
                 // After the reducer runs we may have dropped to 0 — but no fresh load has been
                 // scheduled (the prior loadSourceSuccess fired while paused and skipped its
@@ -1525,11 +1525,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 lemonToast.success(`Disabled ${pluralize(schemas.length, 'schema', 'schemas')}`)
             },
             bulkSetFrequency: ({ schemas, frequency }) => {
-                // Non-CDC schemas can't sync faster than every 5 minutes — clamp so a bulk edit
-                // never pushes them below their allowed floor.
+                // Schemas can't sync faster than every 5 minutes — clamp so a bulk edit never
+                // pushes them below the floor.
                 let clamped = 0
                 schemas.forEach((schema) => {
-                    const effective = clampFrequencyForSchema(frequency, schema)
+                    const effective = clampSyncFrequency(frequency)
                     if (effective !== frequency) {
                         clamped++
                     }

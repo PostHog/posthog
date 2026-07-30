@@ -16,6 +16,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -29,7 +30,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_clickhouse_query_error
+from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -39,12 +40,13 @@ from posthog.sync import database_sync_to_async
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
+    LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     reconstruct_ordered_columns,
     remove_named_tuples,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping
@@ -69,6 +71,9 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
     "Access Denied: while reading key:": "Access was denied when reading the provided file",
+    # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
+    # tables) use a different vocabulary than ClickHouse's native S3 errors above.
+    "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
     "Could not list objects in bucket": "Access was denied to the provided bucket",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
@@ -78,6 +83,7 @@ ExtractErrors = {
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
+    "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
@@ -102,6 +108,15 @@ HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debu
 # (each request also pins ~300MB of RSS for the embedded ClickHouse). Running it in a
 # subprocess lets us kill it and degrade to the ClickHouse-cluster fallback.
 CHDB_QUERY_TIMEOUT_SECONDS = 30.0
+
+# ClickHouse's Hive-style partition inference guesses a type per partition-folder value it
+# samples (e.g. our internal `_ph_partition_key`), independently of the physical column type.
+# A table whose partition granularity changed over time (see repartition.py's tiering from
+# week -> hour) mixes value shapes across folders — e.g. an hour-tier "2017-06-30T05" next to
+# older week-tier folders — and CH can misclassify the column as Date, then fail to parse it.
+# HogQLGlobalSettings.use_hive_partitioning disables this for the normal HogQL query path; the
+# raw ClickHouse queries below bypass that path and must opt out the same way.
+DISABLE_HIVE_PARTITIONING_SETTINGS: dict[str, int] = {"use_hive_partitioning": 0}
 
 _CHDB_SUBPROCESS_SCRIPT = """
 import sys
@@ -196,7 +211,7 @@ def get_hogql_field_for_column(
     # Support for 'old' style columns
     if isinstance(column_definition, str):
         hogql_type_str = clickhouse_type.partition("(")[0]
-        return CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+        return LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
 
     return STR_TO_HOGQL_MAPPING.get(
         str(column_definition.get("hogql", "UnknownDatabaseField")),
@@ -437,7 +452,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
+            chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
             # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
             # See https://github.com/chdb-io/chdb/pull/374 for the fix
@@ -468,7 +483,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             attempts = 5
             for i in range(attempts):
                 try:
-                    get_columns_settings: dict[str, int] = {}
+                    get_columns_settings: dict[str, int] = dict(DISABLE_HIVE_PARTITIONING_SETTINGS)
                     if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                         get_columns_settings["format_csv_allow_double_quotes"] = (
                             1 if self.csv_allow_double_quotes else 0
@@ -527,6 +542,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             result = sync_execute(
                 f"SELECT max({escape_clickhouse_identifier(column)}) FROM {s3_table_func}",
                 args=placeholder_context.values,
+                settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
             )
 
             return result[0][0]
@@ -560,7 +576,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
             quoted_placeholders = {k: escape_param_clickhouse(v) for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
-            chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
+            chdb_query = f"SET use_hive_partitioning = 0; SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
             chdb_result = run_chdb_query(chdb_query)
             reader = csv.reader(StringIO(chdb_result))
@@ -581,6 +597,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 result = sync_execute(
                     f"SELECT count() FROM {s3_table_func}",
                     args=placeholder_context.values,
+                    settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
                 )
             except Exception as err:
                 capture_exception(err)
@@ -609,13 +626,35 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
+    def _direct_columns_are_complete(self) -> bool:
+        """Whether this direct table's stored columns are the complete physical schema — i.e. no
+        column-picker restriction (`ExternalDataSchema.enabled_columns`) is in effect. Only then may
+        a direct `SELECT *` pass through literally; otherwise the fields are a subset and the star
+        must expand from them. Reads the schema rows preloaded onto this instance by
+        `_preload_active_external_data_schemas` (every direct-query DB build path calls it before
+        `hogql_definition`); if they aren't preloaded, returns False (safe: expand) rather than issue
+        a query on this hot table-build path."""
+        schema_rows = self.__dict__.get("_active_external_data_schemas")
+        if schema_rows is None:
+            return False
+        return len(schema_rows) > 0 and all(row.enabled_columns is None for row in schema_rows)
+
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable | DirectRedshiftTable:
+    ) -> (
+        HogQLDataWarehouseTable
+        | DirectPostgresTable
+        | DirectMySQLTable
+        | DirectSnowflakeTable
+        | DirectRedshiftTable
+        | DirectClickHouseTable
+    ):
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
         # These direct-query option keys are only needed here, at query-build time.
         from products.data_warehouse.backend.facade.sources import (  # noqa: PLC0415 — breaks an import cycle
+            DIRECT_CLICKHOUSE_DATABASE_OPTION,
+            DIRECT_CLICKHOUSE_TABLE_OPTION,
             DIRECT_MYSQL_SCHEMA_OPTION,
             DIRECT_MYSQL_TABLE_OPTION,
             DIRECT_POSTGRES_CATALOG_OPTION,
@@ -737,6 +776,42 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
+        # Engine-keyed (no is_direct_clickhouse) to satisfy the source-agnostic guard. The
+        # is_direct_query check is load-bearing: direct_engine ignores access_method, and a synced
+        # source's tables must stay S3-backed — as a direct table, every ordinary query against
+        # them fails (the printer's team_id guard doesn't skip DirectSQLTable).
+        if (
+            self.external_data_source
+            and self.external_data_source.is_direct_query
+            and self.external_data_source.direct_engine == "clickhouse"
+        ):
+            job_inputs = self.external_data_source.job_inputs or {}
+            # Every direct-ClickHouse table is discovered from the source's single configured
+            # database, so the live source config is authoritative. Prefer it over the per-table
+            # option, which can be stale — e.g. stored as "default" when the source was first synced
+            # before a database was set — and would otherwise resolve to a database that doesn't
+            # exist on the server. Fall back to the stored option only when no database is configured.
+            configured_database = job_inputs.get("database")
+            if isinstance(configured_database, str) and configured_database.strip():
+                clickhouse_database = configured_database
+            else:
+                stored_database = self.options.get(DIRECT_CLICKHOUSE_DATABASE_OPTION)
+                clickhouse_database = stored_database if isinstance(stored_database, str) else "default"
+            clickhouse_table_name = (
+                self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_CLICKHOUSE_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectClickHouseTable(
+                name=self.name,
+                fields=fields,
+                clickhouse_database=clickhouse_database,
+                clickhouse_table_name=clickhouse_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
+            )
+
         # Replace fields with any redefined fields if they exist
         external_table_fields = external_tables.get(self.table_name_without_prefix())
         default_fields = external_tables.get("*", {})
@@ -832,7 +907,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             sync_execute(
                 f"SELECT 1 FROM {func} LIMIT 100",
                 args=ctx.values,
-                settings={"format_csv_allow_double_quotes": 1 if setting else 0},
+                settings={**DISABLE_HIVE_PARTITIONING_SETTINGS, "format_csv_allow_double_quotes": 1 if setting else 0},
             )
         except ClickHouseServerException as e:
             if e.code in self._CSV_PARSE_ERROR_CODES:
@@ -843,13 +918,23 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
 
     def _safe_expose_ch_error(self, err):
+        # Match ExtractErrors against the raw ClickHouse message: wrap_clickhouse_query_error may
+        # rewrite the message for some codes (e.g. STD_EXCEPTION), which would hide the substrings
+        # we key on here.
+        raw_message = err.message if isinstance(err, ClickHouseServerException) else str(err)
         err = wrap_clickhouse_query_error(err)
-        for key, value in ExtractErrors.items():
-            if key in err.message:
-                raise Exception(value)
 
-        if isinstance(err, CHQueryErrorTooManySimultaneousQueries):
+        # Only ClickHouse ServerException-derived errors carry a `.message`. Everything else —
+        # transient connection/read errors (e.g. an EOFError from a dropped ClickHouse socket) and
+        # already-translated APIExceptions like ClickHouseAtCapacity — has no `.message`, so re-raise
+        # it untouched. Masking these as a storage-bucket misconfiguration would hide a retryable
+        # error (or an already user-safe one) behind a misleading user-facing message.
+        if not hasattr(err, "message"):
             raise err
+
+        for key, value in ExtractErrors.items():
+            if key in raw_message:
+                raise Exception(value)
 
         raise Exception(
             "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "

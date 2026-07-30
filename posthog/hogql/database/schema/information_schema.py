@@ -17,6 +17,8 @@ import json
 import hashlib
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
+from django.db.models import Q
+
 import structlog
 
 from posthog.hogql import ast
@@ -852,6 +854,44 @@ _METRICS_COLUMNS: list[tuple[str, str]] = [
     ("created_at", _STRING),
 ]
 
+_CERTIFICATIONS_COLUMNS: list[tuple[str, str]] = [
+    ("id", _STRING),
+    ("target_name", _STRING),
+    ("target_id", _STRING),
+    ("target_kind", _STRING),
+    ("status", _STRING),
+    ("notes", _NULLABLE_STRING),
+    ("certified_by", _NULLABLE_STRING),
+    ("certified_at", _NULLABLE_STRING),
+    ("created_at", _STRING),
+]
+_CERTIFICATIONS_DESCRIPTION = (
+    "Catalog of trust-mark proposals and decisions on warehouse tables and views; one row per "
+    "certification. Unlike the certification column on information_schema.tables (which shows only "
+    "settled 'certified'/'deprecated' marks), this lists the full review queue — including 'proposed' "
+    "rows and the id the certify/deprecate tools need. Filter by status to inspect the queue."
+)
+
+_RELATIONSHIP_PROPOSALS_COLUMNS: list[tuple[str, str]] = [
+    ("id", _STRING),
+    ("source_table", _STRING),
+    ("source_column", _STRING),
+    ("target_table", _STRING),
+    ("target_column", _STRING),
+    ("field_name", _STRING),
+    ("configuration", _NULLABLE_STRING),
+    ("evidence", _NULLABLE_STRING),
+    ("confidence", _NULLABLE_FLOAT),
+    ("reasoning", _NULLABLE_STRING),
+    ("created_at", _STRING),
+]
+_RELATIONSHIP_PROPOSALS_DESCRIPTION = (
+    "The review queue of pending table-join proposals awaiting human review; one row per proposal. "
+    "These are NOT usable joins — accepting one (relationship accept tool, addressed by this id) turns it "
+    "into a real join that then appears in information_schema.relationships. Only pending proposals show "
+    "here: accepted ones become relationships, rejected ones are suppressed."
+)
+
 
 def _references_denied_table(referenced_table_names: Optional[list[str]], denied: set[str]) -> bool:
     """Whether any of a metric's referenced tables is in the caller's denied set.
@@ -1091,6 +1131,106 @@ def _catalog_accepted_relationships(
     except Exception:
         logger.exception("information_schema: failed to load accepted relationships", team_id=team_id)
         return {}
+
+
+def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """The team's pending relationship (join) proposals as information_schema rows (fail-soft).
+
+    Only pending proposals appear: an accepted proposal becomes a real join in
+    information_schema.relationships, and a rejected one is suppressed forever. Returns nothing without
+    data_catalog read access, and drops any proposal whose source or target table is denied or invisible
+    to the caller. `allowed` trims the query to the pushed-down set of source-table names.
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_catalog(context):
+        return []
+    from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
+    from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
+
+    try:
+        proposals = RelationshipProposal.objects.for_team(team_id).filter(status=RelationshipStatus.PROPOSED)
+        if allowed is not None:
+            proposals = proposals.filter(source_table_name__in=allowed)
+        rows: list[list[Any]] = []
+        for proposal in proposals.order_by("-created_at"):
+            if not _catalog_table_visible(context, proposal.source_table_name) or not _catalog_table_visible(
+                context, proposal.joining_table_name
+            ):
+                continue
+            rows.append(
+                [
+                    str(proposal.id),
+                    proposal.source_table_name,
+                    proposal.source_table_key,
+                    proposal.joining_table_name,
+                    proposal.joining_table_key,
+                    proposal.field_name,
+                    json.dumps(proposal.configuration) if proposal.configuration else None,
+                    json.dumps(proposal.evidence) if proposal.evidence else None,
+                    proposal.confidence,
+                    proposal.reasoning or None,
+                    proposal.created_at.isoformat(),
+                ]
+            )
+        return rows
+    except Exception:
+        logger.exception("information_schema: failed to load relationship proposals", team_id=team_id)
+        return []
+
+
+def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """The team's certifications (proposed + settled) as information_schema rows (fail-soft).
+
+    Returns nothing unless the caller has data_catalog read access. Excludes certifications whose target
+    is soft-deleted (or orphaned by a soft-deleted source) — matching `certifications_for_team` — and
+    drops any whose target is denied or invisible to the caller. `allowed` trims the query to the
+    pushed-down set of target names.
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_catalog(context):
+        return []
+    from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
+
+    try:
+        certs = (
+            TableCertification.objects.for_team(team_id)
+            .exclude(table__deleted=True)
+            .exclude(table__external_data_source__deleted=True)
+            .exclude(saved_query__deleted=True)
+            .select_related("table", "saved_query", "certified_by")
+            .order_by("-created_at")
+        )
+        if allowed is not None:
+            certs = certs.filter(Q(table__name__in=allowed) | Q(saved_query__name__in=allowed))
+        rows: list[list[Any]] = []
+        for cert in certs:
+            if cert.table_id is not None:
+                target_name = cert.table.name if cert.table else None
+                target_id = str(cert.table_id)
+                target_kind = "table"
+            else:
+                target_name = cert.saved_query.name if cert.saved_query else None
+                target_id = str(cert.saved_query_id)
+                target_kind = "view"
+            if target_name is None or not _catalog_table_visible(context, target_name):
+                continue
+            rows.append(
+                [
+                    str(cert.id),
+                    target_name,
+                    target_id,
+                    target_kind,
+                    cert.status,
+                    cert.notes or None,
+                    cert.certified_by.email if cert.certified_by else None,
+                    cert.certified_at.isoformat() if cert.certified_at else None,
+                    cert.created_at.isoformat(),
+                ]
+            )
+        return rows
+    except Exception:
+        logger.exception("information_schema: failed to load certifications table", team_id=team_id)
+        return []
 
 
 def _string_field(name: str, nullable: bool = False, description: Optional[str] = None) -> StringDatabaseField:
@@ -1387,6 +1527,103 @@ class InformationSchemaMetricsTable(LazyTable):
         return "system__information_schema__metrics"
 
 
+class InformationSchemaCertificationsTable(LazyTable):
+    description: str = _CERTIFICATIONS_DESCRIPTION
+    fields: dict[str, FieldOrTable] = {
+        "id": _string_field("id", description="Certification UUID — pass to the certify/deprecate tools."),
+        "target_name": _string_field("target_name", description="Name of the certified table or view."),
+        "target_id": _string_field(
+            "target_id",
+            description=(
+                "UUID of the certified resource (warehouse table id or saved-query id). Disambiguates the "
+                "target when two live tables share a name, since table names are not unique per team."
+            ),
+        ),
+        "target_kind": _string_field(
+            "target_kind", description="Whether the target is a 'table' (warehouse table) or a 'view'."
+        ),
+        "status": _string_field(
+            "status",
+            description=(
+                "'proposed' (pending review), 'certified' (prefer this source), or 'deprecated' (avoid it). "
+                "Only 'certified'/'deprecated' are trust marks; a 'proposed' row is not yet vouched for."
+            ),
+        ),
+        "notes": _string_field("notes", nullable=True, description="Why the mark exists; review context."),
+        "certified_by": _string_field(
+            "certified_by",
+            nullable=True,
+            description="Email of the human who certified or deprecated it; NULL while proposed.",
+        ),
+        "certified_at": _string_field(
+            "certified_at",
+            nullable=True,
+            description="ISO timestamp when it was certified or deprecated; NULL while proposed.",
+        ),
+        "created_at": _string_field("created_at", description="ISO timestamp when the certification was proposed."),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "target_name")
+        return _rows_select(
+            context, "certifications", _CERTIFICATIONS_COLUMNS, _catalog_certification_rows(context, allowed), allowed
+        )
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "information_schema.certifications"
+
+    def to_printed_hogql(self) -> str:
+        return "system__information_schema__certifications"
+
+
+class InformationSchemaRelationshipProposalsTable(LazyTable):
+    description: str = _RELATIONSHIP_PROPOSALS_DESCRIPTION
+    fields: dict[str, FieldOrTable] = {
+        "id": _string_field("id", description="Proposal UUID — pass to the relationship accept/reject tools."),
+        "source_table": _string_field("source_table", description="Table the proposed join starts from."),
+        "source_column": _string_field("source_column", description="Key expression on the source table."),
+        "target_table": _string_field("target_table", description="Table the proposed join points to."),
+        "target_column": _string_field("target_column", description="Key expression on the target table."),
+        "field_name": _string_field(
+            "field_name",
+            description="Accessor the join would add to the source table; copied verbatim into the real join on accept.",
+        ),
+        "configuration": _string_field(
+            "configuration",
+            nullable=True,
+            description="Extra join configuration as JSON (e.g. field mapping); copied verbatim into the real join on accept. NULL when empty.",
+        ),
+        "evidence": _string_field(
+            "evidence",
+            nullable=True,
+            description="Sampling evidence as JSON (match rates, sample values) backing the proposal — summarize this for the human reviewer. NULL when empty.",
+        ),
+        "confidence": FloatDatabaseField(
+            name="confidence", nullable=True, description="Discovery confidence in the proposed join, 0-1."
+        ),
+        "reasoning": _string_field(
+            "reasoning", nullable=True, description="Why the join was proposed; review context."
+        ),
+        "created_at": _string_field("created_at", description="ISO timestamp when the proposal was created."),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "source_table")
+        return _rows_select(
+            context,
+            "relationship_proposals",
+            _RELATIONSHIP_PROPOSALS_COLUMNS,
+            _catalog_relationship_proposals(context, allowed),
+            allowed,
+        )
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "information_schema.relationship_proposals"
+
+    def to_printed_hogql(self) -> str:
+        return "system__information_schema__relationship_proposals"
+
+
 def information_schema_node() -> TableNode:
     """The `information_schema` namespace, mounted under `system` (see `SystemTables.children`)."""
     return TableNode(
@@ -1397,12 +1634,18 @@ def information_schema_node() -> TableNode:
             "relationships": TableNode(name="relationships", table=InformationSchemaRelationshipsTable()),
             "data_types": TableNode(name="data_types", table=InformationSchemaDataTypesTable()),
             "metrics": TableNode(name="metrics", table=InformationSchemaMetricsTable()),
+            "certifications": TableNode(name="certifications", table=InformationSchemaCertificationsTable()),
+            "relationship_proposals": TableNode(
+                name="relationship_proposals", table=InformationSchemaRelationshipProposalsTable()
+            ),
         },
     )
 
 
 def disable_data_catalog(info_schema: TableNode) -> None:
     info_schema.children.pop("metrics", None)
+    info_schema.children.pop("certifications", None)
+    info_schema.children.pop("relationship_proposals", None)
 
     tables = info_schema.children.get("tables")
     if tables is not None and isinstance(tables.table, InformationSchemaTablesTable):

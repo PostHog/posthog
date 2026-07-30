@@ -112,7 +112,9 @@ jobs:
             # all CI checks), then clears any leftover standalone size comment from before
             # the consolidation. Guarded for unrebased branches that predate the scripts.
             - name: Post size report to CI report comment
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -132,8 +134,9 @@ jobs:
         steps:
             - name: Check results
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Block cancelled too: outputs are empty then, so the exit below would report green.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 

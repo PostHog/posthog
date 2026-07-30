@@ -37,7 +37,10 @@ from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils 
     TEST_TIME,
     FakeSnowflakeConnection,
 )
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -76,13 +79,15 @@ async def _run_workflow(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ),
     ):
-        await activity_environment.client.execute_workflow(
-            SnowflakeBatchExportWorkflow.run,
-            inputs,
-            id=workflow_id,
-            execution_timeout=dt.timedelta(seconds=10),
-            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=1),
+        await asyncio.wait_for(
+            activity_environment.client.execute_workflow(
+                SnowflakeBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            ),
+            timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
         )
 
     runs = await afetch_batch_export_runs(batch_export_id=snowflake_batch_export.id)
@@ -175,11 +180,15 @@ async def test_snowflake_export_workflow_exports_events(
     assert all(query.startswith("PUT") for query in execute_calls[0:9])
 
     assert execute_async_calls[5].startswith(f'SELECT * FROM "{table_name}" LIMIT 0')
-    assert execute_async_calls[6].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
+    assert execute_async_calls[6].startswith(
+        f"""REMOVE '@%"{table_name}"/{snowflake_batch_export.id}/{data_interval_end_str}'"""
+    )
     assert execute_async_calls[7].startswith(f'CREATE TABLE IF NOT EXISTS "{table_name}"')
     assert execute_async_calls[8].startswith(f'SELECT * FROM "{table_name}" LIMIT 0')
     assert execute_async_calls[9].startswith(f'COPY INTO "{table_name}"')
-    assert execute_async_calls[10].startswith(f"""REMOVE '@%"{table_name}"/{data_interval_end_str}'""")
+    assert execute_async_calls[10].startswith(
+        f"""REMOVE '@%"{table_name}"/{snowflake_batch_export.id}/{data_interval_end_str}'"""
+    )
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)

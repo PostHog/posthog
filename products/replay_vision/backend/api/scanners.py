@@ -12,7 +12,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -21,6 +21,7 @@ from posthog.schema import RecordingsQuery
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -40,6 +41,10 @@ from products.replay_vision.backend.api.trigger import (
 )
 from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
 from products.replay_vision.backend.digest import provision_scanner_digest
+from products.replay_vision.backend.enqueue_claims import (
+    pending_enqueue_claims_for_scanner,
+    pending_enqueue_claims_for_team,
+)
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
@@ -68,6 +73,7 @@ from products.replay_vision.backend.queries import (
     refresh_scanner_estimate,
 )
 from products.replay_vision.backend.quota import (
+    ScannerSpend,
     compute_quota_snapshot,
     credits_used_by_scanner,
     current_period_bounds,
@@ -299,6 +305,9 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "(1 credit = $0.01). Matches the window of the org-wide quota meter."
         ),
     )
+    observations_this_month = serializers.SerializerMethodField(
+        help_text="Succeeded observations this scanner produced in the current billing period.",
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -346,6 +355,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
+            "observations_this_month",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -360,6 +370,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             "credits_per_observation",
             "estimated_monthly_credits",
             "credits_this_month",
+            "observations_this_month",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -378,8 +389,7 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             return None
         return scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
 
-    @extend_schema_field(serializers.IntegerField())
-    def get_credits_this_month(self, scanner: ReplayScanner) -> int:
+    def _scanner_spend(self, scanner: ReplayScanner) -> ScannerSpend:
         # The context dict is shared across the list's children, so the page's totals are computed once.
         totals = self.context.get("_scanner_credits_used")
         if totals is None:
@@ -388,7 +398,15 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             scanner_ids = [s.id for s in instance] if instance is not None else [scanner.id]
             totals = credits_used_by_scanner(self.context["get_team"]().organization_id, scanner_ids)
             self.context["_scanner_credits_used"] = totals
-        return totals.get(scanner.id, 0)
+        return totals.get(scanner.id, ScannerSpend(0, 0))
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_credits_this_month(self, scanner: ReplayScanner) -> int:
+        return self._scanner_spend(scanner).credits
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_observations_this_month(self, scanner: ReplayScanner) -> int:
+        return self._scanner_spend(scanner).observations
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Surface the (team_id, name) uniqueness as a 400 instead of letting the DB raise 500.
@@ -457,6 +475,10 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
     def create(self, validated_data: dict[str, Any]) -> ReplayScanner:
         team = self.context["get_team"]()
         user = cast(User, self.context["request"].user)
+        if not team.organization.is_ai_data_processing_approved:
+            raise serializers.ValidationError(
+                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
+            )
         try:
             # last_swept_at is seeded a settle-interval back by the model default (initial_watermark) to avoid a cold start.
             scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
@@ -467,10 +489,18 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         # Flag-gated so teams without the actions feature don't accrue synthesis runs they can't see.
         if is_replay_vision_actions_enabled(user, team):
             provision_scanner_digest(scanner, user)
-        report_user_action(user, "replay vision scanner created", _scanner_lifecycle_properties(scanner), team=team)
+        report_user_action(
+            user,
+            "replay_vision_scanner_created",
+            _scanner_lifecycle_properties(scanner),
+            team=team,
+            request=self.context["request"],
+        )
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:
+        # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
+        before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
         try:
             scanner = super().update(instance, validated_data)
@@ -483,12 +513,26 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
         )
         if needs_refresh:
             _refresh_estimate_fail_soft(scanner)
+        changed_fields = sorted(field for field, value in before.items() if getattr(scanner, field) != value)
+        request = self.context["request"]
+        user = cast(User, request.user)
+        team = self.context["get_team"]()
         if scanner.enabled != was_enabled:
             report_user_action(
-                cast(User, self.context["request"].user),
-                "replay vision scanner enabled" if scanner.enabled else "replay vision scanner disabled",
+                user,
+                "replay_vision_scanner_enabled" if scanner.enabled else "replay_vision_scanner_disabled",
                 _scanner_lifecycle_properties(scanner),
-                team=self.context["get_team"](),
+                team=team,
+                request=request,
+            )
+        # A pure enable/disable toggle is not a config edit. A save that also flips enabled fires both events.
+        if any(field != "enabled" for field in changed_fields):
+            report_user_action(
+                user,
+                "replay_vision_scanner_edited",
+                {**_scanner_lifecycle_properties(scanner), "edited_fields": changed_fields},
+                team=team,
+                request=request,
             )
         return scanner
 
@@ -1023,6 +1067,30 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def safely_get_queryset(self, queryset: QuerySet[ReplayScanner]) -> QuerySet[ReplayScanner]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
 
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        response = super().retrieve(request, *args, **kwargs)
+        # Funnel entry point (created → viewed → rated).
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_scanner_viewed",
+            {"scanner_id": str(response.data["id"])},
+            team=self.team,
+            request=request,
+        )
+        return response
+
+    def perform_destroy(self, instance: ReplayScanner) -> None:
+        # Snapshot lifecycle props before the row is deleted.
+        properties = _scanner_lifecycle_properties(instance)
+        super().perform_destroy(instance)
+        report_user_action(
+            cast(User, self.request.user),
+            "replay_vision_scanner_deleted",
+            properties,
+            team=self.team,
+            request=self.request,
+        )
+
     @extend_schema(responses={200: ScannerCreatorsResponseSerializer})
     @action(detail=False, methods=["get"], pagination_class=None)
     def creators(self, request: Request, **kwargs: Any) -> Response:
@@ -1071,27 +1139,45 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def observe(self, request: Request, **kwargs: Any) -> Response:
         """Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle."""
         scanner = self.get_object()
+        user = cast(User, request.user)
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
 
-        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        try:
+            check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        except QuotaLimitExceeded:
+            self._report_quota_exhausted(scanner, "on_demand")
+            raise
         check_team_in_flight_capacity(self.team.id)
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
-        user = cast(User, request.user)
 
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
         )
+        if outcome is WorkflowStartOutcome.CAPPED:
+            # The pre-check above passed on a snapshot; the atomic claim is the authoritative gate.
+            raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
                 {"error": "Failed to start observation workflow"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        report_user_action(
+            user,
+            "replay_vision_scan_requested_on_demand",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "model": scanner.model,
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
@@ -1125,7 +1211,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # in-flight caps and the remaining monthly quota bounds it; the loser names the skip reason so
         # the user knows which limit they hit. Decrementing a local counter as we start models each new
         # in-flight row without re-querying (a started scan consumes exactly one slot).
-        max_starts, skip_reason = self._bulk_observe_headroom(scanner)
+        max_starts, skip_reason, team_rows, scanner_rows = self._bulk_observe_headroom(scanner)
         results: list[dict[str, str]] = []
         started = 0
         for session_id in session_ids:
@@ -1133,7 +1219,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 results.append({"session_id": session_id, "scan_outcome": skip_reason})
                 continue
             workflow_id, outcome = start_apply_scanner_workflow(
-                scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
+                scanner,
+                session_id,
+                triggered_by_user_id=user.id,
+                trigger=ObservationTrigger.ON_DEMAND,
+                # Row counts are this request's snapshot; the atomic claim inside makes racing
+                # requests visible to each other, which the snapshot alone cannot.
+                team_in_flight_rows=team_rows,
+                scanner_in_flight_rows=scanner_rows,
             )
             if outcome is WorkflowStartOutcome.STARTED:
                 started += 1
@@ -1141,23 +1234,60 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             elif outcome is WorkflowStartOutcome.ALREADY_RUNNING:
                 # Already in flight — counted in the caps already, so it consumes no new headroom.
                 results.append({"session_id": session_id, "scan_outcome": "already_running"})
+            elif outcome is WorkflowStartOutcome.CAPPED:
+                # A racing request consumed the remaining slots, so the in-flight cap binds the rest.
+                results.append({"session_id": session_id, "scan_outcome": "skipped_limit"})
+                max_starts = started
+                skip_reason = "skipped_limit"
             else:
                 results.append({"session_id": session_id, "scan_outcome": "failed"})
 
+        report_user_action(
+            user,
+            "replay_vision_bulk_scan_started",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "requested": len(session_ids),
+                "started": started,
+            },
+            team=self.team,
+            request=request,
+        )
+        # Key off the outcomes, not skip_reason: skip_reason only names the limit that would bind
+        # first, and a batch that never reached the cap must not report exhaustion.
+        if any(result["scan_outcome"] == "skipped_quota" for result in results):
+            self._report_quota_exhausted(scanner, "bulk")
         return Response(
             BulkObserveResponseSerializer({"started": started, "results": results}).data,
             status=status.HTTP_202_ACCEPTED,
         )
 
-    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str]:
-        """(max_starts, skip_reason): how many new scans can start, and the reason once that's used up."""
+    def _report_quota_exhausted(self, scanner: ReplayScanner, trigger: str) -> None:
+        """A scan was blocked or capped by the org's monthly Replay vision credit limit."""
+        report_user_action(
+            cast(User, self.request.user),
+            "replay_vision_quota_exhausted",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "trigger": trigger,
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str, int, int]:
+        """(max_starts, skip_reason, team_rows, scanner_rows): how many new scans can start, the
+        reason once that's used up, and the row counts reused by the per-start slot claims."""
         team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()
         scanner_in_flight = ReplayObservation.in_flight_for_team(self.team_id).filter(scanner_id=scanner.id).count()
+        # Enqueued-but-not-yet-persisted scans hold claims instead of rows.
         in_flight_limit = max(
             0,
             min(
-                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
-                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+                MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight - pending_enqueue_claims_for_scanner(scanner.id),
+                MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight - pending_enqueue_claims_for_team(self.team_id),
             ),
         )
         snapshot = compute_quota_snapshot(self.team.organization_id)
@@ -1166,8 +1296,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         quota_limit = in_flight_limit if snapshot.remaining is None else (snapshot.remaining // cost if cost else 0)
         # Report quota as the reason only when it's the strictly tighter limit.
         if quota_limit < in_flight_limit:
-            return quota_limit, "skipped_quota"
-        return in_flight_limit, "skipped_limit"
+            return quota_limit, "skipped_quota", team_in_flight, scanner_in_flight
+        return in_flight_limit, "skipped_limit", team_in_flight, scanner_in_flight
 
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
     @action(
@@ -1232,6 +1362,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
+        report_user_action(
+            cast(User, request.user),
+            "replay_vision_affected_cohort_created",
+            {
+                "scanner_id": str(scanner.id),
+                "scanner_type": scanner.scanner_type,
+                "cohort_id": cohort.id,
+                "users_in_cohort": inserted,
+                "window_days": window_days,
+            },
+            team=self.team,
+            request=request,
+        )
         return Response(
             AffectedCohortResponseSerializer(
                 {

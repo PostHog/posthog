@@ -297,8 +297,9 @@ class TestRankAssigneeCandidates:
                 team.id, "acme/app", ["old-timer"], ["products/signals/backend/models.py"]
             )
 
+        # The agent candidate is not active in the area, so the area owner is kept as the
+        # fallback and outranks it.
         assert [candidate.login for candidate in ranked] == ["active-owner", "old-timer"]
-        # activity-only candidate carries generated evidence; the agent candidate keeps none
         assert "Recently active in `products/signals`" in ranked[0].commits[0].reason
         assert ranked[1].commits == []
 
@@ -310,7 +311,9 @@ class TestRankAssigneeCandidates:
                 team.id, "acme/app", ["agent-pick"], ["products/signals/backend/models.py"]
             )
 
-        assert ranked[0].login == "agent-pick"
+        # The agent candidate is itself active in the area, so the active bystander is not
+        # padded in as a fallback — only the real candidate is returned.
+        assert [candidate.login for candidate in ranked] == ["agent-pick"]
 
     def test_paths_alone_yield_activity_candidates(self, team):
         self._seed_area(team, "products/signals", [("area-owner", 8, 1)])
@@ -370,9 +373,115 @@ class TestResolveSuggestedReviewersEndToEnd:
         ):
             reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
 
+        # The blame author has no current area activity, so the active area owner is kept as the
+        # fallback and outranks them.
         assert [r.login for r in reviewers] == ["active-owner", "old-timer"]
-        # The activity-only candidate carries their latest area commit as evidence.
         assert reviewers[0].commits[0].sha == "c" * 7
         assert "Recently active in `products/signals`" in reviewers[0].commits[0].reason
-        # The blame author keeps their blame commit evidence, just demoted.
         assert reviewers[1].commits[0].sha == "d" * 7
+
+    def test_activity_only_owner_not_added_when_blame_author_is_active(self, team):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="active-author",
+                    name="Active Author",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                )
+
+        # The blame author is themselves currently active in the area (a live reviewer), so the
+        # separate area owner must not be padded in as a fallback.
+        activity = {
+            "products/signals": [
+                ContributorActivity(
+                    login="active-author",
+                    name="Active Author",
+                    commit_count=9,
+                    last_commit_at=timezone.now() - timedelta(days=2),
+                    last_commit_sha="a" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                ),
+                ContributorActivity(
+                    login="area-owner",
+                    name="Area Owner",
+                    commit_count=15,
+                    last_commit_at=timezone.now() - timedelta(days=1),
+                    last_commit_sha="c" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/ccccccc",
+                ),
+            ]
+        }
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=activity,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
+
+        assert [r.login for r in reviewers] == ["active-author"]
+        assert reviewers[0].commits[0].sha == "d" * 7
+
+    def test_stale_cached_blame_author_does_not_suppress_fresh_owner(self, team):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="aged-author",
+                    name="Aged Author",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                )
+
+        # The blame author is in the area cache but their last commit has aged past the window
+        # (the cache is served while a rebuild is scheduled). They are not a live reviewer, so the
+        # fresh area owner must still surface rather than being suppressed by a stale cache entry.
+        activity = {
+            "products/signals": [
+                ContributorActivity(
+                    login="aged-author",
+                    name="Aged Author",
+                    commit_count=20,
+                    last_commit_at=timezone.now() - timedelta(days=ACTIVITY_WINDOW_DAYS + 30),
+                    last_commit_sha="a" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
+                ),
+                ContributorActivity(
+                    login="fresh-owner",
+                    name="Fresh Owner",
+                    commit_count=12,
+                    last_commit_at=timezone.now() - timedelta(days=1),
+                    last_commit_sha="c" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/ccccccc",
+                ),
+            ]
+        }
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=activity,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
+
+        logins = [r.login for r in reviewers]
+        assert "fresh-owner" in logins
+        assert logins.index("fresh-owner") < logins.index("aged-author")

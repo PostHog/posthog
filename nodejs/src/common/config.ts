@@ -25,6 +25,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_mirror = 'recordings-blob-ingestion-v2-ml-mirror',
     recordings_blob_ingestion_v2_ml_parquet_sink = 'recordings-blob-ingestion-v2-ml-parquet-sink',
     recordings_blob_ingestion_v2_ml_image_scrub = 'recordings-blob-ingestion-v2-ml-image-scrub',
+    recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -50,7 +51,6 @@ export enum PluginServerMode {
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
-    email_reputation_evaluator = 'email-reputation-evaluator',
     ingestion_api = 'ingestion-api',
 }
 

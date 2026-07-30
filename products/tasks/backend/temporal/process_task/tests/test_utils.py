@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -16,18 +16,27 @@ from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     RunState,
     build_imported_mcp_server_configs,
+    build_sandbox_environment_variables,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_imported_mcp_server_configs,
+    get_models_for_runtime_adapter,
     get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
+    get_supported_reasoning_efforts,
     get_task_run_actor_user,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
 )
+
+
+class TestRuntimeModelCapabilities(SimpleTestCase):
+    def test_kimi_is_known_without_selectable_reasoning_effort(self) -> None:
+        assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
+        assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
 
 
 class TestRunStateSnapshotPaths(TestCase):
@@ -1066,3 +1075,97 @@ class TestGetRelayedMcpServerNames(TestCase):
         )
 
         assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]
+
+
+@patch(
+    "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+    return_value="test-jwt-key",
+)
+@patch(
+    "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+    return_value="https://us.posthog.com",
+)
+class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
+    def _build(self):
+        return build_sandbox_environment_variables(github_token=None, access_token="tok", team_id=1)
+
+    @override_settings(
+        SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
+        SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout,signals_research",
+    )
+    def test_both_settings_inject_both_vars(self, _api, _jwt):
+        env = self._build()
+        self.assertEqual(env["AI_GATEWAY_URL"], "https://ai-gateway.us.posthog.com")
+        self.assertEqual(env["AI_GATEWAY_PRODUCTS"], "signals_scout,signals_research")
+
+    @override_settings(SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com", SANDBOX_AI_GATEWAY_PRODUCTS=None)
+    def test_url_without_products_injects_neither(self, _api, _jwt):
+        # A URL with no product allowlist would route every sandbox caller, so a
+        # half-config must inject nothing.
+        env = self._build()
+        self.assertNotIn("AI_GATEWAY_URL", env)
+        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
+
+    @override_settings(SANDBOX_AI_GATEWAY_URL=None, SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout")
+    def test_products_without_url_injects_neither(self, _api, _jwt):
+        env = self._build()
+        self.assertNotIn("AI_GATEWAY_URL", env)
+        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
+
+
+class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+        return_value="pub",
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+        return_value="https://api.example",
+    )
+    def test_snapshot_resume_env_includes_otel_config_when_configured(self, _api, _jwt) -> None:
+        with override_settings(
+            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        ):
+            env = build_sandbox_environment_variables(None, "access-token", 1, otel_telemetry_enabled=True)
+
+        assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
+        assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
+        assert env["POSTHOG_AGENT_OTEL_TRACES_URL"] == "https://us.i.posthog.com/i/v1/traces"
+
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+        return_value="pub",
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+        return_value="https://api.example",
+    )
+    def test_snapshot_resume_env_omits_otel_config_without_logs_pair(self, _api, _jwt) -> None:
+        with override_settings(
+            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+            SANDBOX_AGENT_OTEL_LOGS_TOKEN=None,
+            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        ):
+            env = build_sandbox_environment_variables(None, "access-token", 1, otel_telemetry_enabled=True)
+
+        assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)
+
+    @patch(
+        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+        return_value="pub",
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+        return_value="https://api.example",
+    )
+    def test_snapshot_resume_env_omits_otel_config_when_flag_disabled(self, _api, _jwt) -> None:
+        with override_settings(
+            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        ):
+            env = build_sandbox_environment_variables(None, "access-token", 1)
+
+        assert not any(key.startswith("POSTHOG_AGENT_OTEL_") for key in env)

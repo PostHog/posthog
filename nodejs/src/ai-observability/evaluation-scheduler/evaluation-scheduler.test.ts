@@ -522,51 +522,81 @@ describe('Evaluation Scheduler', () => {
             } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
             temporalService = {
                 startEvaluationRunWorkflow: jest.fn().mockResolvedValue(undefined),
-                startTraceEvaluationRunWorkflow: jest.fn().mockResolvedValue(undefined),
+                startAggregateEvaluationWorkflow: jest.fn().mockResolvedValue(undefined),
                 startTaggerRunWorkflow: jest.fn().mockResolvedValue(undefined),
             } as unknown as import('~/ai-observability/services/temporal.service').TemporalService
         })
 
-        it('dispatches the trace workflow with trace context and the config window', async () => {
+        it('starts the aggregate workflow with trace context and the resolved fixed-window settle config', async () => {
             const event = createAiGenerationEvent(teamId, {
-                properties: JSON.stringify({ $ai_trace_id: 'trace-1', $session_id: 'session-1' }),
+                properties: JSON.stringify({ $ai_trace_id: 'trace-abc', $session_id: null }),
             })
             const evaluation = createEvaluation({
+                id: 'eval-1',
                 team_id: teamId,
                 target: 'trace',
-                target_config: { window_seconds: 90 },
+                target_config: { window_seconds: 900 },
                 conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 100 })],
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            expect(temporalService.startTraceEvaluationRunWorkflow).toHaveBeenCalledWith(
-                evaluation.id,
-                event,
-                'trace-1',
-                'session-1',
-                90
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+                'eval-1',
+                expect.objectContaining({ uuid: event.uuid }),
+                'trace-abc',
+                null,
+                { strategy: 'fixed_window', window_seconds: 900 }
             )
             expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
         })
 
         it('falls back to the default window when target_config has none', async () => {
             const event = createAiGenerationEvent(teamId, {
-                properties: JSON.stringify({ $ai_trace_id: 'trace-1' }),
+                properties: JSON.stringify({ $ai_trace_id: 'trace-abc', $session_id: null }),
             })
             const evaluation = createEvaluation({
+                id: 'eval-1',
                 team_id: teamId,
                 target: 'trace',
-                target_config: {},
                 conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 100 })],
             })
             ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            const call = (temporalService.startTraceEvaluationRunWorkflow as jest.Mock).mock.calls[0]
-            expect(call[4]).toBe(30 * 60)
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+                'eval-1',
+                expect.objectContaining({ uuid: event.uuid }),
+                'trace-abc',
+                null,
+                { strategy: 'fixed_window', window_seconds: 1800 }
+            )
+            expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('passes the resolved inactivity settle config for inactivity evals', async () => {
+            const event = createAiGenerationEvent(teamId, {
+                properties: JSON.stringify({ $ai_trace_id: 'trace-xyz' }),
+            })
+            const evaluation = createEvaluation({
+                team_id: teamId,
+                target: 'trace',
+                target_config: { strategy: 'inactivity', quiet_period_seconds: 120 },
+                conditions: [createEvaluationCondition({ bytecode: ['_H', 1, 32, true], rollout_percentage: 100 })],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
+
+            expect(temporalService.startAggregateEvaluationWorkflow).toHaveBeenCalledWith(
+                evaluation.id,
+                expect.anything(),
+                expect.any(String),
+                null,
+                { strategy: 'inactivity', quiet_period_seconds: 120, max_age_seconds: 7200 }
+            )
         })
 
         it('skips trace-target evaluations when the event carries no trace id', async () => {
@@ -582,7 +612,7 @@ describe('Evaluation Scheduler', () => {
 
             await eachBatchEvaluationScheduler([messageFor(event)], evaluationManager, taggerManager, temporalService)
 
-            expect(temporalService.startTraceEvaluationRunWorkflow).not.toHaveBeenCalled()
+            expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
             expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
         })
 
@@ -604,7 +634,7 @@ describe('Evaluation Scheduler', () => {
                 event,
                 evaluation.evaluation_type
             )
-            expect(temporalService.startTraceEvaluationRunWorkflow).not.toHaveBeenCalled()
+            expect(temporalService.startAggregateEvaluationWorkflow).not.toHaveBeenCalled()
         })
     })
 

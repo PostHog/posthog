@@ -24,7 +24,7 @@
         },
         "use_draft": {
             "default": false,
-            "description": "Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override.",
+            "description": "Test the workflow's staged draft instead of its live config. Set this only when workflows-get returns a non-null 'draft'; it can't be combined with an explicit configuration override.",
             "type": "boolean"
         }
     },

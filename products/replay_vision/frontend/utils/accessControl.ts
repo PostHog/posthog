@@ -22,6 +22,15 @@ export function getReplayVisionEditDisabledReason(scannerUserAccessLevel?: Acces
 }
 
 /**
+ * Reading recording-derived content (e.g. drilling from a scanner chart into the sessions behind a data
+ * point) requires session_recording viewer access, independent of scanner access. A scanner-only viewer
+ * denied recordings must not be able to enumerate them, so gate any recording-surfacing affordance on this.
+ */
+export function getReplayVisionRecordingViewDisabledReason(): string | null {
+    return getAccessControlDisabledReason(AccessControlResourceType.SessionRecording, AccessControlLevel.Viewer) ?? null
+}
+
+/**
  * Deleting a scanner or vision action is the one write that skips the session_recording check —
  * destroy doesn't expose or process recording content (see `_CONFIG_ACTIONS`, which omits "destroy",
  * in ReplayScannerViewSet/VisionActionViewSet). Kept as its own export so delete call sites are

@@ -97,6 +97,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         <DetailSection
             icon={<IconPeople />}
             title="Reviewers"
+            collapsible
             afterTitle={
                 <Tooltip title="Suggested reviewers are tracked in PostHog. To request a review on GitHub, add them on the pull request directly.">
                     <span className="-m-1 flex cursor-help items-center p-1 text-base text-tertiary">
@@ -245,7 +246,8 @@ function ReviewerRow({
     )
 
     return (
-        <div className="group flex items-start gap-2 rounded px-1.5 py-1.5 transition-colors hover:bg-fill-highlight-50">
+        <div className="group flex items-start gap-2 rounded px-1.5 py-1.5">
+            {/* no row hover: the row isn't clickable, only the remove button (revealed on group hover) is */}
             <Tooltip
                 title={
                     reviewer.user

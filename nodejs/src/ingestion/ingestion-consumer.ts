@@ -40,7 +40,7 @@ import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { createOkContext } from '~/ingestion/framework/helpers'
+import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
     JoinedIngestionPipelineConfig,
@@ -226,6 +226,7 @@ export class IngestionConsumer {
 
         this.groupStore = new BatchWritingGroupStore(this.deps.groupRepository, this.deps.clickhouseGroupRepository, {
             useBatchUpdates: this.config.GROUP_BATCH_WRITING_USE_BATCH_UPDATES,
+            useBatchCreates: this.config.GROUP_BATCH_WRITING_USE_BATCH_CREATES,
             maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
@@ -288,6 +289,8 @@ export class IngestionConsumer {
                 PERSON_MERGE_EVENTS_ENABLED: effectivePersonMergeEventsEnabled(this.config),
                 PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
                 PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
+                PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
+                PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
@@ -436,7 +439,9 @@ export class IngestionConsumer {
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
-        const batch = messages.map((message) => createOkContext({ message }, { message }))
+        const batch = messages.map((message) =>
+            createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
+        )
 
         const feedResult = await this.joinedPipeline.feed(batch)
         if (!feedResult.ok) {

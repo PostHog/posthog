@@ -9,18 +9,17 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex import (
     ConvexResumeConfig,
     convex_source,
     get_json_schemas,
+    iter_component_tables,
+    qualified_table_name,
     validate_credentials as validate_convex_credentials,
     validate_deploy_url,
 )
@@ -85,9 +84,10 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
         clean_url = validate_deploy_url(config.deploy_url)
         schemas_response = get_json_schemas(clean_url, config.deploy_key)
 
-        tables: list[str] = []
-        if isinstance(schemas_response, dict):
-            tables = list(schemas_response.keys())
+        tables: list[str] = [
+            qualified_table_name(component_path, table_name)
+            for component_path, table_name in iter_component_tables(schemas_response)
+        ]
 
         incremental_field: list[IncrementalField] = [
             IncrementalField(

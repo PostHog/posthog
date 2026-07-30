@@ -1,3 +1,4 @@
+import json
 import time
 import base64
 import hashlib
@@ -30,6 +31,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
+    CONFIG_LEGACY_OAUTH_CLIENT,
     MISSING_CERT_PATH,
     TLS,
     Authority,
@@ -52,6 +54,7 @@ from posthog.models.integration import (
     SlackIntegration,
     SnowflakeIntegration,
     SnowflakeIntegrationError,
+    UndecryptedIntegrationSecretError,
     invalidate_github_repository_caches_for_installation,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
@@ -122,6 +125,21 @@ class TestIntegrationModel(BaseTest):
                     get_db_field_value("sensitive_config", integration.id)
                     == '{"id_token": null, "refresh_token": "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAHlWz9QOMnXDvmix-z5lNG4v0VcO9lGWejmcE_BXHXPZ1wNkb-38JupntWbshBrfFQ=="}'
                 )
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_raises_if_still_encrypted(self, field_name: str) -> None:
+        # `sensitive_config` uses `ignore_decrypt_errors=True`, so a value that fails to decrypt
+        # under every configured key comes back as raw Fernet ciphertext instead of raising. If the
+        # `access_token`/`refresh_token` properties didn't check for that, this ciphertext would
+        # get sent straight to the third-party API as the live credential.
+        integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "gAAAAABleftover=="})
+        with pytest.raises(UndecryptedIntegrationSecretError):
+            getattr(integration, field_name)
+
+    @parameterized.expand([("access_token",), ("refresh_token",)])
+    def test_oauth_token_property_passes_through_decrypted_value(self, field_name: str) -> None:
+        integration = Integration(team=self.team, kind="stripe", sensitive_config={field_name: "a-real-token"})
+        assert getattr(integration, field_name) == "a-real-token"
 
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)
@@ -230,6 +248,21 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge": params["code_challenge"],
                 "code_challenge_method": "S256",
             }
+
+    def test_authorize_url_carries_initiating_team_id_in_state(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url(
+                "salesforce", token="state_token", next="/projects/test", team_id=228502
+            )
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+            assert state["team_id"] == "228502"
+
+    def test_authorize_url_omits_team_id_when_not_provided(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert "team_id" not in parse_qs(params["state"])
 
     def test_authorize_url_pkce_challenge_matches_cached_verifier(self):
         with self.settings(**self.mock_settings):
@@ -607,21 +640,34 @@ class TestOauthIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
-            # Primary works: the fallback must not fire, even when configured.
-            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1),
-            # A token issued by the previous app only refreshes with the fallback pair.
-            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2),
+            # Primary works: the fallback must not fire, even when configured, and the grant is no
+            # longer tied to the legacy app - so the reconnect prompt must stop showing.
+            ("primary_ok", True, [(200, "primary-token")], "primary-token", "", 1, True, False),
+            # A token issued by the previous app only refreshes with the fallback pair. Flagging it
+            # is what identifies the connections that break when the legacy app is retired.
+            ("fallback_rescues", True, [(401, None), (200, "fallback-token")], "fallback-token", "", 2, False, True),
             # Both credentials failing still marks the integration errored so the reconnect banner shows.
-            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2),
+            ("both_fail", True, [(401, None), (401, None)], None, "TOKEN_REFRESH_FAILED", 2, True, True),
             # Without a fallback configured, behavior is identical to before: a single attempt, no retry.
-            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1),
+            ("no_fallback_no_retry", False, [(401, None)], None, "TOKEN_REFRESH_FAILED", 1, False, False),
         ]
     )
     def test_refresh_falls_back_to_previous_credentials(
-        self, _name, has_fallback, responses, expected_token, expected_errors, expected_calls
+        self,
+        _name,
+        has_fallback,
+        responses,
+        expected_token,
+        expected_errors,
+        expected_calls,
+        initial_legacy_flag,
+        expected_legacy_flag,
     ):
         fallbacks = {"bing-ads": {"client_id": "old-app-id", "client_secret": "old-app-secret"}} if has_fallback else {}
-        integration = self.create_integration(kind="bing-ads", config={"expires_in": 1000})
+        config = {"expires_in": 1000}
+        if initial_legacy_flag:
+            config[CONFIG_LEGACY_OAUTH_CLIENT] = True
+        integration = self.create_integration(kind="bing-ads", config=config)
 
         with (
             self.settings(
@@ -640,6 +686,7 @@ class TestOauthIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert mock_post.call_count == expected_calls
         assert integration.errors == expected_errors
+        assert integration.config.get(CONFIG_LEGACY_OAUTH_CLIENT, False) == expected_legacy_flag
         if expected_token is not None:
             assert integration.sensitive_config["access_token"] == expected_token
 
@@ -1507,6 +1554,190 @@ class TestGitHubIntegrationModel(BaseTest):
         github = GitHubIntegration(integration)
         with patch.object(github, "_installation_authenticated_get", return_value=None):
             assert github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix") is None
+
+    def test_get_pull_request_comments_merges_conversation_and_review_sorted(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            if "/issues/" in url:
+                response.json.return_value = [
+                    {
+                        "id": 2,
+                        "user": {"login": "bob", "avatar_url": "https://a/bob.png"},
+                        "body": "second",
+                        "created_at": "2026-07-06T10:00:00Z",
+                        "html_url": "https://github.com/PostHog/posthog/pull/1#issuecomment-2",
+                    }
+                ]
+            else:  # /pulls/{n}/comments — review comments
+                response.json.return_value = [
+                    {
+                        "id": 1,
+                        "user": {"login": "alice", "avatar_url": "https://a/alice.png"},
+                        "body": "first",
+                        "created_at": "2026-07-06T09:00:00Z",
+                        "html_url": "https://github.com/PostHog/posthog/pull/1#discussion_r1",
+                        "path": "posthog/models.py",
+                    }
+                ]
+            return response
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=fake_get):
+            result = github.get_pull_request_comments("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        # Merged and sorted oldest-first across both sources; review comment carries its file path,
+        # conversation comment does not.
+        assert [(c["author"], c["comment_type"], c["path"]) for c in result["comments"]] == [
+            ("alice", "review", "posthog/models.py"),
+            ("bob", "conversation", None),
+        ]
+
+    def test_get_pull_request_comments_best_effort_when_one_source_fails(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            if "/issues/" in url:
+                return None  # conversation fetch fails
+            response = MagicMock(status_code=200)
+            response.json.return_value = [
+                {"id": 1, "user": {"login": "alice"}, "body": "x", "created_at": "2026-07-06T09:00:00Z"}
+            ]
+            return response
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=fake_get):
+            result = github.get_pull_request_comments("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        assert [c["author"] for c in result["comments"]] == ["alice"]
+
+    @parameterized.expand(
+        [
+            ("success", "success", ("completed", "success")),
+            ("failure", "failure", ("completed", "failure")),
+            ("error", "error", ("completed", "failure")),
+            ("pending", "pending", ("in_progress", None)),
+            ("unknown", None, ("in_progress", None)),
+        ]
+    )
+    def test_map_commit_status_state(self, _name, state, expected):
+        assert GitHubIntegration._map_commit_status_state(state) == expected
+
+    def test_get_pull_request_checks_merges_check_runs_and_statuses(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            if "/check-runs" in url:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "unit",
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "html_url": "https://github.com/checks/1",
+                        }
+                    ]
+                }
+            else:  # /status — legacy commit statuses
+                response.json.return_value = {
+                    "statuses": [{"context": "buildkite", "state": "success", "target_url": "https://bk/1"}]
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        assert result["checks"] == [
+            {"name": "unit", "status": "completed", "conclusion": "failure", "url": "https://github.com/checks/1"},
+            {"name": "buildkite", "status": "completed", "conclusion": "success", "url": "https://bk/1"},
+        ]
+
+    def test_get_pull_request_checks_follows_pagination(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            response.links = {}
+            if "/check-runs" not in url:
+                response.json.return_value = {"statuses": []}
+            elif "page=2" in url:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "second page",
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                    ]
+                }
+            else:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "first page",
+                            "status": "completed",
+                            "conclusion": "success",
+                        }
+                    ]
+                }
+                response.links = {
+                    "next": {"url": "https://api.github.com/repos/PostHog/posthog/commits/abc123f/check-runs?page=2"}
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        assert [check["name"] for check in result["checks"]] == ["first page", "second page"]
+
+    @parameterized.expand([("check_runs",), ("statuses",)])
+    def test_get_pull_request_checks_fails_when_later_page_is_unavailable(self, failing_source):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            source = "check_runs" if "/check-runs" in url else "statuses"
+            if source == failing_source and "page=2" in url:
+                return None
+
+            response = MagicMock(status_code=200)
+            response.links = {}
+            response.json.return_value = {"check_runs": []} if source == "check_runs" else {"statuses": []}
+            if source == failing_source:
+                next_path = "check-runs" if source == "check_runs" else "status"
+                response.links = {
+                    "next": {"url": f"https://api.github.com/repos/PostHog/posthog/commits/abc123f/{next_path}?page=2"}
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        expected_noun = "check run" if failing_source == "check_runs" else "commit status"
+        assert result == {"success": False, "error": f"GitHub could not return every {expected_noun}"}
+
+    def test_get_pull_request_checks_fails_when_pr_unavailable(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "get_pull_request", return_value={"success": False, "error": "nope"}):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+        assert result["success"] is False
 
     def test_get_diff_truncates_oversized_diff(self):
         from posthog.models.integration import _MAX_DIFF_CHARS
@@ -3866,3 +4097,202 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         assert "password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
+
+
+def _make_resend_jwt(payload: dict) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+    return f"header.{body}.signature"
+
+
+@override_settings(RESEND_APP_CLIENT_ID="resend-client-id", RESEND_APP_CLIENT_SECRET="resend-client-secret")
+class TestResendIntegrationModel(BaseTest):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("resend")
+        assert config.authorize_url == "https://resend.com/oauth/authorize"
+        assert config.token_url == "https://api.resend.com/oauth/token"
+        assert config.token_revoke_url == "https://api.resend.com/oauth/revoke"
+        assert config.client_id == "resend-client-id"
+        assert config.client_secret == "resend-client-secret"
+        assert config.scope == "full_access"
+        assert config.pkce is True
+        assert config.id_path == "resend_account_id"
+
+    @override_settings(RESEND_APP_CLIENT_ID="", RESEND_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Resend app not configured"):
+            OauthIntegration.oauth_config_for_kind("resend")
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_extracts_account_from_jwt(self, mock_post):
+        access_token = _make_resend_jwt({"sub": "acct_123", "email": "team@acme.com"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt_1",
+            "expires_in": 900,
+            "token_type": "Bearer",
+        }
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = OauthIntegration.integration_from_oauth_response(
+                "resend",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token"},
+            )
+
+        assert integration.kind == "resend"
+        assert integration.integration_id == "acct_123"
+        assert integration.config["resend_account_id"] == "acct_123"
+        assert integration.config["resend_account_name"] == "team@acme.com"
+        assert integration.config["expires_in"] == 900
+        assert integration.sensitive_config["access_token"] == access_token
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_name_falls_back_without_email(self, mock_post):
+        access_token = _make_resend_jwt({"sub": "acct_xyz"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "resend",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "acct_xyz"
+        assert integration.config["resend_account_name"] == "Resend account acct_xyz"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_without_sub_raises(self, mock_post):
+        access_token = _make_resend_jwt({"email": "no-sub@acme.com"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        with pytest.raises(Exception, match="failed to extract integration ID"):
+            OauthIntegration.integration_from_oauth_response(
+                "resend",
+                self.team.id,
+                self.user,
+                {"code": "code", "state": "token=state_token"},
+            )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_authorization_code_exchange_does_not_follow_redirects(self, mock_post):
+        # A 307/308 from the token endpoint must not forward client_secret + code to its Location.
+        access_token = _make_resend_jwt({"sub": "acct_1"})
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": access_token,
+            "refresh_token": "rt",
+            "expires_in": 900,
+        }
+
+        OauthIntegration.integration_from_oauth_response(
+            "resend",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
+
+    @patch("posthog.models.integration.requests.post")
+    def test_revoke_token_authenticates_with_client_credentials(self, mock_post):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="resend",
+            config={"resend_account_id": "acct_1"},
+            sensitive_config={"refresh_token": "rt_secret", "access_token": "at_secret"},
+        )
+
+        OauthIntegration(integration).revoke_token()
+
+        sent = mock_post.call_args.kwargs["data"]
+        assert sent["token"] == "rt_secret"
+        assert sent["client_id"] == "resend-client-id"
+        assert sent["client_secret"] == "resend-client-secret"
+        assert sent["token_type_hint"] == "refresh_token"
+
+
+@override_settings(
+    SALESFORCE_CONSUMER_KEY="salesforce-client-id", SALESFORCE_CONSUMER_SECRET="salesforce-client-secret"
+)
+class TestPardotIntegrationModel(BaseTest):
+    def test_oauth_config_requests_the_account_engagement_scope(self):
+        config = OauthIntegration.oauth_config_for_kind("pardot")
+
+        assert config.authorize_url == "https://login.salesforce.com/services/oauth2/authorize"
+        assert config.token_url == "https://login.salesforce.com/services/oauth2/token"
+        assert config.token_revoke_url == "https://login.salesforce.com/services/oauth2/revoke"
+        assert config.client_id == "salesforce-client-id"
+        assert config.client_secret == "salesforce-client-secret"
+        assert config.pkce is True
+        assert config.id_path == "instance_url"
+        # Salesforce's `full` scope does not cover the Account Engagement API, so a token
+        # minted for the CRM kind cannot call it. That is why this kind exists at all.
+        assert config.scope == "pardot_api refresh_token"
+        assert config.scope != OauthIntegration.oauth_config_for_kind("salesforce").scope
+
+    def test_pardot_is_an_oauth_kind(self):
+        # Not being listed makes the authorize + callback endpoints reject the kind and drops
+        # it out of the scheduled token refresh sweep.
+        assert "pardot" in OauthIntegration.supported_kinds
+
+    @override_settings(SALESFORCE_CONSUMER_KEY="", SALESFORCE_CONSUMER_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Salesforce app not configured"):
+            OauthIntegration.oauth_config_for_kind("pardot")
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_uses_the_org_instance_host_and_assumes_an_hour(self, mock_post, mock_reload):
+        # Account Engagement business units can live on a sandbox org, whose refresh token
+        # login.salesforce.com rejects, and Salesforce often omits expires_in — without the
+        # assumed hour the token is never treated as expired and syncs fail on a stale one.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED_ACCESS_TOKEN"}
+
+        instance_url = "https://acme--sandbox.sandbox.my.salesforce.com"
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pardot",
+            config={"instance_url": instance_url, "refreshed_at": int(time.time())},
+            sensitive_config={"refresh_token": "REFRESH"},
+        )
+
+        OauthIntegration(integration).refresh_access_token()
+
+        assert integration.errors == ""
+        assert mock_post.call_args.args[0] == f"{instance_url}/services/oauth2/token"
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.config["expires_in"] == 3600
+
+    @patch("posthog.models.integration.requests.post")
+    def test_expiry_is_assumed_when_the_token_response_omits_it(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at",
+            "refresh_token": "rt",
+            "instance_url": "https://acme.my.salesforce.com",
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "pardot",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "https://acme.my.salesforce.com"
+        assert integration.config["expires_in"] == 3600

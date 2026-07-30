@@ -207,21 +207,15 @@ export function ChartFilter(): JSX.Element {
                         <ChartFilterOptionLabel label="World map" description="Values per country on a map." />
                     ),
                 },
-                ...(featureFlags[FEATURE_FLAGS.CALENDAR_HEATMAP_INSIGHT]
-                    ? [
-                          {
-                              value: ChartDisplayType.CalendarHeatmap,
-                              icon: <IconRetentionHeatmap />,
-                              label: 'Calendar heatmap',
-                              labelInMenu: (
-                                  <ChartFilterOptionLabel
-                                      label="Calendar heatmap"
-                                      description="Values per day and hour."
-                                  />
-                              ),
-                          },
-                      ]
-                    : []),
+                {
+                    value: ChartDisplayType.CalendarHeatmap,
+                    icon: <IconRetentionHeatmap />,
+                    label: 'Calendar heatmap',
+                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                    labelInMenu: (
+                        <ChartFilterOptionLabel label="Calendar heatmap" description="Values per day and hour." />
+                    ),
+                },
             ],
         },
     ]

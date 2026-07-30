@@ -9,9 +9,10 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
+import type { TestHogResultItemApi } from '../../generated/api.schemas'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import type { EvaluationTarget, HogTestResult } from '../types'
+import type { EvaluationTarget } from '../types'
 
 const GLOBAL_NAME_CODE_CLASS = 'font-medium text-sm text-primary bg-fill-highlight-100 px-1.5 py-0.5 rounded'
 const PROPERTY_NAME_CODE_CLASS = 'font-medium text-xs text-primary bg-fill-highlight-100 px-1 py-0.5 rounded'
@@ -217,7 +218,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                     Clear
                 </LemonButton>
             </div>
-            <LemonTable<HogTestResult>
+            <LemonTable<TestHogResultItemApi>
                 columns={[
                     {
                         title: 'Result',
@@ -266,19 +267,25 @@ function HogTestResultsPanel(): JSX.Element | null {
                         title: '',
                         key: 'link',
                         width: 32,
-                        render: (_, row) =>
-                            row.trace_id ? (
-                                <Tooltip title="View generation">
+                        render: (_, row) => {
+                            if (!row.trace_id) {
+                                return null
+                            }
+                            const isTrace = row.sample_type === 'trace'
+                            return (
+                                <Tooltip title={isTrace ? 'View trace' : 'View generation'}>
                                     <Link
-                                        to={urls.aiObservabilityTrace(row.trace_id, {
-                                            event: row.event_uuid,
-                                        })}
+                                        to={urls.aiObservabilityTrace(
+                                            row.trace_id,
+                                            isTrace || !row.event_uuid ? undefined : { event: row.event_uuid }
+                                        )}
                                         target="_blank"
                                     >
                                         <IconExternal className="text-muted text-base" />
                                     </Link>
                                 </Tooltip>
-                            ) : null,
+                            )
+                        },
                     },
                 ]}
                 expandable={{
@@ -291,7 +298,7 @@ function HogTestResultsPanel(): JSX.Element | null {
                 }}
                 dataSource={hogTestResults ?? []}
                 loading={hogTestResultsLoading}
-                rowKey="event_uuid"
+                rowKey="sample_id"
                 size="small"
             />
         </div>
@@ -334,7 +341,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                         <Tooltip
                             title={
                                 evaluation.target === 'trace'
-                                    ? 'Preview this code against up to 5 recent generations. Online runs evaluate the whole trace.'
+                                    ? 'Compile and run your code against up to 5 recent traces, the same way it runs online'
                                     : 'Compile and run your code against up to 5 recent generations matching your trigger filters'
                             }
                         >
@@ -343,7 +350,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 size="xsmall"
                                 loading={hogTestResultsLoading}
                                 disabled={!source.trim()}
-                                onClick={testHogOnSample}
+                                onClick={() => testHogOnSample()}
                                 data-attr="llma-evaluation-test-hog"
                             >
                                 Test on sample

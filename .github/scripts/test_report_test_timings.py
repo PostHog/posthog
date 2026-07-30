@@ -65,8 +65,8 @@ def _testcase(
         ("pkg/test_a.py", "totally.unrelated.Thing", "test_y", ""),
     ],
 )
-def test_to_selector(file: str, classname: str, name: str, expected: str) -> None:
-    assert report_test_timings.to_selector(file, classname, name) == expected
+def test_to_pytest_selector(file: str, classname: str, name: str, expected: str) -> None:
+    assert report_test_timings.to_pytest_selector(file, classname, name) == expected
 
 
 # ---------- artifact name parsing ----------
@@ -76,12 +76,38 @@ def test_to_selector(file: str, classname: str, name: str, expected: str) -> Non
     "dir_name,expected",
     [
         ("junit-results-backend-core-29", ("backend", "core", 29)),
+        ("junit-results-frontend-FOSS-4", ("frontend", "FOSS", 4)),
         ("junit-results-llm-gateway", ("llm-gateway", "llm-gateway", None)),
         ("junit-results-hogli", ("hogli", "hogli", None)),
     ],
 )
 def test_derive_suite_segment_and_group(dir_name: str, expected: tuple[str, str, int | None]) -> None:
     assert report_test_timings.derive_suite_segment_and_group(dir_name) == expected
+
+
+@pytest.mark.parametrize(
+    "dir_name,expected",
+    [
+        # A suffix folded into the segment would mis-key the shard and break recovery pairing.
+        ("junit-results-backend-core-29-attempt2", ("junit-results-backend-core-29", 2)),
+        ("junit-results-backend-core-29-attempt10", ("junit-results-backend-core-29", 10)),
+        ("junit-results-backend-core-29", ("junit-results-backend-core-29", 1)),
+        # No digits is not an attempt suffix: a segment could legitimately end in a word.
+        ("junit-results-backend-core-attempt", ("junit-results-backend-core-attempt", 1)),
+    ],
+)
+def test_split_attempt_suffix(dir_name: str, expected: tuple[str, int]) -> None:
+    assert report_test_timings.split_attempt_suffix(dir_name) == expected
+
+
+def test_collect_artifact_infos_does_not_expand_large_sparse_group(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "junit-results-frontend-FOSS-8574803097"
+    artifact_dir.mkdir()
+
+    info = report_test_timings.collect_artifact_infos(tmp_path)[0]
+
+    assert info.group == 8_574_803_097
+    assert info.total is None
 
 
 # ---------- shard parsing end-to-end ----------
@@ -129,7 +155,7 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             <testcase classname="pkg.test_a.TestA" name="test_fast" time="0.1"/>
             <testcase classname="pkg.test_a.TestA" name="test_slow" time="2.0"/>
             <testcase classname="pkg.test_a.TestA" name="test_rerun" time="0.2">
-              <rerunFailure message="x"/>
+              <flakyFailure message="x" time="0.3"/>
             </testcase>
             <testcase classname="pkg.test_a.TestA" name="test_fail" time="0.1"><failure message="x"/></testcase>
         """,
@@ -145,8 +171,8 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.info.total == 7
     assert shard.start == datetime(2026, 5, 4, 10, 0, 0, tzinfo=UTC)
     assert (shard.end - shard.start).total_seconds() == pytest.approx(10.0)
-    assert shard.testcase_seconds == pytest.approx(2.4)
-    assert shard.overhead_seconds == pytest.approx(7.6)
+    assert shard.testcase_seconds == pytest.approx(2.7)
+    assert shard.overhead_seconds == pytest.approx(7.3)
     assert shard.junit_filename == "junit-core.xml"
     assert [t.name for t in shard.tests] == ["test_fast", "test_slow", "test_rerun", "test_fail"]
     assert shard.tests[0].nodeid == "pkg/test_a/TestA::test_fast"
@@ -154,9 +180,133 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
     assert shard.tests[0].end == datetime(2026, 5, 4, 10, 0, 0, 100000, tzinfo=UTC)
     assert shard.tests[1].start == shard.tests[0].end
     assert shard.tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 100000, tzinfo=UTC)
+    assert shard.tests[2].duration_seconds == pytest.approx(0.5)
     assert shard.tests[2].outcome == "rerun_passed"
     assert shard.tests[2].attempts == 2
     assert shard.tests[3].outcome == "failed"
+
+
+def test_collect_jest_shard_reads_legacy_and_isolated_product_suites(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "junit-results-frontend-EE-1"
+    artifact_dir.mkdir()
+    (artifact_dir / "junit-EE-1.xml").write_text(
+        textwrap.dedent(
+            """\
+            <?xml version="1.0"?>
+            <testsuites name="jest tests" tests="2" failures="1" time="4.0">
+              <testsuite name="src/scenes/legacy.test.ts" timestamp="2026-05-04T10:00:00" time="2.0">
+                <testcase classname="legacy scene renders" name="legacy scene renders" time="0.2"
+                  file="src/scenes/legacy.test.ts"><failure message="x"/></testcase>
+              </testsuite>
+              <testsuite name="../products/surveys/frontend/surveyLogic.test.ts"
+                timestamp="2026-05-04T10:00:01" time="3.0">
+                <testcase classname="surveyLogic saves" name="surveyLogic saves" time="0.3"
+                  file="../products/surveys/frontend/surveyLogic.test.ts"/>
+              </testsuite>
+            </testsuites>
+            """
+        )
+    )
+
+    shard = report_test_timings.collect_shards(tmp_path, "jest")[0]
+
+    assert (shard.info.suite, shard.info.segment, shard.info.group) == ("frontend", "EE", 1)
+    assert [test.file for test in shard.tests] == [
+        "frontend/src/scenes/legacy.test.ts",
+        "products/surveys/frontend/surveyLogic.test.ts",
+    ]
+    assert [test.selector for test in shard.tests] == [
+        "frontend/src/scenes/legacy.test.ts::legacy scene renders",
+        "products/surveys/frontend/surveyLogic.test.ts::surveyLogic saves",
+    ]
+    assert [test.nodeid for test in shard.tests] == [test.selector for test in shard.tests]
+    assert [test.outcome for test in shard.tests] == ["failed", "passed"]
+    assert shard.start == datetime(2026, 5, 4, 10, 0, tzinfo=UTC)
+    assert shard.end == datetime(2026, 5, 4, 10, 0, 4, tzinfo=UTC)
+
+
+def test_collect_jest_shard_marks_tolerated_failures_as_quarantined(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "junit-results-frontend-FOSS-1"
+    _write_shard_xml(
+        artifact_dir,
+        filename="junit-FOSS-1.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body=(
+            '<testcase classname="suite flaky" name="suite flaky" time="0.1" '
+            'file="src/flaky.test.ts"/>'
+            '<testcase classname="suite healthy" name="suite healthy" time="0.1" '
+            'file="src/flaky.test.ts"/>'
+        ),
+    )
+    (artifact_dir / "posthog-jest-quarantine-123.jsonl").write_text(
+        f"{json.dumps({'test_id': 'frontend/src/flaky.test.ts::suite flaky'})}\n"
+    )
+
+    shard = report_test_timings.collect_shards(tmp_path, "jest")[0]
+
+    assert [test.outcome for test in shard.tests] == ["xfailed", "passed"]
+    assert report_test_timings.should_emit(shard.tests[0], float("inf")) is True
+
+
+@pytest.mark.parametrize(
+    "runner,filename,run_attempt,recovered,expected_attempt",
+    [
+        # download-artifact extracts a single matching artifact flat into the download root, so
+        # identity must come from the filename and current workflow attempt.
+        ("jest", "junit-EE-1.xml", 2, ("frontend", "EE", 1), 2),
+        # A filename without a `-<chunk>` suffix and non-jest runners keep the directory-derived
+        # fallback identity.
+        ("jest", "junit-report.xml", 2, None, 1),
+        ("pytest", "junit-EE-1.xml", 2, None, 1),
+    ],
+)
+def test_flat_download_shard_identity(
+    runner: str,
+    filename: str,
+    run_attempt: int,
+    recovered: tuple[str, str, int] | None,
+    expected_attempt: int,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_shard_xml(
+        tmp_path,
+        filename=filename,
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body='<testcase classname="suite flaky" name="suite flaky" time="0.1" file="src/flaky.test.ts"><failure message="x"/></testcase>',
+    )
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", str(run_attempt))
+
+    shard = report_test_timings.collect_shards(tmp_path, runner)[0]
+
+    expected = recovered or report_test_timings.derive_suite_segment_and_group(tmp_path.name)
+    assert (shard.info.suite, shard.info.segment, shard.info.group) == expected
+    assert shard.info.attempt == expected_attempt
+    if recovered:
+        assert report_test_timings.job_trace_key(shard.info) == "frontend:EE:1"
+
+
+def test_load_jest_quarantine_signals_rejects_oversized_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(report_test_timings, "MAX_QUARANTINE_SIGNAL_BYTES", 10)
+    (tmp_path / "posthog-jest-quarantine-123.jsonl").write_text('{"test_id":"too-large"}\n')
+
+    assert report_test_timings.load_jest_quarantine_signals(tmp_path) == frozenset()
+
+
+@pytest.mark.parametrize(
+    "junit_file,expected",
+    [
+        ("src/test/example.test.ts", "frontend/src/test/example.test.ts"),
+        ("../products/web_analytics/frontend/example.test.ts", "products/web_analytics/frontend/example.test.ts"),
+        ("../../outside.test.ts", ""),
+    ],
+)
+def test_normalize_jest_file(junit_file: str, expected: str) -> None:
+    assert report_test_timings.normalize_jest_file(junit_file) == expected
 
 
 # ---------- rerun classification (posthog.reruns testcase property) ----------
@@ -182,9 +332,13 @@ def test_collect_shards_builds_test_windows_and_overhead(tmp_path: Path) -> None
             '<testcase name="t"><properties><property name="posthog.reruns" value="garbage"/></properties></testcase>',
             ("passed", 1),
         ),
+        # Playwright's JUnit reporter uses flakyFailure/flakyError for attempts
+        # that failed before the final successful retry.
+        ('<testcase name="t"><flakyFailure message="x"/></testcase>', ("rerun_passed", 2)),
+        ('<testcase name="t"><flakyError message="x"/></testcase>', ("rerun_passed", 2)),
     ],
 )
-def test_classify_testcase_reads_rerun_property(testcase_xml: str, expected: tuple[str, int]) -> None:
+def test_classify_testcase_reads_retry_attempts(testcase_xml: str, expected: tuple[str, int]) -> None:
     assert report_test_timings.classify_testcase(ElementTree.fromstring(testcase_xml)) == expected
 
 
@@ -313,6 +467,73 @@ def test_filter_shards_preserves_parse_time_test_windows(tmp_path: Path) -> None
     assert filtered[0].tests[2].start == datetime(2026, 5, 4, 10, 0, 2, 300000, tzinfo=UTC)
 
 
+def test_signals_only_threshold_keeps_failures_and_same_job_recovery() -> None:
+    tests = [
+        _testcase(name="slow_pass", duration=30.0),
+        _testcase(name="failure", outcome="failed", duration=0.1),
+        _testcase(name="recovery", duration=0.1),
+    ]
+
+    assert [
+        test.name for test in tests if report_test_timings.should_emit(test, float("inf"), frozenset({"m::recovery"}))
+    ] == ["failure", "recovery"]
+
+
+# ---------- re-run attempts ----------
+
+
+def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes(tmp_path: Path) -> None:
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-1",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body="""\
+            <testcase classname="pkg.t.T" name="test_flaky" time="0.1"><failure message="x"/></testcase>
+            <testcase classname="pkg.t.T" name="test_untouched" time="0.1"/>
+        """,
+    )
+    # Not re-executed on attempt 2: must not be re-reported under the new attempt.
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body='<testcase classname="pkg.t.T" name="test_other" time="0.1"><failure message="x"/></testcase>',
+    )
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-1-attempt2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T11:00:00",
+        time="1.0",
+        body="""\
+            <testcase classname="pkg.t.T" name="test_flaky" time="0.1"/>
+            <testcase classname="pkg.t.T" name="test_untouched" time="0.1"/>
+        """,
+    )
+    # A pass in a different leg runs a different config and must not read as recovery.
+    _write_shard_xml(
+        tmp_path / "junit-results-backend-core-3-attempt2",
+        filename="junit-core.xml",
+        timestamp="2026-05-04T11:00:00",
+        time="1.0",
+        body='<testcase classname="pkg.t.T" name="test_flaky" time="0.1"/>',
+    )
+
+    current, prior_failed = report_test_timings.partition_run_attempt(report_test_timings.collect_shards(tmp_path), 2)
+    filtered = report_test_timings.filter_shards(current, 0.5, prior_failed)
+
+    assert [(s.info.group, s.info.attempt) for s in filtered] == [(1, 2), (3, 2)]
+    assert prior_failed == {
+        "backend:core:1": frozenset({"pkg/t/T::test_flaky"}),
+        "backend:core:2": frozenset({"pkg/t/T::test_other"}),
+    }
+    # Only the same-leg recovery pass survives the threshold filter; the fast pass that never
+    # failed and the cross-leg pass are dropped.
+    assert [test.name for test in filtered[0].tests] == ["test_flaky"]
+    assert filtered[1].tests == []
+
+
 class _FakeSpan:
     def __init__(self, name: str, start_time: int) -> None:
         self.name = name
@@ -388,6 +609,8 @@ def test_emit_shard_span_uses_stored_test_windows(monkeypatch: pytest.MonkeyPatc
     assert tracer.spans[2].end_time == report_test_timings._to_ns(start + timedelta(seconds=2.4))
     assert tracer.spans[0].attributes["shard.testcase_seconds"] == pytest.approx(2.1)
     assert tracer.spans[0].attributes["shard.overhead_seconds"] == pytest.approx(7.9)
+    assert tracer.spans[1].attributes["test.runner"] == "pytest"
+    assert tracer.spans[1].attributes["test.job_key"] == "backend:core:1"
 
 
 def test_emit_shard_span_emits_setup_span_when_setup_seconds_positive(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -454,6 +677,47 @@ def test_emit_shard_span_stamps_owner_team_only_for_owned_files(monkeypatch: pyt
 
     assert tracer.spans[1].attributes["test.owner_team"] == "team-devex"
     assert "test.owner_team" not in tracer.spans[2].attributes
+
+
+def test_product_shard_derives_product_suite_and_keeps_repo_relative_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Products run pytest with `--rootdir ../..`, so real product JUnit `file`/`classname`
+    # are already repo-relative; the span must carry them through, not double-prefix them.
+    _write_shard_xml(
+        tmp_path / "product-junit-results-1",
+        filename="junit-product-warehouse_sources.xml",
+        timestamp="2026-05-04T10:00:00",
+        time="1.0",
+        body=(
+            '<testcase classname="products.warehouse_sources.backend.migrations.test.test_migration_0075.TestBackfillApiVersion" '
+            'file="products/warehouse_sources/backend/migrations/test/test_migration_0075.py" name="test_backfill" time="1.0"/>'
+        ),
+    )
+    shard = report_test_timings.collect_shards(tmp_path)[0]
+    assert shard.info.suite == "product"
+    assert shard.info.segment == "warehouse_sources"
+    assert report_test_timings.job_trace_name("Backend CI", shard.info) == "Backend CI / warehouse_sources (1)"
+
+    tracer = _FakeTracer()
+    owner_paths: list[str] = []
+    monkeypatch.setattr(report_test_timings.trace, "use_span", _noop_use_span)
+
+    def owner_of(file: str) -> str:
+        owner_paths.append(file)
+        return "team-data-warehouse"
+
+    report_test_timings._emit_shard_span(tracer, shard, "Backend CI / warehouse_sources (1)", owner_of)
+
+    test_span = tracer.spans[1]
+    expected_file = "products/warehouse_sources/backend/migrations/test/test_migration_0075.py"
+    assert (
+        test_span.name
+        == "products/warehouse_sources/backend/migrations/test/test_migration_0075/TestBackfillApiVersion::test_backfill"
+    )
+    assert test_span.attributes["test.selector"] == f"{expected_file}::TestBackfillApiVersion::test_backfill"
+    assert test_span.attributes["test.owner_team"] == "team-data-warehouse"
+    assert owner_paths == [expected_file]
 
 
 # ---------- workflow context ----------

@@ -11,6 +11,7 @@ from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
+from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 from posthog.tasks.email import (
     EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
     send_error_tracking_weekly_digest,
@@ -106,12 +107,17 @@ from products.streamlit_apps.backend.facade.api import (
     stop_idle_streamlit_sandboxes,
 )
 from products.tasks.backend.facade.tasks import (
+    bake_dev_stack_image_task,
     reconcile_loop_trigger_schedules_task,
+    refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
-from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
+from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    reap_stale_prewarm_heatmaps,
+    report_stuck_heatmap_screenshots,
+)
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -278,6 +284,26 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=10 * 60,
     )
 
+    # Rebake the prebaked dev-stack VM image nightly so the baked migration state
+    # stays close to master. No-ops unless the tasks-dev-stack-image-bake flag
+    # enables this deployment's region.
+    sender.add_periodic_task(
+        crontab(hour="6", minute="45"),
+        bake_dev_stack_image_task.s(),
+        name="bake prebaked dev-stack VM image",
+    )
+
+    # Fast lane mirroring the custom-image refresh above: rebake the prebaked
+    # dev-stack image when the VM base image digest changes (e.g. a new
+    # agent-server release), at most once per new digest.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        refresh_dev_stack_image_task.s(),
+        name="refresh prebaked dev-stack VM image on base change",
+        expires_seconds=10 * 60,
+    )
+
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
     sender.add_periodic_task(
         crontab(hour="*", minute="25"),
@@ -427,6 +453,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         report_stuck_heatmap_screenshots.s(),
         name="report stuck heatmap screenshots",
         expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        reap_stale_prewarm_heatmaps.s(),
+        name="reap stale prewarm heatmap screenshots",
+        expires_seconds=10 * 60,
     )
 
     # Auth token cache verification - every 6 hours at minute 40
@@ -611,6 +645,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="recalculate cohorts night",
         expires=60 * 1.5,
         args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT,),
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        finalize_cohort_backfill_runs.s(),
+        name="finalize cohort backfill runs",
     )
 
     add_periodic_task_with_expiry(

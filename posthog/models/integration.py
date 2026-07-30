@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.db.models import Q
 from django.dispatch import receiver
 from django.http import HttpRequest
@@ -63,6 +63,30 @@ from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+_ENCRYPTED_VALUE_PREFIX = "gAAAAA"
+
+
+class UndecryptedIntegrationSecretError(ValueError):
+    """Raised when a value read off `Integration.sensitive_config` still looks like Fernet
+    ciphertext instead of the decrypted secret.
+
+    `sensitive_config` sets `ignore_decrypt_errors=True` so integrations written before
+    encryption existed keep loading, but that same leniency means a value that fails to
+    decrypt under every configured key (a lost/rotated key, a corrupted row) comes back as
+    raw ciphertext rather than raising. Left unchecked, that ciphertext gets sent to the
+    third-party API as if it were the real credential, which rejects it as invalid — hiding
+    the actual cause behind what looks like a bad customer-supplied key.
+    """
+
+
+def _decrypted_sensitive_value(value: str | None, field_name: str) -> str | None:
+    if value is not None and value.startswith(_ENCRYPTED_VALUE_PREFIX):
+        raise UndecryptedIntegrationSecretError(
+            f"Integration.sensitive_config['{field_name}'] is still encrypted; the stored credentials could not be decrypted"
+        )
+    return value
 
 
 def _decode_jwt_payload(token: str) -> dict | None:
@@ -106,6 +130,62 @@ oauth_refresh_terminal_counter = Counter(
 REFRESH_BACKOFF_BASE_SECONDS = 120
 REFRESH_BACKOFF_MAX_SECONDS = 3600
 REFRESH_TERMINAL_FAILURE_COUNT = 5
+
+# `config` key flagging a grant that only the legacy fallback credentials can refresh.
+CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
+
+# `config` key holding the push device-registration identity verification policy, read by the
+# push subscriptions endpoint. Owned by the customer, not by the provider credentials.
+CONFIG_PUSH_IDENTITY_VERIFICATION = "push_identity_verification"
+PUSH_IDENTITY_VERIFICATION_MODES = ("disabled", "optional", "required")
+
+
+def preserved_push_config(
+    team_id: int,
+    kind: str,
+    integration_id: str,
+    push_identity_verification: str | None,
+) -> dict:
+    """Config keys a push credential upsert must carry over rather than drop.
+
+    Connecting a push integration is an upsert, and the provider helpers rebuild `config` from the
+    credentials they were handed. Anything they don't know about would be lost, so rotating a
+    Firebase key or APNs .p8 would silently reset an enabled identity verification policy back to
+    disabled, reopening the device takeover it exists to prevent. Carry the existing value forward
+    unless the caller explicitly sets a new one.
+    """
+    if push_identity_verification is not None and push_identity_verification not in PUSH_IDENTITY_VERIFICATION_MODES:
+        raise ValidationError(
+            f"push_identity_verification must be one of: {', '.join(PUSH_IDENTITY_VERIFICATION_MODES)}"
+        )
+
+    # Serialize concurrent setup of this one integration for the rest of the caller's transaction.
+    # `select_for_update` alone only locks a row that already exists, so two first-time setups could
+    # both read "no policy" and the later write would clobber a policy the earlier one had just set.
+    # An advisory lock covers the not-yet-created case too, keyed on the integration's identity so it
+    # only serializes writers racing for the same integration. Every writer takes it, including one
+    # setting an explicit mode — otherwise it could slip its row in between a preserving writer's read
+    # and write, and have its policy dropped.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"{kind}:{integration_id}"])
+
+    if push_identity_verification is not None:
+        return {CONFIG_PUSH_IDENTITY_VERIFICATION: push_identity_verification}
+
+    existing = (
+        Integration.objects.select_for_update()
+        .filter(team_id=team_id, kind=kind, integration_id=integration_id)
+        .only("config")
+        .first()
+    )
+    existing_mode = (existing.config or {}).get(CONFIG_PUSH_IDENTITY_VERIFICATION) if existing else None
+    # Drop a stored value we don't recognize rather than carrying it forward. The push endpoint already
+    # treats an unknown mode as disabled, so preserving it would keep dead data alive indefinitely, and
+    # raising here would leave a corrupted integration unable to rotate its credentials.
+    if existing_mode not in PUSH_IDENTITY_VERIFICATION_MODES:
+        return {}
+    return {CONFIG_PUSH_IDENTITY_VERIFICATION: existing_mode} if existing_mode else {}
+
 
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
@@ -179,6 +259,49 @@ def record_refresh_failure(integration: "Integration", *, reason: str = REFRESH_
 def record_refresh_success(integration: "Integration") -> None:
     for key in ("refresh_failure_count", "refresh_invalid_grant_count", "refresh_next_attempt_at", "refresh_terminal"):
         integration.config.pop(key, None)
+
+
+def record_oauth_client_used(integration: "Integration", *, used_fallback: bool) -> None:
+    """Track whether the grant still depends on the legacy (fallback) OAuth credentials.
+
+    A refresh token minted by a since-migrated app can only be refreshed by that app's
+    credentials, so a successful fallback refresh identifies exactly the connections that break
+    when the legacy app is retired. The flag rides on `config`, which the API exposes, so the
+    product can tell those teams to reconnect. Reconnecting mints a grant on the primary
+    credentials and replaces `config` wholesale, which clears the flag.
+    """
+    if used_fallback:
+        integration.config[CONFIG_LEGACY_OAUTH_CLIENT] = True
+    else:
+        integration.config.pop(CONFIG_LEGACY_OAUTH_CLIENT, None)
+
+
+def issuing_oauth_client_ids(integration: "Integration") -> list[str]:
+    """The OAuth client ids the connection was established with. Empty when that can't be read.
+
+    OIDC puts the client id in the id_token's `aud` claim, and we keep the id_token from the
+    authorization exchange - refreshes only overwrite the access and refresh tokens. So this reads
+    the app the customer actually connected through, which is knowable for connections that already
+    exist, without waiting for a refresh to reveal it.
+
+    `aud` is a string or a list of strings per RFC 7519, so both shapes are normalized here.
+    Callers should test membership rather than assume a single value: treating a list-shaped
+    audience as unreadable would silently drop those connections from the reconnect campaign.
+    """
+    id_token = integration.sensitive_config.get("id_token")
+    if not id_token:
+        return []
+    try:
+        claims = _decode_jwt_payload(id_token) or {}
+    except Exception:
+        logger.warning("Failed to decode id_token", integration_id=integration.id, kind=integration.kind)
+        return []
+    audience = claims.get("aud")
+    if isinstance(audience, str):
+        return [audience]
+    if isinstance(audience, list):
+        return [entry for entry in audience if isinstance(entry, str)]
+    return []
 
 
 def refresh_backoff_active(integration: "Integration") -> bool:
@@ -344,9 +467,11 @@ class Integration(models.Model):
         LINEAR = "linear"
         LINKEDIN_ADS = "linkedin-ads"
         META_ADS = "meta-ads"
+        PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
+        RESEND = "resend"
         S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
         SLACK = "slack"
@@ -446,11 +571,11 @@ class Integration(models.Model):
 
     @property
     def access_token(self) -> str | None:
-        return self.sensitive_config.get("access_token")
+        return _decrypted_sensitive_value(self.sensitive_config.get("access_token"), "access_token")
 
     @property
     def refresh_token(self) -> str | None:
-        return self.sensitive_config.get("refresh_token")
+        return _decrypted_sensitive_value(self.sensitive_config.get("refresh_token"), "refresh_token")
 
 
 def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:
@@ -529,6 +654,12 @@ def _salesforce_instance_host(instance_url: str | None) -> str | None:
     return f"https://{host}"
 
 
+# Kinds authorized against Salesforce's OAuth server, so they share its quirks: the token
+# response often omits expires_in, and refresh/revoke must go to the org's own instance host
+# rather than the hardcoded login host (sandbox orgs reject the prod endpoints).
+SALESFORCE_OAUTH_KINDS = ("salesforce", "pardot")
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -548,8 +679,10 @@ class OauthIntegration:
         "linear",
         "clickup",
         "jira",
+        "pardot",
         "pinterest-ads",
         "stripe",
+        "resend",
     ]
     integration: Integration
 
@@ -622,6 +755,26 @@ class OauthIntegration:
                 name_path="instance_url",
                 pkce=True,
             )
+        elif kind == "pardot":
+            if not settings.SALESFORCE_CONSUMER_KEY or not settings.SALESFORCE_CONSUMER_SECRET:
+                raise NotImplementedError("Salesforce app not configured")
+
+            # Account Engagement (formerly Pardot) authorizes against Salesforce, so this reuses the
+            # Salesforce connected app rather than registering a second one. It needs its own kind
+            # because `pardot_api` is not covered by the `full` scope the `salesforce` kind requests:
+            # a Salesforce integration authorized for the CRM cannot call the Account Engagement API,
+            # and a token scoped for Account Engagement should not appear in the CRM picker.
+            return OauthConfig(
+                authorize_url="https://login.salesforce.com/services/oauth2/authorize",
+                token_url="https://login.salesforce.com/services/oauth2/token",
+                token_revoke_url="https://login.salesforce.com/services/oauth2/revoke",
+                client_id=settings.SALESFORCE_CONSUMER_KEY,
+                client_secret=settings.SALESFORCE_CONSUMER_SECRET,
+                scope="pardot_api refresh_token",
+                id_path="instance_url",
+                name_path="instance_url",
+                pkce=True,
+            )
         elif kind == "hubspot":
             if not settings.HUBSPOT_APP_CLIENT_ID or not settings.HUBSPOT_APP_CLIENT_SECRET:
                 raise NotImplementedError("Hubspot app not configured")
@@ -635,8 +788,10 @@ class OauthIntegration:
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
                 additional_authorize_params={
-                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional
-                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
+                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
+                    # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
+                    # mandatory scope would fail the whole authorization for portals that lack it.
+                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read"
                 },
                 id_path="hub_id",
                 name_path="hub_domain",
@@ -900,6 +1055,28 @@ class OauthIntegration:
                 id_path="stripe_user_id",
                 name_path="account_name",
             )
+        elif kind == "resend":
+            if not settings.RESEND_APP_CLIENT_ID or not settings.RESEND_APP_CLIENT_SECRET:
+                raise NotImplementedError("Resend app not configured")
+
+            # Resend implements OAuth 2.1: PKCE is required, and access tokens are short-lived
+            # (~15m) JWTs while refresh tokens rotate on every use. We register as a confidential
+            # client (token_endpoint_auth_method=client_secret_post), so the standard client_secret
+            # token-exchange/refresh path applies on top of PKCE. `full_access` is the scope needed
+            # to read the warehouse resources (emails/audiences/contacts/domains/broadcasts).
+            # The token response carries no account identifier, so id/name are derived from the
+            # access-token JWT below (see the resend branch in integration_from_oauth_response).
+            return OauthConfig(
+                authorize_url="https://resend.com/oauth/authorize",
+                token_url="https://api.resend.com/oauth/token",
+                token_revoke_url="https://api.resend.com/oauth/revoke",
+                client_id=settings.RESEND_APP_CLIENT_ID,
+                client_secret=settings.RESEND_APP_CLIENT_SECRET,
+                scope="full_access",
+                pkce=True,
+                id_path="resend_account_id",
+                name_path="resend_account_name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -911,10 +1088,15 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "") -> str:
+    def authorize_url(cls, kind: str, token: str, next: str = "", team_id: int | None = None) -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
+        # Carry the initiating team through the OAuth round-trip. The fixed callback URL is not
+        # project-scoped, so without this the SPA re-resolves to the user's default team on
+        # reload and the integration lands on the wrong project.
         state_payload: dict[str, str] = {"next": next, "token": token}
+        if team_id is not None:
+            state_payload["team_id"] = str(team_id)
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -1027,6 +1209,9 @@ class OauthIntegration:
                     **({"code_verifier": code_verifier} if code_verifier else {}),
                 },
                 timeout=10,
+                # allow_redirects=False so a misconfigured/compromised token endpoint can't 30x us
+                # into resending client_secret + authorization code to another origin.
+                allow_redirects=False,
             )
 
         try:
@@ -1165,6 +1350,29 @@ class OauthIntegration:
             except Exception as e:
                 logger.exception("Failed to decode Reddit JWT", error=str(e))
 
+        # Resend's token response carries no account identifier, but the access token is a JWT.
+        # Derive the integration id/name from its claims (`sub` is the account subject; email/name
+        # are used for a human-readable label when present). Assumes the standard `sub` claim — if
+        # Resend uses a different claim, the missing-id guard below raises and the user sees a clear
+        # reconnect error rather than a silently mislabeled integration.
+        if kind == "resend" and not integration_id:
+            try:
+                access_token = config.get("access_token")
+                if access_token:
+                    jwt_data = _decode_jwt_payload(access_token)
+                    if jwt_data:
+                        resend_account_id = jwt_data.get("sub")
+                        if resend_account_id:
+                            config["resend_account_id"] = resend_account_id
+                            config["resend_account_name"] = (
+                                jwt_data.get("email") or jwt_data.get("name") or f"Resend account {resend_account_id}"
+                            )
+                            integration_id = resend_account_id
+                else:
+                    logger.error("Resend OAuth response missing access_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode Resend JWT")
+
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
         if kind == "linkedin-ads" and not integration_id:
@@ -1241,7 +1449,7 @@ class OauthIntegration:
         }
 
         # Handle case where Salesforce doesn't provide expires_in in initial response
-        if not config.get("expires_in") and kind == "salesforce":
+        if not config.get("expires_in") and kind in SALESFORCE_OAUTH_KINDS:
             # Default to 1 hour for Salesforce if not provided (conservative)
             config["expires_in"] = 3600
 
@@ -1301,28 +1509,39 @@ class OauthIntegration:
         if not oauth_config.token_revoke_url:
             return
 
-        token = self.integration.sensitive_config.get("refresh_token") or self.integration.sensitive_config.get(
-            "access_token"
-        )
+        # Prefer the refresh token: revoking it invalidates the whole grant (and its access
+        # tokens), so an attacker holding it can't keep minting access tokens after disconnect.
+        refresh_token = self.integration.sensitive_config.get("refresh_token")
+        token = refresh_token or self.integration.sensitive_config.get("access_token")
         if not token:
             return
 
         revoke_url = oauth_config.token_revoke_url
-        # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox is only
-        # a token-exchange fallback), so the static prod revoke URL would miss them. Revoke at
-        # the validated instance host so a stray write to config can't redirect the token to
+        # Salesforce sandbox integrations are stored under the production kind (the sandbox is
+        # only a token-exchange fallback), so the static prod revoke URL would miss them. Revoke
+        # at the validated instance host so a stray write to config can't redirect the token to
         # an attacker origin.
-        if self.integration.kind == "salesforce":
+        if self.integration.kind in SALESFORCE_OAUTH_KINDS:
             allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
             if allowed_host:
                 revoke_url = f"{allowed_host}/services/oauth2/revoke"
+
+        data = {"token": token}
+        if self.integration.kind == "resend":
+            # Resend registers PostHog as a confidential client (token_endpoint_auth_method=
+            # client_secret_post) and requires client authentication on revocation. Without it
+            # the endpoint rejects the request and the grant survives the disconnect. The hint
+            # tells the provider which token type it received (RFC 7009).
+            data["client_id"] = oauth_config.client_id
+            data["client_secret"] = oauth_config.client_secret
+            data["token_type_hint"] = "refresh_token" if refresh_token else "access_token"
 
         # allow_redirects=False so a misconfigured/compromised provider can't 30x us into
         # resending the token to another host. raise_for_status surfaces a provider rejection
         # to the caller's capture_exception instead of it passing silently as a revoke.
         response = requests.post(
             revoke_url,
-            data={"token": token},
+            data=data,
             timeout=10,
             allow_redirects=False,
         )
@@ -1338,7 +1557,7 @@ class OauthIntegration:
         if not refresh_token:
             return False
 
-        if not expires_in and self.integration.kind == "salesforce":
+        if not expires_in and self.integration.kind in SALESFORCE_OAUTH_KINDS:
             # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
             expires_in = 3600
 
@@ -1410,13 +1629,13 @@ class OauthIntegration:
             )
         else:
             token_url = oauth_config.token_url
-            # Salesforce sandbox integrations are stored as kind "salesforce" (the sandbox
+            # Salesforce sandbox integrations are stored under the production kind (the sandbox
             # is only a token-exchange fallback in the OAuth callback), so the static prod
             # token URL would refuse a sandbox-issued refresh_token. Refresh at the org's
             # own instance host instead. Validate the host before sending client_secret +
             # refresh_token so a stray write to config can't exfiltrate the fleet-wide
             # Salesforce app secret; fall back to the hardcoded prod URL on rejection.
-            if kind == "salesforce":
+            if kind in SALESFORCE_OAUTH_KINDS:
                 allowed_host = _salesforce_instance_host(self.integration.config.get("instance_url"))
                 if allowed_host:
                     token_url = f"{allowed_host}/services/oauth2/token"
@@ -1498,6 +1717,7 @@ class OauthIntegration:
         else:
             logger.info(f"Refreshed access token for {self}")
             record_refresh_success(self.integration)
+            record_oauth_client_used(self.integration, used_fallback=used_fallback)
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
             # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
@@ -1509,7 +1729,7 @@ class OauthIntegration:
 
             # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
-            if not expires_in and self.integration.kind == "salesforce":
+            if not expires_in and self.integration.kind in SALESFORCE_OAUTH_KINDS:
                 expires_in = 3600
             if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600
@@ -1727,7 +1947,7 @@ class GoogleAdsIntegration:
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
-            f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
+            f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
             json={
                 "query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.status != 'REMOVED'"
             },
@@ -1772,7 +1992,7 @@ class GoogleAdsIntegration:
     def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
         response = requests.request(
             "GET",
-            "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
+            "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -1812,7 +2032,7 @@ class GoogleAdsIntegration:
                 accounts = []
             response = requests.request(
                 "POST",
-                f"https://googleads.googleapis.com/v21/customers/{account_id}/googleAds:searchStream",
+                f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
                 json={
                     "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
                 },
@@ -2098,7 +2318,13 @@ class FirebaseIntegration:
         self.integration = integration
 
     @classmethod
-    def integration_from_key(cls, key_info: dict, team_id: int, created_by: User | None = None) -> "Integration":
+    def integration_from_key(
+        cls,
+        key_info: dict,
+        team_id: int,
+        created_by: User | None = None,
+        push_identity_verification: str | None = None,
+    ) -> "Integration":
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
         try:
@@ -2111,23 +2337,26 @@ class FirebaseIntegration:
         if not project_id:
             raise ValidationError("Service account key must contain a project_id")
 
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="firebase",
-            integration_id=project_id,
-            defaults={
-                "config": {
-                    "project_id": project_id,
-                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
-                    "refreshed_at": int(time.time()),
+        # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
+        with transaction.atomic():
+            integration, created = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind="firebase",
+                integration_id=project_id,
+                defaults={
+                    "config": {
+                        **preserved_push_config(team_id, "firebase", project_id, push_identity_verification),
+                        "project_id": project_id,
+                        "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                        "refreshed_at": int(time.time()),
+                    },
+                    "sensitive_config": {
+                        "key_info": key_info,
+                        "access_token": credentials.token,
+                    },
+                    "created_by": created_by,
                 },
-                "sensitive_config": {
-                    "key_info": key_info,
-                    "access_token": credentials.token,
-                },
-                "created_by": created_by,
-            },
-        )
+            )
 
         if integration.errors:
             integration.errors = ""
@@ -2208,6 +2437,7 @@ class ApplePushIntegration:
         team_id: int,
         created_by: User | None = None,
         environment: str = "production",
+        push_identity_verification: str | None = None,
     ) -> "Integration":
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
@@ -2215,22 +2445,26 @@ class ApplePushIntegration:
         if environment not in ("production", "sandbox"):
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="apns",
-            integration_id=f"{team_id_apple}.{bundle_id}",
-            defaults={
-                "config": {
-                    "team_id": team_id_apple,
-                    "bundle_id": bundle_id,
-                    "key_id": key_id,
-                    "environment": environment,
+        integration_id = f"{team_id_apple}.{bundle_id}"
+        # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
+        with transaction.atomic():
+            integration, created = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind="apns",
+                integration_id=integration_id,
+                defaults={
+                    "config": {
+                        **preserved_push_config(team_id, "apns", integration_id, push_identity_verification),
+                        "team_id": team_id_apple,
+                        "bundle_id": bundle_id,
+                        "key_id": key_id,
+                        "environment": environment,
+                    },
+                    "sensitive_config": {
+                        "signing_key": signing_key,
+                    },
                 },
-                "sensitive_config": {
-                    "signing_key": signing_key,
-                },
-            },
-        )
+            )
 
         if created and created_by is not None:
             integration.created_by = created_by
@@ -2928,7 +3162,12 @@ class GitHubIntegration(GitHubIntegrationBase):
 
     @classmethod
     def first_for_team_repository(
-        cls, team_id: int, repository: str, *, source: str | None = None
+        cls,
+        team_id: int,
+        repository: str,
+        *,
+        source: str | None = None,
+        priority: Priority | None = None,
     ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
@@ -2940,7 +3179,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repository):
             return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
-            github = cls(integration, source=source)
+            github = cls(integration, source=source, priority=priority)
             if github.installation_can_access_repository(repository):
                 return github
         return None

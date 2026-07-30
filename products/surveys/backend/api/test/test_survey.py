@@ -15,7 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from nanoid import generate
 from parameterized import parameterized
@@ -32,7 +32,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
-from products.surveys.backend.api.survey import nh3_clean_with_allow_list
+from products.surveys.backend.api.survey import (
+    get_survey_api_translations,
+    get_surveys_response,
+    nh3_clean_with_allow_list,
+)
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
 from ee.models.rbac.access_control import AccessControl
@@ -453,10 +457,9 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
 
-    def test_sdk_payload_strips_invalid_question_translation_keys(self) -> None:
-        """Question-level translation keys are stripped from the SDK payload, just like survey-level ones."""
-        from products.surveys.backend.api.survey import SurveyAPISerializer
-
+    def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
+        self.team.survey_config = {"appearance": {"backgroundColor": "black"}}
+        self.team.save(update_fields=["survey_config"])
         survey = Survey.objects.create(
             team=self.team,
             name="Q-level legacy",
@@ -467,27 +470,39 @@ class TestSurvey(APIBaseTest):
                     "id": "q1",
                     "type": "open",
                     "question": "How are you?",
+                    "isNpsQuestion": True,
                     "translations": {
                         "es": {"question": "¿Cómo estás?"},
                         "default": {"question": "Should be dropped"},
                         "english": {"question": "Should be dropped"},
                         "EN-us": {"question": "Normalized to en-us"},
                     },
-                }
+                },
+                {
+                    "id": "q2",
+                    "type": "open",
+                    "question": "Anything else?",
+                    "translations": {
+                        "default": {"question": "Should be dropped"},
+                        "en": {"question": "Same as base, should be dropped"},
+                    },
+                },
             ],
         )
 
-        payload = SurveyAPISerializer(survey).data
+        response = get_surveys_response(self.team)
+        assert set(response) == {"surveys"}
+        payload = next(item for item in response["surveys"] if str(item["id"]) == str(survey.id))
+        assert "base_language" not in payload
+        assert "isNpsQuestion" not in payload["questions"][0]
         q_translations = payload["questions"][0]["translations"]
         assert "es" in q_translations
         assert "en-us" in q_translations
         assert "default" not in q_translations
         assert "english" not in q_translations
+        assert "translations" not in payload["questions"][1]
 
     def test_sdk_payload_strips_invalid_translation_keys(self) -> None:
-        """get_survey_api_translations drops keys the SDK matcher cannot resolve."""
-        from products.surveys.backend.api.survey import get_survey_api_translations
-
         result = get_survey_api_translations(
             {
                 "es": {"name": "Hola"},
@@ -3156,6 +3171,8 @@ class TestSurvey(APIBaseTest):
         results = activity["results"]
         for item in results:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.assertEqual(results, expected)
 
     def test_validate_schedule_on_create(self):
@@ -4533,6 +4550,46 @@ class TestSurveyWithActions(APIBaseTest):
             {"key": "plan", "value": "pro", "operator": "exact"}
         ]
 
+    def test_public_serializer_strips_pii_from_stale_actions_blob(self):
+        # When the actions M2M is empty (e.g. the referenced actions were deleted) but conditions
+        # still carries a full actions blob from an editor round-trip, the public serializer must
+        # not surface anything beyond the public action fields — no created_by, team_id, etc. This
+        # is the /decide leak: the blob was served verbatim to unauthenticated clients.
+        from products.surveys.backend.api.survey import SurveyAPISerializer
+
+        survey = Survey.objects.create(
+            team=self.team,
+            name="stale actions blob survey",
+            type="popover",
+            conditions={
+                "actions": {
+                    "values": [
+                        {
+                            "id": 987654321,
+                            "name": "person subscribed",
+                            "steps": [{"event": "$pageview"}],
+                            "created_by": {
+                                "id": 1,
+                                "email": "employee@posthog.com",
+                                "first_name": "Real",
+                                "last_name": "Person",
+                            },
+                            "team_id": self.team.id,
+                            "post_to_slack": True,
+                        }
+                    ]
+                }
+            },
+        )
+        assert survey.actions.count() == 0  # the stale blob is the only source of the actions
+
+        value = SurveyAPISerializer(survey).data["conditions"]["actions"]["values"][0]
+        assert set(value.keys()) <= {"id", "name", "steps"}, value
+        assert "created_by" not in value
+        assert "team_id" not in value
+        assert "post_to_slack" not in value
+        assert value["name"] == "person subscribed"
+
     def test_can_set_associated_actions(self):
         user_subscribed_action = Action.objects.create(
             team=self.team,
@@ -4678,6 +4735,44 @@ class TestSurveyWithActions(APIBaseTest):
         survey = Survey.objects.get(id=response_data["id"])
         assert survey is not None
         assert len(survey.actions.all()) == 0
+
+
+class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
+    def test_public_action_serializer_strips_non_public_fields_from_stale_blob(self) -> None:
+        # /decide PII leak guard (no DB): when the actions M2M is empty and
+        # get_survey_conditions_with_actions falls back to a stale conditions blob, it must project
+        # each value down to the caller serializer's own fields, so nothing extra (created_by,
+        # team_id, ...) reaches the public payload.
+        from products.surveys.backend.api.survey import SurveyAPIActionSerializer, get_survey_conditions_with_actions
+
+        class _EmptyActions:
+            def all(self) -> list:
+                return []
+
+        class _StubSurvey:
+            def __init__(self) -> None:
+                self.actions = _EmptyActions()
+                self.conditions = {
+                    "actions": {
+                        "values": [
+                            {
+                                "id": 1,
+                                "name": "person subscribed",
+                                "steps": [{"event": "$pageview"}],
+                                "created_by": {"id": 1, "email": "employee@posthog.com", "first_name": "Real"},
+                                "team_id": 5,
+                                "post_to_slack": True,
+                            }
+                        ]
+                    }
+                }
+
+        conditions = get_survey_conditions_with_actions(_StubSurvey(), SurveyAPIActionSerializer)  # type: ignore[arg-type]
+        assert conditions is not None
+        value = conditions["actions"]["values"][0]
+        assert set(value.keys()) <= {"id", "name", "steps"}, value
+        assert "created_by" not in value
+        assert value["name"] == "person subscribed"
 
 
 @freeze_time("2024-12-12 00:00:00")
@@ -6471,6 +6566,8 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         results = activity["results"]
         for item in results:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.assertEqual(results, expected)
 
     @freeze_time("2024-05-01 12:00:00")

@@ -25,10 +25,8 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     DataWarehouseSyncInterval,
     ExternalDataSchemaStatus,
@@ -56,8 +54,6 @@ import {
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
-
-const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -118,7 +114,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         deleteTable,
         loadJobs,
     } = useActions(sourceSettingsLogic)
-    const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
@@ -295,30 +290,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     showMetrics={showMetrics}
                 />
             )}
-            {source?.source_type &&
-                REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
-                featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
-                    <div className="flex justify-end">
-                        <LemonButton
-                            type="primary"
-                            className="mt-2"
-                            tooltip="This source is feeding data into our Revenue analytics product - currently in alpha."
-                            onClick={() => {
-                                addProductIntentForCrossSell({
-                                    from: ProductKey.DATA_WAREHOUSE,
-                                    to: ProductKey.REVENUE_ANALYTICS,
-                                    intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
-                                })
-                                router.actions.push(urls.revenueAnalytics())
-                            }}
-                        >
-                            See data in Revenue analytics
-                            <LemonTag className="ml-2" type="danger" size="small">
-                                ALPHA
-                            </LemonTag>
-                        </LemonButton>
-                    </div>
-                )}
         </>
     )
 }
@@ -617,6 +588,7 @@ function ManagedSchemaTable({
                                     type="secondary"
                                     size="xsmall"
                                     to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id, 'configuration')}
+                                    disabledReason={editDisabledReason}
                                 >
                                     Configure
                                 </LemonButton>
@@ -644,8 +616,16 @@ function SchemaBulkActions({
     schemas: readonly ExternalDataSourceSchema[]
     clearSelection: () => void
 }): JSX.Element {
-    const { bulkEnable, bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } =
-        useActions(sourceSettingsLogic)
+    const {
+        bulkEnable,
+        bulkDisable,
+        bulkSetFrequency,
+        bulkSyncNow,
+        bulkResync,
+        bulkDeleteData,
+        pausePolling,
+        resumePolling,
+    } = useActions(sourceSettingsLogic)
     const { bulkEnableLoading } = useValues(sourceSettingsLogic)
 
     // Wrap every action so the selection clears once it's been kicked off.
@@ -657,10 +637,7 @@ function SchemaBulkActions({
     const selected = [...schemas]
     const count = selected.length
 
-    // Only offer frequencies every selected schema supports. Non-CDC schemas floor at 5min, so a
-    // mixed selection falls back to the non-CDC set (which CDC also supports).
-    const allCdc = selected.length > 0 && selected.every((schema) => schema.sync_type === 'cdc')
-    const frequencyOptions = allowedSyncFrequencies(allCdc ? 'cdc' : 'incremental')
+    const frequencyOptions = allowedSyncFrequencies()
 
     const onEnable = (): void => {
         const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
@@ -726,6 +703,11 @@ function SchemaBulkActions({
             </LemonButton>
             <More
                 size="small"
+                // Pause the 5s source refresh while the menu is open — a poll re-renders the table
+                // and dismisses the menu out from under the user.
+                dropdown={{
+                    onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                }}
                 overlay={
                     <>
                         <LemonButton
@@ -792,11 +774,18 @@ function SchemaRowMore({
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
+    const { pausePolling, resumePolling } = useActions(sourceSettingsLogic)
+
     return (
         <SourceEditorAction source={source}>
             {({ disabledReason }) => (
                 <More
                     disabledReason={disabledReason}
+                    // Pause the 5s source refresh while the menu is open — a poll re-renders the
+                    // table and dismisses the menu out from under the user.
+                    dropdown={{
+                        onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                    }}
                     overlay={
                         <>
                             <Tooltip

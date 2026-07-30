@@ -18,18 +18,21 @@ from products.tasks.backend.constants import (
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
+    vm_sandbox_default_custom_image,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
+    VmSandboxDecision,
+    _is_agent_otel_telemetry_enabled,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_continue_as_new_enabled,
-    _is_modal_vm_sandbox_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
+    _resolve_modal_vm_sandbox,
     get_task_processing_context,
 )
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
@@ -37,7 +40,66 @@ from products.tasks.backend.temporal.process_task.utils import get_actor_distinc
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
 
 
+@pytest.mark.parametrize(
+    "state,expected",
+    [
+        ({}, False),
+        ({"resume_from_run_id": "previous-run"}, False),
+        ({"handoff_resumed": True}, False),
+        ({"snapshot_external_id": "snapshot-id"}, False),
+        (
+            {
+                "resume_from_run_id": "previous-run",
+                "snapshot_external_id": "snapshot-id",
+            },
+            True,
+        ),
+        (
+            {
+                "handoff_resumed": True,
+                "snapshot_external_id": "snapshot-id",
+            },
+            True,
+        ),
+    ],
+)
+def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, str | bool], expected: bool):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=None,
+        repository=None,
+        distinct_id="distinct-id",
+        state=state,
+    )
+
+    assert context.is_snapshot_resume is expected
+
+
 @pytest.mark.requires_secrets
+class TestIsAgentOtelTelemetryEnabled:
+    @pytest.mark.parametrize(
+        "debug,state,expected",
+        [
+            # DEBUG must win over the stamp: local dev always stamps False (SDK disabled),
+            # and the SANDBOX_AGENT_OTEL_* settings are the local opt-in.
+            (True, {"agent_otel_telemetry_enabled": False}, True),
+            (True, {}, True),
+            (False, {"agent_otel_telemetry_enabled": True}, True),
+            (False, {"agent_otel_telemetry_enabled": False}, False),
+        ],
+    )
+    def test_debug_wins_then_stamp(self, debug, state, expected):
+        with override_settings(DEBUG=debug):
+            assert (
+                _is_agent_otel_telemetry_enabled(distinct_id="d", organization_id="o", run_id="r", state=state)
+                is expected
+            )
+
+
 class TestGetTaskProcessingContextActivity:
     def _create_task_with_repo(self, team, user, github_integration, repo_config):
         return Task.objects.create(
@@ -338,6 +400,41 @@ class TestGetTaskProcessingContextActivity:
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
         sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
         assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
+
+    @pytest.mark.django_db(transaction=True)
+    def test_pi_runtime_enables_event_ingest_without_bypassing_persistent_upload_rollout(
+        self, activity_environment, test_task
+    ):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_event_ingest_enabled is True
+        assert result.agent_proxy_keep_stream_open is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_pi_runtime_respects_persistent_event_streaming_kill_switches(self, activity_environment, test_task):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
+        task_run = test_task.create_run(
+            extra_state={
+                "sandbox_event_ingest_enabled": False,
+                "agent_proxy_keep_stream_open": False,
+            }
+        )
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_event_ingest_enabled is False
+        assert result.agent_proxy_keep_stream_open is False
 
     @pytest.mark.django_db(transaction=True)
     def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
@@ -667,14 +764,14 @@ class TestGetTaskProcessingContextActivity:
             return_value=payload,
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=None,
                     custom_image_available=True,
-                )
+                ).use_vm_sandbox
                 is expected
             )
 
@@ -693,13 +790,13 @@ class TestGetTaskProcessingContextActivity:
             side_effect=RuntimeError("flag service failed"),
         ):
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=None,
-                )
+                ).use_vm_sandbox
                 is False
             )
 
@@ -717,7 +814,7 @@ class TestGetTaskProcessingContextActivity:
             return_value=None,
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
@@ -725,7 +822,7 @@ class TestGetTaskProcessingContextActivity:
                     allowed_domains=None,
                     custom_image_available=custom_image_available,
                     state={"use_modal_vm_sandbox": True},
-                )
+                ).use_vm_sandbox
                 is expected
             )
 
@@ -737,13 +834,13 @@ class TestGetTaskProcessingContextActivity:
             return_value='{"origin_products": ["user_created"]}',
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=["github.com"],
-                )
+                ).use_vm_sandbox
                 is False
             )
 
@@ -755,14 +852,14 @@ class TestGetTaskProcessingContextActivity:
             return_value='{"origin_products": ["user_created"]}',
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=["github.com"],
                     state={"use_modal_vm_sandbox": True},
-                )
+                ).use_vm_sandbox
                 is False
             )
 
@@ -777,13 +874,13 @@ class TestGetTaskProcessingContextActivity:
             return_value='{"default_base_origin_products": ["user_created"]}',
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product="user_created",
                     allowed_domains=["github.com"],
-                )
+                ).use_vm_sandbox
                 is False
             )
 
@@ -797,7 +894,7 @@ class TestGetTaskProcessingContextActivity:
             return_value='{"default_base_origin_products": ["user_created"]}',
         ) as payload_mock:
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
@@ -805,7 +902,7 @@ class TestGetTaskProcessingContextActivity:
                     allowed_domains=None,
                     custom_image_available=True,
                     state={"use_modal_vm_sandbox": False},
-                )
+                ).use_vm_sandbox
                 is False
             )
 
@@ -850,14 +947,14 @@ class TestGetTaskProcessingContextActivity:
             return_value=payload,
         ):
             assert (
-                _is_modal_vm_sandbox_enabled(
+                _resolve_modal_vm_sandbox(
                     distinct_id="distinct-id",
                     organization_id="organization-id",
                     run_id="run-id",
                     origin_product=origin_product,
                     allowed_domains=None,
                     custom_image_available=custom_image_available,
-                )
+                ).use_vm_sandbox
                 is expected
             )
 
@@ -892,6 +989,73 @@ class TestGetTaskProcessingContextActivity:
     )
     def test_vm_sandbox_default_base_origin_products_parsing(self, payload, expected):
         assert vm_sandbox_default_base_origin_products(payload) == expected
+
+    @pytest.mark.parametrize(
+        "payload, expected",
+        [
+            (None, None),
+            ({"default_custom_image": "posthog-dev-stack"}, "posthog-dev-stack"),
+            ('{"default_custom_image": "posthog-dev-stack"}', "posthog-dev-stack"),
+            ({"default_custom_image": "  padded  "}, "padded"),
+            # Empty/whitespace/non-string values and payloads without the key must resolve
+            # to "no default", never crash routing — the payload is human-edited flag JSON.
+            ({"default_custom_image": ""}, None),
+            ({"default_custom_image": "   "}, None),
+            ({"default_custom_image": 3}, None),
+            ({"origin_products": ["user_created"]}, None),
+            (["posthog-dev-stack"], None),
+            ("not-json", None),
+        ],
+    )
+    def test_vm_sandbox_default_custom_image_parsing(self, payload, expected):
+        assert vm_sandbox_default_custom_image(payload) == expected
+
+    @pytest.mark.parametrize(
+        "origin_product, expected",
+        [
+            # Default-base origin resolves to VM and picks up the org's default image.
+            (
+                "user_created",
+                VmSandboxDecision(use_vm_sandbox=True, default_custom_image="posthog-dev-stack"),
+            ),
+            # An origin that stays on gVisor must not leak the (VM-only) default image out.
+            ("signals_scout", VmSandboxDecision(use_vm_sandbox=False)),
+        ],
+    )
+    def test_modal_vm_sandbox_default_custom_image_resolution(self, origin_product, expected):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"], "default_custom_image": "posthog-dev-stack"}',
+        ):
+            assert (
+                _resolve_modal_vm_sandbox(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    origin_product=origin_product,
+                    allowed_domains=None,
+                )
+                == expected
+            )
+
+    def test_modal_vm_sandbox_state_override_never_gets_default_custom_image(self):
+        # Image-builder runs (trusted state override) must keep layering on the plain VM
+        # base: the flag is never consulted, so the org default image cannot apply.
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["image_builder"], "default_custom_image": "posthog-dev-stack"}',
+        ) as payload_mock:
+            decision = _resolve_modal_vm_sandbox(
+                distinct_id="distinct-id",
+                organization_id="organization-id",
+                run_id="run-id",
+                origin_product="image_builder",
+                allowed_domains=None,
+                state={"use_modal_vm_sandbox": True},
+            )
+
+        assert decision == VmSandboxDecision(use_vm_sandbox=True, default_custom_image=None)
+        payload_mock.assert_not_called()
 
     @pytest.mark.parametrize(
         "state,expected",
@@ -961,6 +1125,22 @@ class TestGetTaskProcessingContextActivity:
         assert result.use_modal_directory_resume_snapshots is directory_resume_snapshots
 
     @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_applies_org_default_custom_image(self, activity_environment, test_task):
+        # Wiring guard for the elif chain in the activity body: a VM run with no
+        # user/environment image must land the payload's default in custom_image_name.
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"default_base_origin_products": ["user_created"], "default_custom_image": "posthog-dev-stack"}',
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.use_modal_vm_sandbox is True
+        assert result.custom_image_name == "posthog-dev-stack"
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):
         custom_prompt = "Re-run the failed mypy checks and push a fix."
         test_task.ci_prompt = custom_prompt
@@ -973,22 +1153,21 @@ class TestGetTaskProcessingContextActivity:
         assert result.ci_prompt == custom_prompt
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_exposes_runtime_metadata(self, activity_environment, test_task):
-        task_run = test_task.create_run(
-            extra_state={
-                "runtime_adapter": "codex",
-                "provider": "openai",
-                "model": "gpt-5.3-codex",
-                "reasoning_effort": "high",
-                "initial_permission_mode": "plan",
-            }
-        )
+    def test_get_task_processing_context_creates_native_pi_session(self, activity_environment, test_task):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
+        task_run = test_task.create_run()
 
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
         result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-        assert result.runtime_adapter == "codex"
-        assert result.provider == "openai"
-        assert result.model == "gpt-5.3-codex"
-        assert result.reasoning_effort == "high"
-        assert result.initial_permission_mode == "plan"
+        task_run.refresh_from_db()
+        assert task_run.active_task_session is not None
+        assert task_run.active_task_session.object_storage_key is None
+        assert task_run.active_task_session.team_id == test_task.team_id
+        assert result.task_runtime == "pi"
+        assert result.runtime_adapter is None
+        assert result.provider is None
+        assert result.model is None
+        assert result.reasoning_effort is None
+        assert result.initial_permission_mode is None

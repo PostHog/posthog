@@ -1,14 +1,27 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { TeamType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, TeamType } from '~/types'
 
 import { conversationsViewsRetrieve } from '../../generated/api'
 import { normalizeAssigneeFilter } from '../../types'
@@ -74,7 +87,8 @@ function orderByToSorting(orderBy: string): Sorting {
 }
 
 function encodeAssigneeEntry(entry: AssigneeFilterEntry): string {
-    return entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`
+    // 'unassigned' and 'me' are string tokens; concrete entries encode as type:id.
+    return typeof entry === 'string' ? entry : `${entry.type}:${entry.id}`
 }
 
 // kea-router hands back arrays for multi-value params, but a hand-typed single
@@ -91,8 +105,8 @@ function toStringArray(value: unknown): string[] {
 
 function decodeAssignee(value: unknown): AssigneeFilterEntry[] {
     const entries = toStringArray(value).map((token): AssigneeFilterEntry | null => {
-        if (token === 'unassigned') {
-            return 'unassigned'
+        if (token === 'unassigned' || token === 'me') {
+            return token
         }
         const separator = token.indexOf(':')
         const type = token.slice(0, separator)
@@ -196,6 +210,7 @@ export interface supportTicketsSceneLogicValues {
         dateTo: string | null
     } | null
     dateTo: string | null
+    editableSelectedTicketIds: string[]
     hasActiveFilters: boolean
     orderBy: string
     priorityFilter: TicketPriority[]
@@ -326,6 +341,7 @@ export interface supportTicketsSceneLogicMeta {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
+        editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -584,6 +600,21 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 return tickets.filter((t) => idSet.has(t.id))
             },
         ],
+        editableSelectedTicketIds: [
+            (s) => [s.selectedTickets],
+            (selectedTickets: Ticket[]): string[] =>
+                selectedTickets
+                    .filter(
+                        (ticket) =>
+                            !ticket.user_access_level ||
+                            accessLevelSatisfied(
+                                AccessControlResourceType.Ticket,
+                                ticket.user_access_level,
+                                AccessControlLevel.Editor
+                            )
+                    )
+                    .map((ticket) => ticket.id),
+        ],
         assigneeFilterEntries: [
             (s) => [s.assigneeFilter],
             (assigneeFilter: AssigneeFilterEntry[]): AssigneeFilterEntry[] => normalizeAssigneeFilter(assigneeFilter),
@@ -696,9 +727,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 params.sla = values.slaFilter
             }
             if (values.assigneeFilterEntries.length > 0) {
-                params.assignee = values.assigneeFilterEntries
-                    .map((entry) => (entry === 'unassigned' ? 'unassigned' : `${entry.type}:${entry.id}`))
-                    .join(',')
+                params.assignee = values.assigneeFilterEntries.map(encodeAssigneeEntry).join(',')
             }
             if (values.tagsFilter.length > 0) {
                 params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
@@ -721,9 +750,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
 
             try {
                 const response = await api.conversationsTickets.list(params)
+                // Drop responses that were superseded while in flight, so a slow reply
+                // to an older query can't overwrite newer results.
+                breakpoint()
                 actions.setTickets(response.results || [])
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
-            } catch {
+            } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
                 lemonToast.error('Failed to load tickets')
                 actions.setTicketsLoading(false)
             }

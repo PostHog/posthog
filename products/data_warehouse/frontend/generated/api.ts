@@ -58,6 +58,7 @@ import type {
     QueryTabStateListParams,
     ResetPasswordResponseApi,
     SavedQueryColumnAnnotationsListParams,
+    SavedQueryResumeApi,
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -410,8 +411,8 @@ export const getDataWarehouseOnboardTeamCreateUrl = (projectId: string) => {
 /**
  * Onboard this project onto the organization's existing managed warehouse.
  *
- * Requires a schema name; records the project's membership both in duckgres and in the
- * Django backfill state. Restricted to organization admins.
+ * Requires a schema name and records the project's membership in the Duckgres control plane.
+ * Restricted to organization admins.
  */
 export const dataWarehouseOnboardTeamCreate = async (
     projectId: string,
@@ -1593,6 +1594,27 @@ export const warehouseSavedQueriesMaterializeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataWarehouseSavedQueryApi),
+    })
+}
+
+export const getWarehouseSavedQueriesResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_queries/${id}/resume/`
+}
+
+/**
+ * Resume materialization suspended after repeated failures.
+ *
+ * Scheduled runs skip a suspended model and everything downstream of it, so it cannot succeed
+ * its way back on its own.
+ */
+export const warehouseSavedQueriesResumeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SavedQueryResumeApi> => {
+    return apiMutator<SavedQueryResumeApi>(getWarehouseSavedQueriesResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
