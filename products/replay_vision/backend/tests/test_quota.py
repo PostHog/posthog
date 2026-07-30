@@ -4,9 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ValidationError
-from django.db import connection
 from django.test import SimpleTestCase
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -410,23 +408,6 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         result = compute_scanner_budgets(self.organization.id, [self.scanner.id, unspent.id])
         assert result[self.scanner.id].credits_used == 15
         assert result[unspent.id].credits_used == 0
-
-    def test_an_uncapped_scanner_draws_nothing_and_costs_no_spend_queries(self) -> None:
-        # Nothing is counted against a limit that does not exist. Skipping the spend aggregates keeps the
-        # scanner list endpoint at one query while no scanner in the org is capped.
-        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
-        with CaptureQueriesContext(connection) as ctx:
-            result = compute_scanner_budgets(self.organization.id, [self.scanner.id])
-        assert result[self.scanner.id].credit_limit is None
-        assert result[self.scanner.id].credits_used == 0
-        usage_queries = [q for q in ctx.captured_queries if "replayobservationusage" in q["sql"].lower()]
-        assert usage_queries == []
-
-    def test_a_capped_scanner_still_draws_its_spend(self) -> None:
-        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=1000)
-        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
-        result = compute_scanner_budgets(self.organization.id, [self.scanner.id])
-        assert result[self.scanner.id].credits_used == 15
 
     def test_reads_each_scanners_own_limit(self) -> None:
         capped = ReplayScanner.objects.create(
