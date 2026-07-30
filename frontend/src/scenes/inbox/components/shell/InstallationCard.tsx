@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
-import { currentTaskLabel, pipClass, syncHeadline, toneTextClass } from 'scenes/onboarding/shared/wizard-sync/helpers'
+import { currentTaskLabel, syncHeadline, toneTextClass } from 'scenes/onboarding/shared/wizard-sync/helpers'
 import { useRunElapsedSeconds } from 'scenes/onboarding/shared/wizard-sync/hooks'
 import { installationProgressLogic } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
+import { PipStrip } from 'scenes/onboarding/shared/wizard-sync/PipStrip'
 import { StatusGlyph } from 'scenes/onboarding/shared/wizard-sync/StatusGlyph'
 import { WizardSyncDialog } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDialog'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
@@ -54,13 +55,7 @@ export function InstallationCard({ workflowId }: { workflowId: string }): JSX.El
                     </span>
                 </div>
                 {detail && <p className="m-0 text-xs text-secondary truncate w-full">{detail}</p>}
-                {installationProgress.steps.length > 0 && (
-                    <div className="flex items-center gap-1 w-full">
-                        {installationProgress.steps.map((s) => (
-                            <span key={s.id} className={cn('h-1 flex-1 rounded-full', pipClass(s.status))} />
-                        ))}
-                    </div>
-                )}
+                <PipStrip steps={installationProgress.steps} />
             </button>
             <WizardSyncDialog
                 progress={installationProgress}

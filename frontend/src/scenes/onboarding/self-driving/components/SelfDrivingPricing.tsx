@@ -1,5 +1,6 @@
 import { pluralize } from 'lib/utils/strings'
 import { freePrs, pricePerPrUsd } from 'scenes/billing/inboxPricing'
+import { StatFigure } from 'scenes/onboarding/self-driving/components/StatFigure'
 import { formatUsd } from 'scenes/onboarding/self-driving/utils'
 
 import { type BillingProductV2Type } from '~/types'
@@ -22,19 +23,12 @@ export function SelfDrivingPricing({ product }: { product: BillingProductV2Type 
             {(included > 0 || perPr !== null) && (
                 <div className="flex flex-wrap items-start gap-x-10 gap-y-3">
                     {included > 0 && (
-                        <div>
-                            <p className="m-0 text-2xl font-bold leading-tight">{included}</p>
-                            <p className="m-0 text-xs text-muted">
-                                {pluralize(included, 'pull request', undefined, false)} a month, free
-                            </p>
-                        </div>
+                        <StatFigure
+                            value={included}
+                            label={`${pluralize(included, 'pull request', undefined, false)} a month, free`}
+                        />
                     )}
-                    {perPr !== null && (
-                        <div>
-                            <p className="m-0 text-2xl font-bold leading-tight">{formatUsd(perPr)}</p>
-                            <p className="m-0 text-xs text-muted">per pull request after that</p>
-                        </div>
-                    )}
+                    {perPr !== null && <StatFigure value={formatUsd(perPr)} label="per pull request after that" />}
                 </div>
             )}
             <p className="m-0 text-xs text-muted">

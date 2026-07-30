@@ -4,6 +4,7 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
+import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-sync/WizardCommandBlock'
 import { WizardInstallOptions } from 'scenes/onboarding/shared/wizard-sync/WizardInstallOptions'
@@ -57,14 +58,13 @@ export function SelfDrivingInstallOptions({ onContinue }: { onContinue: () => vo
                     />
                 }
             />
-            <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                {WIZARD_SETS_UP.map((line) => (
-                    <li key={line} className="flex items-start gap-2">
-                        <IconCheckCircle className="size-4 text-success shrink-0 mt-0.5" />
-                        <span className="text-xs text-muted">{line}</span>
-                    </li>
-                ))}
-            </ul>
+            <CheckList
+                size="xs"
+                items={WIZARD_SETS_UP.map((line) => ({
+                    icon: <IconCheckCircle />,
+                    content: <span className="text-muted">{line}</span>,
+                }))}
+            />
         </div>
     )
 }

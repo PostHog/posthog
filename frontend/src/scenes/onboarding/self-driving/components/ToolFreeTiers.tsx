@@ -1,7 +1,6 @@
-import { IconCheck } from '@posthog/icons'
-
 import { pluralize } from 'lib/utils/strings'
 import { compact } from 'scenes/onboarding/self-driving/utils'
+import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 
 import { type BillingProductV2Type } from '~/types'
@@ -27,17 +26,18 @@ export function ToolFreeTiers({ products }: { products: BillingProductV2Type[] |
     return (
         <div className="w-full flex flex-col gap-2">
             <p className="m-0 text-xs text-muted">Every other tool keeps its free tier on both plans:</p>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 m-0 p-0 list-none">
-                {allowances.map(({ name, unit, value }) => (
-                    <li key={name} className="flex items-center gap-2">
-                        <IconCheck className="size-3.5 text-success shrink-0" />
-                        <span className="text-xs text-muted">
+            <CheckList
+                size="xs"
+                className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1"
+                items={allowances.map(({ name, unit, value }) => ({
+                    content: (
+                        <span className="text-muted">
                             <strong className="font-semibold text-default">{name}</strong>: {compact(value)}{' '}
                             {pluralize(value, unit, undefined, false)} a month
                         </span>
-                    </li>
-                ))}
-            </ul>
+                    ),
+                }))}
+            />
         </div>
     )
 }

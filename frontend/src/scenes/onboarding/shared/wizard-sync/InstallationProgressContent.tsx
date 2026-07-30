@@ -2,17 +2,19 @@ import { type ReactNode } from 'react'
 
 import * as wizardPng from '@posthog/brand/hoggies/png/wizard-1'
 import { IconDashboard, IconPullRequest, IconRocket, IconSearch, IconTerminal, IconX } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { CheckList } from '../components/CheckList'
 import { prNameLabel } from './helpers'
 import { useMergeCelebration } from './hooks'
 import { SELF_DRIVING_UPCOMING_STEPS, syncCopy, UPCOMING_STEPS } from './installationProgressCopy'
 import { InstallationMode, InstallationProgress } from './installationProgressLogic'
 import { StepIcon } from './StepIcon'
+import { Timeline } from './Timeline'
 import { DetectedDashboard } from './wizardDashboardLogic'
 import { resolveWorkflowId, SELF_DRIVING_WORKFLOW_ID } from './workflows'
 
@@ -104,56 +106,45 @@ export function InstallationProgressContent({
             </div>
 
             {steps.length > 0 ? (
-                <ol className="flex flex-col m-0 p-0 list-none">
-                    {steps.map((step, i) => (
-                        // One flat rail for pipeline and wizard-reported steps alike.
-                        <li key={step.id} className="flex gap-3">
-                            <div className="flex flex-col items-center pt-0.5">
-                                <StepIcon
-                                    status={step.status}
-                                    prState={
-                                        step.id.endsWith(':pr') && prUrl ? (prMerged ? 'merged' : 'open') : undefined
-                                    }
-                                />
-                                {i < steps.length - 1 && <div className="w-px flex-1 bg-border my-1 min-h-[0.75rem]" />}
-                            </div>
-                            <div className="flex-1 min-w-0 pb-3">
-                                <div
-                                    className={cn(
-                                        'text-sm truncate flex items-center gap-1.5',
-                                        step.status === 'pending' && 'text-muted',
-                                        step.status === 'failed' && 'text-danger font-medium',
-                                        step.status === 'in_progress' && 'font-medium'
-                                    )}
-                                >
-                                    <span className="truncate">
-                                        {step.id.endsWith(':pr') && prMerged
-                                            ? 'PR merged, congratulations!'
-                                            : step.label}
-                                    </span>
-                                </div>
-                                {step.detail && (
-                                    <div className="text-xs text-muted truncate ph-no-capture">{step.detail}</div>
+                // One flat rail for pipeline and wizard-reported steps alike.
+                <Timeline
+                    items={steps.map((step) => ({
+                        key: step.id,
+                        icon: (
+                            <StepIcon
+                                status={step.status}
+                                prState={step.id.endsWith(':pr') && prUrl ? (prMerged ? 'merged' : 'open') : undefined}
+                            />
+                        ),
+                        content: (
+                            <div
+                                className={cn(
+                                    'text-sm truncate flex items-center gap-1.5',
+                                    step.status === 'pending' && 'text-muted',
+                                    step.status === 'failed' && 'text-danger font-medium',
+                                    step.status === 'in_progress' && 'font-medium'
                                 )}
+                            >
+                                <span className="truncate">
+                                    {step.id.endsWith(':pr') && prMerged ? 'PR merged, congratulations!' : step.label}
+                                </span>
                             </div>
-                        </li>
-                    ))}
-                </ol>
+                        ),
+                        detail: step.detail && (
+                            <div className="text-xs text-muted truncate ph-no-capture">{step.detail}</div>
+                        ),
+                    }))}
+                />
             ) : (
                 upcomingSteps && (
-                    <ol className="flex flex-col m-0 p-0 list-none" aria-label="Upcoming setup steps">
-                        {upcomingSteps.map((label, i) => (
-                            <li key={label} className="flex gap-3">
-                                <div className="flex flex-col items-center pt-0.5">
-                                    <StepIcon status="pending" />
-                                    {i < upcomingSteps.length - 1 && (
-                                        <div className="w-px flex-1 bg-border my-1 min-h-[0.75rem]" />
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0 pb-3 text-sm text-muted">{label}</div>
-                            </li>
-                        ))}
-                    </ol>
+                    <Timeline
+                        ariaLabel="Upcoming setup steps"
+                        items={upcomingSteps.map((label) => ({
+                            key: label,
+                            icon: <StepIcon status="pending" />,
+                            content: <div className="text-sm text-muted">{label}</div>,
+                        }))}
+                    />
                 )
             )}
 
@@ -167,31 +158,41 @@ export function InstallationProgressContent({
                     // finish the last mile (review, deploy), so no button can carry this step.
                     <div className="flex flex-col gap-1.5">
                         <span className="text-xs font-semibold uppercase tracking-wide text-muted">Over to you</span>
-                        <ul className="flex flex-col gap-1.5 m-0 p-0 list-none text-sm">
-                            <li className="flex items-start gap-2">
-                                <IconSearch className="text-muted text-base mt-0.5 shrink-0" />
-                                <span>
-                                    <strong>Review the changes</strong> in your editor before you commit.
-                                </span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                                <IconTerminal className="text-muted text-base mt-0.5 shrink-0" />
-                                <span>
-                                    <strong>Try it locally</strong> and your events show up here right away.
-                                </span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                                <IconRocket className="text-muted text-base mt-0.5 shrink-0" />
-                                <span>
-                                    <strong>Commit and deploy</strong> to get data from real users.
-                                </span>
-                            </li>
-                        </ul>
+                        <CheckList
+                            items={[
+                                {
+                                    icon: <IconSearch className="text-muted" />,
+                                    content: (
+                                        <span>
+                                            <strong>Review the changes</strong> in your editor before you commit.
+                                        </span>
+                                    ),
+                                },
+                                {
+                                    icon: <IconTerminal className="text-muted" />,
+                                    content: (
+                                        <span>
+                                            <strong>Try it locally</strong> and your events show up here right away.
+                                        </span>
+                                    ),
+                                },
+                                {
+                                    icon: <IconRocket className="text-muted" />,
+                                    content: (
+                                        <span>
+                                            <strong>Commit and deploy</strong> to get data from real users.
+                                        </span>
+                                    ),
+                                },
+                            ]}
+                        />
                     </div>
                 )}
 
             {phase === 'error' && error?.detail && (
-                <div className="text-sm text-danger bg-danger-highlight rounded p-2">{error.detail}</div>
+                <LemonBanner type="error" hideIcon>
+                    {error.detail}
+                </LemonBanner>
             )}
 
             {phase === 'error' && (
@@ -231,27 +232,20 @@ export function InstallationProgressContent({
                 )}
 
             {prUrl && prMerged && phase !== 'error' && (
-                <div className="flex items-center gap-3 rounded-lg border border-[var(--color-purple-500)] p-3">
-                    <span className="flex items-center justify-center rounded w-8 h-8 shrink-0 bg-[var(--color-purple-500)] text-white">
-                        <IconPullRequest className="text-lg" />
-                    </span>
-                    <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold">Pull request successfully merged</div>
-                        <div className="text-xs text-muted">
-                            You're all set. Deploy the changes and your events start flowing.
+                <LemonBanner type="success" icon={<IconPullRequest />} className="ph-no-capture">
+                    {/* ph-no-capture: the action href is the customer's PR url. */}
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                            <div className="text-sm font-semibold">Pull request successfully merged</div>
+                            <div className="text-xs font-normal">
+                                You're all set. Deploy the changes and your events start flowing.
+                            </div>
                         </div>
+                        <LemonButton type="secondary" size="small" to={prUrl} targetBlank className="shrink-0">
+                            View PR
+                        </LemonButton>
                     </div>
-                    {/* ph-no-capture: the href is the customer's PR url. */}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        to={prUrl}
-                        targetBlank
-                        className="ph-no-capture shrink-0"
-                    >
-                        View PR
-                    </LemonButton>
-                </div>
+                </LemonBanner>
             )}
 
             {phase === 'completed' && dashboard && (

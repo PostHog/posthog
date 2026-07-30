@@ -9,7 +9,6 @@ import {
     elapsedLabel,
     formatElapsed,
     pendingQuestionLabel,
-    pipClass,
     prNameLabel,
     stepCounts,
     syncHeadline,
@@ -17,6 +16,7 @@ import {
     localModeLabel,
 } from './helpers'
 import { InstallationProgress } from './installationProgressLogic'
+import { PipStrip } from './PipStrip'
 import { StatusGlyph } from './StatusGlyph'
 import { DetectedDashboard } from './wizardDashboardLogic'
 
@@ -109,11 +109,7 @@ export function WizardSyncCard({
 
                 {total > 0 ? (
                     <div className="flex items-center gap-2">
-                        <div className="flex flex-1 items-center gap-1">
-                            {progress.steps.map((step) => (
-                                <span key={step.id} className={cn('h-1 flex-1 rounded-full', pipClass(step.status))} />
-                            ))}
-                        </div>
+                        <PipStrip steps={progress.steps} className="flex-1" />
                         <span className="text-xs text-muted tabular-nums shrink-0">
                             {completed}/{total}
                         </span>

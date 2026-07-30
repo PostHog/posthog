@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
@@ -8,9 +7,11 @@ import { pluralize } from 'lib/utils/strings'
 import { freePrs, pricePerPrUsd } from 'scenes/billing/inboxPricing'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { onboardingEventUsageLogic } from 'scenes/onboarding/onboardingEventUsageLogic'
+import { PlanCard } from 'scenes/onboarding/self-driving/components/PlanCard'
 import { SelfDrivingPricing } from 'scenes/onboarding/self-driving/components/SelfDrivingPricing'
 import { ToolFreeTiers } from 'scenes/onboarding/self-driving/components/ToolFreeTiers'
 import { formatUsd } from 'scenes/onboarding/self-driving/utils'
+import { CheckList } from 'scenes/onboarding/shared/components/CheckList'
 
 import { type BillingProductV2Type } from '~/types'
 
@@ -52,80 +53,68 @@ export function PlanChoice({
         <div className="flex flex-wrap gap-3">
             <SelfDrivingPricing product={inboxProduct} />
 
-            <div className="flex flex-1 basis-72 flex-col gap-3 p-4 border border-primary rounded-lg">
-                <div className="flex items-baseline justify-between gap-2">
-                    <p className="m-0 text-base font-semibold">Free</p>
-                    <p className="m-0 text-sm text-muted">$0 / month</p>
-                </div>
-                <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                    <li className="flex items-center gap-2">
-                        <IconCheck className="size-4 text-success shrink-0" />
-                        <span className="text-sm">
-                            {included > 0 ? (
-                                <>
-                                    <strong>{pluralize(included, 'pull request', undefined)}</strong> a month, shipped
-                                    and reviewed
-                                </>
-                            ) : (
-                                'A monthly allowance of shipped pull requests'
-                            )}
-                        </span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                        <IconCheck className="size-4 text-success shrink-0" />
-                        <span className="text-sm">No payment method needed</span>
-                    </li>
-                </ul>
-                <p className="m-0 text-xs text-muted">
-                    Agents pause shipping once the free pull requests are used up, instead of charging you.
-                </p>
-                <LemonButton
-                    type="secondary"
-                    fullWidth
-                    center
-                    onClick={continueFree}
-                    className="mt-auto"
-                    data-attr="self-driving-onboarding-free"
-                >
-                    Start free
-                </LemonButton>
-            </div>
+            <PlanCard
+                title="Free"
+                priceLabel="$0 / month"
+                footnote="Agents pause shipping once the free pull requests are used up, instead of charging you."
+                cta={
+                    <LemonButton
+                        type="secondary"
+                        fullWidth
+                        center
+                        onClick={continueFree}
+                        data-attr="self-driving-onboarding-free"
+                    >
+                        Start free
+                    </LemonButton>
+                }
+            >
+                <CheckList
+                    items={[
+                        {
+                            content:
+                                included > 0 ? (
+                                    <>
+                                        <strong>{pluralize(included, 'pull request', undefined)}</strong> a month,
+                                        shipped and reviewed
+                                    </>
+                                ) : (
+                                    'A monthly allowance of shipped pull requests'
+                                ),
+                        },
+                        { content: 'No payment method needed' },
+                    ]}
+                />
+            </PlanCard>
 
-            <div className="flex flex-1 basis-72 flex-col gap-3 p-4 border-2 border-accent rounded-lg">
-                <div className="flex items-baseline justify-between gap-2">
-                    <div>
-                        <p className="m-0 text-base font-semibold">Pay-as-you-go</p>
-                        <p className="m-0 text-xs text-muted">Free allowance included</p>
-                    </div>
-                    {perPrUsd !== null && (
-                        <p className="m-0 text-sm text-muted">{formatUsd(perPrUsd)} per shipped PR</p>
-                    )}
-                </div>
-                <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                    <li className="flex items-center gap-2">
-                        <IconCheck className="size-4 text-success shrink-0" />
-                        <span className="text-sm">Agents keep shipping past the free allowance</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                        <IconCheck className="size-4 text-success shrink-0" />
-                        <span className="text-sm">Set a spend limit whenever you want</span>
-                    </li>
-                </ul>
-                <BillingUpgradeCTA
-                    type="primary"
-                    status="alt"
-                    fullWidth
-                    center
-                    className="mt-auto"
-                    loading={subscribing}
-                    disabledReason={subscribing ? 'Opening payment…' : undefined}
-                    disableClientSideRouting
-                    onClick={subscribe}
-                    data-attr="self-driving-onboarding-subscribe"
-                >
-                    Add payment method
-                </BillingUpgradeCTA>
-            </div>
+            <PlanCard
+                title="Pay-as-you-go"
+                titleCaption="Free allowance included"
+                priceLabel={perPrUsd !== null ? `${formatUsd(perPrUsd)} per shipped PR` : null}
+                highlighted
+                cta={
+                    <BillingUpgradeCTA
+                        type="primary"
+                        status="alt"
+                        fullWidth
+                        center
+                        loading={subscribing}
+                        disabledReason={subscribing ? 'Opening payment…' : undefined}
+                        disableClientSideRouting
+                        onClick={subscribe}
+                        data-attr="self-driving-onboarding-subscribe"
+                    >
+                        Add payment method
+                    </BillingUpgradeCTA>
+                }
+            >
+                <CheckList
+                    items={[
+                        { content: 'Agents keep shipping past the free allowance' },
+                        { content: 'Set a spend limit whenever you want' },
+                    ]}
+                />
+            </PlanCard>
 
             <ToolFreeTiers products={products} />
         </div>
