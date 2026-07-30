@@ -123,11 +123,11 @@ export interface onboardingLogicActions {
     clearProductKey: () => {
         value: true
     }
-    completeSelfDrivingOnboarding: () => {
-        value: true
-    }
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
+    }
+    completeSelfDrivingOnboarding: () => {
+        value: true
     }
     goToNextStep: () => {
         value: true

@@ -134,7 +134,7 @@ export interface inboxOnboardingLogicMeta {
         isWizardStateResolved: (
             hasResolvedSessionState: boolean,
             watchedWorkflows: string[],
-            receivedFeatureFlags: any
+            receivedFeatureFlags: boolean
         ) => boolean
         onboardingMode: (
             isSetupLoaded: boolean,
