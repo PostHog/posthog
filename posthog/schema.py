@@ -15552,6 +15552,16 @@ class ExperimentApiExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    exclusions: list[AnyPropertyFilterDiscriminated] | None = Field(
+        default=None,
+        description=(
+            "Person or cohort filters. Anyone matching is dropped from the experiment"
+            " entirely, including everything they did before the filter started"
+            " matching. Both resolve against the person's current state at query time,"
+            " so exclusion works retroactively. Only person and cohort filter types are"
+            " accepted."
+        ),
+    )
     exposure_config: ExperimentApiExposureConfig | None = None
     filterTestAccounts: bool | None = None
     multiple_variant_handling: MultipleVariantHandling | None = Field(

@@ -4505,6 +4505,11 @@ export interface ExperimentApiExposureCriteria {
     /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from
      *  the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
     multiple_variant_handling?: 'exclude' | 'first_seen'
+    /** Person or cohort filters. Anyone matching is dropped from the experiment entirely, including
+     *  everything they did before the filter started matching. Both resolve against the person's
+     *  current state at query time, so exclusion works retroactively. Only person and cohort filter
+     *  types are accepted. */
+    exclusions?: AnyPropertyFilter[]
 }
 
 export const enum ExperimentMetricType {

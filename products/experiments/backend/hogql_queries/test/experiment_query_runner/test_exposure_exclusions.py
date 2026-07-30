@@ -125,7 +125,11 @@ class TestExposureExclusions(ExperimentQueryRunnerBaseTest):
     @parameterized.expand(
         [
             ("no_exclusions", None, True),
-            ("with_exclusions", [{"key": "consent_withdrawn", "type": "person", "value": ["true"]}], False),
+            (
+                "with_exclusions",
+                [{"key": "consent_withdrawn", "type": "person", "value": ["true"], "operator": "exact"}],
+                False,
+            ),
         ]
     )
     @freeze_time("2020-01-01T12:00:00Z")

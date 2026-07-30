@@ -24,6 +24,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
@@ -412,6 +413,16 @@ class ExperimentService:
                     f"Unsupported exposure_criteria.exclusions type "
                     f"{cls._safe_repr(exclusion.get('type'))}. {cls.EXCLUSION_HINT}"
                 )
+
+        # Parse the filters too, so a malformed one is rejected on save rather than raising a raw
+        # pydantic error on every results query afterwards.
+        try:
+            ExperimentExposureCriteria.model_validate({"exclusions": exclusions})
+        except pydantic.ValidationError as e:
+            safe_errors = [
+                {"loc": err.get("loc"), "type": err.get("type"), "msg": err.get("msg")} for err in e.errors()
+            ]
+            raise ValidationError(f"Invalid exposure_criteria.exclusions: {safe_errors}. {cls.EXCLUSION_HINT}")
 
     @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
