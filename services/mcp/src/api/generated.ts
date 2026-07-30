@@ -39598,7 +39598,6 @@ export namespace Schemas {
       /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
       counts_as_revenue?: boolean | null;
       custom_name?: string | null;
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       id: number;
       kind: 'ActionsNode';
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
@@ -39644,7 +39643,6 @@ export namespace Schemas {
       custom_name?: string | null;
       /** The event or `null` for all events. */
       event?: string | null;
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       kind: 'EventsNode';
       limit?: number | null;
       math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
@@ -39682,7 +39680,6 @@ export namespace Schemas {
       custom_name?: string | null;
       distinct_id_field: string;
       dw_source_type?: string | null;
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter)[] | null;
       id: string;
       id_field: string;
       kind: 'DataWarehouseNode';

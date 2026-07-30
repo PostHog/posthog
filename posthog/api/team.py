@@ -19,6 +19,7 @@ from pydantic import (
     RootModel as PydanticRootModel,
     TypeAdapter,
 )
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -457,6 +458,9 @@ MarketingAnalyticsConversionGoalPropertyFilter = (
 # surface from drifting when the query schema changes. The cost is that narrowing a field's type in
 # a subclass is not assignment-compatible, hence the ignores below: each one marks a deliberate
 # divergence from the query schema, not an oversight.
+#
+# `fixedProperties` stays accepted but leaves the documented schema: nothing in the marketing
+# analytics runtime reads it, and advertising it costs a third of this field's generated schema.
 class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
     """A conversion goal counted from events."""
 
@@ -466,7 +470,7 @@ class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
     name: str
     conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
-    fixedProperties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 
 
 class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
@@ -476,7 +480,7 @@ class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
     name: str
     conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
-    fixedProperties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 
 
 class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
@@ -486,7 +490,7 @@ class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
     name: str
     conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
-    fixedProperties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 
 
 class MarketingAnalyticsConversionGoalList(PydanticRootModel):

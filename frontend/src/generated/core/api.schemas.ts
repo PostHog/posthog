@@ -957,104 +957,6 @@ export interface MarketingAnalyticsSourceMappingApi {
     [key: string]: SourceMapApi
 }
 
-export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
-
-export const PropertyOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-    Gt: 'gt',
-    Gte: 'gte',
-    Lt: 'lt',
-    Lte: 'lte',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-    IsDateExact: 'is_date_exact',
-    IsDateBefore: 'is_date_before',
-    IsDateAfter: 'is_date_after',
-    Between: 'between',
-    NotBetween: 'not_between',
-    Min: 'min',
-    Max: 'max',
-    In: 'in',
-    NotIn: 'not_in',
-    IsCleanedPathExact: 'is_cleaned_path_exact',
-    FlagEvaluatesTo: 'flag_evaluates_to',
-    SemverEq: 'semver_eq',
-    SemverNeq: 'semver_neq',
-    SemverGt: 'semver_gt',
-    SemverGte: 'semver_gte',
-    SemverLt: 'semver_lt',
-    SemverLte: 'semver_lte',
-    SemverTilde: 'semver_tilde',
-    SemverCaret: 'semver_caret',
-    SemverWildcard: 'semver_wildcard',
-    IcontainsMulti: 'icontains_multi',
-    NotIcontainsMulti: 'not_icontains_multi',
-} as const
-
-export interface EventPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    /** Event properties */
-    type?: 'event'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface PersonPropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    /** Person properties */
-    type?: 'person'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface CohortPropertyFilterApi {
-    cohort_name?: string | null
-    key?: 'id'
-    label?: string | null
-    operator?: PropertyOperatorApi | null
-    type?: 'cohort'
-    value: number
-}
-
-export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
-
-export const Key10Api = {
-    TagName: 'tag_name',
-    Text: 'text',
-    Href: 'href',
-    Selector: 'selector',
-} as const
-
-export interface ElementPropertyFilterApi {
-    key: Key10Api
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'element'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface HogQLPropertyFilterApi {
-    key: string
-    label?: string | null
-    type?: 'hogql'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
-export interface DataWarehousePropertyFilterApi {
-    key: string
-    label?: string | null
-    operator: PropertyOperatorApi
-    type?: 'data_warehouse'
-    value?: (string | number | boolean)[] | string | number | boolean | null
-}
-
 export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
 
 export const BaseMathTypeApi = {
@@ -1295,6 +1197,104 @@ export interface RevenueCurrencyPropertyConfigApi {
     static?: CurrencyCodeApi | null
 }
 
+export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
+
+export const PropertyOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+    Between: 'between',
+    NotBetween: 'not_between',
+    Min: 'min',
+    Max: 'max',
+    In: 'in',
+    NotIn: 'not_in',
+    IsCleanedPathExact: 'is_cleaned_path_exact',
+    FlagEvaluatesTo: 'flag_evaluates_to',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+export interface EventPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    /** Event properties */
+    type?: 'event'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
+
+export const Key10Api = {
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
+} as const
+
+export interface ElementPropertyFilterApi {
+    key: Key10Api
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'element'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface HogQLPropertyFilterApi {
+    key: string
+    label?: string | null
+    type?: 'hogql'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface DataWarehousePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type MarketingAnalyticsEventConversionGoalApiResponse = { [key: string]: unknown } | null
 
 export type MarketingAnalyticsEventConversionGoalApiSchemaMap = { [key: string]: string | unknown }
@@ -1312,16 +1312,6 @@ export interface MarketingAnalyticsEventConversionGoalApi {
     custom_name?: string | null
     /** The event or `null` for all events. */
     event?: string | null
-    fixedProperties?:
-        | (
-              | EventPropertyFilterApi
-              | PersonPropertyFilterApi
-              | CohortPropertyFilterApi
-              | ElementPropertyFilterApi
-              | HogQLPropertyFilterApi
-              | DataWarehousePropertyFilterApi
-          )[]
-        | null
     kind: 'EventsNode'
     limit?: number | null
     math?:
@@ -1375,16 +1365,6 @@ export interface MarketingAnalyticsActionConversionGoalApi {
     /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
     counts_as_revenue?: boolean | null
     custom_name?: string | null
-    fixedProperties?:
-        | (
-              | EventPropertyFilterApi
-              | PersonPropertyFilterApi
-              | CohortPropertyFilterApi
-              | ElementPropertyFilterApi
-              | HogQLPropertyFilterApi
-              | DataWarehousePropertyFilterApi
-          )[]
-        | null
     id: number
     kind: 'ActionsNode'
     math?:
@@ -1438,16 +1418,6 @@ export interface MarketingAnalyticsWarehouseConversionGoalApi {
     custom_name?: string | null
     distinct_id_field: string
     dw_source_type?: string | null
-    fixedProperties?:
-        | (
-              | EventPropertyFilterApi
-              | PersonPropertyFilterApi
-              | CohortPropertyFilterApi
-              | ElementPropertyFilterApi
-              | HogQLPropertyFilterApi
-              | DataWarehousePropertyFilterApi
-          )[]
-        | null
     id: string
     id_field: string
     kind: 'DataWarehouseNode'
