@@ -562,9 +562,7 @@ def duckgres_data_modeling_table_name(saved_query_name: str) -> str:
 
 def _normalize_duckgres_table_name(raw_name: str) -> str:
     # Deferred to keep warehouse-source model imports off DuckLake's shared configuration path.
-    from products.warehouse_sources.backend.temporal.data_imports.naming_convention import (  # noqa: PLC0415
-        NamingConvention,
-    )
+    from products.warehouse_sources.backend.facade.sources import NamingConvention  # noqa: PLC0415
 
     return NamingConvention.normalize_identifier(raw_name, max_length=63)
 
