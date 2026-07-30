@@ -52,8 +52,8 @@ logger = logging.getLogger(__name__)
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
 SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
-# Every scout `ai_stage` starts with this, so `ai_stage LIKE 'scout:%'` still rolls the whole
-# fleet up the way the old constant `scout` tag did.
+# Every scout `ai_stage` starts with this, so `ai_stage LIKE 'scout:%'` rolls the whole fleet
+# up as one stage even though the tag names the individual scout.
 SCOUT_AI_STAGE_PREFIX = "scout:"
 
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
@@ -539,9 +539,9 @@ async def _spawn_and_run(
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
-        # and attributable to one scout. `ai_stage` is the only run-shaped tag that reaches
-        # $ai_generation, and the task title it used to lean on is a truncated prompt — usable
-        # by eye, not as a cost breakdown. Team attribution already rides along as `team_id`.
+        # and attributable to one scout. `ai_stage` is the only run-shaped value the harness
+        # controls that reaches $ai_generation — the rest of the properties there are stamped
+        # by the agent server off the task row. Team attribution rides along as `team_id`.
         ai_stage=_ai_stage(skill),
         on_task_run_created=_create_bridge_row,
         # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
