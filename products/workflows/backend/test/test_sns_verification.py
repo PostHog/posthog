@@ -35,13 +35,13 @@ def _signed_notification(tamper: dict[str, Any] | None = None) -> dict[str, Any]
         "TopicArn": "arn:aws:sns:us-east-1:123456789012:topic",
         "Message": '{"source":"aws.ses"}',
         "Timestamp": "2026-07-30T00:00:00.000Z",
-        "SignatureVersion": "1",
+        "SignatureVersion": "2",
         "SigningCertURL": "https://sns.us-east-1.amazonaws.com/cert.pem",
     }
     string_to_sign = "".join(
         f"{key}\n{message[key]}\n" for key in ["Message", "MessageId", "Timestamp", "TopicArn", "Type"]
     )
-    signature = _KEY.sign(string_to_sign.encode(), padding.PKCS1v15(), hashes.SHA1())  # noqa: S303
+    signature = _KEY.sign(string_to_sign.encode(), padding.PKCS1v15(), hashes.SHA256())
     message["Signature"] = base64.b64encode(signature).decode()
     message.update(tamper or {})
     return message
@@ -63,6 +63,9 @@ class TestSnsVerification(TestCase):
             ("cert_not_from_sns", {"SigningCertURL": "https://attacker.example.com/cert.pem"}),
             ("cert_over_http", {"SigningCertURL": "http://sns.us-east-1.amazonaws.com/cert.pem"}),
             ("unknown_type", {"Type": "SomethingElse"}),
+            # SignatureVersion 1 is SHA1-signed and rejected outright; the topic must be
+            # configured with SignatureVersion=2
+            ("sha1_signature_version", {"SignatureVersion": "1"}),
         ]
     )
     def test_rejects(self, _name: str, tamper: dict[str, Any]):

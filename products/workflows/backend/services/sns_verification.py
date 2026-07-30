@@ -75,6 +75,12 @@ def verify_sns_message(message: dict[str, Any]) -> bool:
     closed. Signature proves "from AWS SNS" — callers must still check TopicArn against an
     allowlist to prove "from *our* topic".
     """
+    # Only SignatureVersion 2 (SHA256) is accepted. Version 1 signs with SHA1, which is not
+    # collision resistant — and since we own the SNS topic, we simply configure it with
+    # SignatureVersion=2 (a one-time SetTopicAttributes call, in the rollout runbook) instead of
+    # ever verifying SHA1 here.
+    if message.get("SignatureVersion") != "2":
+        return False
     cert_url = message.get("SigningCertURL")
     if not isinstance(cert_url, str) or not is_valid_sns_url(cert_url):
         return False
@@ -92,8 +98,7 @@ def verify_sns_message(message: dict[str, Any]) -> bool:
         public_key = load_pem_x509_certificate(cert_pem).public_key()
         if not isinstance(public_key, RSAPublicKey):
             return False
-        hash_algorithm = hashes.SHA256() if message.get("SignatureVersion") == "2" else hashes.SHA1()  # noqa: S303
-        public_key.verify(signature, string_to_sign.encode(), padding.PKCS1v15(), hash_algorithm)
+        public_key.verify(signature, string_to_sign.encode(), padding.PKCS1v15(), hashes.SHA256())
         return True
     except InvalidSignature:
         return False
