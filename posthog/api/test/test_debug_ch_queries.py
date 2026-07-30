@@ -8,6 +8,7 @@ from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN
 from posthog.api.debug_ch_queries import _cache_table_stats
 from posthog.clickhouse.preaggregation.experiment_exposures_sql import SHARDED_EXPERIMENT_EXPOSURES_TABLE
 from posthog.clickhouse.preaggregation.experiment_metric_events_sql import SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE
+from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER
@@ -59,6 +60,18 @@ class TestDebugCHQuery(APIBaseTest):
         for sql, params in (call.args for call in mock_sync_execute.call_args_list):
             self.assertIn("%(team_id)s", sql)
             self.assertEqual(params["team_id"], self.team.pk)
+
+    def test_filtered_queries_denied_when_requester_has_no_current_team(self):
+        # A filtered read scopes to the requester's team; without one, refuse rather
+        # than fall through to an unscoped read across every team on the instance.
+        new_user = User.objects.create_user(
+            email="staff-no-team@posthog.com", password="testpass123", first_name="Staff", is_staff=True
+        )
+        self.client.force_login(new_user)
+
+        resp = self.client.get("/api/debug_ch_queries/?insight_id=1")
+
+        self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN, resp.content)
 
     def _create_pat(self, scopes: list[str]) -> str:
         token = generate_random_token_personal()
