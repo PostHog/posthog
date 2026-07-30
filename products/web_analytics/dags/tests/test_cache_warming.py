@@ -4,10 +4,13 @@ import json
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils.dateparse import parse_datetime
+
 import dagster
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
@@ -551,6 +554,47 @@ class TestWarmQueriesOp(BaseTest):
             )
 
         self.assertEqual(runner.run.call_count, expected_runs)
+
+    def test_staleness_evaluated_on_jitter_aged_entry(self) -> None:
+        # Shapes warmed together go stale together (fixed threshold), so a bulk
+        # pass turns into a synchronized expiry storm hours later. The warmer
+        # must evaluate staleness on the entry aged by the shape's deterministic
+        # offset — warming early diffuses the cohort. If the jitter is dropped,
+        # a boundary-fresh entry skips instead of warming and storms return.
+        runner = MagicMock()
+        runner.get_cache_key.return_value = "key-jitter"
+        real_last_refresh = parse_datetime("2026-07-01T00:00:00Z")
+        # Stale only if judged on a timestamp older than the true one, i.e.
+        # exactly when the jitter aged it.
+        runner._is_stale.side_effect = lambda last_refresh: last_refresh < real_last_refresh
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+        ):
+            entry = MagicMock()
+            entry.as_full_response.return_value = {"last_refresh": "2026-07-01T00:00:00Z"}
+            mock_cm.return_value.lookup.return_value.entry = entry
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": 5,
+                        "representative_query_count": 5,
+                        # crc32("h") % 3600 is nonzero, so the aged timestamp is
+                        # strictly older than the true one.
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, 1)
+        # Forcing matters: run()'s default mode re-checks staleness against the
+        # true last_refresh and would return the fresh cached response, turning
+        # the early warm into a silent no-op.
+        self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
     def test_team_ids_and_limit_scope_the_run(self) -> None:
         # A Launchpad run scoped to one team must not warm the fleet: launches
