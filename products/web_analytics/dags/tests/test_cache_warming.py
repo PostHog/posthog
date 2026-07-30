@@ -4,10 +4,13 @@ import json
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils.dateparse import parse_datetime
+
 import dagster
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
@@ -19,6 +22,7 @@ from products.web_analytics.dags.cache_warming import (
     maybe_expand_warming_date_range,
     maybe_opt_into_lazy_precompute,
     queries_to_keep_fresh,
+    split_warmable_queries_op,
     warm_queries_op,
 )
 
@@ -253,6 +257,55 @@ class TestBuildReplayRunner(BaseTest):
         self.assertIsNotNone(runner)
         self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
+
+
+class TestSplitWarmableQueries(BaseTest):
+    def _shape(self, team_id: int, n: int) -> dict:
+        return {
+            "team_id": team_id,
+            "query_json": {"kind": "WebOverviewQuery", "n": n},
+            "query_count": 5,
+            "representative_query_count": 5,
+            "normalized_query_hash": f"h{n}",
+        }
+
+    def test_shards_are_team_disjoint_and_lossless(self) -> None:
+        # A team split across shards breaks the per-shard (team, cache_key)
+        # dedupe and warms duplicates; a dropped or duplicated shape silently
+        # under- or over-warms. Both fail here.
+        queries = [self._shape(team, n) for n, team in enumerate([1, 2, 3, 9, 10, 17, 2, 9, 1])]
+
+        outputs = list(split_warmable_queries_op(dagster.build_op_context(), WarmQueriesConfig(), queries))
+
+        team_to_shard: dict[int, str] = {}
+        seen_hashes = []
+        for out in outputs:
+            for q in out.value["queries"]:
+                seen_hashes.append(q["normalized_query_hash"])
+                previously = team_to_shard.setdefault(q["team_id"], out.mapping_key)
+                self.assertEqual(previously, out.mapping_key)
+        self.assertEqual(sorted(seen_hashes), sorted(q["normalized_query_hash"] for q in queries))
+
+    def test_scoping_applies_before_sharding(self) -> None:
+        # team_ids/limit moved from the warm op to the split — if they stop
+        # applying, a scoped Launchpad launch warms the whole fleet while
+        # holding the schedule's slot.
+        queries = [self._shape(team, n) for n, team in enumerate([1, 2, 1, 3, 1])]
+
+        outputs = list(
+            split_warmable_queries_op(
+                dagster.build_op_context(), WarmQueriesConfig(mode="backfill", team_ids=[1], limit=2), queries
+            )
+        )
+
+        shapes = [q for out in outputs for q in out.value["queries"]]
+        self.assertEqual(len(shapes), 2)
+        self.assertTrue(all(q["team_id"] == 1 for q in shapes))
+        self.assertTrue(all(out.value["mode"] == "backfill" for out in outputs))
+
+    def test_unknown_mode_fails_before_fanout(self) -> None:
+        with self.assertRaises(ValueError):
+            list(split_warmable_queries_op(dagster.build_op_context(), WarmQueriesConfig(mode="bogus"), []))
 
 
 class TestFleetQuerySelection(BaseTest):
@@ -502,6 +555,47 @@ class TestWarmQueriesOp(BaseTest):
 
         self.assertEqual(runner.run.call_count, expected_runs)
 
+    def test_staleness_evaluated_on_jitter_aged_entry(self) -> None:
+        # Shapes warmed together go stale together (fixed threshold), so a bulk
+        # pass turns into a synchronized expiry storm hours later. The warmer
+        # must evaluate staleness on the entry aged by the shape's deterministic
+        # offset — warming early diffuses the cohort. If the jitter is dropped,
+        # a boundary-fresh entry skips instead of warming and storms return.
+        runner = MagicMock()
+        runner.get_cache_key.return_value = "key-jitter"
+        real_last_refresh = parse_datetime("2026-07-01T00:00:00Z")
+        # Stale only if judged on a timestamp older than the true one, i.e.
+        # exactly when the jitter aged it.
+        runner._is_stale.side_effect = lambda last_refresh: last_refresh < real_last_refresh
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+        ):
+            entry = MagicMock()
+            entry.as_full_response.return_value = {"last_refresh": "2026-07-01T00:00:00Z"}
+            mock_cm.return_value.lookup.return_value.entry = entry
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": 5,
+                        "representative_query_count": 5,
+                        # crc32("h") % 3600 is nonzero, so the aged timestamp is
+                        # strictly older than the true one.
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, 1)
+        # Forcing matters: run()'s default mode re-checks staleness against the
+        # true last_refresh and would return the fresh cached response, turning
+        # the early warm into a silent no-op.
+        self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
     def test_team_ids_and_limit_scope_the_run(self) -> None:
         # A Launchpad run scoped to one team must not warm the fleet: launches
         # are mutually exclusive with the hourly schedule, so an unscoped manual
@@ -577,7 +671,7 @@ class TestWarmQueriesOp(BaseTest):
 
         shape = {"team_id": self.team.pk, "query_json": {"kind": "WebOverviewQuery", "properties": []}}
         with (
-            patch("products.web_analytics.dags.cache_warming.WARMING_SHAPE_CONCURRENCY", 1),
+            patch("products.web_analytics.dags.cache_warming.WARMING_SHARD_THREADS", 1),
             patch(
                 "products.web_analytics.dags.cache_warming.get_query_runner_or_none", side_effect=fake_runner_or_none
             ),
