@@ -16617,6 +16617,20 @@ export namespace Schemas {
 
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
+    export interface SavedQuerySuspension {
+      /** When materialization was suspended. */
+      at: string;
+      /** Error from the materialization run that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type DataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
     /**
      * * `never` - never
      * * `15min` - 15min
@@ -16774,6 +16788,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended: DataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -28491,7 +28507,6 @@ export namespace Schemas {
 
     /**
      * * `never` - never
-     * * `1min` - 1min
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -28502,12 +28517,11 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+    export type ExternalDataSchemaSyncFrequencyEnum = typeof ExternalDataSchemaSyncFrequencyEnum[keyof typeof ExternalDataSchemaSyncFrequencyEnum];
 
 
-    export const SyncFrequencyEnum = {
+    export const ExternalDataSchemaSyncFrequencyEnum = {
       Never: 'never',
-      '1min': '1min',
       '5min': '5min',
       '15min': '15min',
       '30min': '30min',
@@ -28580,10 +28594,9 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync.
+      /** How often to sync. The fastest sync frequency is 5 minutes.
        *
        * * `never` - never
-       * * `1min` - 1min
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -28593,7 +28606,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | null;
+      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
@@ -39498,14 +39511,29 @@ export namespace Schemas {
       readonly computed_with: MCPIntentClusterSnapshotMeta | null;
     }
 
+    export interface MCPIntentTheme {
+      /** Short sentence-case name for this group of intents. */
+      readonly name: string;
+      /** One concrete sentence describing what agents in this theme are doing. */
+      readonly description: string;
+      /** How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more than the digest's intent_count. */
+      readonly intent_count: number;
+      /** One of this theme's intents, verbatim from the corpus. */
+      readonly example_intent: string;
+      /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
+      readonly tools: readonly string[];
+    }
+
     export interface MCPIntentDigest {
       /**
-         * LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
+         * LLM-generated one-sentence summary of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
          * @nullable
          */
       readonly digest: string | null;
       /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
       readonly intent_count: number;
+      /** Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest is null, or when none of the LLM's groupings resolved to recorded intents. */
+      readonly themes: readonly MCPIntentTheme[];
     }
 
     export interface MCPMissingCapabilityCreate {
@@ -48495,6 +48523,11 @@ export namespace Schemas {
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type PatchedDataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
      * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -48593,6 +48626,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -49690,10 +49725,9 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync.
+      /** How often to sync. The fastest sync frequency is 5 minutes.
        *
        * * `never` - never
-       * * `1min` - 1min
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -49703,7 +49737,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | null;
+      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
