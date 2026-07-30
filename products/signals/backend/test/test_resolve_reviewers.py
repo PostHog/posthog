@@ -200,8 +200,7 @@ class TestRecencyScoring:
 
     def test_crowded_area_nominates_nobody_but_still_decays_blame(self):
         weights = Counter({"old-timer": 10})
-        # The blame author is past the activity window, so the last-resort path is open and
-        # only the crowded area keeps the stranger out.
+        # The blame author is past the window, so only the crowded area keeps the stranger out.
         activity = {
             "old-timer": _area_contributor(days_since_last_commit=ACTIVITY_WINDOW_DAYS + 5, implies_ownership=False),
             "prolific-stranger": _area_contributor(days_since_last_commit=1, implies_ownership=False),
