@@ -11,8 +11,8 @@ use tokio_util::sync::CancellationToken;
 use tonic::Code;
 
 use crate::backend::{
-    BounceReason, DrainSession, ForwardDecision, LeaderBackend, StashKey, StashedRequest,
-    TakenKeyRun, BOUNCE_BACKOFF, MAX_CONSECUTIVE_BOUNCES,
+    BounceReason, DrainSession, ForwardDecision, ForwardPath, LeaderBackend, StashKey,
+    StashedRequest, TakenKeyRun, BOUNCE_BACKOFF, MAX_CONSECUTIVE_BOUNCES,
 };
 use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
 
@@ -57,7 +57,7 @@ use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
 ///
 /// 3. **Bounce and retry.** A classified forward attempt (see
 ///    `LeaderBackend::forward_classified`, the single reading of leader
-///    responses shared with the live path) can conclude no outcome
+///    responses shared with the direct path) can conclude no outcome
 ///    exists: a `FailedPrecondition` from the target (its fence or
 ///    ownership is still settling — a reaffirm's drain racing the
 ///    owner's resume, or a completion's drain racing the new owner's
@@ -133,7 +133,7 @@ enum Disposition {
 /// `UNAVAILABLE` so the client retries with a fresh request rather than
 /// waiting out a response that may exceed its gRPC timeout. Otherwise
 /// the attempt is one classified forward — the same shared reading of
-/// leader responses the live path uses (see
+/// leader responses the direct path uses (see
 /// `LeaderBackend::forward_classified`), so the two paths cannot drift
 /// in what counts as an outcome versus a bounce.
 async fn forward_one(
@@ -159,7 +159,13 @@ async fn forward_one(
     // stamps `x-partition` and the leader serializes per key, so replaying
     // here preserves arrival order without re-entering the stash.
     match leader_backend
-        .forward_classified(req.method, partition, &req.headers, &req.frame)
+        .forward_classified(
+            ForwardPath::Stash,
+            req.method,
+            partition,
+            &req.headers,
+            &req.frame,
+        )
         .await
     {
         ForwardDecision::Delivered { response, .. } => {
@@ -183,7 +189,9 @@ struct KeyRunOutcome {
 
 /// Put an interrupted key run's remainder back at its admission
 /// positions: the entry whose attempt was cut short plus everything not
-/// yet attempted.
+/// yet attempted. Every entry put back is a request the drain will
+/// re-attempt, so the batch counts as stash-path retries under the
+/// reason that interrupted the run.
 async fn put_back_rest(
     session: &DrainSession,
     key: StashKey,
@@ -194,7 +202,8 @@ async fn put_back_rest(
     let mut entries = vec![head];
     entries.extend(rest);
     metrics::counter!(
-        "personhog_router_stash_put_back_total",
+        "personhog_router_forward_retries_total",
+        "path" => ForwardPath::Stash.label(),
         "reason" => reason
     )
     .increment(entries.len() as u64);
@@ -249,7 +258,11 @@ async fn forward_key_run(
                 metrics::histogram!("personhog_router_stash_wait_duration_ms")
                     .record(entry.item.enqueued_at.elapsed().as_secs_f64() * 1000.0);
                 if entry.item.reply.send(response).is_err() {
-                    metrics::counter!("personhog_router_stash_dropped_total").increment(1);
+                    metrics::counter!(
+                        "personhog_router_stash_dropped_total",
+                        "reason" => "receiver_gone"
+                    )
+                    .increment(1);
                 }
                 metrics::counter!(
                     "personhog_router_stash_drained_total",
