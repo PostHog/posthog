@@ -160,6 +160,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
+    '/score-lab': ['ScoreLab', 'scoreLab'],
+    '/score-lab/:label': ['ScoreLab', 'scoreLab'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/links': ['Links', 'links'],
@@ -654,6 +656,7 @@ export const productConfiguration: Record<string, any> = {
             'Review probable links between anonymous visitors and identified persons, recovered from first-party signals.',
         iconType: 'persons',
     },
+    ScoreLab: { name: 'Score lab', instanceLevel: true },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -1181,6 +1184,7 @@ export const productUrls = {
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     identityMatching: (): string => '/identity-matching',
+    scoreLab: (label?: string): string => `/score-lab${label ? `/${label}` : ''}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     links: (): string => '/links',
@@ -1987,7 +1991,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         iconType: 'persons',
         sceneKey: 'IdentityMatching',
-        sceneKeys: ['IdentityMatching'],
+        sceneKeys: ['IdentityMatching', 'ScoreLab'],
     },
     {
         path: 'LLM analytics',
