@@ -1364,6 +1364,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["status"] == "paused_by_user"
         config.refresh_from_db()
         assert config.status == SignalScoutConfig.Status.PAUSED_BY_USER
+        assert config.status_changed_by_id == self.user.id
 
     def test_partial_update_enable_resumes_a_system_pause_and_clears_the_reason(self) -> None:
         config = SignalScoutConfig.objects.create(

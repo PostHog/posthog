@@ -1178,6 +1178,21 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # itself, so it is excluded from activity logging. Null until the first transition;
     # `created_at` anchors the cold-start grace window for rows that never transitioned.
     status_changed_at = models.DateTimeField(null=True, blank=True)
+    # Who last moved `status`, when a human did (through the config API). Null for system
+    # transitions, unattributed writes, and rows whose status never changed. The enum already
+    # says whether a pause is human or system; this adds WHO for human actions and tells a
+    # human re-enable apart from a system resume. Who last edited anything else on the row
+    # stays the activity log's job. `db_constraint=False` because posthog_user is a hot table
+    # and adding the FK constraint would lock it; integrity is app-level only, like the
+    # constraint-free path recommended for hot-table FKs.
+    status_changed_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+    )
     # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
     # nothing — to validate it on a team before its findings reach the inbox.
@@ -1270,7 +1285,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
             else:
                 self.status = self.Status.ACTIVE if self.enabled else self.Status.PAUSED_BY_USER
                 self.pause_reason = None
-                touched = {"status", "pause_reason"}
+                # An enabled-only write carries no actor, so the attribution stamp is cleared
+                # rather than left pointing at whoever made the previous transition.
+                self.status_changed_by = None
+                touched = {"status", "pause_reason", "status_changed_by"}
                 if not self._state.adding:
                     self.status_changed_at = timezone.now()
                     touched.add("status_changed_at")
@@ -1302,8 +1320,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         self.status = new_status
         self.pause_reason = recorded_reason
         self.status_changed_at = timezone.now()
+        self.status_changed_by = None
         self.enabled = new_status in self.RUNNABLE_STATUSES
-        self.save(update_fields=["status", "pause_reason", "status_changed_at", "enabled", "updated_at"])
+        self.save(
+            update_fields=["status", "pause_reason", "status_changed_at", "status_changed_by", "enabled", "updated_at"]
+        )
         return True
 
     def in_cold_start_grace(self) -> bool:

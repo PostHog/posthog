@@ -116,6 +116,18 @@ class TestScoutStatusTransitions(BaseTest):
         with self.assertRaises(ValueError):
             config.transition_status_by_system(Status.PAUSED_BY_USER, pause_reason=Reason.NO_OUTPUT)
 
+    def test_system_transition_clears_the_human_attribution_stamp(self) -> None:
+        # Without the clear, a system pause would keep pointing at whichever human made the
+        # previous transition and read as their action.
+        config = self._config()
+        config.status_changed_by = self.user
+        config.save(update_fields=["status_changed_by"])
+
+        config.transition_status_by_system(Status.PAUSED_BY_SYSTEM, pause_reason=Reason.NO_OUTPUT)
+
+        config.refresh_from_db()
+        assert config.status_changed_by is None
+
 
 class TestScoutStatusEnabledReconciliation(BaseTest):
     def test_create_with_enabled_false_records_a_user_pause(self) -> None:

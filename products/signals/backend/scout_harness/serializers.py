@@ -2063,9 +2063,11 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         else:
             target = None
         if target is not None and target != instance.status:
+            request = self.context.get("request")
             validated_data["status"] = target
             validated_data["pause_reason"] = None
             validated_data["status_changed_at"] = timezone.now()
+            validated_data["status_changed_by"] = getattr(request, "user", None)
         return super().update(instance, validated_data)
 
     class Meta:

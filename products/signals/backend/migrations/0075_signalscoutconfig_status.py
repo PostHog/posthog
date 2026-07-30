@@ -1,3 +1,5 @@
+import django.db.models.deletion
+from django.conf import settings
 from django.db import migrations, models
 
 
@@ -49,6 +51,18 @@ class Migration(migrations.Migration):
             model_name="signalscoutconfig",
             name="status_changed_at",
             field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="signalscoutconfig",
+            name="status_changed_by",
+            field=models.ForeignKey(
+                blank=True,
+                db_constraint=False,
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="+",
+                to=settings.AUTH_USER_MODEL,
+            ),
         ),
         migrations.RunPython(backfill_paused_by_user, reverse_code=migrations.RunPython.noop),
     ]
