@@ -4,12 +4,12 @@ import { IconCheck, IconPlusSmall } from '@posthog/icons'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'

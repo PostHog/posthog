@@ -106,7 +106,7 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
 
         blocked = await workflow.execute_activity(
             block_posthog_code_task_if_no_personal_github_activity,
-            args=[picker_inputs, channel, thread_ts, user_id],
+            args=[picker_inputs, channel, thread_ts, user_id, True],
             start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

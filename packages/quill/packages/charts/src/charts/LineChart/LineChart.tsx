@@ -2,7 +2,14 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
-import { drawAxes, drawGrid, drawLineHoverPoints, drawLineSeriesLayer } from '../../core/canvas-renderer'
+import {
+    LINE_STROKE_WIDTH,
+    drawAxes,
+    drawGrid,
+    drawLineHoverPoints,
+    drawLineSeriesLayer,
+    resolveAxisLineColor,
+} from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -17,7 +24,7 @@ import {
     yTickCountForHeight,
 } from '../../core/scales'
 import type { ScaleSet, StackedBand } from '../../core/scales'
-import { DEFAULT_Y_AXIS_ID } from '../../core/types'
+import { DEFAULT_Y_AXIS_ID, resolveAxisLines } from '../../core/types'
 import type {
     ChartDimensions,
     ChartDrawArgs,
@@ -82,7 +89,12 @@ function LineChartInner<Meta = unknown>({
         valueDomain,
         floatBaseline = false,
         yAxes,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
+    // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
+    const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
+    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
@@ -177,10 +189,15 @@ function LineChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so the line
+            // doesn't paint over the baseline where it meets the axis.
+            const axisLineStyle = axisLines.x || axisLines.y
             if (showGrid) {
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    frame: !axisLineStyle,
+                })
             }
 
             // Area then line+points per series, clipped vertically (shared with ComboChart). Areas use
@@ -196,13 +213,36 @@ function LineChartInner<Meta = unknown>({
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
                 shouldFill: (s) => !!s.fill,
                 zOrder: 'per-series',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
+                clipLeftEdge: axisLines.y,
             })
+
+            if (axisLineStyle) {
+                const hasRightAxis = Object.values(d3Scales.yAxes ?? {}).some((axis) => axis.position === 'right')
+                drawAxes(baseDrawCtx, {
+                    axisColor: resolveAxisLineColor(theme),
+                    xLine: axisLines.x,
+                    yLine: axisLines.y,
+                    rightAxis: hasRightAxis,
+                })
+            }
         },
-        [showGrid, showAxisLines, stackedData]
+        [showGrid, axisLines, stackedData, smooth]
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition, theme }: ChartDrawArgs): boolean => {
+        ({
+            ctx,
+            scales,
+            series: coloredSeries,
+            labels: drawLabels,
+            hoverIndex,
+            hoverPosition,
+            theme,
+        }: ChartDrawArgs): boolean => {
             if (hoverIndex < 0) {
                 return false
             }

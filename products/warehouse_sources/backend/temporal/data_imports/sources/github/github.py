@@ -1,5 +1,6 @@
 import re
 import random
+import asyncio
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -14,10 +15,13 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
-from posthog.rate_limiting.github import consume_github_installation_sync
-from posthog.rate_limiting.github_observability import record_github_api_exception, record_github_api_response
-from posthog.rate_limiting.policies import Priority
+from posthog.egress.github.transport import (
+    GitHubEgressBudgetExhausted,
+    GitHubRateLimitError,
+    github_request,
+    raise_if_github_rate_limited,
+)
+from posthog.egress.limiter.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -25,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
+    WebhookSyncResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -35,6 +40,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
 )
 
 GITHUB_BASE_URL = "https://api.github.com"
+
+# GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. The header is
+# the only version-dependent part for the endpoints we sync — response shapes are compatible across
+# these versions. Every caller — sync, credential validation, webhook management — passes the
+# source's resolved pin; this constant is only the fallback for callers outside a source instance.
+GITHUB_DEFAULT_API_VERSION = "2022-11-28"
 
 # Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, or the
 # "Repository webhooks: read and write" permission on a fine-grained token. Name both so
@@ -53,6 +64,16 @@ class GithubEmptyRepositoryError(Exception):
     """GitHub returns 409 "Git Repository is empty." on the commits endpoint for
     a freshly created repo with no commits. `fetch_page` raises this so the
     caller can sync zero rows without re-parsing the response body."""
+
+    pass
+
+
+class GithubOrgNotFoundError(Exception):
+    """GitHub returns 404 on the org-scoped endpoints (``/orgs/{org}/teams`` and the members
+    fan-out) when the repository owner is a personal account rather than an organization, or the
+    token has no org access. There is nothing to sync in that case, so ``_fetch_page`` raises this on
+    org-scoped endpoints and the caller syncs zero rows — a benign skip, not a "repository not found"
+    that should fail the schema."""
 
     pass
 
@@ -84,6 +105,12 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+# Endpoints whose list API ignores state/sort/direction and always returns newest-first by
+# created_at. They take a minimal paged read (below) and must report sort_mode=desc on every sync,
+# including the first (see _resolve_sort_mode) — the two must stay in lockstep, hence one set.
+_ALWAYS_NEWEST_FIRST_ENDPOINTS = ("workflow_runs", "deployments")
+
+
 def _build_initial_params(
     config: GithubEndpointConfig,
     endpoint: str,
@@ -91,14 +118,12 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    # workflow_runs has a different param surface: it accepts neither
-    # state/sort/direction nor `since`, and always returns newest-first by
-    # created_at. We intentionally send no time filter either — its `created`
-    # filter would cap the result set to GitHub's 1,000-result search limit and
-    # silently drop rows on busy repos. Incremental sync is handled instead by
-    # paginating newest-first and stopping at the cursor (see get_rows), so the
-    # request stays a plain paged read regardless of incremental state.
-    if endpoint == "workflow_runs":
+    # These endpoints accept neither state/sort/direction nor `since`. We intentionally send no
+    # time filter either — a `created` filter would cap the result set to GitHub's 1,000-result
+    # search limit and silently drop rows on busy repos. Incremental sync is handled instead by
+    # paginating newest-first and stopping at the cursor (see get_rows), so the request stays a
+    # plain paged read regardless of incremental state.
+    if endpoint in _ALWAYS_NEWEST_FIRST_ENDPOINTS:
         return {"per_page": config.page_size}
 
     params: dict[str, Any] = {
@@ -129,8 +154,15 @@ def _build_initial_params(
     return params
 
 
+def _organization_from_repository(repository: str) -> str:
+    """Org-scoped endpoints (teams) derive the org from the repo owner: "owner/repo" -> "owner".
+    The source config only carries the repository, so the owner is the only org signal we have."""
+    return repository.split("/")[0]
+
+
 def _build_initial_url(config: GithubEndpointConfig, repository: str, params: dict[str, Any]) -> str:
-    path = config.path.format(repository=repository)
+    # str.format ignores extra kwargs, so passing organization is safe for repo-only paths too.
+    path = config.path.format(repository=repository, organization=_organization_from_repository(repository))
     if not params:
         return f"{GITHUB_BASE_URL}{path}"
     return f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
@@ -148,23 +180,29 @@ def _resolve_sort_mode(
 
     Most endpoints emit asc on the first sync / full refresh (stable offset
     pagination via sort=created&direction=asc) and only flip to their
-    configured sort once a cutoff exists. workflow_runs is different: it ignores
-    sort/direction and always returns newest-first, so it emits desc on every
-    sync — including the first. workflow_jobs inherits that order: it fans out
-    over workflow_runs newest-first, so its jobs land newest-first too.
+    configured sort once a cutoff exists. The _ALWAYS_NEWEST_FIRST_ENDPOINTS
+    (workflow_runs, deployments) are different: they ignore sort/direction and
+    always return newest-first, so they emit desc on every sync, including the
+    first. Fan-out children inherit the parent walk's order on every sync too,
+    first incremental sync included: the initial_lookback_days floor gives that
+    sync a cutoff, which makes the parent walk descend. Reporting asc for any of
+    these would let the pipeline persist the cursor per batch and, on an
+    interrupted backfill, strand every row older than the batches that flushed.
     """
-    if endpoint in ("workflow_runs", "workflow_jobs"):
+    if endpoint in _ALWAYS_NEWEST_FIRST_ENDPOINTS or config.fan_out_parent is not None:
         return config.sort_mode
     if should_use_incremental_field and db_incremental_field_last_value:
         return config.sort_mode
     return "asc"
 
 
-def _get_headers(access_token: str, endpoint: str = "") -> dict[str, str]:
+def _get_headers(
+    access_token: str, endpoint: str = "", api_version: str = GITHUB_DEFAULT_API_VERSION
+) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
+        "X-GitHub-Api-Version": api_version,
     }
     # Stargazers needs this Accept header to include the starred_at timestamp.
     if endpoint == "stargazers":
@@ -240,14 +278,12 @@ def _should_stop_desc(
     return any(_is_older_than_cutoff(item.get(incremental_field), cutoff) for item in data if item)
 
 
-def validate_credentials(personal_access_token: str, repository: str) -> tuple[bool, str | None]:
+def validate_credentials(
+    personal_access_token: str, repository: str, api_version: str = GITHUB_DEFAULT_API_VERSION
+) -> tuple[bool, str | None]:
     """Validate GitHub API credentials by making a test request to the repository."""
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
-    headers = {
-        "Authorization": f"Bearer {personal_access_token}",
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
+    headers = _get_headers(personal_access_token, api_version=api_version)
 
     try:
         response = make_tracked_session().get(url, headers=headers, timeout=10)
@@ -262,15 +298,72 @@ def validate_credentials(personal_access_token: str, repository: str) -> tuple[b
             return False, f"Repository '{repository}' not found or not accessible"
 
         try:
-            error_data = response.json()
-            message = error_data.get("message", response.text)
+            body = response.json()
+            message = body.get("message") if isinstance(body, dict) else None
+        except ValueError:
+            message = None
+        if message:
             return False, message
-        except Exception:
-            pass
 
-        return False, response.text
+        # A non-JSON body means GitHub returned an HTML error page (e.g. its 5xx "Unicorn!" page) —
+        # never surface that raw markup to the user.
+        if response.status_code >= 500:
+            return False, "GitHub is temporarily unavailable. Please try again in a few minutes."
+        return (
+            False,
+            f"GitHub rejected the request (status {response.status_code}). Please check your token and repository access.",
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
+
+
+# Endpoints that read organization data (not repo data). They need the GitHub App "Members: Read"
+# org permission (or the read:org PAT scope) and an org-owned repo; a user-owned repo has no org,
+# so /orgs/{owner}/teams 404s. Repo-scoped connections may legitimately lack this, so it must be
+# reported per-table in the schema picker, never block source-create.
+ORG_SCOPED_ENDPOINTS = frozenset({"teams", "team_members"})
+
+_ORG_PERMISSION_REASON = (
+    "Requires the 'Members: Read' organization permission on the GitHub App, or the read:org scope "
+    "on a personal access token, and an organization-owned repository"
+)
+
+
+def check_org_endpoint_permission(
+    personal_access_token: str,
+    repository: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> str | None:
+    """Probe the org teams endpoint once. Returns None when reachable, or a short reason when the
+    org grant is missing. Only a real denial (401/403/404) is a missing scope; rate limits, 5xx,
+    egress-budget denials, and network errors mean we could not tell, so treat those as reachable
+    (the sync will surface a real failure if there is one) rather than mislabeling a transient blip
+    as a permission problem."""
+    organization = _organization_from_repository(repository)
+    url = f"{GITHUB_BASE_URL}/orgs/{organization}/teams?per_page=1"
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
+    try:
+        # Same gated + recorded transport as the data plane. NORMAL, not BATCH: a single interactive
+        # schema-picker probe is not deferrable bulk; if the limiter sheds it anyway, that maps to
+        # "could not tell" below rather than a wrong permission verdict.
+        response = github_request(
+            "GET",
+            url,
+            source="warehouse",
+            headers=_get_headers(personal_access_token, api_version=api_version),
+            installation_id=installation_id,
+            priority=Priority.NORMAL,
+            timeout=10,
+            session=make_tracked_session(),
+        )
+        # A rate-limited 403 carries limit markers; without this check it would read as a missing grant.
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError, requests.exceptions.RequestException):
+        return None
+    if response.status_code in (401, 403, 404):
+        return _ORG_PERMISSION_REASON
+    return None
 
 
 def _flatten_commit(item: dict[str, Any]) -> dict[str, Any]:
@@ -320,6 +413,29 @@ def _is_issue_not_pr(item: dict[str, Any]) -> bool:
     return "pull_request" not in item or item["pull_request"] is None
 
 
+def _is_submitted_review(item: dict[str, Any]) -> bool:
+    """Drop the caller's own draft (PENDING) reviews. GitHub returns them from the list endpoint with
+    submitted_at=null; they are not metrics data and a null would land in the partition/cursor column.
+    Keyed on submitted_at rather than the state string so the non-null invariant is enforced directly,
+    whatever shape the state field takes."""
+    return item.get("submitted_at") is not None
+
+
+def _make_parent_field_injector(
+    parent: dict[str, Any], field_map: dict[str, str]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Copy the mapped parent fields onto each child row (e.g. team id/slug/name onto a member),
+    so a fan-out child carries the parent context its own API response omits. Direct access on the
+    parent fields: the injected columns feed the child's composite primary key, so a parent missing
+    one is a broken response that must fail loudly, not corrupt the key with None."""
+    injected = {child_column: parent[parent_field] for parent_field, child_column in field_map.items()}
+
+    def inject(item: dict[str, Any]) -> dict[str, Any]:
+        return {**item, **injected}
+
+    return inject
+
+
 def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
     if endpoint == "commits":
         return _flatten_commit
@@ -331,6 +447,8 @@ def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]
 def _get_item_filter(endpoint: str) -> Callable[[dict[str, Any]], bool] | None:
     if endpoint == "issues":
         return _is_issue_not_pr
+    if endpoint == "reviews":
+        return _is_submitted_review
     return None
 
 
@@ -360,8 +478,8 @@ def _github_retry_wait(state: RetryCallState) -> float:
     exponential backoff."""
     if state.outcome is not None and state.outcome.failed:
         exc = state.outcome.exception()
-        if isinstance(exc, GitHubRateLimitError) and exc.retry_after_seconds is not None:
-            return min(exc.retry_after_seconds, GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
+        if isinstance(exc, GitHubRateLimitError) and exc.retry_after is not None:
+            return min(float(exc.retry_after), GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
     return _github_backoff_wait(state)
 
 
@@ -369,6 +487,8 @@ def _github_retry_wait(state: RetryCallState) -> float:
     retry=retry_if_exception_type(
         (
             GithubRetryableError,
+            # Our egress limiter shed this deferrable page (BATCH); back off and re-acquire next attempt.
+            GitHubEgressBudgetExhausted,
             GitHubRateLimitError,
             requests.ReadTimeout,
             requests.ConnectionError,
@@ -387,29 +507,24 @@ def _fetch_page(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
+    skip_on_not_found: bool = False,
 ) -> requests.Response:
-    # Gate deferrable warehouse polling on the shared per-installation budget BEFORE spending it.
-    # Only the App path has an installation to bill (PAT path has no shared budget). On denial raise
-    # the retryable error so tenacity backs off instead of blocking a worker — bulk traffic defers,
-    # critical traffic keeps the headroom the BATCH reserve protects. Skipped entirely on the PAT path.
+    # One gated + recorded GET through the shared egress client. The App path bills the shared
+    # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
+    # gate and records volume only. On a BATCH denial the client raises GitHubEgressBudgetExhausted, which
+    # this function's @retry backs off on; transport failures are recorded and re-raised for the same
+    # retry. We keep our own tracked session and the GitHub response→exception mapping below.
     installation_id = egress_identity.installation_id if egress_identity is not None else None
-    if installation_id is not None:
-        if not consume_github_installation_sync(installation_id, priority=Priority.BATCH, source="warehouse"):
-            raise GithubRetryableError(f"GitHub egress budget exhausted for installation {installation_id}; deferring")
-
-    # Record transport failures (ReadTimeout/ConnectionError from the retry tuple) too, so a GitHub
-    # connectivity incident doesn't silently zero out warehouse telemetry exactly when it matters. Best
-    # effort — the recorder never raises, and we re-raise the original error untouched.
-    try:
-        response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
-    except requests.RequestException:
-        record_github_api_exception(source="warehouse", method="GET", url=page_url, installation_id=installation_id)
-        raise
-
-    # Record before the branching below so rate-limited (403/429) and error responses count too. Pass the
-    # installation id when known (App path) so the shared rate-limit gauges are set; the PAT path stays
-    # counter-only (no installation, token-blind).
-    record_github_api_response(response, source="warehouse", installation_id=installation_id)
+    response = github_request(
+        "GET",
+        page_url,
+        source="warehouse",
+        headers=headers,
+        installation_id=installation_id,
+        priority=Priority.BATCH,
+        timeout=60,
+        session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
+    )
 
     # Transient server errors: retry with plain exponential backoff.
     if response.status_code >= 500:
@@ -426,6 +541,12 @@ def _fetch_page(
     if _is_empty_repository_response(response):
         raise GithubEmptyRepositoryError()
 
+    # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
+    # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
+    # like an empty repository, not a real "repository not found".
+    if skip_on_not_found and response.status_code == 404:
+        raise GithubOrgNotFoundError()
+
     if not response.ok:
         logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
         response.raise_for_status()
@@ -441,6 +562,7 @@ def _iter_pages(
     max_pages: int | None = None,
     page_cap_context: dict[str, Any] | None = None,
     egress_identity: GithubEgressIdentity | None = None,
+    skip_on_not_found: bool = False,
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of a paginated GitHub list,
     unwrapping the envelope and following the Link header. Stops at ``max_pages``,
@@ -448,7 +570,11 @@ def _iter_pages(
     envelope body simply ends iteration — there is nothing to truncate."""
     page_count = 0
     while True:
-        response = _fetch_page(url, headers, logger, egress_identity)
+        try:
+            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=skip_on_not_found)
+        except GithubOrgNotFoundError:
+            logger.debug(f"Github: org-scoped endpoint not found, syncing zero rows: url={url}")
+            return
         data = response.json()
         if response_data_path and isinstance(data, dict):
             data = data.get(response_data_path) or []
@@ -469,27 +595,44 @@ def _iter_pages(
         url = next_url
 
 
-def _iter_jobs_for_run(
+def _iter_child_for_parent(
     repository: str,
-    run_id: Any,
+    parent_value: Any,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: GithubEndpointConfig,
     egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[dict[str, Any]]:
-    path = config.path.format(repository=repository, run_id=run_id)
+    """Walk a fan-out child endpoint for one parent, substituting the parent's value into the
+    child path placeholder (e.g. {run_id} for workflow_jobs, {team_slug} for team_members).
+
+    Applies the endpoint's item filter and mapper (same seam as the top-level get_rows path) so a
+    fan-out child gets them too, e.g. reviews drops PENDING drafts before rows leave the walk. Parent
+    field injection stays in the caller, which has the parent object; the order there is filter, map,
+    then inject."""
+    fan_out_param = config.fan_out_path_param
+    path = config.path.format(
+        repository=repository,
+        organization=_organization_from_repository(repository),
+        **{fan_out_param: parent_value},
+    )
     params: dict[str, Any] = {"per_page": config.page_size, **(config.extra_params or {})}
     url = f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
-    for jobs, _page_url in _iter_pages(
+    item_filter = _get_item_filter(config.name)
+    item_mapper = _get_item_mapper(config.name)
+    for items, _page_url in _iter_pages(
         url,
         headers,
         config.response_data_path,
         logger,
         max_pages=config.max_pages_per_parent,
-        page_cap_context={"repository": repository, "run_id": run_id},
+        page_cap_context={"repository": repository, fan_out_param: parent_value},
         egress_identity=egress_identity,
     ):
-        yield from jobs
+        for item in items:
+            if item_filter and not item_filter(item):
+                continue
+            yield item_mapper(item) if item_mapper else item
 
 
 def _fan_out_get_rows(
@@ -500,67 +643,140 @@ def _fan_out_get_rows(
     resumable_source_manager: ResumableSourceManager[GithubResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-    incremental_field: str | None,
     egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+    parent_cutoff_override: datetime | None = None,
 ) -> Iterator[Any]:
-    """Single-hop parent->child fan-out: walk the parent endpoint newest-first and
-    emit every child row for each parent. Incremental bounding happens on the
-    parent's created_at cursor (the same desc early-stop workflow_runs uses).
+    """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
+    parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
+    team_members -> {team_slug}) and optionally injecting parent fields onto each child row.
 
-    The child cursor value (max job created_at) is compared against the parent's
-    created_at — they coincide closely since a job is created when its run starts,
-    so the watermark sits slightly above the newest run's timestamp. Re-reading a
-    boundary parent is harmless (jobs upsert by id), but note the inverse: a run
-    that was in_progress when first synced drops below the watermark once it
-    finishes, so its terminal job conclusions and any later-added jobs are not
-    re-fetched. This is the same created_at-cursor staleness workflow_runs carries;
-    the workflow_run webhook (followup) is the fix, not re-scanning history.
+    Incremental bounding only applies when the parent endpoint has its own cursor. workflow_runs
+    carries a created_at cursor, so its jobs fan-out stops early once a page predates the watermark
+    (the same desc early-stop the run poll uses); a boundary re-read is harmless since jobs upsert by
+    id. Full-refresh parents (teams) have no cursor, so every parent is walked each sync; the data
+    volume is tiny, and there is no timestamp to bound on anyway.
+
+    The walk bounds on the parent's own cursor field, compared against the child's watermark; see
+    the parent_cursor_field comment below for the invariant that keeps that comparison sound.
+
+    Same created_at-cursor staleness workflow_runs carries applies to its jobs: a run that was
+    in_progress when first synced drops below the watermark once it finishes, so later job state is
+    not re-fetched by the poll; the workflow_run webhook is the fix, not re-scanning history.
     """
     child_config = GITHUB_ENDPOINTS[endpoint]
     assert child_config.fan_out_parent is not None  # guarded by the get_rows dispatch
     parent_config = GITHUB_ENDPOINTS[child_config.fan_out_parent]
-    headers = _get_headers(personal_access_token, endpoint)
+    # team_members fans out from the org-scoped teams parent, which 404s for a user-owned repo (no
+    # org). Skip only that parent walk — a 404 on a specific team's members is not this benign case
+    # and should still surface.
+    parent_org_scoped = child_config.fan_out_parent in ORG_SCOPED_ENDPOINTS
+    headers = _get_headers(personal_access_token, endpoint, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
-    parent_field = incremental_field or parent_config.default_incremental_field or "created_at"
-    parent_cutoff = db_incremental_field_last_value if should_use_incremental_field else None
+    # A parent with no incremental fields (teams) has no cursor to bound on, so walk it whole.
+    parent_is_incremental = bool(parent_config.incremental_fields)
+    # Bound the walk on the PARENT's own cursor field, never the child's incremental field, which
+    # may not exist on parent rows (reviews sync on submitted_at, which lives on the review, not
+    # the pull request). Comparing the parent cursor against the child watermark is sound because
+    # whatever creates a child row also bumps the parent's cursor (a submitted review bumps the
+    # PR's updated_at), so a parent holding children newer than the watermark always sorts above
+    # it; parents bumped for other reasons get re-fanned harmlessly since children upsert by key.
+    parent_cursor_field = parent_config.default_incremental_field or "created_at"
+    parent_cutoff = (
+        db_incremental_field_last_value if (should_use_incremental_field and parent_is_incremental) else None
+    )
 
+    # A reconciliation pass re-walks a fixed recent window regardless of the watermark (which is
+    # newer and would stop the walk too early), so an explicit override beats both the watermark
+    # and the first-sync floor below.
+    if parent_cutoff_override is not None:
+        parent_cutoff = parent_cutoff_override
     # First incremental sync (watermark set up, but nothing synced yet): floor the
-    # backfill at a recent window instead of fanning out over the repo's entire run
+    # backfill at a recent window instead of fanning out over the parent's entire
     # history. Scoped to the incremental first run on purpose — an explicit full
     # refresh still pulls everything, and later syncs advance from their watermark.
-    if (
-        should_use_incremental_field
+    elif (
+        parent_is_incremental
+        and should_use_incremental_field
         and db_incremental_field_last_value is None
         and child_config.initial_lookback_days is not None
     ):
         parent_cutoff = _now_utc() - timedelta(days=child_config.initial_lookback_days)
         logger.debug(f"Github: flooring {endpoint} first-sync fan-out at {parent_cutoff.isoformat()}")
 
+    # Parents whose recency field (bumped by any new child) predates the child watermark hold no
+    # unseen children, so their child fetch is skipped. The watermark is pulled back one second
+    # because _is_older_than_cutoff is inclusive and GitHub timestamps are second-coarse: a parent
+    # whose recency equals the watermark may hold a child from that same second, so it re-fans.
+    parent_recency_field = child_config.fan_out_parent_recency_field
+    parent_recency_cutoff: datetime | None = None
+    if (
+        parent_recency_field is not None
+        and should_use_incremental_field
+        and isinstance(db_incremental_field_last_value, datetime)
+    ):
+        parent_recency_cutoff = db_incremental_field_last_value - timedelta(seconds=1)
+
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
         parent_url: str = resume_config.next_url
         logger.debug(f"Github: resuming {endpoint} fan-out from parent URL: {parent_url}")
+    elif parent_is_incremental:
+        # Build the parent list URL with the parent's own incremental params so it arrives sorted on
+        # parent_cursor_field descending once a cutoff exists. Without the sort, pull_requests would
+        # come back in its default order (created asc) and _should_stop_desc below would see an old
+        # record on the first page and halt early, dropping newer parents. workflow_runs takes its
+        # per_page-only branch inside _build_initial_params (the API ignores sort/direction and
+        # always returns newest-first).
+        parent_params = _build_initial_params(
+            parent_config,
+            parent_config.name,
+            should_use_incremental_field,
+            parent_cutoff,
+            parent_cursor_field,
+        )
+        parent_url = _build_initial_url(parent_config, repository, parent_params)
     else:
+        # Cursor-less parents (teams) take a plain paged read; the generic state/sort defaults in
+        # _build_initial_params belong to list endpoints that define those params.
         parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
 
-    for runs, page_url in _iter_pages(
-        parent_url, headers, parent_config.response_data_path, logger, egress_identity=egress_identity
+    for parents, page_url in _iter_pages(
+        parent_url,
+        headers,
+        parent_config.response_data_path,
+        logger,
+        egress_identity=egress_identity,
+        skip_on_not_found=parent_org_scoped,
     ):
-        stop_after_this_page = _should_stop_desc(runs, "desc", parent_field, parent_cutoff)
+        stop_after_this_page = _should_stop_desc(parents, "desc", parent_cursor_field, parent_cutoff)
 
-        for run in runs:
-            # Direct access on the run's id (its primary key): a run without one is a broken
+        for parent in parents:
+            # Direct access on the parent's fan-out field (id/slug): a parent missing it is a broken
             # response that should fail loudly, not get silently dropped.
-            run_id = run["id"]
+            parent_value = parent[child_config.fan_out_parent_field]
             # Only fan out parents at/above the watermark; older ones were synced before.
-            if parent_cutoff is not None and _is_older_than_cutoff(run.get(parent_field), parent_cutoff):
+            if parent_cutoff is not None and _is_older_than_cutoff(parent.get(parent_cursor_field), parent_cutoff):
                 continue
-            for job in _iter_jobs_for_run(repository, run_id, headers, logger, child_config, egress_identity):
-                batcher.batch(job)
+            if (
+                parent_recency_field is not None
+                and parent_recency_cutoff is not None
+                and _is_older_than_cutoff(parent.get(parent_recency_field), parent_recency_cutoff)
+            ):
+                continue
+            inject = (
+                _make_parent_field_injector(parent, child_config.fan_out_include_parent_fields)
+                if child_config.fan_out_include_parent_fields
+                else None
+            )
+            for item in _iter_child_for_parent(
+                repository, parent_value, headers, logger, child_config, egress_identity
+            ):
+                batcher.batch(inject(item) if inject else item)
                 if batcher.should_yield():
                     yield batcher.get_table()
-                    # Checkpoint the parent page; resume re-fans it out and dedupes by id.
+                    # Checkpoint the parent page; resume re-fans it out and dedupes by primary key.
                     if not stop_after_this_page:
                         resumable_source_manager.save_state(GithubResumeConfig(next_url=page_url))
 
@@ -581,6 +797,8 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
     incremental_field: str | None = None,
     egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+    parent_cutoff_override: datetime | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -592,12 +810,13 @@ def get_rows(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
             egress_identity=egress_identity,
+            api_version=api_version,
+            parent_cutoff_override=parent_cutoff_override,
         )
         return
 
-    headers = _get_headers(personal_access_token, endpoint)
+    headers = _get_headers(personal_access_token, endpoint, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     actual_sort_mode = _resolve_sort_mode(
@@ -624,11 +843,15 @@ def get_rows(
     else:
         url = _build_initial_url(config, repository, initial_params)
 
+    org_scoped = endpoint in ORG_SCOPED_ENDPOINTS
     while True:
         try:
-            response = _fetch_page(url, headers, logger, egress_identity)
+            response = _fetch_page(url, headers, logger, egress_identity, skip_on_not_found=org_scoped)
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
+            break
+        except GithubOrgNotFoundError:
+            logger.debug(f"Github: no accessible org teams for {endpoint}, syncing zero rows: url={url}")
             break
 
         data = response.json()
@@ -674,6 +897,12 @@ def get_rows(
         yield py_table
 
 
+def _normalize_primary_key(primary_key: str | list[str]) -> list[str]:
+    """A config primary_key is a single column str or a composite list; SourceResponse always wants
+    a list, so normalize here rather than storing the shape difference downstream."""
+    return [primary_key] if isinstance(primary_key, str) else list(primary_key)
+
+
 def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) -> Callable[[pa.Table], pa.Table]:
     """Collapse a webhook batch to one row per ``primary_key`` — the one ranking newest by
     ``version_keys`` (newest first, NULLs last). GitHub emits a single run/job as separate
@@ -715,6 +944,28 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
     return transform
 
 
+async def _chain_webhook_items_with_reconciliation(
+    webhook_items: AsyncIterator[pa.Table],
+    make_reconcile_rows: Callable[[], Iterator[Any]],
+) -> AsyncIterator[Any]:
+    """Drain the webhook files, then run the bounded reconciliation poll. The poll is a blocking
+    requests-based generator, so each step runs in a worker thread to keep the event loop (and
+    the async S3 client the drain used) responsive."""
+    async for table in webhook_items:
+        yield table
+    reconcile_rows = make_reconcile_rows()
+    done = object()
+
+    def next_or_done() -> Any:
+        return next(reconcile_rows, done)
+
+    while True:
+        table = await asyncio.to_thread(next_or_done)
+        if table is done:
+            return
+        yield table
+
+
 def github_source(
     personal_access_token: str,
     repository: str,
@@ -726,6 +977,8 @@ def github_source(
     incremental_field: str | None = None,
     webhook_source_manager: Optional[WebhookSourceManager] = None,
     egress_identity: GithubEgressIdentity | None = None,
+    response_name: str | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -738,17 +991,35 @@ def github_source(
     # passed (or it isn't enabled), the poll path below stays unchanged.
     #
     # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
-    # i.e. workflow_jobs) would otherwise deadlock a fresh webhook schema: the
+    # i.e. workflow_jobs and reviews) would otherwise deadlock a fresh webhook schema: the
     # zero-row poll never creates a table, so initial_sync_complete is never set, so
     # webhook_enabled stays False forever and queued webhook files never drain. There
-    # is no backfill to lose for these, so activate webhook mode from the first run
-    # (skip the initial_sync_complete gate), the same way the Slack source does.
-    skip_initial_sync_complete_check = endpoint_config.initial_lookback_days == 0
+    # is no backfill to lose for these, so activate webhook mode from the first run, the same
+    # way the Slack source does; being webhook-first also means a requested pipeline reset must
+    # not force the poll path or wipe the table (see handle_reset_or_full_refresh).
+    webhook_only = endpoint_config.initial_lookback_days == 0
     webhook_enabled = (
-        async_to_sync(webhook_source_manager.webhook_enabled)(skip_initial_sync_complete_check)
+        async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
         if webhook_source_manager is not None
         else False
     )
+    # Effective webhook-only: the endpoint is webhook-first (zero lookback) AND this schema is
+    # actually in webhook sync mode. webhook_enabled already implies schema.is_webhook; otherwise
+    # confirm against the DB (only on the poll fallback, so no extra read when webhook is active).
+    # Gating on the schema, not just the endpoint config, keeps a legacy poll-mode workflow_runs
+    # schema correct on two fronts: it keeps polling (the poll no-op below stays off), and its
+    # SourceResponse.webhook_only stays False so a reset still wipes+rebuilds (handle_reset_or_full_refresh
+    # only preserves the table for genuinely webhook-only schemas).
+    webhook_only_schema = bool(
+        webhook_only
+        and webhook_source_manager is not None
+        and (webhook_enabled or async_to_sync(webhook_source_manager.schema_is_webhook)())
+    )
+    # A webhook-only schema whose webhook mode is inactive (no function yet, or reset_pipeline forced
+    # the poll path) yields nothing rather than crawling the full REST history — otherwise the direct
+    # workflow_runs poll ignores the zero-day marker and re-crawls all of /actions/runs. Matches the
+    # Slack/Stripe webhook-only sources.
+    webhook_only_poll_noop = webhook_only_schema and not webhook_enabled
 
     def items() -> Iterator[Any] | AsyncIterator[Any]:
         if webhook_enabled:
@@ -758,16 +1029,52 @@ def github_source(
             # job and workflow-run objects once: the "list jobs for a workflow run" REST
             # response object is the same schema as the workflow_job webhook event's nested
             # workflow_job object (same for workflow_run), so the rows are interchangeable.
+            # Reviews need a reshape (the event nests the review under body.review, states
+            # are lowercase, and pr_number is injected) which the template does before
+            # producing, so rows land here already in the polled REST shape.
             #
             # Each event for an id arrives as its own row (queued -> in_progress -> completed);
             # collapse them to the latest per id here, since the delta merge doesn't dedupe a
             # source batch. Same pattern as the Stripe webhook source.
+            # Webhook-capable endpoints all key on a single column; the dedupe transformer
+            # collapses one pk column, so pass the first (only) key. Fan-out children with
+            # composite keys have no version_keys, so this branch never runs for them.
             transformer = (
-                _make_webhook_dedupe_transformer(endpoint_config.primary_key, endpoint_config.version_keys)
+                _make_webhook_dedupe_transformer(
+                    _normalize_primary_key(endpoint_config.primary_key)[0], endpoint_config.version_keys
+                )
                 if endpoint_config.version_keys
                 else None
             )
-            return webhook_source_manager.get_items(table_transformer=transformer)
+            webhook_items = webhook_source_manager.get_items(table_transformer=transformer)
+            reconcile_days = endpoint_config.webhook_reconcile_lookback_days
+            if reconcile_days is None:
+                return webhook_items
+            # GitHub never fires a deployment_status webhook for the inactive state, so a pure
+            # webhook drain would miss rollback/auto_inactive transitions; chase the drain with a
+            # bounded fan-out over recent parents so those rows still arrive from the list API.
+            # should_use_incremental_field is forced on so the fan-out applies the parent recency
+            # skip against the real child watermark; the window override below, not the watermark,
+            # bounds the parent walk either way.
+            return _chain_webhook_items_with_reconciliation(
+                webhook_items,
+                lambda: get_rows(
+                    personal_access_token=personal_access_token,
+                    repository=repository,
+                    endpoint=endpoint,
+                    logger=logger,
+                    resumable_source_manager=resumable_source_manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    incremental_field=incremental_field,
+                    egress_identity=egress_identity,
+                    api_version=api_version,
+                    parent_cutoff_override=_now_utc() - timedelta(days=reconcile_days),
+                ),
+            )
+
+        if webhook_only_poll_noop:
+            return iter([])
 
         return get_rows(
             personal_access_token=personal_access_token,
@@ -779,18 +1086,22 @@ def github_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field=incremental_field,
             egress_identity=egress_identity,
+            api_version=api_version,
         )
 
     return SourceResponse(
-        name=endpoint,
+        # The storage identity (Delta subdir / queryable folder). Repo-qualified schemas pass a
+        # normalized `owner_repo_endpoint`; legacy bare schemas default to the endpoint, today's value.
+        name=response_name or endpoint,
         items=items,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=_normalize_primary_key(endpoint_config.primary_key),
         sort_mode=actual_sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="week" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        webhook_only=webhook_only_schema,
     )
 
 
@@ -802,14 +1113,19 @@ def _is_repo_hook_permission_error(response: requests.Response) -> bool:
 
 
 def create_repo_webhook(
-    token: str, repo: str, webhook_url: str, events: list[str], secret: str
+    token: str,
+    repo: str,
+    webhook_url: str,
+    events: list[str],
+    secret: str,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
 ) -> WebhookCreationResult:
     """Create a repo webhook via POST /repos/{repo}/hooks.
 
     Returns a failed (not raised) result when the token lacks admin:repo_hook so
     the caller can surface a manual-setup caption instead of hard-failing.
     """
-    headers = _get_headers(token)
+    headers = _get_headers(token, api_version=api_version)
     payload = {
         "name": "web",
         "active": True,
@@ -848,13 +1164,107 @@ def create_repo_webhook(
     )
 
 
-def _list_repo_hooks(token: str, repo: str) -> tuple[list[dict[str, Any]] | None, str | None]:
-    """List repo webhooks via GET /repos/{repo}/hooks. Returns (hooks, error); error is
-    ``"permission"`` when the token lacks admin:repo_hook so callers can fall back to manual setup."""
-    try:
-        response = make_tracked_session().get(
-            f"{GITHUB_BASE_URL}/repos/{repo}/hooks", headers=_get_headers(token), params={"per_page": 100}, timeout=30
+def ensure_repo_webhook(
+    token: str,
+    repo: str,
+    webhook_url: str,
+    events: list[str],
+    secret: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> WebhookCreationResult:
+    """Idempotently ensure a repo webhook pointing at ``webhook_url`` exists with ``secret``.
+
+    A hook already matching the URL is PATCHed (secret re-pinned, events unioned) instead of
+    re-created — a bare POST would 422 with "Hook already exists on this repository", which
+    matters both for retried creates and for reconciling a multi-repo source where some repos
+    already carry the hook. No match falls through to the plain create."""
+    hooks, error = _list_repo_hooks(token, repo, egress_identity, api_version=api_version)
+    if error == "permission":
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
+            ),
         )
+    if error is not None:
+        return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error}")
+
+    hook = _match_hook_by_url(hooks or [], webhook_url)
+    if hook is None:
+        return create_repo_webhook(token, repo, webhook_url, events, secret=secret, api_version=api_version)
+
+    merged_events = sorted(set(hook.get("events") or []) | set(events))
+    try:
+        response = github_request(
+            "PATCH",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
+            source="warehouse",
+            headers=_get_headers(token, api_version=api_version),
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+            json={
+                "active": True,
+                "events": merged_events,
+                "config": {"url": webhook_url, "content_type": "json", "secret": secret},
+            },
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookCreationResult(
+            success=False,
+            error="GitHub rate limit reached while updating the repository webhook; please retry shortly.",
+        )
+    except requests.exceptions.RequestException as e:
+        return WebhookCreationResult(success=False, error=f"Failed to update webhook automatically: {e}")
+
+    if response.ok:
+        return WebhookCreationResult(success=True, extra_inputs={"signing_secret": secret})
+    if _is_repo_hook_permission_error(response):
+        return WebhookCreationResult(
+            success=False,
+            error=(
+                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
+                "Add it and reconnect, or set up the webhook manually following the steps below."
+            ),
+        )
+    return WebhookCreationResult(
+        success=False, error=f"Failed to update webhook automatically: {response.status_code} {response.text}"
+    )
+
+
+def _list_repo_hooks(
+    token: str,
+    repo: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """List repo webhooks via GET /repos/{repo}/hooks. Returns (hooks, error); error is
+    ``"permission"`` when the token lacks admin:repo_hook so callers can fall back to manual setup.
+
+    Rate limits (and egress budget sheds) are classified before the permission mapping: a
+    rate-limited 403 also lands in _is_repo_hook_permission_error's status set, and misreading it
+    would tell the user their token lacks webhook permissions while the token is fine."""
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
+    try:
+        # Gated + recorded transport, like the data plane and the reconcile PATCH. NORMAL, not
+        # BATCH: webhook management on an interactive path is not deferrable bulk.
+        response = github_request(
+            "GET",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks?per_page=100",
+            source="warehouse",
+            headers=_get_headers(token, api_version=api_version),
+            installation_id=installation_id,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return None, "GitHub rate limit reached while listing repository webhooks; please retry shortly."
     except requests.exceptions.RequestException as e:
         return None, str(e)
 
@@ -877,18 +1287,30 @@ def _match_hook_by_url(hooks: list[dict[str, Any]], webhook_url: str) -> dict[st
     return None
 
 
-def _find_repo_hook_id(token: str, repo: str, webhook_url: str) -> tuple[int | None, str | None]:
+def _find_repo_hook_id(
+    token: str,
+    repo: str,
+    webhook_url: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> tuple[int | None, str | None]:
     """Return (hook_id, error). Matches on config.url == webhook_url."""
-    hooks, error = _list_repo_hooks(token, repo)
+    hooks, error = _list_repo_hooks(token, repo, egress_identity, api_version=api_version)
     if error is not None:
         return None, error
     hook = _match_hook_by_url(hooks or [], webhook_url)
     return (hook.get("id") if hook else None), None
 
 
-def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDeletionResult:
+def delete_repo_webhook(
+    token: str,
+    repo: str,
+    webhook_url: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> WebhookDeletionResult:
     """Find the repo webhook matching webhook_url and DELETE /repos/{repo}/hooks/{id}."""
-    hook_id, error = _find_repo_hook_id(token, repo, webhook_url)
+    hook_id, error = _find_repo_hook_id(token, repo, webhook_url, egress_identity, api_version=api_version)
     if error == "permission":
         return WebhookDeletionResult(
             success=False,
@@ -900,7 +1322,7 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
         # Nothing to delete — treat as success, same as Stripe's no-match path.
         return WebhookDeletionResult(success=True)
 
-    headers = _get_headers(token)
+    headers = _get_headers(token, api_version=api_version)
     try:
         response = make_tracked_session().delete(
             f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook_id}", headers=headers, timeout=30
@@ -923,9 +1345,92 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
     )
 
 
-def get_repo_webhook_info(token: str, repo: str, webhook_url: str) -> ExternalWebhookInfo:
+def _webhook_update_permission_result(events: list[str]) -> WebhookSyncResult:
+    return WebhookSyncResult(
+        success=False,
+        error=(
+            f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository "
+            f"webhook. Add it and reconnect, or add these events to the webhook manually: {', '.join(events)}."
+        ),
+    )
+
+
+def update_repo_webhook(
+    token: str,
+    repo: str,
+    webhook_url: str,
+    events: list[str],
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> WebhookSyncResult:
+    """Add ``events`` to the repo webhook matching ``webhook_url``, writing only on drift.
+
+    Additive on purpose: the PATCH sends the union of current and desired events, so events the
+    user subscribed themselves are never dropped. Permission errors return a failed (not raised)
+    result so schema-enable can proceed with a warning instead of hard-failing."""
+    if not events:
+        return WebhookSyncResult(success=True)
+
+    hooks, error = _list_repo_hooks(token, repo, egress_identity, api_version=api_version)
+    if error == "permission":
+        return _webhook_update_permission_result(events)
+    if error is not None:
+        return WebhookSyncResult(success=False, error=f"Failed to update webhook events: {error}")
+
+    hook = _match_hook_by_url(hooks or [], webhook_url)
+    if hook is None:
+        # No matching webhook, so nothing to reconcile (creation is handled elsewhere). Same as Stripe.
+        return WebhookSyncResult(success=True)
+
+    current = set(hook.get("events") or [])
+    # A "*" subscription already covers everything.
+    if "*" in current or all(event in current for event in events):
+        return WebhookSyncResult(success=True)
+
+    merged = sorted(current | set(events))
+    try:
+        # Gated + recorded transport, like the data plane and the org permission probe. NORMAL, not
+        # BATCH: a single reconcile write on a schema-enable path is not deferrable bulk. A rate
+        # limit must be told apart from a permission 403 here, or a throttled reconcile would tell
+        # the user their token lacks webhook permissions.
+        response = github_request(
+            "PATCH",
+            f"{GITHUB_BASE_URL}/repos/{repo}/hooks/{hook['id']}",
+            source="warehouse",
+            headers=_get_headers(token, api_version=api_version),
+            installation_id=egress_identity.installation_id if egress_identity is not None else None,
+            priority=Priority.NORMAL,
+            timeout=30,
+            session=make_tracked_session(),
+            json={"events": merged},
+        )
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        return WebhookSyncResult(
+            success=False,
+            error="GitHub rate limit reached while updating webhook events; it will be retried on the next schema update.",
+        )
+    except requests.exceptions.RequestException as e:
+        return WebhookSyncResult(success=False, error=f"Failed to update webhook events: {e}")
+
+    if response.ok:
+        return WebhookSyncResult(success=True)
+    if _is_repo_hook_permission_error(response):
+        return _webhook_update_permission_result(events)
+    return WebhookSyncResult(
+        success=False, error=f"Failed to update webhook events: {response.status_code} {response.text}"
+    )
+
+
+def get_repo_webhook_info(
+    token: str,
+    repo: str,
+    webhook_url: str,
+    egress_identity: GithubEgressIdentity | None = None,
+    api_version: str = GITHUB_DEFAULT_API_VERSION,
+) -> ExternalWebhookInfo:
     """List repo webhooks via GET /repos/{repo}/hooks and match config.url == webhook_url."""
-    hooks, error = _list_repo_hooks(token, repo)
+    hooks, error = _list_repo_hooks(token, repo, egress_identity, api_version=api_version)
     if error == "permission":
         return ExternalWebhookInfo(
             exists=False,

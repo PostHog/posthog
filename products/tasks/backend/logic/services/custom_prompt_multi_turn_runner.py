@@ -66,6 +66,7 @@ class MultiTurnSession:
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
         fallback_from_text: Callable[[str], _ModelT] | None = None,
+        workflow_id_prefix: str | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -98,6 +99,7 @@ class MultiTurnSession:
             internal=internal,
             on_task_run_created=on_task_run_created,
             max_poll_seconds=max_poll_seconds,
+            workflow_id_prefix=workflow_id_prefix,
         )
         try:
             parsed = cls._parse_and_validate(last_message, model, label="initial turn")
@@ -151,6 +153,7 @@ class MultiTurnSession:
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
+        workflow_id_prefix: str | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
@@ -168,10 +171,13 @@ class MultiTurnSession:
             signal_report_id=signal_report_id,
             ai_stage=ai_stage,
             internal=internal,
+            workflow_id_prefix=workflow_id_prefix,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
-        # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns
-        workflow_id = TaskRun.get_workflow_id(task.id, task_run.id)
+        # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.
+        # Recomputed from the prefix we just passed (not read from the row) so a dispatch deferred by
+        # transaction.on_commit can't leave us with the default id here.
+        workflow_id = TaskRun.get_workflow_id(task.id, task_run.id, workflow_id_prefix)
         client = await async_connect()
         workflow_handle = client.get_workflow_handle(workflow_id)
         session = cls(

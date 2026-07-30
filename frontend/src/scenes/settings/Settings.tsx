@@ -8,6 +8,7 @@ import React from 'react'
 import { IconExternal, IconList } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
@@ -42,15 +43,6 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SearchResult, settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'
 
-/**
- * Lets a setting's component take over the whole settings pane — hiding the scene title and the
- * section heading/description — so it can render as its own full page (e.g. a member detail page).
- * Call `setChromeHidden(true)` on mount and `setChromeHidden(false)` on unmount.
- */
-export const SettingsChromeContext = React.createContext<{ setChromeHidden: (hidden: boolean) => void }>({
-    setChromeHidden: () => {},
-})
-
 export interface SettingOption {
     key: string
     content?: JSX.Element
@@ -74,6 +66,7 @@ export function Settings({
 }): JSX.Element {
     const {
         selectedSectionId,
+        selectedSection,
         selectedLevel,
         selectedSettingId,
         settings,
@@ -119,6 +112,15 @@ export function Settings({
     // in normal flow instead, so it sits beside the content rather than overlapping.
     const isFullScene = props.logicKey === 'settingsScene'
 
+    // Sections gated by access control render a generic denial instead of their settings,
+    // which would otherwise mount and immediately 403 against their endpoints.
+    const sectionAccessDeniedReason = selectedSection?.accessControl
+        ? getAccessControlDisabledReason(
+              selectedSection.accessControl.resourceType,
+              selectedSection.accessControl.minimumAccessLevel
+          )
+        : null
+
     // When embedded in a specific section (replay, logs, error tracking, etc. — anything that
     // passes a `sectionId`), the nav always lists that section's settings as in-context sub-tabs.
     // It must NOT depend on `selectedSetting` resolving: that value is derived from asynchronously
@@ -163,13 +165,13 @@ export function Settings({
         return () => clearTimeout(timer)
     }, [selectedSectionId, isSearching])
 
-    // Currently environment and project settings do not require periodic re-authentication,
-    // though this is likely to change (see https://github.com/posthog/posthog/pull/22421).
-    // In the meantime, we don't want a needless re-authentication modal:
-    const AuthenticationAreaComponent =
-        selectedLevel !== 'environment' && selectedLevel !== 'project'
-            ? TimeSensitiveAuthenticationArea
-            : React.Fragment
+    // Environment and project settings don't require periodic re-authentication by default,
+    // so we avoid a needless re-authentication modal (see https://github.com/posthog/posthog/pull/22421).
+    // The exception is sections that opt in via `requiresReauthentication` — e.g. credential
+    // management — which prompt on navigation like user- and organization-level settings do.
+    const requiresReauthentication =
+        (selectedLevel !== 'environment' && selectedLevel !== 'project') || !!selectedSection?.requiresReauthentication
+    const AuthenticationAreaComponent = requiresReauthentication ? TimeSensitiveAuthenticationArea : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
@@ -339,75 +341,79 @@ export function Settings({
         </Combobox>
     )
 
-    const [chromeHidden, setChromeHidden] = React.useState(false)
+    // Embeds show only the denied section's sub-tabs, so hide the nav along with the content.
+    // The full settings scene keeps its nav so other sections stay reachable.
+    const hideNav = hideSections || (settingsInSidebar && !!sectionAccessDeniedReason)
 
     return (
-        <SettingsChromeContext.Provider value={{ setChromeHidden }}>
-            <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')}>
-                {hideSections ? null : isCompact ? (
-                    <>
-                        <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
-                            <IconList className="stroke-2 size-4 mr-1" />{' '}
-                            <span className="flex-1 truncate text-left font-semibold text-base">Settings menu</span>
-                        </Button>
-                        <Drawer
-                            swipeDirection="left"
-                            open={isCompactNavigationOpen}
-                            onOpenChange={(open) => (open ? openCompactNavigation() : closeCompactNavigation())}
-                        >
-                            <DrawerContent data-quill>
-                                <DrawerTitle className="sr-only">Settings navigation</DrawerTitle>
-                                {/* Pin the height to the visual viewport (minus the drawer's 1rem
+        <div className={clsx('Settings flex items-start', isCompact && 'Settings--compact')}>
+            {hideNav ? null : isCompact ? (
+                <>
+                    <Button variant="outline" left className="w-full" onClick={() => openCompactNavigation()}>
+                        <IconList className="stroke-2 size-4 mr-1" />{' '}
+                        <span className="flex-1 truncate text-left font-semibold text-base">Settings menu</span>
+                    </Button>
+                    <Drawer
+                        swipeDirection="left"
+                        open={isCompactNavigationOpen}
+                        onOpenChange={(open) => (open ? openCompactNavigation() : closeCompactNavigation())}
+                    >
+                        <DrawerContent data-quill>
+                            <DrawerTitle className="sr-only">Settings navigation</DrawerTitle>
+                            {/* Pin the height to the visual viewport (minus the drawer's 1rem
                                 padding) so the search stays put, the list scrolls within, and
                                 the panel shrinks above the on-screen keyboard. */}
-                                <div
-                                    className="flex flex-col min-h-0"
-                                    style={{
-                                        height:
-                                            visualViewportHeight != null
-                                                ? `${visualViewportHeight - 16}px`
-                                                : 'calc(100dvh - 1rem)',
-                                    }}
-                                >
-                                    {navContent}
-                                </div>
-                            </DrawerContent>
-                        </Drawer>
-                        <LemonDivider />
-                    </>
-                ) : (
-                    <div
-                        data-quill
-                        className={clsx(
-                            'border rounded w-[var(--settings-nav-width)] flex flex-col',
-                            isFullScene
-                                ? 'fixed top-(--scene-padding) bottom-(--scene-padding)'
-                                : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
-                        )}
-                    >
-                        {navContent}
-                    </div>
-                )}
-
+                            <div
+                                className="flex flex-col min-h-0"
+                                style={{
+                                    height:
+                                        visualViewportHeight != null
+                                            ? `${visualViewportHeight - 16}px`
+                                            : 'calc(100dvh - 1rem)',
+                                }}
+                            >
+                                {navContent}
+                            </div>
+                        </DrawerContent>
+                    </Drawer>
+                    <LemonDivider />
+                </>
+            ) : (
                 <div
+                    data-quill
                     className={clsx(
-                        'flex-1 w-full min-w-0 self-start pb-32',
-                        isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
+                        'border rounded w-[var(--settings-nav-width)] flex flex-col',
+                        isFullScene
+                            ? 'fixed top-(--settings-nav-top) bottom-(--scene-padding)'
+                            : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
                     )}
                 >
-                    <AuthenticationAreaComponent>
-                        <div className="space-y-2">
-                            {!chromeHidden && headerSlot}
-                            <SettingsRenderer {...props} handleLocally={handleLocally} hideChrome={chromeHidden} />
-                        </div>
-                    </AuthenticationAreaComponent>
+                    {navContent}
                 </div>
+            )}
+
+            <div
+                className={clsx(
+                    'flex-1 w-full min-w-0 self-start pb-32',
+                    isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
+                )}
+            >
+                <AuthenticationAreaComponent>
+                    <div className="space-y-2">
+                        {headerSlot}
+                        {sectionAccessDeniedReason ? (
+                            <AccessDenied reason={sectionAccessDeniedReason} />
+                        ) : (
+                            <SettingsRenderer {...props} handleLocally={handleLocally} />
+                        )}
+                    </div>
+                </AuthenticationAreaComponent>
             </div>
-        </SettingsChromeContext.Provider>
+        </div>
     )
 }
 
-function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean; hideChrome?: boolean }): JSX.Element {
+function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
     const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
 
@@ -420,7 +426,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean; 
             {settings.length ? (
                 settings.map((x, index) => (
                     <div key={`${x.id}-${index}`} className="relative last:mb-4">
-                        {!settingsInSidebar && !props.hideChrome && x.title && (
+                        {!settingsInSidebar && x.title && (
                             <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
@@ -437,7 +443,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean; 
                                 {x.platformSupport && <SupportedPlatforms config={x.platformSupport} />}
                             </h2>
                         )}
-                        {!props.hideChrome && x.description && (
+                        {x.description && (
                             <p className="max-w-160 text-sm text-secondary mb-4">
                                 {x.description}
                                 {x.docsUrl && (

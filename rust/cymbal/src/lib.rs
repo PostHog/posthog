@@ -16,6 +16,5 @@ pub use core::{error, metric_consts, symbolication};
 // Compat re-exports: processing-only modules now live under `modes::processing`.
 // Prefer `crate::modes::processing::*` in new code.
 pub use modes::processing::{
-    analytics, app_context, fingerprinting, issue_resolution, router, server, signals, stages,
-    teams, tokenizer, types,
+    app_context, fingerprinting, issue_resolution, router, server, stages, teams, tokenizer, types,
 };

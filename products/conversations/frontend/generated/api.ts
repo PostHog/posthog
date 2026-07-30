@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AiFeedbackRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
@@ -28,12 +29,15 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    PatchedTicketViewApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketViewApi,
+    ZendeskImportJobApi,
+    ZendeskImportStartApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -317,23 +321,6 @@ export const conversationsTicketsList = async (
     })
 }
 
-export const getConversationsTicketsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/conversations/tickets/`
-}
-
-export const conversationsTicketsCreate = async (
-    projectId: string,
-    ticketApi?: NonReadonly<TicketApi>,
-    options?: RequestInit
-): Promise<TicketApi> => {
-    return apiMutator<TicketApi>(getConversationsTicketsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(ticketApi),
-    })
-}
-
 export const getConversationsTicketsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/conversations/tickets/${id}/`
 }
@@ -403,6 +390,27 @@ export const conversationsTicketsDestroy = async (
     return apiMutator<void>(getConversationsTicketsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsTicketsAiFeedbackCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/ai_feedback/`
+}
+
+/**
+ * Record reviewer feedback on an AI reply, captured to the internal analytics project.
+ */
+export const conversationsTicketsAiFeedbackCreate = async (
+    projectId: string,
+    id: string,
+    aiFeedbackRequestApi: AiFeedbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getConversationsTicketsAiFeedbackCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aiFeedbackRequestApi),
     })
 }
 
@@ -624,6 +632,24 @@ export const conversationsViewsRetrieve = async (
     })
 }
 
+export const getConversationsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/views/${shortId}/`
+}
+
+export const conversationsViewsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedTicketViewApi?: NonReadonly<PatchedTicketViewApi>,
+    options?: RequestInit
+): Promise<TicketViewApi> => {
+    return apiMutator<TicketViewApi>(getConversationsViewsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTicketViewApi),
+    })
+}
+
 export const getConversationsViewsDestroyUrl = (projectId: string, shortId: string) => {
     return `/api/projects/${projectId}/conversations/views/${shortId}/`
 }
@@ -636,5 +662,36 @@ export const conversationsViewsDestroy = async (
     return apiMutator<void>(getConversationsViewsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsZendeskImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/zendesk_imports/`
+}
+
+export const conversationsZendeskImportsCreate = async (
+    projectId: string,
+    zendeskImportStartApi: ZendeskImportStartApi,
+    options?: RequestInit
+): Promise<ZendeskImportJobApi> => {
+    return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(zendeskImportStartApi),
+    })
+}
+
+export const getConversationsZendeskImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/zendesk_imports/status/`
+}
+
+export const conversationsZendeskImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ZendeskImportJobApi> => {
+    return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

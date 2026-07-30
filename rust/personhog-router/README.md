@@ -77,6 +77,14 @@ Two policies layer on the raw mechanism:
    the leader; across keys the drain fans out to shrink wall-clock
    drain duration.
 
+3. **Fenced-leader remap**: a `FAILED_PRECONDITION` from the leader
+   during drain means the drain raced the target's write fence — the
+   old owner resuming after a cancelled handoff, or the new owner's
+   cutover — a transient coordination state, not a caller error.
+   Because `FAILED_PRECONDITION` reads as "do not retry" to clients,
+   drain remaps it to `UNAVAILABLE` so callers retry, consistent with
+   the deadline and bounds contracts above.
+
 Bounds are configurable per partition (`STASH_MAX_MESSAGES_PER_PARTITION`,
 `STASH_MAX_BYTES_PER_PARTITION`); requests that would exceed either bound
 are rejected with `UNAVAILABLE` so callers retry rather than the router

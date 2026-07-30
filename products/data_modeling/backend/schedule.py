@@ -28,12 +28,14 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
-from products.data_modeling.backend.models import Node
+from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
+from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-# v2 (DAG-based) schedules run this workflow; their schedule id is the DAG id. The v1 backend
+# v2 (DAG-based) schedules run this workflow; their schedule id is the bare DAG id, or
+# "{dag_id}:{interval_seconds}" for a per-cadence-tier schedule. The v1 backend
 # (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
 
@@ -60,7 +62,8 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
     When `candidate_dag_ids` is given, the listing is scoped server-side to those DAGs via the
     `PostHogDagId` search attribute so we never paginate every schedule in the namespace — a
     single unscoped listing per saved-query operation is enough to exhaust the namespace rate
-    limit once the schedule fleet is large. Pass None only for genuine full-namespace sweeps.
+    limit once the schedule fleet is large. The None sweep filters on `PostHogScheduleType`
+    (needs schedules backfilled with the tag).
     """
     if candidate_dag_ids is not None and not candidate_dag_ids:
         return set()
@@ -72,7 +75,9 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
         quoted = ", ".join(f"'{dag_id}'" for dag_id in candidate_dag_ids)
         schedules = await temporal.list_schedules(query=f"{POSTHOG_DAG_ID_KEY.name} IN ({quoted})")
     else:
-        schedules = await temporal.list_schedules()
+        schedules = await temporal.list_schedules(
+            query=f'{POSTHOG_SCHEDULE_TYPE_KEY.name} = "{DATA_MODELING_EXECUTE_DAG_WORKFLOW}"'
+        )
 
     dag_ids: set[str] = set()
     async for listing in schedules:
@@ -81,7 +86,7 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
             isinstance(action, ScheduleListActionStartWorkflow)
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
         ):
-            dag_ids.add(listing.id)
+            dag_ids.add(dag_id_from_schedule_id(listing.id))
     return dag_ids
 
 

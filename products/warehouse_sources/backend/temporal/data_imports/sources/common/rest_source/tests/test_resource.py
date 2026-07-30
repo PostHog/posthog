@@ -128,3 +128,24 @@ class TestResource:
             {"id": 1, "name": "ALICE"},
             {"id": 3, "name": "CHARLIE"},
         ]
+
+
+class TestOneToManyMap:
+    def test_map_returning_list_explodes_item(self) -> None:
+        resource = Resource(lambda: iter([[{"bucket": "b1", "results": [{"v": 1}, {"v": 2}]}]]), name="r", hints={})
+        resource.add_map(lambda row: [{"bucket": row["bucket"], **r} for r in row["results"]])
+        pages = list(resource)
+        assert pages == [[{"bucket": "b1", "v": 1}, {"bucket": "b1", "v": 2}]]
+
+    def test_map_returning_empty_list_drops_item(self) -> None:
+        resource = Resource(lambda: iter([[{"results": []}, {"results": [{"v": 1}]}]]), name="r", hints={})
+        resource.add_map(lambda row: [dict(r) for r in row["results"]])
+        pages = list(resource)
+        assert pages == [[{"v": 1}]]
+
+    def test_later_maps_apply_to_exploded_rows(self) -> None:
+        resource = Resource(lambda: iter([[{"results": [{"v": 1}, {"v": 2}]}]]), name="r", hints={})
+        resource.add_map(lambda row: [dict(r) for r in row["results"]])
+        resource.add_map(lambda row: {**row, "doubled": row["v"] * 2})
+        pages = list(resource)
+        assert pages == [[{"v": 1, "doubled": 2}, {"v": 2, "doubled": 4}]]

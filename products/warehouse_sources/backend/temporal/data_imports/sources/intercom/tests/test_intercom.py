@@ -22,15 +22,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _build_search_body,
     _company_segments_generator,
     _conversation_parts_generator,
+    _drain_company_ids,
+    _intercom_get,
+    _is_rate_limited,
     _is_scroll_exists,
     _is_server_error,
     _iter_companies,
     _make_intercom_session,
+    _rate_limit_backoff_seconds,
+    _substream_items,
     get_resource,
     intercom_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
 
 
 def _make_response(json_body: Any, status_code: int = 200, text: str = "") -> Response:
@@ -254,6 +260,72 @@ class TestGetResource:
         assert resource["table_format"] == "delta"
 
 
+class TestCoerceStringFields:
+    def test_contacts_data_map_coerces_owner_id(self):
+        # REST-path wiring: contacts declares owner_id in coerce_string_fields, so
+        # get_resource must attach a data_map that stringifies it before rows hit Arrow.
+        resource = get_resource(
+            "contacts", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        data_map = resource.get("data_map")
+        assert data_map is not None
+        assert data_map({"owner_id": 7, "id": "c1"}) == {"owner_id": "7", "id": "c1"}
+
+    def test_endpoint_without_coerce_fields_has_no_data_map(self):
+        # Only endpoints declaring coerce_string_fields get a data_map — others stay untouched.
+        resource = get_resource(
+            "admins", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
+        assert "data_map" not in resource
+
+    def test_conversation_parts_substream_coerces_waiting_since(self):
+        # Substream-path wiring: conversation_parts bypasses the framework's data_map,
+        # so _substream_items must coerce waiting_since itself. Mixed int/str/None across
+        # parts previously produced int64-vs-string Arrow batches that failed to merge.
+        mock_session = mock.MagicMock()
+        mock_session.post.side_effect = [
+            _make_response({"conversations": [{"id": "c1"}], "pages": {}}),
+        ]
+        mock_session.get.side_effect = [
+            _make_response(
+                {
+                    "conversation_parts": {
+                        "conversation_parts": [
+                            {"id": "p1", "waiting_since": 1700000000},
+                            {"id": "p2", "waiting_since": "1700000001"},
+                            {"id": "p3", "waiting_since": None},
+                        ]
+                    }
+                }
+            ),
+        ]
+
+        parts = list(_substream_items(mock_session, "conversation_parts", "updated_at", None))
+
+        assert [p["waiting_since"] for p in parts] == ["1700000000", "1700000001", None]
+
+    def test_substream_without_coerce_fields_passes_rows_through_untouched(self):
+        # company_segments declares no coerce_string_fields, so _substream_items must
+        # return its rows unchanged — a numeric field stays an int, not stringified.
+        # Guards the refactor against coercing endpoints that opted out.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
+            _make_response({"data": [{"id": "seg1", "count": 5}]}),
+        ]
+
+        segments = list(_substream_items(mock_session, "company_segments", None, None))
+
+        assert segments == [{"id": "seg1", "count": 5, "company_id": "co1"}]
+
+    def test_unknown_substream_endpoint_raises(self):
+        # Adding a substream endpoint config without wiring it into _substream_items
+        # must fail loud, not silently yield nothing.
+        with pytest.raises(ValueError):
+            list(_substream_items(mock.MagicMock(), "not_a_real_endpoint", None, None))
+
+
 class TestSubstreamGenerators:
     def test_conversation_parts_injects_conversation_id(self):
         mock_session = mock.MagicMock()
@@ -367,6 +439,46 @@ class TestSubstreamGenerators:
         last_scroll = max(i for i, u in enumerate(urls) if u.endswith("/companies/scroll"))
         first_segments = min(i for i, u in enumerate(urls) if u.endswith("/segments"))
         assert last_scroll < first_segments
+
+    def test_company_segments_restarts_scroll_on_expired_cursor(self):
+        # The observed failure: the companies scroll cursor expires mid-drain and
+        # the continuation 404s (GET /companies/scroll?scroll_param=...). Because ids
+        # are drained before any segment is yielded, restarting the walk from the
+        # beginning is safe — nothing has been written yet — so the drain re-walks
+        # and the sync continues instead of failing the whole run.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            # First drain: one page, then the continuation 404s (expired scroll).
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response(None, status_code=404, text="Not Found"),
+            # Restarted drain from the beginning: walks to completion.
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s2"}),
+            _make_response({"data": []}),
+            # Segment fetch for the drained company.
+            _make_response({"data": [{"id": "seg1"}]}),
+        ]
+
+        segments = list(_company_segments_generator(mock_session))
+
+        assert [s["id"] for s in segments] == ["seg1"]
+        assert segments[0]["company_id"] == "co1"
+        # The retried open carries no scroll_param — a scroll only restarts from
+        # the beginning, never resumes from the dead cursor.
+        assert mock_session.get.call_args_list[2].kwargs["params"] is None
+
+    def test_drain_company_ids_reraises_expired_cursor_after_max_retries(self):
+        # A persistently-invalidated scroll must surface after the bounded retries
+        # rather than re-walking forever.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=404, text="Not Found")
+            for _ in range(intercom_module._SCROLL_EXPIRED_MAX_RETRIES + 1)
+        ]
+
+        with pytest.raises(HTTPError):
+            _drain_company_ids(mock_session)
+
+        assert mock_session.get.call_count == intercom_module._SCROLL_EXPIRED_MAX_RETRIES + 1
 
     def test_iter_companies_walks_scroll(self):
         # `POST /companies/list` is capped at 10,000 companies (60 * 167 page
@@ -539,6 +651,68 @@ class TestCompaniesScrollServerError:
         assert mock_session.get.call_count == intercom_module._SCROLL_SERVER_ERROR_MAX_RETRIES + 2
 
 
+class TestRateLimitRetry:
+    @pytest.mark.parametrize(
+        "status_code,expected",
+        [
+            (429, True),
+            (400, False),
+            (404, False),
+            (500, False),
+            (200, False),
+        ],
+    )
+    def test_is_rate_limited(self, status_code: int, expected: bool):
+        assert _is_rate_limited(_http_error(None, status_code=status_code, text="boom")) is expected
+
+    def test_backoff_honors_retry_after_header(self):
+        resp = _make_response(None, status_code=429, text="Too Many Requests")
+        resp.headers["Retry-After"] = "7"
+        assert _rate_limit_backoff_seconds(resp, default=10.0) == 7.0
+
+    @pytest.mark.parametrize("raw", [None, "not-a-number"])
+    def test_backoff_falls_back_without_usable_retry_after(self, raw: str | None):
+        resp = _make_response(None, status_code=429, text="Too Many Requests")
+        if raw is not None:
+            resp.headers["Retry-After"] = raw
+        assert _rate_limit_backoff_seconds(resp, default=10.0) == 10.0
+
+    def test_company_segments_retries_rate_limited_segment_fetch(self):
+        # The observed failure: a burst of per-company `/companies/{id}/segments`
+        # fetches trips Intercom's rate limit and 429s. Riding out the window inline
+        # lets the walk continue instead of failing the whole sync. Scroll is drained
+        # first (two GETs), then the segment fetch 429s once and succeeds on retry.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
+            _make_response(None, status_code=429, text="Too Many Requests"),
+            _make_response({"data": [{"id": "seg1"}]}),
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep") as sleep:
+            segments = list(_company_segments_generator(mock_session))
+
+        assert [s["id"] for s in segments] == ["seg1"]
+        assert segments[0]["company_id"] == "co1"
+        sleep.assert_called_once_with(intercom_module._RATE_LIMIT_BACKOFF_SECONDS)
+
+    def test_intercom_get_reraises_rate_limit_after_max_retries(self):
+        # A persistent 429 must surface after the bounded retries rather than
+        # looping forever, so Temporal can retry the activity.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=429, text="Too Many Requests")
+            for _ in range(intercom_module._RATE_LIMIT_MAX_RETRIES + 1)
+        ]
+
+        with mock.patch.object(intercom_module.time, "sleep"):
+            with pytest.raises(HTTPError):
+                _intercom_get(mock_session, "/companies/co1/segments")
+
+        assert mock_session.get.call_count == intercom_module._RATE_LIMIT_MAX_RETRIES + 1
+
+
 class TestSubstreamSessionRetries:
     def test_idempotent_search_posts_are_retryable(self):
         # The substream walk reaches `/conversations/search` and `/companies/list`
@@ -546,7 +720,7 @@ class TestSubstreamSessionRetries:
         # read timeout on those calls would propagate unretried (unlike the GETs in
         # the same walk). These POSTs are read-only/idempotent, so the session must
         # retry them on transient read timeouts and 429/5xx.
-        session = _make_intercom_session("token")
+        session = _make_intercom_session("token", "2.13")
         retry = cast(HTTPAdapter, session.get_adapter(INTERCOM_API_BASE)).max_retries
         allowed_methods = cast("frozenset[str]", retry.allowed_methods)
 
@@ -570,6 +744,7 @@ class TestIntercomSource:
                 endpoint=endpoint,
                 team_id=1,
                 job_id="job-1",
+                api_version="2.15",
             )
 
         assert response.name == endpoint
@@ -590,10 +765,46 @@ class TestIntercomSource:
         ]
 
         with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
-            response = intercom_source(access_token="token", endpoint="companies", team_id=1, job_id="job-1")
+            response = intercom_source(
+                access_token="token", endpoint="companies", team_id=1, job_id="job-1", api_version="2.15"
+            )
             # `items()` is typed `Iterable | AsyncIterable`; the scroll path yields a sync iterator.
             companies = list(cast(Iterable[dict[str, Any]], response.items()))
 
         assert [c["id"] for c in companies] == ["co1"]
         urls = [call.args[0] for call in mock_session.get.call_args_list]
         assert urls and all(url.endswith("/companies/scroll") for url in urls)
+
+
+class TestVersionDispatch:
+    # The resolved pin must reach the wire as the `Intercom-Version` header for every
+    # supported version, on both request paths (session-based scroll/substream, and the
+    # framework REST path). Parameterizing over the source's declared versions keeps the
+    # coverage honest when a version is added.
+    @pytest.mark.parametrize("api_version", IntercomSource.supported_versions)
+    def test_session_path_sends_pinned_version_header(self, api_version: str):
+        captured: dict[str, Any] = {}
+
+        def fake_session(headers: dict[str, str], retry: Any) -> mock.MagicMock:
+            captured["headers"] = headers
+            session = mock.MagicMock()
+            session.get.return_value = _make_response({"data": [], "scroll_param": None})
+            return session
+
+        with mock.patch.object(intercom_module, "make_tracked_session", side_effect=fake_session):
+            response = intercom_source(
+                access_token="token", endpoint="companies", team_id=1, job_id="job-1", api_version=api_version
+            )
+            list(cast(Iterable[dict[str, Any]], response.items()))
+
+        assert captured["headers"]["Intercom-Version"] == api_version
+
+    @pytest.mark.parametrize("api_version", IntercomSource.supported_versions)
+    def test_rest_path_sends_pinned_version_header(self, api_version: str):
+        with mock.patch.object(intercom_module, "rest_api_resource", return_value=object()) as mock_rest:
+            intercom_source(
+                access_token="token", endpoint="contacts", team_id=1, job_id="job-1", api_version=api_version
+            )
+
+        config = mock_rest.call_args.args[0]
+        assert config["client"]["headers"]["Intercom-Version"] == api_version

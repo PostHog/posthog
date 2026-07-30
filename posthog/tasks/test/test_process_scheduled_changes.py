@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -387,8 +388,6 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
     def test_recoverable_error_allows_retry(self) -> None:
         """Test that recoverable errors don't set executed_at, allowing retries"""
-        from unittest.mock import patch
-
         feature_flag = FeatureFlag.objects.create(
             name="Test Flag",
             key="test-recoverable-error",
@@ -408,13 +407,19 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         )
 
         # Mock the dispatcher to raise a recoverable error (OperationalError)
-        with patch.object(FeatureFlag, "scheduled_changes_dispatcher") as mock_dispatcher:
+        with (
+            patch.object(FeatureFlag, "scheduled_changes_dispatcher") as mock_dispatcher,
+            patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture,
+        ):
             from django.db import OperationalError
 
             mock_dispatcher.side_effect = OperationalError("Connection timeout")
 
             # Process the scheduled change - should fail but not set executed_at
             process_scheduled_changes()
+
+            # Recoverable errors are genuinely unexpected and must still reach error tracking
+            mock_capture.assert_called_once()
 
         # Refresh the scheduled change from database
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
@@ -435,8 +440,41 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(failure_data["retry_count"], 1)
         self.assertEqual(failure_data["error_classification"], "recoverable")
 
-    def test_unrecoverable_error_prevents_retry(self) -> None:
-        """Test that unrecoverable errors set executed_at, preventing retries"""
+    @parameterized.expand(
+        [
+            # A payload missing required keys, rejected up front by the dispatcher. This payload
+            # was broken from the moment it was created, so it should still reach error tracking.
+            ("invalid_payload", False, {"invalid": "payload"}, "Invalid payload", True),
+            # ObjectDoesNotExist via model.objects.get(): the scenario the PR description is
+            # actually about, a scheduled change whose target flag was deleted after scheduling.
+            # This is expected drift, so it should not be reported to error tracking.
+            ("deleted_flag", True, {"operation": "update_status", "value": True}, "does not exist", False),
+            # A bare ValueError classified unrecoverable via isinstance alone (no matching
+            # error-message indicator). Like invalid_payload, the payload was broken at creation
+            # time (rollout percentages are self-contained in the payload), so it should still
+            # reach error tracking.
+            (
+                "invalid_variant_rollout",
+                False,
+                {
+                    "operation": "update_variants",
+                    "value": {"variants": [{"key": "control", "name": "Control", "rollout_percentage": 50}]},
+                },
+                "Invalid variant rollout percentages",
+                True,
+            ),
+        ]
+    )
+    def test_unrecoverable_error_prevents_retry(
+        self,
+        _name: str,
+        delete_flag_before_processing: bool,
+        payload: dict[str, Any],
+        expected_error_substring: str,
+        should_capture: bool,
+    ) -> None:
+        """Test that unrecoverable errors set executed_at, preventing retries, and that only the
+        orphaned-target case is suppressed from error tracking"""
         feature_flag = FeatureFlag.objects.create(
             name="Test Flag",
             key="test-unrecoverable-error",
@@ -446,18 +484,37 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        # Create a scheduled change with invalid payload (unrecoverable error)
+        # Create the scheduled change while the flag still exists, so record_id points at a
+        # row that existed at creation time (mirrors the real orphaned-change case).
         scheduled_change = ScheduledChange.objects.create(
             team=self.team,
             record_id=feature_flag.id,
             model_name="FeatureFlag",
-            payload={"invalid": "payload"},  # This will cause ValidationError
+            payload=payload,
             scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
             created_by=self.user,
         )
 
+        if delete_flag_before_processing:
+            feature_flag.delete()
+
         # Process the scheduled change - should fail and set executed_at
-        process_scheduled_changes()
+        with (
+            patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture,
+            patch("posthog.tasks.process_scheduled_changes.logger") as mock_logger,
+        ):
+            process_scheduled_changes()
+
+            if should_capture:
+                # A broken payload is a defect worth surfacing, not expected drift.
+                mock_capture.assert_called_once()
+                mock_logger.info.assert_not_called()
+            else:
+                # An orphaned target is expected and already handled, so it must not be
+                # reported to error tracking (it only adds noise), but it must still leave
+                # a log trail so the skip isn't silent.
+                mock_capture.assert_not_called()
+                mock_logger.info.assert_called_once()
 
         # Refresh the scheduled change from database
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
@@ -468,19 +525,16 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(updated_scheduled_change.failure_count, 1)
 
         # Parse failure reason to verify it contains error details and retry info
-        self.assertIsNotNone(updated_scheduled_change.failure_reason)
         failure_reason = updated_scheduled_change.failure_reason
         assert failure_reason is not None  # For mypy type narrowing
         failure_data = json.loads(failure_reason)
-        self.assertEqual(failure_data["error"], "Invalid payload")
+        self.assertIn(expected_error_substring, failure_data["error"])
         self.assertFalse(failure_data["will_retry"])  # Should indicate won't retry
         self.assertEqual(failure_data["retry_count"], 1)
         self.assertEqual(failure_data["error_classification"], "unrecoverable")
 
     def test_max_retries_exceeded(self) -> None:
         """Test that changes exceeding max retries preserve actual error info"""
-        from unittest.mock import patch
-
         from posthog.tasks.process_scheduled_changes import MAX_RETRY_ATTEMPTS
 
         feature_flag = FeatureFlag.objects.create(
@@ -504,13 +558,20 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         )
 
         # Mock the dispatcher to raise a recoverable error that will hit the limit
-        with patch.object(FeatureFlag, "scheduled_changes_dispatcher") as mock_dispatcher:
+        with (
+            patch.object(FeatureFlag, "scheduled_changes_dispatcher") as mock_dispatcher,
+            patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture,
+        ):
             from django.db import OperationalError
 
             mock_dispatcher.side_effect = OperationalError("Database connection lost")
 
             # Process the scheduled change - should hit max retry limit
             process_scheduled_changes()
+
+            # Retry-exhausted errors are still genuinely unexpected (recoverable), so they
+            # must keep reaching error tracking even on the final, non-retrying attempt
+            mock_capture.assert_called_once()
 
         # Refresh the scheduled change from database
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)

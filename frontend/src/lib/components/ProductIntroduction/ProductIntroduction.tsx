@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogConstruction2, HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
@@ -11,6 +13,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
 import type { SurfaceKey } from '../MCPHint/prompts'
+
+const HedgehogConstruction2 = pngHoggie(construction2)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
 /**
  * A component to introduce new users to a product, and to show something
@@ -63,6 +68,18 @@ export type ProductIntroductionProps = {
     mcpSurfaceKey?: SurfaceKey
 }
 
+/**
+ * @deprecated Use {@link ProductEmptyState} instead: declare {@link SceneExport.emptyState} on the
+ * scene's {@link SceneExport} (see {@link ../ProductEmptyState | ProductEmptyState} and the
+ * `building-product-empty-states` skill).
+ *
+ * {@link ProductEmptyState} covers both of this component's jobs -
+ * "product not installed" via real data detection and "no entities yet" via an
+ * entity-count status - with a local-only skip instead of {@link UserType.has_seen_product_intro_for}.
+ * Don't add new call sites; existing ones should migrate product by product.
+ *
+ * The Growth team is responsible for migrating all call sites to {@link ProductEmptyState}.
+ */
 export const ProductIntroduction = ({
     productName,
     productKey,

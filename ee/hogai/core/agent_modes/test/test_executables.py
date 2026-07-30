@@ -1,5 +1,3 @@
-from contextlib import contextmanager
-
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,16 +26,6 @@ from ee.hogai.tools.read_taxonomy.core import ReadEvents
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, NodePath
-
-
-@contextmanager
-def mock_contextual_tool(mock_tool):
-    """Helper to mock a contextual tool class with create_tool_class"""
-    mock_tool_class = MagicMock()
-    mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
-
-    with patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class):
-        yield
 
 
 def _create_agent_node(

@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
     RedshiftImplementation,
@@ -1074,3 +1076,16 @@ class TestConnect:
         assert kwargs["keepalives_interval"] == 10
         assert kwargs["keepalives_count"] == 3
         assert kwargs["tcp_user_timeout"] == 60000
+
+
+class TestGetConnectionMetadata:
+    # Source creation looks this method up by name (duck-typed) and silently persists {} when
+    # it's absent — which left direct Redshift connections labeled as Postgres in the SQL editor.
+    @pytest.mark.parametrize(
+        "schema,expected_schema",
+        [("public", "public"), ("", None), (None, None)],
+    )
+    def test_reports_redshift_engine_without_connecting(self, schema, expected_schema):
+        metadata = RedshiftSource().get_connection_metadata(_make_config(schema=schema), team_id=1)
+
+        assert metadata == {"engine": "redshift", "database": "dev", "schema": expected_schema}

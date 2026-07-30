@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,6 +13,8 @@ import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/pape
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from '../../verifyEmailLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 const NOTES: Record<string, string[]> = {
     pending: ['// one email away', '// we just hit send'],

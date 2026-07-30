@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LagoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lago import LagoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.lago import LagoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.source import LagoSource
@@ -25,7 +25,6 @@ class TestLagoSource:
 
         assert config.name.value == "Lago"
         assert config.label == "Lago"
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/lago.png"
 
@@ -99,6 +98,7 @@ class TestLagoSource:
         inputs = mock.MagicMock()
         inputs.schema_name = "invoices"
         inputs.team_id = 42
+        inputs.job_id = "job-1"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -110,6 +110,7 @@ class TestLagoSource:
         assert kwargs["endpoint"] == "invoices"
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["team_id"] == 42
+        assert kwargs["job_id"] == "job-1"
 
     def test_canonical_descriptions_cover_core_tables(self):
         descriptions = self.source.get_canonical_descriptions()

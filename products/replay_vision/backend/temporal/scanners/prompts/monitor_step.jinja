@@ -1,5 +1,7 @@
 {% from "_macros.jinja" import cite_in %}Decide whether the following condition occurred during the session: {{ user_prompt }}
 
-In `reasoning`, weigh the evidence for and against; then set `verdict` to {% if allow_inconclusive %}`yes` if there's direct visual or event-level evidence the condition occurred, `no` if there's direct evidence it did not, or `inconclusive` only when the session genuinely doesn't provide enough signal to decide.{% else %}`yes` only if there's direct visual or event-level evidence the condition occurred, otherwise `no` — never `inconclusive`.{% endif %}
+Before deciding, verify each moment that bears on this condition with `get_events_around`: the video alone is easy to misread, and what the events record at a moment outranks a visual impression of it.
+
+In `reasoning`, weigh the evidence for and against, noting what the events confirmed or contradicted; then set `verdict` to {% if allow_inconclusive %}`yes` if there's direct visual or event-level evidence the condition occurred, `no` if there's direct evidence it did not, or `inconclusive` only when the session genuinely doesn't provide enough signal to decide.{% else %}`yes` only if there's direct visual or event-level evidence the condition occurred, otherwise `no` — never `inconclusive`.{% endif %} A `yes` needs at least one specific moment you checked with `get_events_around`. A plausible story the events do not support is not a `yes`.
 
 {{ cite_in('reasoning') }}

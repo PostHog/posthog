@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogChartHog } from '@posthog/brand/hoggies'
+import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -28,6 +29,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { DashboardsContent } from 'products/dashboards/frontend/components/DashboardsContent'
 
 import { FeaturedTemplatesChooser } from './templates/FeaturedTemplatesChooser'
+
+const HedgehogChartHog = pngHoggie(chartHogPng)
 
 const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
 

@@ -5,6 +5,7 @@ import { IconCloud, IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceip
 import {
     LemonButton,
     LemonInput,
+    LemonLabel,
     LemonSkeleton,
     LemonTable,
     LemonTableColumns,
@@ -14,13 +15,16 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
 import { accountLinksLogic } from './accountLinksLogic'
@@ -29,6 +33,8 @@ import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
 import { accountOpportunitiesLogic } from './accountOpportunitiesLogic'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
+import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
+import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
@@ -51,6 +57,33 @@ const LINK_ICONS: Record<string, JSX.Element> = {
     slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
     salesforce: <IconCloud />,
+}
+
+function ActiveRelationships({ accountId }: { accountId: string }): JSX.Element | null {
+    const { activeRelationships } = useValues(accountRelationshipsLogic({ accountId }))
+    if (activeRelationships.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            <h4 className="secondary uppercase text-secondary mb-0">Relationships</h4>
+            {activeRelationships.map((relationship) => (
+                <div key={relationship.id} className="flex flex-col gap-1">
+                    <LemonLabel>{relationship.definition.name}</LemonLabel>
+                    <div className="flex items-center gap-2 border rounded px-2 py-1.5 bg-bg-light">
+                        {relationship.user ? (
+                            <>
+                                <ProfilePicture user={{ email: relationship.user.email }} size="sm" />
+                                <span className="text-sm">{relationship.user.email}</span>
+                            </>
+                        ) : (
+                            <span className="text-sm text-muted italic">Deleted user</span>
+                        )}
+                    </div>
+                </div>
+            ))}
+        </div>
+    )
 }
 
 function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
@@ -106,10 +139,12 @@ export function AccountNotebooksExpansion({
 
     // LemonTabs only renders the active tab, so without this the data refetches on every tab switch.
     useMountedLogic(accountRelatedUsersLogic({ externalId }))
+    useMountedLogic(accountRelationshipsLogic({ accountId }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
@@ -177,10 +212,14 @@ export function AccountNotebooksExpansion({
     ]
 
     return (
-        <div className="sticky left-0 w-[100cqw] max-w-full overflow-x-hidden p-3 bg-bg-light">
+        <div
+            className="sticky left-0 w-[100cqw] max-w-full overflow-x-hidden p-3 bg-bg-light"
+            data-attr="account-expansion"
+        >
             <div className="flex gap-4">
-                <div className="w-fit shrink-0">
+                <div className="w-fit shrink-0 flex flex-col gap-4">
                     <UsefulLinks accountId={accountId} />
+                    <ActiveRelationships accountId={accountId} />
                 </div>
                 <div className="flex-1 min-w-0">
                     <LemonTabs
@@ -239,6 +278,11 @@ export function AccountNotebooksExpansion({
                                 content: <AccountRelatedUsersExpansion externalId={externalId} />,
                             },
                             {
+                                key: 'relationships',
+                                label: 'Relationships',
+                                content: <AccountRelationshipsExpansion accountId={accountId} />,
+                            },
+                            {
                                 key: 'usage',
                                 label: 'Usage',
                                 content: (
@@ -264,6 +308,12 @@ export function AccountNotebooksExpansion({
                                 key: 'opportunities',
                                 label: 'Opportunities',
                                 content: <AccountOpportunitiesExpansion accountId={accountId} />,
+                            },
+                            // Flag-gated here (not just inside the component) so the tab label hides too.
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
+                                key: 'event_stream' as const,
+                                label: 'Event stream',
+                                content: <AccountEventStreamToggle accountId={accountId} externalId={externalId} />,
                             },
                         ]}
                     />

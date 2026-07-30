@@ -9,6 +9,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightLogicProps } from '~/types'
 
+import __funnelTimeToConvert from '../../../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 import { FunnelTimeToConvertTable } from './FunnelTimeToConvertTable'
 
 type Story = StoryObj<{}>
@@ -20,7 +21,7 @@ const meta: Meta = {
         const [dashboardItemId] = useState(() => `FunnelTimeToConvertTableStory.${uniqueNode++}`)
 
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json')
+        const insight = __funnelTimeToConvert as any
         const cachedInsight = { ...insight, short_id: dashboardItemId }
         const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
         const dataNodeLogicProps: DataNodeLogicProps = {

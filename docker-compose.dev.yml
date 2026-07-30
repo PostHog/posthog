@@ -448,6 +448,7 @@ services:
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
+            - clickhouse-data:/var/lib/clickhouse
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         depends_on:
@@ -460,6 +461,15 @@ services:
             service: zookeeper
         ports:
             - '2181:2181'
+        # With persistent volumes, snapshots and txn logs accumulate forever unless
+        # autopurge is on (the image default disables it). Matches hobby.
+        environment:
+            ZOO_AUTOPURGE_PURGEINTERVAL: 1
+            ZOO_AUTOPURGE_SNAPRETAINCOUNT: 3
+        volumes:
+            - zookeeper-datalog:/datalog
+            - zookeeper-data:/data
+            - zookeeper-logs:/logs
 
     kafka:
         extends:
@@ -497,6 +507,7 @@ services:
                 # Auto-create only fires on producer-first writes, so pre-create them here.
                 TOPICS="document_embeddings_input \
                     document_embedding_results \
+                    error_tracking_ingestion_notifications \
                     clickhouse_events_json \
                     clickhouse_ai_events_json \
                     clickhouse_heatmap_events \
@@ -761,3 +772,7 @@ volumes:
     seaweedfs-data:
     duckgres-data:
     objectstorage-data:
+    clickhouse-data:
+    zookeeper-data:
+    zookeeper-datalog:
+    zookeeper-logs:

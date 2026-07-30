@@ -21,19 +21,20 @@ import { SANDBOX_BIND_TASK_PARAM } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
-import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import { isPiTaskRuntime, Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/reportPresentation'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
-import { DetailSection, RightColumnSection } from './DetailSection'
+import { DetailSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailBadges } from './ReportDetail'
 import { ReportTasksSection } from './ReportTasksSection'
-import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Ready-state run output: a polished outcome card that links to the produced PR or report,
@@ -225,9 +226,21 @@ function TaskLogBody({
  * open a new tab, carrying the bind via the `bind_task` URL param. Gated to a terminal run — the live
  * Task log already covers an in-progress run, and taking over a running automation run is out of scope.
  */
-export function OpenTaskButton({ taskId, runStatus }: { taskId: string; runStatus?: TaskRunStatus }): JSX.Element {
+export function OpenTaskButton({
+    taskId,
+    runStatus,
+    runtime,
+}: {
+    taskId: string
+    runStatus?: TaskRunStatus
+    runtime: RuntimeEnumApi
+}): JSX.Element | null {
     const { openSidePanelMaxWithTaskBind } = useActions(maxGlobalLogic)
     const isTerminal = isTerminalRunStatus(runStatus)
+
+    if (isPiTaskRuntime(runtime)) {
+        return null
+    }
 
     return (
         <LemonButton
@@ -283,7 +296,7 @@ function TaskLogSection({ report }: { report: SignalReport }): JSX.Element {
                     }))}
                 />
             )}
-            <OpenTaskButton taskId={task.id} runStatus={runStatus} />
+            <OpenTaskButton taskId={task.id} runStatus={runStatus} runtime={task.runtime} />
         </div>
     ) : null
 
@@ -336,7 +349,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
 
                 <div className="flex flex-col min-w-0 gap-5">
                     {evidenceCount > 0 && (
-                        <RightColumnSection
+                        <DetailSection
                             icon={<IconSearch />}
                             title="Evidence so far"
                             rightSlot={
@@ -357,7 +370,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                                     ))}
                                 </div>
                             )}
-                        </RightColumnSection>
+                        </DetailSection>
                     )}
                     <ReportTasksSection report={report} />
                     <ReportActivitySection report={report} />

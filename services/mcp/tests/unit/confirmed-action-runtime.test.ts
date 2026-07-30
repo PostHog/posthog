@@ -125,7 +125,6 @@ describe('executeConfirmedAction', () => {
             incomingArgs: {
                 [CONFIRMATION_HASH_ARG]: hash,
                 [CONFIRMATION_WORD_ARG]: 'confirm',
-                orgId: 'acme',
             },
             purpose: 'enforce-2fa',
             codec,
@@ -186,14 +185,14 @@ describe('executeConfirmedAction', () => {
         const { codec, ledger } = setup()
         const hash = await mintToken(codec, 'did-1', 'p', { orgId: 'x' })
         const first = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm', orgId: 'x' },
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
             codec,
             ledger,
         })
         expect(first.ok).toBe(true)
         const second = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm', orgId: 'x' },
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
             codec,
             ledger,
@@ -201,6 +200,61 @@ describe('executeConfirmedAction', () => {
         expect(second.ok).toBe(false)
         if (!second.ok) {
             expect(second.result.content[0]!.text).toContain('already been used')
+        }
+    })
+
+    it('refuses when the active scope no longer matches the scope bound at prepare time', async () => {
+        // Cross-project replay: prepare while project A is active, then run
+        // execute after switch-project made B active. The signed scope (A)
+        // must not authorize the action against B.
+        const { codec, ledger } = setup()
+        const prep = await prepareConfirmedAction(makeContext('did-1'), {
+            args: { name: 'mrr' },
+            purpose: 'metric-approve',
+            actionLabel: 'approve metric',
+            messageTemplate: 'msg',
+            codec,
+            boundScope: { projectId: '1' },
+        })
+        const outcome = await executeConfirmedAction(makeContext('did-1'), {
+            incomingArgs: {
+                [CONFIRMATION_HASH_ARG]: prep.confirmation_hash,
+                [CONFIRMATION_WORD_ARG]: 'confirm',
+            },
+            purpose: 'metric-approve',
+            codec,
+            ledger,
+            expectedScope: { projectId: '2' },
+        })
+        expect(outcome.ok).toBe(false)
+        if (!outcome.ok) {
+            expect(outcome.result.content[0]!.text).toContain('different project or organization')
+        }
+    })
+
+    it('succeeds when the active scope still matches the scope bound at prepare time', async () => {
+        const { codec, ledger } = setup()
+        const prep = await prepareConfirmedAction(makeContext('did-1'), {
+            args: { name: 'mrr' },
+            purpose: 'metric-approve',
+            actionLabel: 'approve metric',
+            messageTemplate: 'msg',
+            codec,
+            boundScope: { projectId: '1' },
+        })
+        const outcome = await executeConfirmedAction(makeContext('did-1'), {
+            incomingArgs: {
+                [CONFIRMATION_HASH_ARG]: prep.confirmation_hash,
+                [CONFIRMATION_WORD_ARG]: 'confirm',
+            },
+            purpose: 'metric-approve',
+            codec,
+            ledger,
+            expectedScope: { projectId: '1' },
+        })
+        expect(outcome.ok).toBe(true)
+        if (outcome.ok) {
+            expect(outcome.verifiedArgs).toEqual({ name: 'mrr' })
         }
     })
 
@@ -238,7 +292,7 @@ describe('executeConfirmedAction', () => {
         })
         const hash = await mintToken(codec, 'did-1', 'tool-A', { x: 1 })
         const outcome = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm', x: 1 },
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'tool-A',
             codec,
             ledger,
@@ -311,7 +365,6 @@ describe('confirmed-action metrics', () => {
             incomingArgs: {
                 [CONFIRMATION_HASH_ARG]: prep.confirmation_hash,
                 [CONFIRMATION_WORD_ARG]: 'confirm',
-                id: 'x',
             },
             purpose: 'tool-B',
             codec,

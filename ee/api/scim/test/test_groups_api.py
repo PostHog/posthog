@@ -5,6 +5,7 @@ from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
@@ -26,7 +27,8 @@ class TestSCIMGroupsAPI(APILicensedTest):
             self.organization.available_product_features = features
             self.organization.save()
 
-        # Create organization domain with SCIM enabled
+        # Create organization domain with a linked, SCIM-enabled IdP config (SCIM auth resolves
+        # through the linked config, not the domain's own legacy columns).
         self.domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="example.com",
@@ -35,8 +37,10 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         # Generate SCIM token
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain._scim_enabled = True
-        self.domain._scim_bearer_token = hashed_token
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
+        )
+        self.domain.identity_provider_config = config
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}

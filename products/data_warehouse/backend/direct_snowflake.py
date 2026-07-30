@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -38,7 +38,7 @@ def upsert_direct_snowflake_table(
     source_schema: str,
     source_table_name: str,
 ) -> DataWarehouseTable:
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
     options = {
         **(existing_table.options if existing_table is not None and isinstance(existing_table.options, dict) else {}),

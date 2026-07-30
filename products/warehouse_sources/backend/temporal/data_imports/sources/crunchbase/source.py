@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.crunchbase import (
     CrunchbaseResumeConfig,
     crunchbase_source,
@@ -29,12 +32,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CrunchbaseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crunchbase import (
+    CrunchbaseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class CrunchbaseSource(ResumableSource[CrunchbaseSourceConfig, CrunchbaseResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://data.crunchbase.com/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -88,25 +97,16 @@ You can find your user key in [Crunchbase account settings](https://www.crunchba
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: CrunchbaseSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CrunchbaseSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_crunchbase_credentials(config.api_key):
             return True, None
@@ -125,7 +125,8 @@ You can find your user key in [Crunchbase account settings](https://www.crunchba
         return crunchbase_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

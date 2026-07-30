@@ -54,6 +54,9 @@ const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
         const result = await context.api.request<Schemas.FileSystem>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
@@ -200,12 +203,14 @@ const desktopFileSystemRetrieve = (): ToolBase<typeof DesktopFileSystemRetrieveS
 })
 
 const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
-    id: z.preprocess(
-        castStringToInt,
-        OrganizationsProjectsRetrieveParams.shape['id'].describe(
-            "Project ID, or `@current` to fetch the caller's active project."
+    id: z
+        .preprocess(
+            castStringToInt,
+            OrganizationsProjectsRetrieveParams.shape['id']
+                .describe("Project ID. If omitted, returns the caller's active project.")
+                .optional()
         )
-    ),
+        .optional(),
 })
 
 const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackwardCompat> => ({
@@ -213,9 +218,13 @@ const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackward
     schema: ProjectGetSchema,
     handler: async (context: Context, params: z.infer<typeof ProjectGetSchema>) => {
         const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
         })
         const filtered = omitResponseFields(result, [
             'secret_api_token',

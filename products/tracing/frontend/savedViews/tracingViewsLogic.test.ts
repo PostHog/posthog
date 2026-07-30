@@ -52,7 +52,12 @@ describe('tracing saved views', () => {
             filtersLogic.actions.setViewMode('spans')
             filtersLogic.actions.setSort('duration', 'ASC')
             // Ephemeral state that must NOT be saved.
-            filtersLogic.actions.setCompareMode(true)
+            filtersLogic.actions.setComparison({
+                mode: 'time',
+                preset: 'custom',
+                currentWindowOverride: null,
+                previousWindowOverride: null,
+            })
 
             listLogic.actions.setViewName('Slow spans')
             await expectLogic(listLogic, () => {
@@ -70,9 +75,7 @@ describe('tracing saved views', () => {
                 orderDirection: 'ASC',
                 viewMode: 'spans',
             })
-            expect(payload.filters).not.toHaveProperty('compareMode')
-            expect(payload.filters).not.toHaveProperty('currentWindowOverride')
-            expect(payload.filters).not.toHaveProperty('previousWindowOverride')
+            expect(payload.filters).not.toHaveProperty('comparison')
         })
 
         it('does nothing when the name is blank', async () => {

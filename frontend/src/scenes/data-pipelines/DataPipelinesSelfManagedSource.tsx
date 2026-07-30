@@ -38,10 +38,10 @@ export function DataPipelinesSelfManagedSourceTable({ table, updateTable }: Prop
                             ...(table.credential?.access_key || table.credential?.access_secret
                                 ? {
                                       credential: {
-                                          ...(table.credential.access_key
+                                          ...(table.credential?.access_key
                                               ? { access_key: table.credential.access_key }
                                               : {}),
-                                          ...(table.credential.access_secret
+                                          ...(table.credential?.access_secret
                                               ? { access_secret: table.credential.access_secret }
                                               : {}),
                                       },

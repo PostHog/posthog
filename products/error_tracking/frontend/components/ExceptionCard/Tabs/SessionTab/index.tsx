@@ -28,6 +28,8 @@ import {
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
 
+import { ViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
+
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from '../SubHeader'
 import { SessionRecordingTab } from './SessionRecordingTab'
@@ -66,6 +68,14 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
                                     <TabsPrimitiveTrigger className="px-2 h-full" value="recording">
                                         Recording
                                     </TabsPrimitiveTrigger>
+                                    <div className="ml-auto pr-1">
+                                        <ViewLogsButton
+                                            sessionId={sessionId}
+                                            timestamp={timestamp}
+                                            size="xsmall"
+                                            data-attr="error-tracking-session-view-logs"
+                                        />
+                                    </div>
                                 </TabsPrimitiveList>
                             </SubHeader>
                             <SessionTimelineTab />

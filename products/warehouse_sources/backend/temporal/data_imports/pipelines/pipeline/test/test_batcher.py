@@ -7,10 +7,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import (
     Batcher,
     _column_offset_pressure,
-    _column_payload_bytes,
     _max_offset_pressure,
     _split_table,
-    _table_payload_bytes,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
+    _column_payload_bytes,
+    table_payload_bytes,
 )
 
 
@@ -207,7 +209,13 @@ def test_batcher_splits_buffered_list_items():
         ("int64", pa.array([1, 2, 3], type=pa.int64()), 24),
         ("bool_subbyte_is_zero", pa.array([True, False, True], type=pa.bool_()), 0),
         ("nulls_counted_as_zero_payload", pa.array([None, "abc"], type=pa.string()), 3 + 8),
-        ("unsupported_nested_is_zero", pa.array([{"x": 1}], type=pa.struct([("x", pa.int64())])), 0),
+        # Struct now recurses into child fields (int64: 1*8=8; string "aa": 2 value + 1*4 offset = 6) so a
+        # nested Mongo-style document under `data` is bounded by the byte split instead of counting as 0.
+        (
+            "struct_counts_child_payload",
+            pa.array([{"x": 1, "s": "aa"}], type=pa.struct([("x", pa.int64()), ("s", pa.string())])),
+            8 + 6,
+        ),
     ]
 )
 def test_column_payload_bytes(_name: str, array: pa.Array, expected: int):
@@ -219,9 +227,9 @@ def test_table_payload_bytes_is_slice_accurate():
     # buffer for a zero-copy slice and would make the byte-driven split non-converging.
     table = pa.table({"val": ["aaaa", "bbbb", "cccc", "dddd"]})
 
-    full = _table_payload_bytes(table)
-    first_half = _table_payload_bytes(table.slice(0, 2))
-    second_half = _table_payload_bytes(table.slice(2, 2))
+    full = table_payload_bytes(table)
+    first_half = table_payload_bytes(table.slice(0, 2))
+    second_half = table_payload_bytes(table.slice(2, 2))
 
     assert first_half < full
     assert first_half == second_half  # equal-sized rows here
@@ -235,7 +243,7 @@ def test_split_table_splits_on_bytes_when_offset_is_under_limit():
 
     assert len(result) > 1
     for slice_table in result:
-        assert _table_payload_bytes(slice_table) <= 14 or slice_table.num_rows <= 1
+        assert table_payload_bytes(slice_table) <= 14 or slice_table.num_rows <= 1
     assert pa.concat_tables(result).equals(table)
 
 

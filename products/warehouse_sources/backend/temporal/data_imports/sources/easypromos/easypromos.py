@@ -1,15 +1,22 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional, cast
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos.settings import (
     EASYPROMOS_ENDPOINTS,
     EasypromosEndpointConfig,
@@ -17,251 +24,80 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.easypromos
 
 EASYPROMOS_BASE_URL = "https://api.easypromosapp.com/v2"
 
-# Bounded retries for the 200 req/min rate limit (429) and transient 5xx. Tuning kept near the top.
-_MAX_RETRY_ATTEMPTS = 6
-_REQUEST_TIMEOUT_SECONDS = 60
+# Easypromos wraps lists as `{"items": [...], "paging": {"next_cursor": <int|null>, "items_page": 100}}`;
+# a null `next_cursor` marks the last page. The cursor is echoed back as the `next_cursor` query param.
+_CURSOR_PATH = "paging.next_cursor"
+_CURSOR_PARAM = "next_cursor"
+_DATA_SELECTOR = "items"
 
-
-class EasypromosRetryableError(Exception):
-    """A 429 or 5xx that a fresh request can recover from."""
+# The parent id injected into every fan-out child row so the composite primary key is unique across
+# promotions. `include_from_parent` surfaces the parent field under this prefixed name first.
+_PARENT_ID_KEY = "_promotions_id"
 
 
 @dataclasses.dataclass
 class EasypromosResumeConfig:
-    # Cursor that fetched the list page currently being processed. For top-level endpoints this is
-    # the endpoint's own page cursor; for fan-out endpoints it's the `/promotions` page cursor.
-    # None means the first page. On resume we re-fetch this page and the delta loader dedupes the
-    # re-delivered chunk, so no rows are lost or doubled.
+    # Simple (top-level) endpoints checkpoint the cursor of the next page to fetch.
     cursor: int | None = None
-    # Fan-out only: the promotion whose child rows are currently being emitted, plus the child-list
-    # cursor within that promotion. Lets a fan-out sync resume mid-promotion instead of re-walking
-    # the whole parent page, so a single huge promotion can't livelock the resume.
+    # Retained for backwards compatibility with resume state written by the previous hand-rolled
+    # fan-out implementation. Unused by the rest_source framework path, which stores its fan-out
+    # checkpoint in `fanout_state`; when only these legacy fields are present the fan-out restarts
+    # fresh (the merge dedupes on primary key).
     promotion_id: int | None = None
     child_cursor: int | None = None
+    # Fan-out checkpoint managed by the framework's dependent-resource resume:
+    # `{"completed": [child_path, ...], "current": child_path | None, "child_state": {...} | None}`.
+    fanout_state: dict[str, Any] | None = None
 
 
-def _get_headers(access_token: str) -> dict[str, str]:
+def _headers() -> dict[str, str]:
+    # Auth (Bearer) is supplied via the framework auth config so the token is redacted from logs;
+    # only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
+
+
+def _client_config(access_token: str) -> ClientConfig:
     return {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
+        "base_url": EASYPROMOS_BASE_URL,
+        "headers": _headers(),
+        "auth": {"type": "bearer", "token": access_token},
     }
 
 
-@retry(
-    retry=retry_if_exception_type(
-        (EasypromosRetryableError, requests.ReadTimeout, requests.ConnectionError),
-    ),
-    stop=stop_after_attempt(_MAX_RETRY_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=1, max=60),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    params: dict[str, Any],
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    response = session.get(url, params=params, headers=headers, timeout=_REQUEST_TIMEOUT_SECONDS)
-
-    # 429 (rate limit) and 5xx are transient — retry with backoff. Easypromos allows 200 req/min
-    # per account, so a busy fan-out can legitimately hit the limit.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise EasypromosRetryableError(f"Easypromos API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        # Fan-out error bodies can echo PII from the API, so log only a short, truncated prefix
-        # rather than the full body.
-        body_prefix = response.text[:200]
-        logger.error(f"Easypromos API error: status={response.status_code}, body_prefix={body_prefix!r}, url={url}")
-        response.raise_for_status()
-
-    data = response.json()
-    return data if isinstance(data, dict) else {"items": data}
+def _cursor_paginator() -> JSONResponseCursorPaginator:
+    return JSONResponseCursorPaginator(cursor_path=_CURSOR_PATH, cursor_param=_CURSOR_PARAM)
 
 
-def _next_cursor(data: dict[str, Any]) -> int | None:
-    """Read the cursor for the next page. Easypromos wraps lists as
-    `{"items": [...], "paging": {"next_cursor": <int|null>, "items_page": 100}}`; a null
-    `next_cursor` marks the last page."""
-    paging = data.get("paging")
-    if not isinstance(paging, dict):
-        return None
-    return paging.get("next_cursor")
-
-
-def _iter_list_pages(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    start_cursor: int | None = None,
-) -> Iterator[tuple[list[dict[str, Any]], int | None]]:
-    """Yield (items, request_cursor) for each page of an Easypromos list, following `next_cursor`.
-
-    `request_cursor` is the cursor used to FETCH the yielded page (None for the first page), so a
-    caller can checkpoint it and, on resume, re-fetch exactly that page.
-    """
-    cursor = start_cursor
-    while True:
-        params: dict[str, Any] = {}
-        if cursor is not None:
-            params["next_cursor"] = cursor
-        data = _fetch_page(session, url, params, headers, logger)
-
-        items = data.get("items")
-        items = items if isinstance(items, list) else []
-        yield items, cursor
-
-        next_cursor = _next_cursor(data)
-        if next_cursor is None:
-            return
-        cursor = next_cursor
+def _inject_promotion_id(row: dict[str, Any]) -> dict[str, Any]:
+    if _PARENT_ID_KEY in row:
+        row["promotion_id"] = row.pop(_PARENT_ID_KEY)
+    return row
 
 
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """One cheap probe of the account-wide Bearer token against `/promotions`."""
-    try:
-        with make_tracked_session() as session:
-            response = session.get(
-                f"{EASYPROMOS_BASE_URL}/promotions",
-                headers=_get_headers(access_token),
-                timeout=10,
-            )
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
-
-    if response.status_code == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(access_token,)),
+        f"{EASYPROMOS_BASE_URL}/promotions",
+        headers={"Authorization": f"Bearer {access_token}", **_headers()},
+    )
+    if ok:
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Invalid Easypromos access token"
-    if response.status_code == 403:
+    if status == 403:
         # Valid token, but the account plan can't reach the REST API (Basic/Premium) or lacks
         # access to this resource. Surface it rather than silently failing.
         return False, "Your Easypromos plan does not have access to the REST API (requires White Label or Corporate)"
-    return False, f"Easypromos API returned status {response.status_code}"
+    if status is None:
+        return False, "Could not reach the Easypromos API"
+    return False, f"Easypromos API returned status {status}"
 
 
-def _get_top_level_rows(
-    session: requests.Session,
-    endpoint_config: EasypromosEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    resumable_source_manager: ResumableSourceManager[EasypromosResumeConfig],
-) -> Iterator[Any]:
-    """Page through a top-level list endpoint (`/promotions`, `/organizing_brands`)."""
-    url = f"{EASYPROMOS_BASE_URL}{endpoint_config.path}"
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_cursor = resume.cursor if resume is not None else None
-
-    for items, request_cursor in _iter_list_pages(session, url, headers, logger, start_cursor=start_cursor):
-        for item in items:
-            batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding so a crash re-fetches the current page rather than skipping it.
-                resumable_source_manager.save_state(EasypromosResumeConfig(cursor=request_cursor))
-
-
-def _get_fan_out_rows(
-    session: requests.Session,
-    endpoint_config: EasypromosEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-    resumable_source_manager: ResumableSourceManager[EasypromosResumeConfig],
-) -> Iterator[Any]:
-    """Walk `/promotions` and emit child rows for each promotion, injecting `promotion_id` so the
-    composite primary key is unique across promotions."""
-    promotions_url = f"{EASYPROMOS_BASE_URL}{EASYPROMOS_ENDPOINTS['promotions'].path}"
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    parent_start_cursor = resume.cursor if resume is not None else None
-    resume_promotion_id = resume.promotion_id if resume is not None else None
-    resume_child_cursor = resume.child_cursor if resume is not None else None
-
-    for promotions, parent_cursor in _iter_list_pages(
-        session, promotions_url, headers, logger, start_cursor=parent_start_cursor
-    ):
-        # When resuming into a parent page, skip the promotions already fully processed before the
-        # crash; pick up at the one we were mid-way through.
-        skipping = resume_promotion_id is not None
-        for promotion in promotions:
-            promotion_id = promotion["id"]
-            if skipping:
-                if promotion_id != resume_promotion_id:
-                    continue
-                skipping = False
-
-            child_start_cursor = resume_child_cursor if promotion_id == resume_promotion_id else None
-            # Consume the saved child cursor only for the promotion it belongs to.
-            resume_child_cursor = None
-
-            child_path = endpoint_config.path.format(promotion_id=promotion_id)
-            child_url = f"{EASYPROMOS_BASE_URL}{child_path}"
-
-            for items, child_cursor in _iter_list_pages(
-                session, child_url, headers, logger, start_cursor=child_start_cursor
-            ):
-                for item in items:
-                    item["promotion_id"] = promotion_id
-                    batcher.batch(item)
-                    if batcher.should_yield():
-                        yield batcher.get_table()
-                        # Checkpoint at promotion + child-page granularity so resume makes forward
-                        # progress instead of re-fanning the whole parent page.
-                        resumable_source_manager.save_state(
-                            EasypromosResumeConfig(
-                                cursor=parent_cursor,
-                                promotion_id=promotion_id,
-                                child_cursor=child_cursor,
-                            )
-                        )
-        # A parent page whose promotions we processed without ever resuming has consumed the resume
-        # bookmark; clear it so later pages aren't skipped.
-        resume_promotion_id = None
-
-
-def get_rows(
-    access_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[EasypromosResumeConfig],
-) -> Iterator[Any]:
-    endpoint_config = EASYPROMOS_ENDPOINTS[endpoint]
-    headers = _get_headers(access_token)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    # One session reused across every page (and, for fan-out, every promotion) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request. The context manager tears down the
-    # connection pool even when a request raises mid-stream.
-    with make_tracked_session() as session:
-        if endpoint_config.fan_out_over_promotions:
-            yield from _get_fan_out_rows(session, endpoint_config, headers, logger, batcher, resumable_source_manager)
-        else:
-            yield from _get_top_level_rows(session, endpoint_config, headers, logger, batcher, resumable_source_manager)
-
-        if batcher.should_yield(include_incomplete_chunk=True):
-            yield batcher.get_table()
-
-
-def easypromos_source(
-    access_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[EasypromosResumeConfig],
-) -> SourceResponse:
-    endpoint_config = EASYPROMOS_ENDPOINTS[endpoint]
-
+def _source_response(endpoint_config: EasypromosEndpointConfig, items_fn) -> SourceResponse:
     return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            access_token=access_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        name=endpoint_config.name,
+        items=items_fn,
         primary_keys=endpoint_config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -269,3 +105,140 @@ def easypromos_source(
         partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
     )
+
+
+def _fan_out_resource(
+    access_token: str,
+    endpoint_config: EasypromosEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[EasypromosResumeConfig],
+):
+    """Walk `/promotions` and emit child rows per promotion via a single-hop dependent resource.
+
+    `promotion_id` is injected into every child row (from the parent's `id`) so the composite
+    primary key is unique across promotions — identical to the old hand-rolled fan-out.
+    """
+    promotions_config = EASYPROMOS_ENDPOINTS["promotions"]
+
+    parent_resource: EndpointResource = {
+        "name": "promotions",
+        "table_name": "promotions",
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": promotions_config.path,
+            "data_selector": _DATA_SELECTOR,
+            "paginator": _cursor_paginator(),
+        },
+        "table_format": "delta",
+    }
+
+    # The resolve param binds the parent `id` into the `{promotion_id}` path placeholder; the same
+    # id is surfaced into each child row via include_from_parent (then renamed to `promotion_id`).
+    child_resource: EndpointResource = {
+        "name": endpoint_config.name,
+        "table_name": endpoint_config.name,
+        "write_disposition": "replace",
+        "include_from_parent": ["id"],
+        "endpoint": {
+            "path": endpoint_config.path,
+            "params": {
+                "promotion_id": {"type": "resolve", "resource": "promotions", "field": "id"},
+            },
+            "data_selector": _DATA_SELECTOR,
+            "paginator": _cursor_paginator(),
+        },
+        "table_format": "delta",
+    }
+
+    config: RESTAPIConfig = {
+        "client": _client_config(access_token),
+        "resource_defaults": {},
+        "resources": [parent_resource, child_resource],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(EasypromosResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    child = next(r for r in resources if getattr(r, "name", None) == endpoint_config.name)
+    return child.add_map(_inject_promotion_id)
+
+
+def _top_level_resource(
+    access_token: str,
+    endpoint_config: EasypromosEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[EasypromosResumeConfig],
+):
+    """Page through a top-level list endpoint (`/promotions`, `/organizing_brands`)."""
+    config: RESTAPIConfig = {
+        "client": _client_config(access_token),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint_config.name,
+                "endpoint": {
+                    "path": endpoint_config.path,
+                    "data_selector": _DATA_SELECTOR,
+                    "paginator": _cursor_paginator(),
+                },
+                "write_disposition": "replace",
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor is not None:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # the checkpointed page (merge dedupes) rather than skipping it.
+        if state and state.get("cursor") is not None:
+            resumable_source_manager.save_state(EasypromosResumeConfig(cursor=int(state["cursor"])))
+
+    return rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+
+def easypromos_source(
+    access_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[EasypromosResumeConfig],
+) -> SourceResponse:
+    endpoint_config = EASYPROMOS_ENDPOINTS[endpoint]
+
+    if endpoint_config.fan_out_over_promotions:
+        resource = cast(
+            Any, _fan_out_resource(access_token, endpoint_config, team_id, job_id, resumable_source_manager)
+        )
+    else:
+        resource = _top_level_resource(access_token, endpoint_config, team_id, job_id, resumable_source_manager)
+
+    return _source_response(endpoint_config, lambda: resource)

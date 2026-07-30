@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { HedgehogJudge } from '@posthog/brand/hoggies'
+import * as judgePng from '@posthog/brand/hoggies/png/judge'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -13,6 +14,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
+
+const HedgehogJudge = pngHoggie(judgePng)
 
 const DISMISS_KEY = 'feature-flags-approvals-promo'
 

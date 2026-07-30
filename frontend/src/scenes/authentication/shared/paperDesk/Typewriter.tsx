@@ -39,6 +39,10 @@ export function Typewriter({ lines }: { lines: string[] }): JSX.Element {
         <div
             className="absolute top-[clamp(20px,4vh,40px)] left-[clamp(20px,4vw,44px)] z-[2] min-h-[2.6em] font-mono text-xs leading-relaxed whitespace-pre"
             aria-hidden
+            // Chrome's in-page translation replaces text nodes with <font> elements; on this
+            // 40ms-tick animation React then crashes removing text it no longer owns
+            // (removeChild NotFoundError, react#11538). Decorative code-style notes — never translate.
+            translate="no"
         >
             {parts.map((part, idx) => (
                 <div key={idx} className="text-primary/50 first:font-semibold">

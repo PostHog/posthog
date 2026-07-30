@@ -1,5 +1,4 @@
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import datetime
 from typing import Any
 
 from freezegun import freeze_time
@@ -21,23 +20,14 @@ from posthog.schema import (
     AssistantTrendsQuery,
     ChartDisplayType,
     DataVisualizationNode,
-    DateRange,
     EventsNode,
     FunnelsQuery,
     HogQLQuery,
-    IntervalType,
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
     RetentionFilter,
     RetentionQuery,
-    RevenueAnalyticsBreakdown,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsMRRQueryResultItem,
-    RevenueAnalyticsTopCustomersGroupBy,
-    RevenueAnalyticsTopCustomersQuery,
     StickinessQuery,
     TrendsFilter,
     TrendsQuery,
@@ -65,7 +55,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         with freeze_time("2025-01-20T12:00:00Z"):
-            self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
+            self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_trends(self, mock_process_query):
@@ -258,7 +248,41 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(Exception) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("There was an unknown error running this query.", str(context.exception))
+        # The underlying error text must be surfaced, not collapsed to an opaque generic message —
+        # that opacity is what left callers unable to diagnose failures like invalid-UTF-8 results.
+        self.assertIn("There was an unknown error running this query", str(context.exception))
+        self.assertIn("Some other error", str(context.exception))
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_truncates_long_error(self, mock_process_query):
+        mock_process_query.side_effect = ValueError("x" * 1000)
+
+        query = AssistantTrendsQuery(series=[])
+
+        with self.assertRaises(Exception) as context:
+            await self.query_runner.arun_and_format_query(query)
+
+        message = str(context.exception)
+        self.assertIn("(truncated)", message)
+        self.assertLess(len(message), 700)
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_run_and_format_query_surfaces_error_in_response_dict(self, mock_process_query):
+        # A failed query (e.g. a direct-SQL timeout) can return a structurally-valid response with an
+        # `error` field and empty `results` instead of raising. That must surface as an error, not be
+        # formatted as a header-only table indistinguishable from "zero rows matched".
+        mock_process_query.return_value = {
+            "results": [],
+            "columns": ["count"],
+            "error": "Query has hit the max execution time before completing.",
+        }
+
+        query = AssistantHogQLQuery(query="SELECT count() FROM events")
+
+        with self.assertRaises(MaxToolRetryableError) as context:
+            await self.query_runner.arun_and_format_query(query)
+
+        self.assertIn("max execution time", str(context.exception))
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -517,181 +541,6 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         query = TrendsQuery(series=[])
         self.assertEqual(get_example_prompt(query), TRENDS_EXAMPLE_PROMPT)
 
-    async def test_compress_results_revenue_analytics_gross_revenue_query(self):
-        revenue_analytics_gross_revenue_query = RevenueAnalyticsGrossRevenueQuery(
-            dateRange=DateRange(date_from="2024-11-01", date_to="2025-02-01"),
-            interval=IntervalType.MONTH,
-            properties=[],
-            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
-        )
-        response = {
-            "results": [
-                {
-                    "label": "stripe.posthog_test - Product F",
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [Decimal("647.24355"), Decimal("2507.21839"), Decimal("2110.27254"), Decimal("2415.34023")],
-                },
-                {
-                    "label": "stripe.posthog_test - Product E",
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [Decimal("64.243532"), Decimal("207.2432"), Decimal("210.272"), Decimal("415.3402")],
-                },
-            ]
-        }
-        result = await self.query_runner._compress_results(revenue_analytics_gross_revenue_query, response)
-        self.assertIn("Breakdown by revenue_analytics_product.name", result)
-        self.assertIn("Date|stripe", result)
-
-    async def test_compress_results_revenue_analytics_metrics_query(self):
-        revenue_analytics_metrics_query = RevenueAnalyticsMetricsQuery(
-            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
-            interval=IntervalType.MONTH,
-            properties=[],
-            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
-        )
-        response: dict[str, Any] = {
-            "results": [
-                {
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [1, 2, 3, 4],
-                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "Subscription Count"},
-                },
-                {
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [0, 1, 1, 2],
-                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "New Subscription Count"},
-                },
-                {
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [0, 0, 0, 1],
-                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "Churned Subscription Count"},
-                },
-                {
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [1, 2, 3, 3],
-                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "Customer Count"},
-                },
-                {
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [0, 1, 1, 1],
-                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "New Customer Count"},
-                },
-                {
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [0, 0, 0, 1],
-                    "breakdown": {
-                        "property": "stripe.posthog_test - Product F",
-                        "kind": "Churned Customer Count",
-                    },
-                },
-                {
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [0, 0, Decimal("152.235"), Decimal("215.3234")],
-                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "ARPU"},
-                },
-                {
-                    "days": ["2024-11-01", "2024-12-01", "2025-01-01", "2025-02-01"],
-                    "data": [0, 0, None, None],
-                    "breakdown": {"property": "stripe.posthog_test - Product F", "kind": "LTV"},
-                },
-            ]
-        }
-        result = await self.query_runner._compress_results(revenue_analytics_metrics_query, response)
-        self.assertIn("Breakdown by revenue_analytics_product.name", result)
-        self.assertIn("Date|stripe", result)
-        self.assertIn("Subscription Count", result)
-        self.assertIn("New Subscription Count", result)
-        self.assertIn("Churned Subscription Count", result)
-        self.assertIn("Customer Count", result)
-        self.assertIn("New Customer Count", result)
-        self.assertIn("Churned Customer Count", result)
-        self.assertIn("ARPU", result)
-        self.assertIn("LTV", result)
-
-    async def test_compress_results_revenue_analytics_mrr_query(self):
-        revenue_analytics_mrr_query = RevenueAnalyticsMRRQuery(
-            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
-            interval=IntervalType.MONTH,
-            properties=[],
-            breakdown=[RevenueAnalyticsBreakdown(property="revenue_analytics_product.name")],
-        )
-        response: dict[str, Any] = {
-            "results": [
-                RevenueAnalyticsMRRQueryResultItem(
-                    churn={
-                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": "Churn"},
-                        "data": [Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0")],
-                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
-                    },
-                    contraction={
-                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": "Contraction"},
-                        "data": [Decimal("0"), Decimal("-45.391"), Decimal("-1.497"), Decimal("0")],
-                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
-                    },
-                    expansion={
-                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": "Expansion"},
-                        "data": [Decimal("0"), Decimal("0"), Decimal("8.380455"), Decimal("25.12")],
-                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
-                    },
-                    new={
-                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": "New"},
-                        "data": [Decimal("0"), Decimal("5.7325"), Decimal("18.01"), Decimal("0")],
-                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
-                    },
-                    total={
-                        "breakdown": {"property": "stripe.posthog_test - Product D", "kind": None},
-                        "data": [Decimal("5.325"), Decimal("4.335"), Decimal("19.865"), Decimal("19.845")],
-                        "days": ["2024-11-30", "2024-12-31", "2025-01-31", "2025-02-28"],
-                    },
-                ),
-            ]
-        }
-        result = await self.query_runner._compress_results(revenue_analytics_mrr_query, response)
-        self.assertIn("Breakdown by revenue_analytics_product.name", result)
-        self.assertIn("Date|stripe", result)
-        self.assertIn("Total MRR", result)
-        self.assertIn("New MRR", result)
-        self.assertIn("Expansion MRR", result)
-        self.assertIn("Contraction MRR", result)
-        self.assertIn("Churned MRR", result)
-
-    async def test_compress_results_revenue_analytics_top_customers_query(self):
-        revenue_analytics_top_customers_query = RevenueAnalyticsTopCustomersQuery(
-            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
-            groupBy=RevenueAnalyticsTopCustomersGroupBy.MONTH,
-            properties=[],
-        )
-        month_response: dict[str, Any] = {
-            "results": [
-                ("cus_3", "John Smith", Decimal("615.997315"), date(2025, 2, 1)),
-                ("cus_2", "Jane Doe", Decimal("26.0100949999"), date(2025, 2, 1)),
-                ("cus_1", "John Doe", Decimal("5.2361453433"), date(2025, 2, 1)),
-            ]
-        }
-        result = await self.query_runner._compress_results(revenue_analytics_top_customers_query, month_response)
-        self.assertIn("Grouped by month", result)
-        self.assertIn("John Smith", result)
-        self.assertIn("Jane Doe", result)
-        self.assertIn("John Doe", result)
-
-        revenue_analytics_top_customers_query_all = RevenueAnalyticsTopCustomersQuery(
-            dateRange=DateRange(date_from="2025-01-01", date_to="2025-01-02"),
-            groupBy=RevenueAnalyticsTopCustomersGroupBy.ALL,
-            properties=[],
-        )
-        all_response: dict[str, Any] = {
-            "results": [
-                ("cus_3", "John Smith", Decimal("615.997315"), "all"),
-                ("cus_2", "Jane Doe", Decimal("26.0100949999"), "all"),
-                ("cus_1", "John Doe", Decimal("5.2361453433"), "all"),
-            ]
-        }
-        result = await self.query_runner._compress_results(revenue_analytics_top_customers_query_all, all_response)
-        self.assertNotIn("Grouped by month", result)
-        self.assertIn("John Smith", result)
-        self.assertIn("Jane Doe", result)
-        self.assertIn("John Doe", result)
-
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_response_dict_handling(self, mock_process_query):
         """Test that response is handled correctly whether it's a dict or model"""
@@ -761,7 +610,7 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         with freeze_time("2025-01-20T12:00:00Z"):
-            self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
+            self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     async def test_runs_in_async_context(self):
         """Test successful execution and formatting of funnels query"""
@@ -787,7 +636,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         with freeze_time("2025-01-20T12:00:00Z"):
-            self.query_runner = AssistantQueryExecutor(self.team, datetime.now())
+            self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_includes_insight_schema_for_trends_query(self, mock_process_query):
@@ -797,7 +646,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         }
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        result = await execute_and_format_query(self.team, query)
+        result = await execute_and_format_query(self.team, query, user=self.user)
 
         # Verify schema section is present
         self.assertIn("```json", result)
@@ -810,7 +659,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         mock_process_query.return_value = {"results": [{"data": [1], "label": "test", "days": ["2025-01-01"]}]}
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        result = await execute_and_format_query(self.team, query)
+        result = await execute_and_format_query(self.team, query, user=self.user)
 
         self.assertIn("kind", result)
         self.assertNotIn("breakdownFilter", result)
@@ -822,7 +671,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
         # Create query with dateRange (which might have None values for date_from/date_to if not set)
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")], breakdownFilter=None)
-        result = await execute_and_format_query(self.team, query)
+        result = await execute_and_format_query(self.team, query, user=self.user)
 
         # The schema should not contain null values
         self.assertNotIn("null", result)
@@ -835,7 +684,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
         # Create query with dateRange (which might have None values for date_from/date_to if not set)
         query = AssistantHogQLQuery(query="SELECT 1")
-        result = await execute_and_format_query(self.team, query)
+        result = await execute_and_format_query(self.team, query, user=self.user)
 
         # The schema should not be present
         self.assertNotIn("SELECT 1", result)

@@ -14,8 +14,8 @@
             "description": "Human-readable description."
         },
         "direct_query_enabled": {
-            "default": true,
-            "description": "Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources.",
+            "default": false,
+            "description": "Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources.",
             "type": "boolean"
         },
         "payload": {

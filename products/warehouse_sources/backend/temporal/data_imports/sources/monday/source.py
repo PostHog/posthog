@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MondaySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
     monday_source,
     validate_credentials as validate_monday_credentials,
@@ -30,6 +30,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MondaySource(SimpleSource[MondaySourceConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.monday.com/api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -87,6 +91,7 @@ You can find your personal API token in monday.com under your avatar > Developer
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # GraphQL list queries have no honest updated-since filter (incremental
         # would need the plan-limited activity log), so full refresh only.
@@ -107,7 +112,11 @@ You can find your personal API token in monday.com under your avatar > Developer
         return schemas
 
     def validate_credentials(
-        self, config: MondaySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: MondaySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_monday_credentials(config.api_token):
             return True, None

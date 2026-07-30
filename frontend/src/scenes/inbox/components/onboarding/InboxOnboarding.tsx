@@ -2,10 +2,10 @@ import './InboxOnboarding.scss'
 
 import { useActions } from 'kea'
 
-import { IconBolt, IconGithub, IconNotebook, IconPause, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconBolt, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { JumpingLogomark } from 'lib/brand/JumpingLogomark'
+import { Logomark } from 'lib/brand'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
@@ -23,21 +23,61 @@ const WIZARD_SETS_UP: { icon: JSX.Element; label: string }[] = [
 
 interface Beat {
     label: string
-    description: string
+    description: JSX.Element
+    subtext: string | JSX.Element
     preview: JSX.Element
+}
+
+/**
+ * Info icon explaining PR pricing on hover, kept separate from the sentence it follows so the
+ * sentiment (why $15, and that it's expected to fall) doesn't have to live in the onboarding copy itself.
+ */
+function PrPricingInfo(): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <>
+                    <p className="mb-2">We aim for the $15 cost to go down significantly in the coming months.</p>
+                    <p className="mb-0">
+                        The truth is that capable enough models <em>currently</em> cost quite a bit, so we're pricing
+                        with a very limited margin – similarly to our strategy with other PostHog tools. Like with our
+                        other tools, we will be passing savings along to you.
+                    </p>
+                </>
+            }
+        >
+            <span className="-m-1 inline-flex cursor-help items-center p-1 align-middle text-sm text-tertiary">
+                <IconInfo />
+            </span>
+        </Tooltip>
+    )
 }
 
 const BEATS: Beat[] = [
     {
         label: 'Pull requests, ready to merge.',
-        description:
-            'Agents read your product data and open a PR for anything safe to ship – with the diff, tests, and reviewers already lined up.',
+        description: (
+            <>
+                Agents read your product data and open a PR for anything safe to ship – with the diff, tests, and
+                reviewers already lined up.
+            </>
+        ),
+        subtext: (
+            <>
+                Your first 3 PRs each month are free, then it's $15 per PR after that. <PrPricingInfo />
+            </>
+        ),
         preview: <PullRequestPreview />,
     },
     {
         label: 'Reports, when it needs your call.',
-        description:
-            "Not everything is a clean code change. When something needs your judgment, agents file a report with the context and what they'd do – you decide.",
+        description: (
+            <>
+                Not everything is a clean code change. When something needs your judgment, agents file a report with the
+                context and what they'd do – you decide.
+            </>
+        ),
+        subtext: 'Reports without PRs are free.',
         preview: <ReportPreview />,
     },
 ]
@@ -64,7 +104,7 @@ function SelfDrivingCommand({ size = 'md' }: { size?: 'sm' | 'md' }): JSX.Elemen
 function Hero(): JSX.Element {
     return (
         <div className="flex flex-col items-start gap-3">
-            <JumpingLogomark className="w-fit [&_svg]:h-7 [&_svg]:w-auto" />
+            <Logomark jumpOnClick size="md" />
             <h1 className="m-0 text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
                 Put your product on self-driving
             </h1>
@@ -105,8 +145,8 @@ function CommandCard(): JSX.Element {
 
 function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
     return (
-        <div className="flex flex-col gap-3">
-            <div className="flex items-baseline gap-3">
+        <div className="flex flex-col gap-2">
+            <div className="flex items-baseline gap-3 mb-1">
                 <span className="font-mono text-xs text-muted tabular-nums">0{index + 1}</span>
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="text-[15px] font-semibold leading-snug">{beat.label}</span>
@@ -116,6 +156,9 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
             {/* Real inbox cards, kept inert by the preview's click interception (it meeps instead).
                 Full-width on mobile; indented to align under the beat text from sm up. */}
             <div className="select-none pl-0 sm:pl-8">{beat.preview}</div>
+            {beat.subtext ? (
+                <span className="text-[13px] text-secondary leading-snug text-right">{beat.subtext}</span>
+            ) : null}
         </div>
     )
 }

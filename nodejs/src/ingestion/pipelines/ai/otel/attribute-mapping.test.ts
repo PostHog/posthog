@@ -686,5 +686,11 @@ describe('mapOtelAttributes', () => {
             mapOtelAttributes(event)
             expect(event.properties!.$groups).toBeUndefined()
         })
+
+        it('drops an oversized string $groups instead of parsing it', () => {
+            const event = createEvent('$ai_generation', { $groups: `{"organization":"${'x'.repeat(10_001)}"}` })
+            mapOtelAttributes(event)
+            expect(event.properties!.$groups).toBeUndefined()
+        })
     })
 })

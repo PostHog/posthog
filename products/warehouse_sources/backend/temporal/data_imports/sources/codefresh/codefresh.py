@@ -1,11 +1,7 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.settings import (
@@ -13,17 +9,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codefresh.
     CodefreshEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    OffsetPaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 
 # Only the US SaaS host is supported. EU / self-hosted installs use a different host, which we don't
 # let the user retarget yet (it would mean sending the stored API key to an arbitrary host).
 CODEFRESH_BASE_URL = "https://g.codefresh.io/api"
-
-_DEFAULT_TIMEOUT = 60
-
-
-class CodefreshRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -36,29 +36,63 @@ class CodefreshResumeConfig:
     session_id: str | None = None
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    # Codefresh expects the raw token as the Authorization header value — no "Bearer " prefix.
-    return {"Authorization": api_key, "Accept": "application/json"}
+class CodefreshPagePaginator(BasePaginator):
+    """Codefresh's builds pagination: a 1-indexed ``page`` param, a ``pagination.nextPage`` flag,
+    and a stable ``pagination.sessionId`` snapshot cursor that every page after the first must pin
+    via the ``X-Pagination-Session-Id`` header, so builds created mid-sync can't shift the window
+    underneath us. No built-in paginator covers the flag + header pair, hence this local subclass."""
 
+    def __init__(self, page: int = 1, session_id: str | None = None) -> None:
+        super().__init__()
+        self.page = page
+        self.session_id = session_id
 
-def _build_url(path: str, params: Optional[dict[str, Any]] = None) -> str:
-    url = f"{CODEFRESH_BASE_URL}{path}"
-    if params:
-        url = f"{url}?{urlencode(params)}"
-    return url
+    def _apply(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["page"] = self.page
+        if self.session_id:
+            # Pin every page to the snapshot the first page opened.
+            request.headers = {**(request.headers or {}), "X-Pagination-Session-Id": self.session_id}
 
+    def init_request(self, request: Request) -> None:
+        self._apply(request)
 
-def _extract_items(data: Any, data_key: Optional[list[str]]) -> list[dict[str, Any]]:
-    """Pull the record list out of a response. Codefresh returns either a bare array or an envelope
-    (``{docs: [...]}``, ``{workflows: {docs: [...]}}``), so ``data_key`` is the path to walk."""
-    if data_key is None:
-        return data if isinstance(data, list) else []
-    node: Any = data
-    for key in data_key:
-        if not isinstance(node, dict):
-            return []
-        node = node.get(key)
-    return node if isinstance(node, list) else []
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        pagination = body.get("pagination") or {} if isinstance(body, dict) else {}
+        self.session_id = pagination.get("sessionId") or self.session_id
+
+        # An empty page terminates the stream even if the API keeps advertising nextPage. Without
+        # this, a server-side cursor bug that streams empty pages forever would loop indefinitely.
+        if not data or not pagination.get("nextPage"):
+            self._has_next_page = False
+            return
+
+        self.page += 1
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._apply(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page already points at the next page to fetch (update_state incremented it).
+        return {"page": self.page, "session_id": self.session_id} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
+        session_id = state.get("session_id")
+        if session_id:
+            self.session_id = session_id
+
+    def __str__(self) -> str:
+        return f"CodefreshPagePaginator(page={self.page})"
 
 
 def _flatten(item: dict[str, Any], flatten_key: Optional[str]) -> dict[str, Any]:
@@ -97,117 +131,95 @@ def _transform_row(item: dict[str, Any], config: CodefreshEndpointConfig) -> dic
     return row
 
 
-@retry(
-    retry=retry_if_exception_type((CodefreshRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, headers=headers, timeout=_DEFAULT_TIMEOUT)
-
-    # Codefresh rate-limits per account with a 429; retry those and transient 5xx with backoff.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise CodefreshRetryableError(f"Codefresh API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Codefresh API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+def _build_paginator_and_params(config: CodefreshEndpointConfig) -> tuple[BasePaginator, dict[str, Any]]:
+    if config.pagination == "offset":
+        # No usable body total; termination is short/empty page. The paginator injects limit+offset.
+        return OffsetPaginator(limit=config.page_size, total_path=None), {}
+    if config.pagination == "page":
+        return CodefreshPagePaginator(), {"limit": config.page_size}
+    # "none": single request, no pagination params (triggers).
+    return SinglePagePaginator(), {}
 
 
-def _iter_offset(
-    session: requests.Session,
-    config: CodefreshEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    manager: ResumableSourceManager[CodefreshResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    resume = manager.load_state() if manager.can_resume() else None
-    offset = resume.offset if resume is not None and resume.offset is not None else 0
-
-    while True:
-        url = _build_url(config.path, {"limit": config.page_size, "offset": offset})
-        data = _fetch_page(session, url, headers, logger)
-        items = _extract_items(data, config.data_key)
-        if not items:
-            break
-
-        yield [_transform_row(item, config) for item in items]
-
-        # A short page is the last page. We don't save state on it: there's nothing left to resume to.
-        if len(items) < config.page_size:
-            break
-
-        offset += config.page_size
-        # Save AFTER yielding so a crash re-pulls the page we just emitted rather than skipping it —
-        # merge dedupes the re-pulled rows on the primary key.
-        manager.save_state(CodefreshResumeConfig(offset=offset))
-
-
-def _iter_page(
-    session: requests.Session,
-    config: CodefreshEndpointConfig,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    manager: ResumableSourceManager[CodefreshResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    resume = manager.load_state() if manager.can_resume() else None
-    page = resume.page if resume is not None and resume.page is not None else 1
-    session_id = resume.session_id if resume is not None else None
-
-    while True:
-        req_headers = dict(headers)
-        if session_id:
-            # Pin every page to the snapshot the first page opened, so builds created mid-sync can't
-            # shift the window underneath us.
-            req_headers["X-Pagination-Session-Id"] = session_id
-
-        url = _build_url(config.path, {"limit": config.page_size, "page": page})
-        data = _fetch_page(session, url, req_headers, logger)
-
-        items = _extract_items(data, config.data_key)
-        pagination = data.get("pagination", {}) if isinstance(data, dict) else {}
-        session_id = pagination.get("sessionId") or session_id
-
-        # An empty page terminates the stream even if the API keeps advertising nextPage. Without
-        # this, a server-side cursor bug that streams empty pages forever would loop indefinitely.
-        if not items:
-            break
-
-        yield [_transform_row(item, config) for item in items]
-
-        if not pagination.get("nextPage"):
-            break
-
-        page += 1
-        manager.save_state(CodefreshResumeConfig(page=page, session_id=session_id))
-
-
-def get_rows(
+def codefresh_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[CodefreshResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
+) -> SourceResponse:
     config = CODEFRESH_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    paginator, params = _build_paginator_and_params(config)
 
-    if config.pagination == "none":
-        data = _fetch_page(session, _build_url(config.path), headers, logger)
-        items = [_transform_row(item, config) for item in _extract_items(data, config.data_key)]
-        if items:
-            yield items
-        return
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": CODEFRESH_BASE_URL,
+            # Auth is supplied via the framework auth config so its value is redacted from logs.
+            # Codefresh expects the raw token as the Authorization header value — no "Bearer " prefix.
+            "auth": {"type": "api_key", "api_key": api_key, "name": "Authorization", "location": "header"},
+            "headers": {"Accept": "application/json"},
+            "paginator": paginator,
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # Codefresh returns either a bare array or an envelope ({docs: [...]},
+                    # {workflows: {docs: [...]}}); data_key is the path to walk.
+                    "data_selector": ".".join(config.data_key) if config.data_key else None,
+                    # For bare-array endpoints a 200 body that isn't a list means the response shape
+                    # changed — fail loud instead of syncing a stray object as a row.
+                    "data_selector_required": config.data_key is None,
+                },
+                "data_map": lambda item, config=config: _transform_row(item, config),
+            }
+        ],
+    }
 
-    if config.pagination == "offset":
-        yield from _iter_offset(session, config, headers, logger, resumable_source_manager)
-        return
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            if config.pagination == "offset" and resume.offset is not None:
+                initial_paginator_state = {"offset": resume.offset}
+            elif config.pagination == "page" and (resume.page is not None or resume.session_id is not None):
+                initial_paginator_state = {"page": resume.page, "session_id": resume.session_id}
 
-    yield from _iter_page(session, config, headers, logger, resumable_source_manager)
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; the hook fires AFTER a page is yielded so a crash
+        # re-pulls the page we just emitted rather than skipping it — merge dedupes the re-pulled
+        # rows on the primary key. A short/last page passes None: nothing left to resume to.
+        if not state:
+            return
+        if config.pagination == "offset" and state.get("offset") is not None:
+            resumable_source_manager.save_state(CodefreshResumeConfig(offset=int(state["offset"])))
+        elif config.pagination == "page" and state.get("page") is not None:
+            resumable_source_manager.save_state(
+                CodefreshResumeConfig(page=int(state["page"]), session_id=state.get("session_id"))
+            )
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
 
 
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
@@ -217,47 +229,24 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     config = CODEFRESH_ENDPOINTS.get(schema_name) if schema_name else None
     path = config.path if config is not None else "/projects"
 
-    try:
-        response = make_tracked_session().get(_build_url(path, {"limit": 1}), headers=_get_headers(api_key), timeout=10)
-    except Exception:
-        return False, "Could not connect to Codefresh. Please try again."
-
-    if response.status_code == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{CODEFRESH_BASE_URL}{path}?limit=1",
+        headers={"Authorization": api_key, "Accept": "application/json"},
+    )
+    if ok:
         return True, None
-    if response.status_code == 401:
+    if status is None:
+        return False, "Could not connect to Codefresh. Please try again."
+    if status == 401:
         return False, "Your Codefresh API key is invalid or has been revoked."
-    if response.status_code == 403:
+    if status == 403:
         if schema_name:
             return False, f"Your Codefresh API key is missing the access scope required to sync '{schema_name}'."
         # Valid token, but it lacks scope for the probe resource — don't block source creation.
         return True, None
-    if response.status_code == 429 or response.status_code >= 500:
+    if status == 429 or status >= 500:
         # Transient: a rate-limit or server error doesn't mean the key is bad. Surface it as a
         # retryable failure rather than telling the user their credentials are invalid.
         return False, "Codefresh is temporarily unavailable. Please try again in a moment."
-    return False, f"Codefresh API returned an unexpected status ({response.status_code})."
-
-
-def codefresh_source(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[CodefreshResumeConfig],
-) -> SourceResponse:
-    config = CODEFRESH_ENDPOINTS[endpoint]
-
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-    )
+    return False, f"Codefresh API returned an unexpected status ({status})."

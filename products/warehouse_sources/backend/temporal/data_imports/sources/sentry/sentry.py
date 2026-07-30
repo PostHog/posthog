@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin
 import structlog
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
-from requests.exceptions import HTTPError, RequestException
+from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -404,8 +404,7 @@ def _iter_issue_tag_values_rows(
                     # (issue, tag) values endpoint — seen on tags with unusual
                     # keys/values. Retries are already exhausted by
                     # _request_with_retry, so skip this tag's remaining values
-                    # rather than failing the whole sync. Non-server errors
-                    # (auth, etc.) still propagate to the job-level handler.
+                    # rather than failing the whole sync.
                     if response.status_code >= 500:
                         logger.warning(
                             "sentry_source.issue_tag_values_server_error_skipped",
@@ -415,8 +414,38 @@ def _iter_issue_tag_values_rows(
                             status_code=response.status_code,
                         )
                         break
+                    # Sentry gates individual tag values endpoints at the org level
+                    # (data-scrubbing/privacy settings, restricted tags), returning
+                    # 403 even for tokens that just listed the issue's tags. Skip the
+                    # tag rather than failing the sync — a genuine scope problem would
+                    # already have surfaced on the issues/tags listing above.
+                    if response.status_code == 403:
+                        logger.warning(
+                            "sentry_source.issue_tag_values_forbidden_skipped",
+                            organization_slug=organization_slug,
+                            issue_id=issue_id,
+                            tag_key=tag_key,
+                            status_code=response.status_code,
+                        )
+                        break
+                    # Other client errors (401, etc.) still propagate to the job-level handler.
                     raise
-                rows = response.json()
+
+                try:
+                    rows = response.json()
+                except JSONDecodeError:
+                    # Sentry occasionally returns a 2xx with an empty/unparseable
+                    # body for a single (issue, tag) values page. Skip this tag's
+                    # remaining values rather than crashing the whole sync — same
+                    # graceful-skip as the persistent 5xx case above.
+                    logger.warning(
+                        "sentry_source.issue_tag_values_invalid_json_skipped",
+                        organization_slug=organization_slug,
+                        issue_id=issue_id,
+                        tag_key=tag_key,
+                        status_code=response.status_code,
+                    )
+                    break
 
                 should_stop = False
                 for row in rows:

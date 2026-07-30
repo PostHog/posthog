@@ -20,10 +20,6 @@ from posthog.schema import (
     LifecycleQuery,
     PathsQuery,
     RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsTopCustomersQuery,
     StickinessQuery,
     TrendsQuery,
 )
@@ -33,12 +29,6 @@ from .funnel import FunnelResultsFormatter
 from .lifecycle import LifecycleResultsFormatter
 from .paths import PathsResultsFormatter
 from .retention import RetentionResultsFormatter
-from .revenue_analytics import (
-    RevenueAnalyticsGrossRevenueResultsFormatter,
-    RevenueAnalyticsMetricsResultsFormatter,
-    RevenueAnalyticsMRRResultsFormatter,
-    RevenueAnalyticsTopCustomersResultsFormatter,
-)
 from .sql import TRUNCATED_MARKER, SQLResultsFormatter
 from .stickiness import StickinessResultsFormatter
 from .trends import TrendsResultsFormatter
@@ -58,21 +48,29 @@ def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
     return results if results else response.get("boxplot_data", [])
 
 
-def format_warehouse_sync_warnings(response: dict[str, Any]) -> str:
-    """Render data warehouse sync warnings as a leading block for LLM-facing output.
-
-    Returns empty string when the response has no warnings.
-    """
-    warnings = response.get("warnings") or []
-    if not warnings:
+def _format_warnings(response: dict[str, Any], warning_type: str, header: str) -> str:
+    """Select one kind of warning from the shared `warnings` list (by its `type` tag) and render it
+    as a leading block. Empty string when there's nothing to show."""
+    messages = [
+        w["message"] for w in (response.get("warnings") or []) if w.get("type") == warning_type and w.get("message")
+    ]
+    if not messages:
         return ""
-    lines = ["[Data warehouse sync warnings — results may not reflect current source data]"]
-    for warning in warnings:
-        message = warning.get("message") if isinstance(warning, dict) else getattr(warning, "message", None)
-        if message:
-            lines.append(f"- {message}")
-    lines.append("")
-    return "\n".join(lines)
+    # Trailing blank line so consecutive blocks (and the results after them) don't run together.
+    return "\n".join([header, *(f"- {m}" for m in messages), "", ""])
+
+
+def format_warehouse_sync_warnings(response: dict[str, Any]) -> str:
+    return _format_warnings(
+        response, "warehouse_sync", "[Data warehouse sync warnings — results may not reflect current source data]"
+    )
+
+
+def format_access_control_warnings(response: dict[str, Any]) -> str:
+    # Filtering is pushed into SQL, so excluded rows never come back — without this block an agent
+    # can mistake a possibly-partial result for the full set. The message is a full sentence
+    # ("Results may exclude ..."), so the header is just the block label.
+    return _format_warnings(response, "access_control", "[Access control]")
 
 
 def format_query_results_for_llm(
@@ -101,7 +99,7 @@ def format_query_results_for_llm(
         if is_boxplot_query(query):
             formatted = BoxPlotResultsFormatter(get_boxplot_results(response)).format()
         else:
-            formatted = TrendsResultsFormatter(query, response["results"]).format()
+            formatted = TrendsResultsFormatter(query, response["results"], team, utc_now).format()
     elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
         formatted = FunnelResultsFormatter(query, response["results"], team, utc_now).format()
     elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
@@ -114,18 +112,10 @@ def format_query_results_for_llm(
         formatted = RetentionResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
         formatted = SQLResultsFormatter(query, response["results"], response["columns"]).format()
-    elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
-        formatted = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
-    elif isinstance(query, RevenueAnalyticsMetricsQuery):
-        formatted = RevenueAnalyticsMetricsResultsFormatter(query, response["results"]).format()
-    elif isinstance(query, RevenueAnalyticsMRRQuery):
-        formatted = RevenueAnalyticsMRRResultsFormatter(query, response["results"]).format()
-    elif isinstance(query, RevenueAnalyticsTopCustomersQuery):
-        formatted = RevenueAnalyticsTopCustomersResultsFormatter(query, response["results"]).format()
 
     if formatted is None:
         return None
-    warning_prefix = format_warehouse_sync_warnings(response)
+    warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
     return warning_prefix + formatted if warning_prefix else formatted
 
 
@@ -138,11 +128,8 @@ __all__ = [
     "SQLResultsFormatter",
     "StickinessResultsFormatter",
     "TrendsResultsFormatter",
-    "RevenueAnalyticsGrossRevenueResultsFormatter",
-    "RevenueAnalyticsMetricsResultsFormatter",
-    "RevenueAnalyticsMRRResultsFormatter",
-    "RevenueAnalyticsTopCustomersResultsFormatter",
     "TRUNCATED_MARKER",
+    "format_access_control_warnings",
     "format_query_results_for_llm",
     "format_warehouse_sync_warnings",
 ]

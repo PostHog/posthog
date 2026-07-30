@@ -38,6 +38,19 @@ class FilterOp(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class MetricType(StrEnum):
+    """The OTel metric type a clause targets. Series identity includes the
+    type — one name can exist as both a counter and a gauge — so queries
+    constrain it to avoid blending distinct series. Values match what the
+    ingest writes to `metric_type` (rust/capture-logs `flatten_metric`)."""
+
+    GAUGE = "gauge"
+    SUM = "sum"
+    HISTOGRAM = "histogram"
+    EXPONENTIAL_HISTOGRAM = "exponential_histogram"
+    SUMMARY = "summary"
+
+
 class MetricAggregation(StrEnum):
     """How a clause collapses the values in each time bucket into one number.
 

@@ -15,7 +15,8 @@ const mainFrame = { name: 'mainFrame' } as unknown as Frame
 const subFrame = { name: 'subFrame' } as unknown as Frame
 
 const playerUrl = 'http://localhost:8000/player'
-const playerHtml = '<html>player</html>'
+const playerHtml =
+    '<html><head></head><body><div>player</div><script nonce="__CSP_NONCE__">window.__player=1</script></body></html>'
 
 function mockPage(): {
     page: Page
@@ -79,12 +80,13 @@ function mockBlockProxy(): BlockProxy {
 
 async function createInterceptor(
     page?: Page,
-    blockProxy?: BlockProxy
+    blockProxy?: BlockProxy,
+    enablePlayerCsp = false
 ): Promise<{ interceptor: RequestInterceptor; page: ReturnType<typeof mockPage>; blockProxy: BlockProxy }> {
     const mp = page ? { page, emitRequestFinished: () => {}, emitRequestFailed: () => {} } : mockPage()
     const bp = blockProxy || mockBlockProxy()
     const cp = mockCapturePage(mp.page)
-    const interceptor = new RequestInterceptor(cp, bp, mockLog)
+    const interceptor = new RequestInterceptor(cp, bp, mockLog, enablePlayerCsp)
     await interceptor.install()
     return { interceptor, page: mp as ReturnType<typeof mockPage>, blockProxy: bp }
 }
@@ -112,18 +114,65 @@ describe('RequestInterceptor', () => {
     })
 
     describe('request routing', () => {
-        it('serves player HTML for the player URL', async () => {
+        it('serves the player HTML under a script-locking CSP with a matching nonce when enabled', async () => {
+            const { page } = await createInterceptor(undefined, undefined, true)
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('document', mainFrame, playerUrl)
+
+            handler(req)
+
+            const call = (req.respond as jest.Mock).mock.calls[0][0]
+            expect(call.status).toBe(200)
+            expect(call.contentType).toBe('text/html')
+
+            const csp: string = call.headers['Content-Security-Policy']
+            const nonce = csp.match(/script-src 'nonce-([^']+)'/)?.[1]
+            expect(nonce).toBeTruthy()
+            // recorded inline event handlers must not be executable in the player origin
+            expect(csp).not.toContain("'unsafe-inline'")
+            expect(csp).toContain("object-src 'none'")
+            // hls.js's transmux worker loads from a blob URL; dropping this would break HLS playback
+            expect(csp).toContain('worker-src blob:')
+            // the build's placeholder is swapped for the real nonce, leaving none behind
+            expect(call.body).toContain(`<script nonce="${nonce}">`)
+            expect(call.body).not.toContain('__CSP_NONCE__')
+        })
+
+        it('strips the nonce placeholder and sets no CSP when the flag is off', async () => {
             const { page } = await createInterceptor()
             const handler = getRequestHandler(page.page)
             const req = mockRequest('document', mainFrame, playerUrl)
 
             handler(req)
 
-            expect(req.respond).toHaveBeenCalledWith({
-                status: 200,
-                contentType: 'text/html',
-                body: playerHtml,
-            })
+            const call = (req.respond as jest.Mock).mock.calls[0][0]
+            expect(call.status).toBe(200)
+            expect(call.headers?.['Content-Security-Policy']).toBeUndefined()
+            // placeholder gone, script tag restored to its pre-CSP form
+            expect(call.body).not.toContain('__CSP_NONCE__')
+            expect(call.body).toContain('<script>window.__player=1</script>')
+        })
+
+        it.each([
+            { name: 'the placeholder is missing', html: '<html><body><script>x=1</script></body></html>' },
+            {
+                name: 'more than one placeholder is present',
+                html: '<html><body><script nonce="__CSP_NONCE__">a</script><script nonce="__CSP_NONCE__">b</script></body></html>',
+            },
+        ])('serves a 500 with no CSP when $name', async ({ html }) => {
+            const mp = mockPage()
+            const cp = { page: mp.page, playerUrl, playerHtml: html } as unknown as CapturePage
+            const interceptor = new RequestInterceptor(cp, mockBlockProxy(), mockLog, true)
+            await interceptor.install()
+            const handler = getRequestHandler(mp.page)
+            const req = mockRequest('document', mainFrame, playerUrl)
+
+            handler(req)
+
+            const call = (req.respond as jest.Mock).mock.calls[0][0]
+            expect(call.status).toBe(500)
+            expect(call.headers?.['Content-Security-Policy']).toBeUndefined()
+            expect(mockLog.error).toHaveBeenCalled()
         })
 
         it('forwards block requests to BlockProxy', async () => {

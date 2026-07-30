@@ -8,6 +8,7 @@ import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
+import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import { sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
@@ -41,6 +42,30 @@ describe('sourceManagementLogic', () => {
     afterEach(() => {
         logic.unmount()
         databaseLogic.unmount()
+    })
+
+    it.each([
+        ['display label', 'Google ads'],
+        ['internal source_type', 'googleads'],
+    ])('finds a managed source by its %s', async (_, searchTerm) => {
+        jest.spyOn(api.externalDataSources, 'wizard').mockResolvedValue({
+            GoogleAds: { name: 'GoogleAds', label: 'Google Ads' },
+        } as any)
+
+        logic.mount()
+        await expectLogic(availableSourcesLogic).toDispatchActions(['loadSuccess'])
+
+        sourceManagementLogic.actions.loadSourcesSuccess({
+            results: [{ id: 's1', source_type: 'GoogleAds', access_method: 'warehouse', schemas: [] }],
+            count: 1,
+            next: null,
+            previous: null,
+        } as any)
+
+        logic.actions.setManagedSearchTerm(searchTerm)
+        await expectLogic(logic).toMatchValues({
+            filteredManagedSources: [expect.objectContaining({ source_type: 'GoogleAds' })],
+        })
     })
 
     it('only includes tables with no source in selfManagedTables', async () => {

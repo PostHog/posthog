@@ -90,6 +90,7 @@ body.is-desktop .quill-toggle,
 body.is-desktop .quill-accordion__trigger,
 body.is-desktop .quill-checkbox:not(:disabled),
 body.is-desktop .quill-field__label:has(> [data-slot='field']),
+body.is-desktop .quill-item--variant-pressable,
 body.is-desktop .group\/field:has(> [role='checkbox']) .quill-label {
     cursor: default;
 }

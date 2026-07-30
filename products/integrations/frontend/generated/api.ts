@@ -17,7 +17,6 @@ import type {
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
-    GoogleSearchConsoleSitesResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
@@ -544,27 +543,6 @@ export const integrationsGoogleConversionActionsRetrieve = async (
         ...options,
         method: 'GET',
     })
-}
-
-export const getIntegrationsGoogleSearchConsoleSitesRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/google_search_console_sites/`
-}
-
-/**
- * List the Search Console properties the connected Google account has access to.
- */
-export const integrationsGoogleSearchConsoleSitesRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<GoogleSearchConsoleSitesResponseApi> => {
-    return apiMutator<GoogleSearchConsoleSitesResponseApi>(
-        getIntegrationsGoogleSearchConsoleSitesRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
 }
 
 export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {

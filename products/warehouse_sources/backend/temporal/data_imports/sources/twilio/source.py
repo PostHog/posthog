@@ -21,8 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TwilioSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.twilio import TwilioSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -38,6 +41,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
+    supported_versions = ("2010-04-01",)
+    default_version = "2010-04-01"
+    api_docs_url = "https://www.twilio.com/docs/usage/api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -151,23 +158,16 @@ Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: TwilioSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: TwilioSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             auth = self._get_auth(config)
@@ -188,7 +188,8 @@ Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio
             auth=self._get_auth(config),
             account_sid=config.account_sid,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

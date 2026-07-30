@@ -1,1 +1,1 @@
-0284_message_assets
+0291_add_ai_channel_type

@@ -15,7 +15,7 @@ import { IntegrationFullPage } from './IntegrationFullPage'
 const meta: Meta<typeof IntegrationFullPage> = {
     title: 'Scenes-Other/Integration landing page',
     component: IntegrationFullPage,
-    parameters: { layout: 'fullscreen', viewMode: 'story' },
+    parameters: { layout: 'fullscreen', viewMode: 'story', mockDate: '2023-01-01' },
     decorators: [
         mswDecorator({
             get: {

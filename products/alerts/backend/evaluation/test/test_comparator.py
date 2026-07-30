@@ -213,3 +213,24 @@ def test_unframed_message_uses_subject_without_interval_framing():
     assert result.breaches is not None
     assert result.breaches[0] == "The SQL insight value (5.0) is less than lower threshold (10.0)"
     assert "interval" not in result.breaches[0]
+
+
+def test_value_formatter_formats_both_value_and_bounds():
+    # A trends value_formatter renders the breach value AND the threshold bound (currency here).
+    series = [ComparableSeries(label="A", points=[SeriesPoint(None, 5.0)], current_index=0)]
+    result = ExtractionResult(series=series, value_formatter=lambda v: f"${v:,.2f}")
+    out = evaluate_threshold(result, ABSOLUTE, _threshold(lower=10))
+    assert out.breaches is not None
+    assert (
+        out.breaches[0] == "The insight value (A) for previous interval ($5.00) is less than lower threshold ($10.00)"
+    )
+
+
+def test_percentage_threshold_ignores_value_formatter():
+    # A relative % alert renders its change ratio as its own %, taking precedence over any formatter.
+    series = [ComparableSeries(label="A", points=[SeriesPoint(None, v) for v in (10.0, 20.0)], current_index=1)]
+    result = ExtractionResult(series=series, value_formatter=lambda v: f"${v:,.2f}")
+    out = evaluate_threshold(result, INCREASE, _threshold(type_=InsightThresholdType.PERCENTAGE, upper=0.5))
+    assert out.breaches is not None
+    assert "100.00%" in out.breaches[0]
+    assert "$" not in out.breaches[0]

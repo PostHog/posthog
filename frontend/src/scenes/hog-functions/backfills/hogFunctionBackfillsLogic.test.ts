@@ -7,16 +7,25 @@ import { HogFunctionType } from '~/types'
 
 import { hogFunctionBackfillsLogic } from './hogFunctionBackfillsLogic'
 
-jest.mock('lib/api', () => ({
-    ...jest.requireActual('lib/api'),
-    hogFunctions: {
-        get: jest.fn(),
-        getTemplate: jest.fn(),
-        update: jest.fn(),
-        create: jest.fn(),
-        enableBackfills: jest.fn(),
-    },
-}))
+// Mock only the hogFunctions namespace on the default api export — replacing the module
+// object wholesale would leave `api.query` & co undefined for connected logics
+jest.mock('lib/api', () => {
+    const actual = jest.requireActual('lib/api')
+    return {
+        ...actual,
+        __esModule: true,
+        default: {
+            ...actual.default,
+            hogFunctions: {
+                get: jest.fn(),
+                getTemplate: jest.fn(),
+                update: jest.fn(),
+                create: jest.fn(),
+                enableBackfills: jest.fn(),
+            },
+        },
+    }
+})
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntent: jest.fn().mockResolvedValue(null),

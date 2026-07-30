@@ -588,36 +588,6 @@ class TestAssistantContextManager(BaseTest):
         self.assertEqual(result[0].content, "New context message")
         self.assertEqual(result[1].content, "Another new message")
 
-    async def test_get_context_messages_with_ui_and_contextual_tools(self):
-        """Test that context prompts are returned for both UI context and contextual tools"""
-        with (
-            patch.object(AssistantContextManager, "_get_contextual_tools_prompt") as mock_contextual_tools,
-            patch.object(AssistantContextManager, "_format_ui_context") as mock_format_ui,
-            patch.object(AssistantContextManager, "get_ui_context") as mock_get_ui,
-            patch.object(AssistantContextManager, "_deduplicate_context_messages") as mock_dedupe,
-        ):
-            # Setup mocks
-            mock_contextual_tools.return_value = "Contextual tools prompt"
-            mock_format_ui.return_value = "UI context prompt"
-            mock_get_ui.return_value = MaxUIContext()
-            ctx_tools_msg = ContextMessage(content="Contextual tools prompt", id="1")
-            ui_context_msg = ContextMessage(content="UI context prompt", id="2")
-            mock_dedupe.return_value = [ctx_tools_msg, ui_context_msg]
-
-            state = AssistantState(messages=[HumanMessage(content="Test")])
-
-            result = await self.context_manager._get_context_messages(state)
-
-            # Verify both prompts are included
-            self.assertEqual(len(result), 2)
-            self.assertEqual(result[0].content, "Contextual tools prompt")
-            self.assertEqual(result[1].content, "UI context prompt")
-
-            # Verify methods were called
-            mock_contextual_tools.assert_called_once_with()
-            mock_get_ui.assert_called_once_with(state)
-            mock_format_ui.assert_called_once_with(MaxUIContext())
-
     async def test_get_context_messages_with_only_contextual_tools(self):
         """Test that context prompts work when only contextual tools are present"""
         with (

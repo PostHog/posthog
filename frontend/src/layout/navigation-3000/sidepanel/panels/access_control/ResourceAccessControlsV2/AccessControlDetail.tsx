@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ReactNode, useContext, useEffect, useState } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconHome, IconInfo, IconOpenSidebar, IconPeople, IconPlus, IconTrash } from '@posthog/icons'
 import {
@@ -9,7 +9,6 @@ import {
     LemonLabel,
     LemonModal,
     LemonSelect,
-    LemonSkeleton,
     LemonTable,
     LemonTag,
     LemonTagType,
@@ -23,11 +22,9 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { fullName, toSentenceCase } from 'lib/utils/strings'
-import { SettingsChromeContext } from 'scenes/settings/Settings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { APIScopeObject, AccessControlLevel, SidePanelTab } from '~/types'
 
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
@@ -41,52 +38,6 @@ import { groupedAccessControlRuleModalLogic } from './groupedAccessControlRuleMo
 import { getEntryId, isMemberEntry } from './helpers'
 import { ScopeIcon } from './ScopeIcon'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry } from './types'
-
-export function AccessControlDetail({
-    projectId,
-    scopeType,
-}: {
-    projectId: string
-    scopeType: AccessScope
-}): JSX.Element {
-    const { selectedMember, selectedRole, membersDataLoading, rolesDataLoading } = useValues(
-        accessControlsLogic({ projectId })
-    )
-    const { location } = useValues(router)
-    const { setChromeHidden } = useContext(SettingsChromeContext)
-
-    const isRole = scopeType === 'role'
-    const entry: AccessControlSettingsEntry | null = isRole ? selectedRole : selectedMember
-    const loading = isRole ? rolesDataLoading : membersDataLoading
-
-    // This detail is a full page — hide the scene title + section heading above it so it reads as its own page.
-    useEffect(() => {
-        setChromeHidden(true)
-        return () => setChromeHidden(false)
-    }, [setChromeHidden])
-
-    return (
-        <div className="space-y-6">
-            {/* Back to the access control list — dropping the `access_*` query param closes the detail (see urlToAction). */}
-            <div className="flex items-center gap-1.5">
-                <SceneBreadcrumbBackButton
-                    forceBackTo={{ key: 'access-control', name: 'Access control', path: location.pathname }}
-                />
-                <span className="text-secondary text-sm">Access control / {isRole ? 'Roles' : 'Members'}</span>
-            </div>
-
-            {!entry ? (
-                loading ? (
-                    <LemonSkeleton className="h-24 w-full" />
-                ) : (
-                    <div className="text-secondary">{isRole ? 'Role' : 'Member'} not found.</div>
-                )
-            ) : (
-                <AccessControlDetailContent projectId={projectId} scopeType={scopeType} entry={entry} />
-            )}
-        </div>
-    )
-}
 
 export function AccessControlDetailContent({
     projectId,
@@ -285,21 +236,28 @@ function Section({
     )
 }
 
-/** A link to open the object, for resource types whose page is addressable by the stored resource_id (a pk). */
-function objectUrl(resource: string, resourceId: string): string | null {
-    switch (resource) {
+/** A link to open the object, for resource types we can address from the stored resource_id. */
+function objectUrl(o: AccessObjectOverride): string | null {
+    switch (o.resource) {
         case 'dashboard':
-            return urls.dashboard(resourceId)
+            return urls.dashboard(o.resource_id)
         case 'feature_flag':
-            return urls.featureFlag(resourceId)
+            return urls.featureFlag(o.resource_id)
         case 'experiment':
-            return urls.experiment(resourceId)
+            return urls.experiment(o.resource_id)
         case 'survey':
-            return urls.survey(resourceId)
+            return urls.survey(o.resource_id)
         case 'action':
-            return urls.action(resourceId)
+            return urls.action(o.resource_id)
+        case 'warehouse_view':
+            return urls.sqlEditor({ view_id: o.resource_id })
+        case 'external_data_source':
+            return urls.dataWarehouseSource(`managed-${o.resource_id}`)
+        case 'warehouse_table':
+            // Tables have no page of their own, so open them the way the warehouse UI does — querying them
+            return urls.sqlEditor({ query: `SELECT * FROM ${o.name} LIMIT 100` })
         default:
-            // insight / notebook / warehouse pages need a short_id we don't have here — show as plain text
+            // insight / notebook pages need a short_id we don't have here — show as plain text
             return null
     }
 }
@@ -496,7 +454,7 @@ function ObjectOverridesSection({ projectId, scopeType, subjectId, subjectNoun }
                         title: 'Object',
                         key: 'object',
                         render: (_, o: AccessObjectOverride) => {
-                            const href = objectUrl(o.resource, o.resource_id)
+                            const href = objectUrl(o)
                             const label = href ? <Link to={href}>{o.name}</Link> : o.name
                             return (
                                 <div className="flex items-center gap-2">
@@ -532,7 +490,7 @@ function ObjectOverridesSection({ projectId, scopeType, subjectId, subjectNoun }
                         key: 'actions',
                         width: 0,
                         render: (_, o: AccessObjectOverride) => {
-                            const href = objectUrl(o.resource, o.resource_id)
+                            const href = objectUrl(o)
                             const canDelete = scopeType === 'role' ? o.source === 'role' : o.source === 'member'
                             if (!href && !canDelete) {
                                 return null

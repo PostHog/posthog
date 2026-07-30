@@ -1,54 +1,21 @@
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import {
-    IconBolt,
-    IconBug,
-    IconCheckCircle,
-    IconMagicWand,
-    IconNotebook,
-    IconPlus,
-    IconSearch,
-    IconStar,
-    IconTarget,
-    IconThumbsDown,
-    IconWarning,
-} from '@posthog/icons'
+import { IconCheckCircle, IconNotebook, IconPlus, IconTarget, IconThumbsDown, IconWarning } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, ScannerTemplateIcon, defaultScannerTemplates, newScanner } from '../scannerTemplates'
+import { scannerTypeOutputHint } from '../types'
 
-function getTemplateIcon(icon: ScannerTemplateIcon): JSX.Element {
-    const iconClass = 'w-6 h-6 text-primary-3000'
-    switch (icon) {
-        case 'bolt':
-            return <IconBolt className={iconClass} />
-        case 'warning':
-            return <IconWarning className={iconClass} />
-        case 'notebook':
-            return <IconNotebook className={iconClass} />
-        case 'target':
-            return <IconTarget className={iconClass} />
-        case 'thumbs-down':
-            return <IconThumbsDown className={iconClass} />
-        case 'star':
-            return <IconStar className={iconClass} />
-        case 'search':
-            return <IconSearch className={iconClass} />
-        case 'magic':
-            return <IconMagicWand className={iconClass} />
-        case 'bug':
-            return <IconBug className={iconClass} />
-        case 'check':
-            return <IconCheckCircle className={iconClass} />
-        default: {
-            const exhaustiveCheck: never = icon
-            return exhaustiveCheck
-        }
-    }
+const TEMPLATE_ICONS: Record<ScannerTemplateIcon, JSX.Element> = {
+    warning: <IconWarning />,
+    notebook: <IconNotebook />,
+    target: <IconTarget />,
+    'thumbs-down': <IconThumbsDown />,
+    check: <IconCheckCircle />,
 }
 
 function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JSX.Element {
@@ -71,20 +38,32 @@ function TemplateCard({ template }: { template: ScannerTemplate | 'blank' }): JS
         >
             <div className="flex flex-col items-center text-center gap-4 h-full">
                 <div className="bg-primary-3000/10 rounded-lg flex-shrink-0 size-12 flex items-center justify-center">
-                    {isBlank ? <IconPlus className="w-6 h-6 text-primary-3000" /> : getTemplateIcon(template.icon)}
+                    <span className="w-6 h-6 text-primary-3000 [&_svg]:w-6 [&_svg]:h-6">
+                        {isBlank ? <IconPlus /> : TEMPLATE_ICONS[template.icon]}
+                    </span>
                 </div>
-                <div className="flex-1 flex flex-col justify-start">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                        <h3 className="text-base font-semibold text-default mb-0">
-                            {isBlank ? 'Create from scratch' : template.name}
-                        </h3>
-                        {!isBlank && <ScannerTypeBadge scannerType={template.scanner_type} size="small" />}
-                    </div>
-                    <p className="text-sm text-secondary leading-relaxed">
+                <div className="flex-1 flex flex-col justify-start w-full">
+                    <h3 className="text-base font-semibold text-default mb-2">
+                        {isBlank ? 'Create from scratch' : template.name}
+                    </h3>
+                    <p className="text-sm text-secondary leading-relaxed mb-0">
                         {isBlank
                             ? 'Build a fully custom scanner with your own prompt and configuration.'
                             : template.description}
                     </p>
+                    {/* Type chip carries its output inline (e.g. "Monitor · yes or no"), pinned to the card's
+                        bottom edge (mt-auto) so it lines up across the grid regardless of description length. */}
+                    {!isBlank && (
+                        <div className="mt-auto pt-4 flex justify-center">
+                            <ScannerTypeBadge
+                                scannerType={template.scanner_type}
+                                size="medium"
+                                suffix={
+                                    <span className="opacity-75">· {scannerTypeOutputHint(template.scanner_type)}</span>
+                                }
+                            />
+                        </div>
+                    )}
                 </div>
             </div>
         </button>

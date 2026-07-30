@@ -1,17 +1,22 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
 from dateutil import parser as dateutil_parser
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
+from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BaseNextUrlPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.twilio.settings import (
     TWILIO_ENDPOINTS,
     TwilioEndpointConfig,
@@ -24,13 +29,30 @@ DEFAULT_PAGE_SIZE = 1000
 TwilioAuth = tuple[str, str]
 
 
-class TwilioRetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass
 class TwilioResumeConfig:
     next_url: str
+
+
+class TwilioNextPageUriPaginator(BaseNextUrlPaginator):
+    """Follow Twilio's body-level ``next_page_uri`` link.
+
+    Twilio returns ``next_page_uri`` as a root-relative path (null/absent on the last page). The
+    self-contained next link already carries every query param (PageSize, filters, Page token), so
+    we resolve it to an absolute URL on the API host and let ``BaseNextUrlPaginator`` retarget the
+    request to it — dropping the original params so they aren't re-appended each page.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            next_page_uri = response.json().get("next_page_uri")
+        except Exception:
+            next_page_uri = None
+        if next_page_uri:
+            self._next_url = f"{TWILIO_BASE_URL}{next_page_uri}"
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
 
 
 def _format_filter_date(value: Any) -> str:
@@ -66,20 +88,16 @@ def _build_initial_params(
             chosen = next(iter(config.incremental_filter_params))
         if chosen is not None:
             filter_base = config.incremental_filter_params[chosen]
-            # The operator lives in the parameter NAME (e.g. `DateSent>`); urlencode's `=` separator
-            # then yields Twilio's documented `DateSent>=<date>` (inclusive, on-or-after) form. The date
-            # value must stay plain — inlining the operator into the value triggers Twilio error 20001.
+            # The operator lives in the parameter NAME (e.g. `DateSent>`); the query separator `=`
+            # then yields Twilio's documented `DateSent>=<date>` (inclusive, on-or-after) form. The
+            # date value must stay plain — inlining the operator into the value triggers error 20001.
             params[f"{filter_base}>"] = _format_filter_date(db_incremental_field_last_value)
 
     return params
 
 
-def _build_initial_url(config: TwilioEndpointConfig, account_sid: str, params: dict[str, Any]) -> str:
-    path = f"/{TWILIO_API_VERSION}/Accounts/{account_sid}/{config.path}"
-    if not params:
-        return f"{TWILIO_BASE_URL}{path}"
-    # `safe=">"` keeps Twilio's inequality operator literal in the param name (e.g. `DateSent>`).
-    return f"{TWILIO_BASE_URL}{path}?{urlencode(params, safe='>')}"
+def _build_resource_path(config: TwilioEndpointConfig, account_sid: str) -> str:
+    return f"/{TWILIO_API_VERSION}/Accounts/{account_sid}/{config.path}"
 
 
 def validate_credentials(
@@ -87,96 +105,39 @@ def validate_credentials(
 ) -> tuple[bool, str | None]:
     if schema_name is not None and schema_name in TWILIO_ENDPOINTS:
         config = TWILIO_ENDPOINTS[schema_name]
-        url = _build_initial_url(config, account_sid, {"PageSize": 1})
+        url = f"{TWILIO_BASE_URL}{_build_resource_path(config, account_sid)}?PageSize=1"
     else:
         url = f"{TWILIO_BASE_URL}/{TWILIO_API_VERSION}/Accounts/{account_sid}.json"
 
-    try:
-        response = make_tracked_session().get(url, auth=auth, timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(auth[1],)),
+        url,
+        auth=HTTPBasicAuth(*auth),
+    )
 
-    if response.status_code == 200:
+    if status == 200:
         return True, None
 
-    if response.status_code == 401:
+    if status == 401:
         return False, "Invalid Twilio credentials. Check your Account SID and Auth Token (or API key SID and secret)."
 
     # A valid token without access to a specific resource is acceptable at source-create time
     # (no schema selected yet); only treat it as a failure when validating a specific endpoint.
-    if response.status_code == 403 and schema_name is None:
+    if status == 403 and schema_name is None:
         return True, None
 
-    try:
-        message = response.json().get("message", response.text)
-    except Exception:
-        message = response.text
-    return False, message
+    if status is None:
+        return False, "Could not reach Twilio to validate credentials."
 
-
-def get_rows(
-    auth: TwilioAuth,
-    account_sid: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[TwilioResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[Any]:
-    config = TWILIO_ENDPOINTS[endpoint]
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url: str = resume_config.next_url
-        logger.debug(f"Twilio: resuming from URL: {url}")
-    else:
-        params = _build_initial_params(
-            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-        )
-        url = _build_initial_url(config, account_sid, params)
-
-    @retry(
-        retry=retry_if_exception_type((TwilioRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict:
-        response = make_tracked_session().get(page_url, auth=auth, timeout=60)
-
-        # Twilio rate-limits with 429 + a Retry-After header; exponential backoff is a safe fallback.
-        if response.status_code == 429 or response.status_code >= 500:
-            raise TwilioRetryableError(f"Twilio API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Twilio API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-
-        items = data.get(config.response_key, [])
-        if items:
-            yield items
-
-        # `next_page_uri` is a relative path; null/absent signals the last page.
-        next_page_uri = data.get("next_page_uri")
-        if not next_page_uri:
-            break
-
-        url = f"{TWILIO_BASE_URL}{next_page_uri}"
-        # Save AFTER yielding so a crash re-yields the last batch (merge dedupes) rather than skipping it.
-        resumable_source_manager.save_state(TwilioResumeConfig(next_url=url))
+    return False, f"Twilio returned an unexpected status ({status}) while validating credentials."
 
 
 def twilio_source(
     auth: TwilioAuth,
     account_sid: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[TwilioResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -184,18 +145,54 @@ def twilio_source(
 ) -> SourceResponse:
     config = TWILIO_ENDPOINTS[endpoint]
 
+    params = _build_initial_params(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": TWILIO_BASE_URL,
+            # HTTP basic auth via the framework so the secret is redacted from logs and errors.
+            "auth": {"type": "http_basic", "username": auth[0], "password": auth[1]},
+            "paginator": TwilioNextPageUriPaginator(),
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": _build_resource_path(config, account_sid),
+                    "params": params,
+                    "data_selector": config.response_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on `sid`) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(TwilioResumeConfig(next_url=str(state["next_url"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            auth=auth,
-            account_sid=account_sid,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         sort_mode=config.sort_mode,
         partition_count=1,

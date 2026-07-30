@@ -8,7 +8,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
-import { AccessControlDetail } from './AccessControlDetail'
 import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
@@ -32,9 +31,8 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         filteredMembers,
         canEdit,
         loading,
-        selectedMemberId,
-        selectedRoleId,
         panelSubject,
+        visibleResourceKeySet,
     } = useValues(logic)
 
     const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel } = useActions(logic)
@@ -49,14 +47,6 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         sidePanelOpen && selectedTab === SidePanelTab.AccessDetail && openSubject?.scopeType === scopeType
             ? openSubject.subjectId
             : null
-
-    // A member or role is being inspected — take over the whole section with their detail page
-    if (activeTab === 'members' && selectedMemberId) {
-        return <AccessControlDetail projectId={projectId} scopeType="member" />
-    }
-    if (activeTab === 'roles' && selectedRoleId) {
-        return <AccessControlDetail projectId={projectId} scopeType="role" />
-    }
 
     return (
         <>
@@ -97,6 +87,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
                                 canEditAny={canEdit}
+                                visibleResources={visibleResourceKeySet}
                                 selectedEntryId={openInPanelId}
                                 onEdit={(entry) => {
                                     openAccessDetailPanel(scopeType, getEntryId(entry))

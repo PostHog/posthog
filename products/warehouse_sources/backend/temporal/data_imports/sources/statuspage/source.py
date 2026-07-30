@@ -19,8 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StatuspageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.statuspage import (
+    StatuspageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.statuspage.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -35,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://developer.statuspage.io/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STATUSPAGE
@@ -51,8 +60,8 @@ class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeC
                 "The key has organization-wide management access; no extra scopes are required."
             ),
             iconPath="/static/services/statuspage.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/statuspage",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -89,25 +98,18 @@ class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeC
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                # Statuspage has no server-side updated_after/since filter on any list endpoint, so
-                # every schema is full-refresh only.
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Statuspage has no server-side updated_after/since filter on any list endpoint, so every
+        # endpoint has empty incremental fields and is full-refresh only.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: StatuspageSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: StatuspageSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_statuspage_credentials(config.api_key)
 
@@ -123,6 +125,7 @@ class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeC
         return statuspage_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

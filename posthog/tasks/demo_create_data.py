@@ -13,11 +13,10 @@ def create_data_for_demo_team(team_id: int, user_id: int, cache_key: str) -> Non
     # Deferred: the demo matrix pulls mimesis (a fake-data generator). This task module is
     # eager-imported by posthog/tasks/__init__, so a module-level import drags mimesis onto
     # every process's startup path. Only needed when actually generating demo data.
-    from posthog.demo.matrix import manager  # noqa: PLC0415
-    from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix  # noqa: PLC0415
+    from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager  # noqa: PLC0415
 
     team = Team.objects.get(pk=team_id)
     user = User.objects.get(pk=user_id)
     if team and user:
-        manager.MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, user)
+        MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, user)
         cache.delete(cache_key)

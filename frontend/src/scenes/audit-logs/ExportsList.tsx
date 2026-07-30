@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { ExportedAsset, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
@@ -14,6 +15,8 @@ import {
     getHumanReadableFormat,
     getStatusTag,
 } from './ExportsListHelpers'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export function ExportsList(): JSX.Element {
     const { exports, exportsLoading } = useValues(advancedActivityLogsLogic)

@@ -1,6 +1,13 @@
-import { IconCode, IconDatabase, IconDecisionTree, IconPulse, IconTrending, IconWarning } from '@posthog/icons'
+import { IconBug, IconCode, IconDatabase, IconDecisionTree, IconPulse, IconTrending, IconWarning } from '@posthog/icons'
 
-export type HealthIssueCategory = 'ingestion' | 'sdk' | 'web_analytics' | 'data_modeling' | 'pipelines' | 'other'
+export type HealthIssueCategory =
+    | 'ingestion'
+    | 'sdk'
+    | 'web_analytics'
+    | 'data_modeling'
+    | 'pipelines'
+    | 'error_tracking'
+    | 'other'
 
 export type HealthIssueKind =
     | 'no_live_events'
@@ -15,6 +22,7 @@ export type HealthIssueKind =
     | 'sdk_outdated'
     | 'materialized_view_failure'
     | 'external_data_failure'
+    | 'error_tracking_missing_source_maps'
 
 export interface CategoryConfig {
     label: string
@@ -60,6 +68,13 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
         icon: <IconDecisionTree className="size-5" />,
         showInSummary: true,
     },
+    error_tracking: {
+        label: 'Error tracking',
+        description: 'Error tracking setup and configuration',
+        healthyDescription: 'All healthy',
+        icon: <IconBug className="size-5" />,
+        showInSummary: true,
+    },
     other: {
         label: 'Other',
         description: 'Other health issues',
@@ -81,6 +96,9 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
 
     // SDKs
     sdk_outdated: 'sdk',
+
+    // Error tracking
+    error_tracking_missing_source_maps: 'error_tracking',
 
     // Web analytics
     no_live_events: 'web_analytics',
@@ -105,6 +123,7 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     ingestion_warning: 'Ingestion warning',
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
+    error_tracking_missing_source_maps: 'Missing source maps',
 }
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {
@@ -123,5 +142,6 @@ export const CATEGORY_ORDER: HealthIssueCategory[] = [
     'web_analytics',
     'data_modeling',
     'pipelines',
+    'error_tracking',
     'other',
 ]

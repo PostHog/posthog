@@ -58,7 +58,7 @@ function sliceLabelLines(): string[][] {
 }
 
 async function waitForSlices(): Promise<void> {
-    await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+    await screen.findByLabelText(/pie chart with/i, {}, { timeout: 5000 })
     await waitFor(
         () => {
             if (sliceLabelLines().length === 0) {
@@ -144,7 +144,7 @@ describe('SqlPieGraph', () => {
     it('renders nothing on slices when slice content is none', async () => {
         render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'none' } }, [40, 30, 20, 10])} />)
 
-        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+        await screen.findByLabelText(/pie chart with/i, {}, { timeout: 5000 })
 
         expect(sliceLabelLines()).toEqual([])
     })

@@ -1,6 +1,6 @@
 ---
 name: managing-path-cleaning-rules
-description: 'Inspects URL paths and proposes, tests, orders, and applies project-level path cleaning rules so dynamic segments (numeric IDs, UUIDs, slugs, dates) collapse into readable aliases. Use when the user says "clean the paths", "normalize URLs", "group similar pages", "too many distinct paths", "/users/123 and /users/456 are the same page", "set up path cleaning", or asks why a Web analytics or Paths breakdown is fragmented across thousands of nearly-identical URLs. Covers regex syntax (re2), alias placeholder convention, rule ordering, the test workflow, and applying rules via the project-settings-update MCP tool.'
+description: 'Inspects URL paths and proposes, tests, orders, and applies project-level path cleaning rules so dynamic segments (numeric IDs, UUIDs, slugs, dates) collapse into readable aliases. Use when the user says "clean the paths", "normalize URLs", "group similar pages", "too many distinct paths", "/users/123 and /users/456 are the same page", "set up path cleaning", or asks why a Web analytics or Paths breakdown is fragmented across thousands of nearly-identical URLs. Covers regex syntax (re2), alias placeholder convention, rule ordering, the test workflow, and applying rules via the path-cleaning-rules-update MCP tool.'
 ---
 
 # Managing path cleaning rules
@@ -131,22 +131,29 @@ make the more specific rule unreachable.
 
 ### 6. Apply via MCP
 
-Use the `project-settings-update` tool with the full list (the field is
-replaced, not merged):
+Prefer the `path-cleaning-rules-update` tool. It reads the current rules,
+applies granular operations (`append`, `insert`, `replace`, `remove`,
+`reorder`), auto-numbers `order`, and — unless you pass `confirm: true` —
+returns a **preview** of the resulting rules without saving. Pass
+`sample_paths` to see how the resulting set rewrites real paths.
+
+First call it without `confirm` to get the preview, surface that to the user,
+then re-send the same call with `"confirm": true` to save:
 
 ```json
 {
-  "path_cleaning_filters": [
-    { "regex": "/users/me/profile", "alias": "/users/me/profile", "order": 0 },
-    { "regex": "/users/\\d+/profile", "alias": "/users/<id>/profile", "order": 1 },
-    { "regex": "/users/[a-z0-9-]+", "alias": "/users/<slug>", "order": 2 }
-  ]
+  "operations": [{ "action": "append", "alias": "/users/<id>/profile", "regex": "/users/\\d+/profile" }],
+  "sample_paths": ["/users/123/profile", "/users/me/profile"]
 }
 ```
 
-Always **read the existing rules first** (project settings include
-`path_cleaning_filters`) and merge — overwriting silently destroys whatever the
-team has already configured.
+Because the tool does the read-modify-write for you, you don't have to fetch
+the full list, renumber `order`, or risk clobbering existing rules — the common
+failure mode when editing `path_cleaning_filters` directly.
+
+If you must fall back to `project-settings-update` (whole-list overwrite),
+always **read the existing rules first** and merge — overwriting silently
+destroys whatever the team has already configured.
 
 ## Where the rules apply
 
@@ -173,8 +180,10 @@ The rules are stored once per project — they are not insight-scoped.
 - **Escaping `/`** — re2 does not require it. `\/` works but adds noise.
 - **Case sensitivity** — re2 is case-sensitive by default. Use `(?i)` at the
   start of the pattern for case-insensitive matching, e.g. `(?i)/users/\d+`.
-- **Replacing the whole list** — `path_cleaning_filters` is overwrite, not
-  append. Always start from the current list.
+- **Replacing the whole list** — the raw `path_cleaning_filters` field is
+  overwrite, not append. Use `path-cleaning-rules-update` (which does the
+  read-modify-write for you) instead of hand-editing the field; if you must
+  edit it directly, always start from the current list.
 - **Rules apply globally** — adding a rule can change historical numbers in
   every Web analytics / Paths chart that has cleaning enabled. Warn the user
   before applying anything destructive.

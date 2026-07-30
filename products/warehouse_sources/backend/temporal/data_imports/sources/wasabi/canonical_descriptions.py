@@ -1,0 +1,85 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+_UTILIZATION_METRIC_COLUMNS = {
+    "AcctNum": "Account number the utilization was measured for.",
+    "AcctPlanNum": "Account plan number the utilization was billed under.",
+    "StartTime": "Start of the daily period the utilization covers.",
+    "EndTime": "End of the daily period the utilization covers.",
+    "CreateTime": "When the utilization record was generated.",
+    "NumBillableObjects": "Number of billable objects stored.",
+    "NumBillableDeletedObjects": "Number of billable deleted objects (deleted storage still in its retention period).",
+    "RawStorageSizeBytes": "Raw size of stored objects, in bytes.",
+    "PaddedStorageSizeBytes": "Padded size of stored objects, in bytes (small objects are padded to a minimum billable size).",
+    "MetadataStorageSizeBytes": "Storage consumed by object metadata, in bytes.",
+    "DeletedStorageSizeBytes": "Deleted storage still within its retention period, in bytes.",
+    "OrphanedStorageSizeBytes": "Orphaned storage (e.g. incomplete multipart uploads), in bytes.",
+    "NumAPICalls": "Total number of API calls in the period.",
+    "UploadBytes": "Bytes uploaded (ingress) in the period.",
+    "DownloadBytes": "Bytes downloaded (egress) in the period.",
+    "StorageWroteBytes": "Bytes written to storage in the period.",
+    "StorageReadBytes": "Bytes read from storage in the period.",
+    "NumGETCalls": "Number of GET API calls in the period.",
+    "NumPUTCalls": "Number of PUT API calls in the period.",
+    "NumDELETECalls": "Number of DELETE API calls in the period.",
+    "NumLISTCalls": "Number of LIST API calls in the period.",
+    "NumHEADCalls": "Number of HEAD API calls in the period.",
+    "DeleteBytes": "Bytes deleted in the period.",
+}
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "accounts": {
+        "description": "Sub-accounts associated with the Wasabi Control Account, with summary profile information.",
+        "docs_url": "https://docs.wasabi.com/apidocs/get-all-sub-accounts",
+        "columns": {
+            "AcctNum": "Unique account number of the sub-account.",
+            "AcctName": "Name (email address) of the sub-account.",
+            "CreateTime": "When the sub-account was created.",
+            "IsTrial": "Whether the sub-account is in a trial period.",
+            "Inactive": "Whether the sub-account is inactive.",
+            "SendPasswordResetToSubAccountEmail": "Whether password resets are sent to the sub-account's own email address.",
+            "TrialExpiry": "When the sub-account's trial expires.",
+            "QuotaGB": "Storage quota assigned to the sub-account, in GB.",
+            "StatusMFA": "Whether multi-factor authentication is enabled on the sub-account.",
+            "AllowAccountDelete": "Whether the sub-account is allowed to delete itself.",
+        },
+    },
+    "utilizations": {
+        "description": "Daily storage and data-transfer utilization for the Control Account and each sub-account, across all buckets.",
+        "docs_url": "https://docs.wasabi.com/apidocs/get-utilizations-for-control-and-sub-accounts",
+        "columns": {
+            "UtilizationNum": "Unique identifier of the daily utilization record.",
+            "MinStorageChargeBytes": "Minimum storage charge applied, in bytes.",
+            **_UTILIZATION_METRIC_COLUMNS,
+        },
+    },
+    "bucket_utilizations": {
+        "description": "Daily utilization for the Control Account and sub-accounts, broken down into per-bucket components.",
+        "docs_url": "https://docs.wasabi.com/apidocs/get-bucket-utilizations",
+        "columns": {
+            "BucketUtilizationNum": "Unique identifier of the daily per-bucket utilization record.",
+            "BucketNum": "Unique identifier of the bucket.",
+            "Bucket": "Name of the bucket.",
+            "Region": "Wasabi region the bucket resides in.",
+            **_UTILIZATION_METRIC_COLUMNS,
+        },
+    },
+    "sub_account_invoices": {
+        "description": "Sub-invoices for each sub-account. Sub-invoices across all sub-accounts are rolled up into a single invoice charged to the Control Account.",
+        "docs_url": "https://docs.wasabi.com/apidocs/get-all-sub-invoices-for-a-sub-account",
+        "columns": {
+            "SubInvoiceNum": "Unique identifier of the sub-invoice.",
+            "InvoiceNum": "Identifier of the Control Account invoice this sub-invoice rolls up into.",
+            "AcctNum": "Account number of the sub-account the sub-invoice belongs to.",
+            "ParentAcctNum": "Account number of the parent (Control) account.",
+            "AcctPlanNum": "Account plan number the sub-invoice was billed under.",
+            "CreateTime": "When the sub-invoice was created.",
+            "PeriodStart": "Start of the billing period the sub-invoice covers.",
+            "PeriodEnd": "End of the billing period the sub-invoice covers.",
+            "Total": "Total amount of the sub-invoice.",
+            "Currency": "Currency of the sub-invoice total.",
+            "Status": "Payment status of the sub-invoice.",
+        },
+    },
+}

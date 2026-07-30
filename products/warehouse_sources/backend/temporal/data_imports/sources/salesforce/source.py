@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SalesforceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesforce import (
+    SalesforceSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import (
     salesforce_refresh_access_token,
 )
@@ -37,6 +39,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v61.0", "v67.0")
+    default_version = "v67.0"
+    api_docs_url = "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -70,6 +75,19 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             "expired access/refresh token": "Your Salesforce connection has expired or been revoked. Please reconnect the source.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `salesforce_refresh_access_token` builds its own tracked session rather than going
+        # through the shared REST client, so a proxy CONNECT failure during token refresh isn't
+        # retried in-process beyond `DEFAULT_RETRY`'s few attempts before it re-raises here. Once
+        # Temporal retries the whole activity the failure is transient and self-recovering (same
+        # class of egress-proxy blip already classified this way for ClickHouse), so don't
+        # surface it as tracked exception noise.
+        return {
+            "Tunnel connection failed: 502",
+            "Tunnel connection failed: 503",
+            "Tunnel connection failed: 504",
+        }
+
     def get_schemas(
         self,
         config: SalesforceSourceConfig,
@@ -77,6 +95,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -141,6 +160,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

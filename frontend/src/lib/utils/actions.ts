@@ -54,11 +54,15 @@ export function matchesDataAttribute(element: ElementType, dataAttributes: strin
     }
 }
 
+// not CSS.escape: the backend selector parser matches quoted values literally, so escaping
+// anything beyond \ and " (e.g. the dots in data-attr="user.settings.save") breaks server-side matching
+const escapeQuotedSelectorValue = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
 export function elementToSelector(element: ElementType, dataAttributes: string[]): string {
     let selector = ''
     const attribute = matchesDataAttribute(element, dataAttributes)
     if (attribute) {
-        selector += `[${attribute}="${element.attributes[`attr__${attribute}`]}"]`
+        selector += `[${attribute}="${escapeQuotedSelectorValue(element.attributes[`attr__${attribute}`])}"]`
         return selector
     }
     if (element.attr_id) {

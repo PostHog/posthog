@@ -110,6 +110,10 @@ export class RequestLogger {
         this.data['requestId'] = this.requestId
     }
 
+    get id(): string {
+        return this.requestId
+    }
+
     // Merge additional fields into the accumulated record. Later calls win on
     // key conflicts — route handlers overwrite middleware-set placeholders.
     extend(data: Record<string, unknown>): void {

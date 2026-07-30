@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING
 
 from structlog.contextvars import bind_contextvars, unbind_contextvars
 
+from posthog.exceptions_capture import bind_exception_context, exception_context
+
 if TYPE_CHECKING:
     import uuid
 
@@ -37,6 +39,11 @@ class JobContext:
     external_data_source_id: str
     external_data_schema_id: str
     external_data_job_id: str
+    # Optional, human-facing sync metadata. Not bound as log fields (transports keep their
+    # existing label set) but attached to captured exceptions for debugging.
+    schema_name: str | None = None
+    sync_type: str | None = None
+    pipeline_version: str | None = None
 
     def as_log_fields(self) -> dict[str, int | str]:
         return {
@@ -46,6 +53,24 @@ class JobContext:
             "external_data_schema_id": self.external_data_schema_id,
             "external_data_job_id": self.external_data_job_id,
         }
+
+    def as_exception_properties(self) -> dict[str, str | int]:
+        """Source/job identity attached to every exception captured during the sync, so a generic
+        pipeline failure (e.g. a PyArrow type mismatch) can be attributed to a connector."""
+        properties: dict[str, str | int] = {
+            "warehouse_sources_source_type": self.source_type,
+            "warehouse_sources_source_id": self.external_data_source_id,
+            "warehouse_sources_schema_id": self.external_data_schema_id,
+            "warehouse_sources_job_id": self.external_data_job_id,
+            "team_id": self.team_id,
+        }
+        if self.schema_name is not None:
+            properties["warehouse_sources_schema_name"] = self.schema_name
+        if self.sync_type is not None:
+            properties["warehouse_sources_sync_type"] = self.sync_type
+        if self.pipeline_version is not None:
+            properties["warehouse_sources_pipeline_version"] = self.pipeline_version
+        return properties
 
 
 _current_job_context: contextvars.ContextVar[JobContext | None] = contextvars.ContextVar(
@@ -72,6 +97,9 @@ def _make_context(
     external_data_source_id: str | uuid.UUID,
     external_data_schema_id: str | uuid.UUID,
     external_data_job_id: str,
+    schema_name: str | None = None,
+    sync_type: str | None = None,
+    pipeline_version: str | None = None,
 ) -> JobContext:
     return JobContext(
         team_id=team_id,
@@ -79,6 +107,9 @@ def _make_context(
         external_data_source_id=str(external_data_source_id),
         external_data_schema_id=str(external_data_schema_id),
         external_data_job_id=external_data_job_id,
+        schema_name=schema_name,
+        sync_type=sync_type,
+        pipeline_version=pipeline_version,
     )
 
 
@@ -89,8 +120,12 @@ def bind_job_context(
     external_data_source_id: str | uuid.UUID,
     external_data_schema_id: str | uuid.UUID,
     external_data_job_id: str,
+    schema_name: str | None = None,
+    sync_type: str | None = None,
+    pipeline_version: str | None = None,
 ) -> JobContext:
-    """Set the current `JobContext` and bind matching structlog contextvars.
+    """Set the current `JobContext`, bind matching structlog contextvars, and attach the source
+    to every exception captured for the rest of this sync.
 
     Mirrors the existing pattern in `import_data_activity_sync` where
     `bind_contextvars(team_id=...)` is called without an explicit unbind —
@@ -103,6 +138,9 @@ def bind_job_context(
         external_data_source_id=external_data_source_id,
         external_data_schema_id=external_data_schema_id,
         external_data_job_id=external_data_job_id,
+        schema_name=schema_name,
+        sync_type=sync_type,
+        pipeline_version=pipeline_version,
     )
     _current_job_context.set(ctx)
     bind_contextvars(
@@ -111,6 +149,7 @@ def bind_job_context(
         external_data_schema_id=ctx.external_data_schema_id,
         external_data_job_id=ctx.external_data_job_id,
     )
+    bind_exception_context(**ctx.as_exception_properties())
     return ctx
 
 
@@ -122,12 +161,14 @@ def scoped_job_context(
     external_data_source_id: str | uuid.UUID,
     external_data_schema_id: str | uuid.UUID,
     external_data_job_id: str,
+    schema_name: str | None = None,
+    sync_type: str | None = None,
+    pipeline_version: str | None = None,
 ) -> Iterator[JobContext]:
     """Context-manager variant for tests / synthetic call sites.
 
-    Resets the contextvar and unbinds structlog contextvars on exit so
-    test isolation isn't dependent on subsequent activities overwriting
-    state.
+    Resets the contextvar, unbinds structlog contextvars, and clears the exception context on exit
+    so test isolation isn't dependent on subsequent activities overwriting state.
     """
     ctx = _make_context(
         team_id=team_id,
@@ -135,6 +176,9 @@ def scoped_job_context(
         external_data_source_id=external_data_source_id,
         external_data_schema_id=external_data_schema_id,
         external_data_job_id=external_data_job_id,
+        schema_name=schema_name,
+        sync_type=sync_type,
+        pipeline_version=pipeline_version,
     )
     token = _current_job_context.set(ctx)
     bind_contextvars(
@@ -144,7 +188,8 @@ def scoped_job_context(
         external_data_job_id=ctx.external_data_job_id,
     )
     try:
-        yield ctx
+        with exception_context(**ctx.as_exception_properties()):
+            yield ctx
     finally:
         _current_job_context.reset(token)
         unbind_contextvars(*_BOUND_LOG_FIELD_NAMES)

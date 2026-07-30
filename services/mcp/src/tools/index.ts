@@ -1,7 +1,6 @@
 import { hasScopes } from '@/lib/api'
+import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 
-// Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
-import resolveResource from './agentPlatform/resolveResource'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
 // Debug
@@ -9,32 +8,39 @@ import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
 import experimentListDeprecated from './experiments/listDeprecated'
+// Feature flags (get-definition-by-key is hand-written; get-definition-by-id is codegen)
+import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 // Feedback
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+
+import loopsReview from './loops/loopsReview'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookEdit from './notebooks/edit'
 // Organizations
+import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import {
+    EXECUTE_SQL_TOOL_NAME,
     executeSql,
     externalDataSourcesDbSchema,
     externalDataSourcesJobs,
     externalDataSourcesPreview,
     externalDataSyncLogs,
     readDataSchema,
-    readDataWarehouseSchema,
 } from './posthogAiTools'
 // Projects
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
+import updatePathCleaning from './projects/updatePathCleaning'
+import updatePropertyDefinition from './projects/updatePropertyDefinition'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
@@ -56,12 +62,19 @@ import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
+    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
 
     // Projects
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-update': updateEventDefinition,
+    'property-definition-update': updatePropertyDefinition,
+
+    // Feature flags (get-definition-by-key is hand-written; get-definition by numeric id is codegen)
+    'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
+
+    'path-cleaning-rules-update': updatePathCleaning,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
@@ -82,17 +95,14 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
+    'loops-review': loopsReview,
 
     // Feedback
     'agent-feedback': submitFeedback,
 
-    // Agent platform (read-only playbook resolver — CRUD lives in generated/agent_platform.ts)
-    'agent-resolve-resource': resolveResource,
-
     // PostHog AI tools
-    'execute-sql': executeSql,
+    [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
-    'read-data-warehouse-schema': readDataWarehouseSchema,
 
     // Replay
     'session-recording-summarize': sessionRecordingSummarize,
@@ -151,5 +161,7 @@ export const getToolsFromContext = async (
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
-    return tools.filter((tool) => hasScopes(scopes, tool.scopes))
+    const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
+
+    return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
 }

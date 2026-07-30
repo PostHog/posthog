@@ -35,6 +35,7 @@ import {
     Skeleton,
 } from '@posthog/quill'
 
+import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
@@ -54,6 +55,7 @@ import {
     partitionContainsShortcuts,
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
+import { floatToFront } from '../utils/floatToFront'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { MatchedValueBadge } from './MatchedValueBadge'
@@ -72,12 +74,11 @@ const FUSE_OPTIONS = {
 
 /** Categories filtered out of the chip row when drillTo === 'all'. */
 const HIDDEN_FROM_CHIPS: ReadonlySet<TaxonomicFilterGroupType> = new Set([
-    // `SuggestedFilters` from taxonomicFilterLogic is a tiny set of
-    // primary-property promotions for the *currently-selected event* +
-    // autocapture text/selector. It's empty for almost every flow that
-    // doesn't have an event-in-context, and even when populated it
-    // duplicates what shows up under Event properties. Hide entirely;
-    // recents/pinned now lead the "All" surface directly.
+    // `SuggestedFilters` is a tiny set of primary-property promotions for the
+    // *currently-selected event* + autocapture text/selector. It's empty for
+    // almost every flow without an event-in-context, so it doesn't earn a chip
+    // — its options surface via `suggestedPrefix` on the idle "All" list
+    // instead, right after recents/pinned.
     TaxonomicFilterGroupType.SuggestedFilters,
     // RecentFilters / PinnedFilters surface via the dropdown menu
     // (Recent / Pinned entries with chevrons) and lead the "All" surface;
@@ -153,15 +154,6 @@ function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry
     return entryValueMatchesSelection(entry, selected) || entryLabelMatchesSelection(entry, selected)
 }
 
-/** Move the element at `index` to the front, preserving the order of the rest.
- *  No-op when `index <= 0` (already first, or not found via `findIndex` -> -1). */
-function floatToFront<T>(list: T[], index: number): T[] {
-    if (index <= 0) {
-        return list
-    }
-    return [list[index], ...list.slice(0, index), ...list.slice(index + 1)]
-}
-
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
     if (entries.length === 0) {
         return []
@@ -186,6 +178,8 @@ export interface MenuFilterComboboxProps {
     title?: string
     /** Currently-committed selection — rendered with a checkmark + scrolled into view. */
     selectedEntry?: MenuFilterEntry | null
+    /** Rename (custom name) carried by the series being edited — applied to the selected row. */
+    selectedRename?: SeriesRename | null
     /** Shared ref to the search input so the popover can target it for focus.
      *  Mutable because the adapter assigns the input element onto it. */
     inputRef?: MutableRefObject<HTMLInputElement | null>
@@ -207,6 +201,7 @@ export function MenuFilterCombobox({
     onBack,
     title,
     selectedEntry,
+    selectedRename,
     inputRef: externalInputRef,
     iconButton,
 }: MenuFilterComboboxProps): JSX.Element {
@@ -240,11 +235,18 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, boolean>>({})
+    // Only engages while actively searching a fetching scope. Recent/Pinned
+    // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
+    const searching = !drillItems && !!searchQuery.trim()
     // Reveal barrier (ported from the legacy `taxonomicFilterLogic`): on a fresh
     // search we hold the result list behind skeletons until every visible group's
     // fetch settles (or a 5s fallback), so slower groups don't render on top of a
     // stale/partial list and rows don't jump around. Mirrors `revealBarrierOpen`.
-    const [revealBarrierOpen, setRevealBarrierOpen] = useState(true)
+    // Start closed when mounting already searching (e.g. a drilled-in query
+    // preserved across reopen); otherwise recents/pinned, which render from
+    // props with no fetch involved, paint immediately while the async groups
+    // sharing this same list are still in flight.
+    const [revealBarrierOpen, setRevealBarrierOpen] = useState(() => !searching)
     const [barrierQuery, setBarrierQuery] = useState(searchQuery)
     // Seed the highlight with the committed selection so the preview
     // pane shows the right definition before any row hovers fire. Once
@@ -379,12 +381,7 @@ export function MenuFilterCombobox({
                 continue
             }
             for (const item of items) {
-                merged.push({
-                    item,
-                    group,
-                    name: getRawName(item, group),
-                    friendlyLabel: getFriendlyLabel(item, group),
-                })
+                merged.push(buildMenuFilterEntry(item, group))
             }
         }
         // Make sure the committed selection is reachable from the list
@@ -501,6 +498,36 @@ export function MenuFilterCombobox({
         return [...recentSegment, ...pinnedSegment]
     }, [showChips, activeChip, drillTo, recentEntries, pinnedEntries, searchQuery])
 
+    // Promoted properties for the events in context (the SuggestedFilters
+    // group's options, e.g. `$pageview` -> `$pathname`, `$mcp_tool_call` ->
+    // `$mcp_tool_name`). The group itself is hidden from chips, but its
+    // options lead the idle "All" surface right after recents/pinned — the
+    // rebuild counterpart of the legacy Suggested tab's promotion. Deduped
+    // against recents/pinned so a promoted property the user already has to
+    // hand shows once, under the section that renders first.
+    const suggestedPrefix = useMemo<MenuFilterEntry[]>(() => {
+        const scope = showChips ? activeChip : drillTo
+        if (scope !== 'all' || searchQuery.trim()) {
+            return []
+        }
+        const suggestedGroup = groups.find((g) => g.type === TaxonomicFilterGroupType.SuggestedFilters)
+        const options = (suggestedGroup?.options ?? []) as { name: string; group: TaxonomicFilterGroupType }[]
+        const prefixKeys = new Set(recentsPinnedPrefix.map(entryKey))
+        const entries: MenuFilterEntry[] = []
+        for (const option of options) {
+            const realGroup = groups.find((g) => g.type === option.group)
+            if (!realGroup) {
+                continue
+            }
+            const item = { name: option.name } as unknown as TaxonomicDefinitionTypes
+            const entry = buildMenuFilterEntry(item, realGroup)
+            if (!prefixKeys.has(entryKey(entry))) {
+                entries.push(entry)
+            }
+        }
+        return entries
+    }, [showChips, activeChip, drillTo, searchQuery, groups, recentsPinnedPrefix])
+
     // Recency lookup so any row that is one of the user's recents/pinned gets a
     // "- recent" / "- pinned" tag on its category label, wherever it appears
     // (matching the pill variant's per-row source tags).
@@ -562,15 +589,17 @@ export function MenuFilterCombobox({
         // the cross-tab content with `email`/`url` promotion. Recents/pinned
         // stay above the content rows so users can learn the order.
         if (scope === 'all') {
-            const prefixKeys = new Set(recentsPinnedPrefix.map(entryKey))
+            const prefixKeys = new Set([...recentsPinnedPrefix, ...suggestedPrefix].map(entryKey))
             const content = prefixKeys.size > 0 ? base.filter((e) => !prefixKeys.has(entryKey(e))) : base
             // The "URL contains <query>" shortcut leads the whole list — ahead of
             // recents/pinned/content — because a URL search almost always means the user
-            // wants the contains match. Everything else keeps the recents-then-pinned order.
+            // wants the contains match. Everything else keeps the recents-then-pinned order,
+            // with the promoted properties for the events in context leading the content.
             const [shortcuts, rest] = partitionContainsShortcuts(content, (e) => e.item)
             const assembled = [
                 ...shortcuts,
                 ...recentsPinnedPrefix,
+                ...suggestedPrefix,
                 ...promoteMatchingBy(rest, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
             ]
             // Idle (no search): float the committed selection to the very first row so the
@@ -584,7 +613,7 @@ export function MenuFilterCombobox({
             return assembled
         }
         return base
-    }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, showChips, activeChip, drillTo])
+    }, [indexed, searchQuery, selectedRowId, recentsPinnedPrefix, suggestedPrefix, showChips, activeChip, drillTo])
 
     // O(1) row -> rendered-position lookup, rebuilt with `filtered`. Avoids an
     // O(n) `indexOf` per commit and the stale-index risk if `filtered`'s identity
@@ -624,9 +653,6 @@ export function MenuFilterCombobox({
     }, [drillItems, targetGroups, loadingByType])
 
     // ---- Reveal barrier ----------------------------------------------------
-    // Only engages while actively searching a fetching scope. Recent/Pinned
-    // drills read pre-resolved `drillItems` (no fetch) so they're never gated.
-    const searching = !drillItems && !!searchQuery.trim()
     // Close synchronously the instant the query changes (React "adjust state
     // while rendering" pattern) so a stale list never paints between keystroke
     // and the fetch starting. Re-opens immediately for empty/drill scopes.
@@ -1054,6 +1080,7 @@ export function MenuFilterCombobox({
                                 <Autocomplete.Collection>
                                     {(entry: MenuFilterEntry) => (
                                         <Row
+                                            key={rowDomId(entry)}
                                             entry={entry}
                                             // Show the category label on mixed-group views (All,
                                             // Recent, Pinned) — those mix items from multiple
@@ -1075,6 +1102,7 @@ export function MenuFilterCombobox({
                                             // signal that with a chevron.
                                             opensSubmenu={drillTo === TaxonomicFilterGroupType.DataWarehouse}
                                             selectedRowId={selectedRowId}
+                                            selectedRename={selectedRename}
                                             onSelect={() => onCommit(entry, undefined, selectionContextFor(entry))}
                                         />
                                     )}
@@ -1201,6 +1229,9 @@ interface RowProps {
     opensSubmenu?: boolean
     /** DOM id of the currently-selected row (for the trailing checkmark). */
     selectedRowId?: string | null
+    /** Rename carried by the series being edited — applied to the selected row so its
+     *  label matches the series the user clicked, with the raw key as the value cell. */
+    selectedRename?: SeriesRename | null
     /** Commit this row (also fires item-selected telemetry). */
     onSelect: () => void
 }
@@ -1245,10 +1276,24 @@ function resolveRowCells(entry: MenuFilterEntry): {
     return { name: entry.name, category: entry.group.name }
 }
 
-function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSelect }: RowProps): JSX.Element {
-    const { name, value, category } = resolveRowCells(entry)
+function Row({
+    entry,
+    showCategory,
+    recency,
+    opensSubmenu,
+    selectedRowId,
+    selectedRename,
+    onSelect,
+}: RowProps): JSX.Element {
+    const cells = resolveRowCells(entry)
     const stableId = rowDomId(entry)
     const isSelected = selectedRowId === stableId
+    // The committed selection of a renamed series shows the series' name; the raw key
+    // it queries moves to the value cell, like any other friendly-labelled row.
+    const isRenamedSelection = isSelected && !!selectedRename && selectedRename.label !== cells.name
+    const name = isRenamedSelection ? selectedRename.label : cells.name
+    const value = isRenamedSelection && selectedRename.raw !== selectedRename.label ? selectedRename.raw : cells.value
+    const category = cells.category
     return (
         <Autocomplete.Item
             value={entry}
@@ -1281,9 +1326,16 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
             <div className="flex flex-col items-start gap-0 min-w-0 flex-1">
                 <span className="text-sm leading-tight truncate max-w-full">{name}</span>
                 {/* The preview pane (hidden below `md`) is the primary home for the
-                    raw value, so only narrow screens keep it inline on the row. */}
+                    raw value, so only narrow screens keep it inline on the row — except
+                    for a renamed selection, where the label alone doesn't reveal what
+                    the series queries, so the raw key stays inline at every size. */}
                 {value && (
-                    <span className="md:hidden font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full">
+                    <span
+                        className={cn(
+                            'font-mono text-xs text-tertiary/50 leading-tight truncate max-w-full',
+                            !isRenamedSelection && 'md:hidden'
+                        )}
+                    >
                         {value}
                     </span>
                 )}
@@ -1403,6 +1455,15 @@ function getFriendlyLabel(item: TaxonomicDefinitionTypes, group: TaxonomicFilter
         return undefined
     }
     return getCoreFilterDefinition(raw, group.type)?.label
+}
+
+function buildMenuFilterEntry(item: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup): MenuFilterEntry {
+    return {
+        item,
+        group,
+        name: getRawName(item, group),
+        friendlyLabel: getFriendlyLabel(item, group),
+    }
 }
 
 // Mirrors the legacy `taxonomicFilterLogic` classifier (kept in sync until the legacy picker is retired).

@@ -98,6 +98,8 @@ function createMockPostgres(): jest.Mocked<GroupRepository> {
         fetchGroupTypesByTeamIds: jest.fn(),
         fetchGroupTypesByProjectIds: jest.fn(),
         insertGroup: jest.fn(),
+        updateGroupsBatch: jest.fn(),
+        insertGroupsBatch: jest.fn(),
         updateGroup: jest.fn(),
         updateGroupOptimistically: jest.fn(),
         insertGroupType: jest.fn(),
@@ -212,6 +214,8 @@ describe('PersonHogGroupRepository', () => {
                     group_type_index: GROUP_TYPE_INDEX,
                     group_key: GROUP_KEY,
                     group_properties: { name: 'Acme Corp' },
+                    created_at: CREATED_AT,
+                    version: 1,
                 },
             ]
 
@@ -227,7 +231,9 @@ describe('PersonHogGroupRepository', () => {
                 })
 
                 const repo = createRepo(rolloutPercentage)
-                const result = await repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
+                const result = await repo.fetchGroupsByKeys([
+                    { teamId: TEAM_ID, groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+                ])
 
                 expect(result).toEqual(expectedResult)
                 if (expectGrpc) {
@@ -235,9 +241,7 @@ describe('PersonHogGroupRepository', () => {
                     expect(mockPostgres.fetchGroupsByKeys).not.toHaveBeenCalled()
                 } else {
                     expect(mockPostgres.fetchGroupsByKeys).toHaveBeenCalledWith(
-                        [TEAM_ID],
-                        [GROUP_TYPE_INDEX],
-                        [GROUP_KEY],
+                        [{ teamId: TEAM_ID, groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY }],
                         undefined
                     )
                     expect(handlers.getGroupsBatch).not.toHaveBeenCalled()
@@ -248,7 +252,7 @@ describe('PersonHogGroupRepository', () => {
                 mockPostgres.fetchGroupsByKeys.mockResolvedValue([])
 
                 const repo = createRepo(rolloutPercentage)
-                const result = await repo.fetchGroupsByKeys([], [], [])
+                const result = await repo.fetchGroupsByKeys([])
 
                 expect(result).toEqual([])
             })
@@ -353,6 +357,8 @@ describe('PersonHogGroupRepository', () => {
                     group_type_index: GROUP_TYPE_INDEX,
                     group_key: GROUP_KEY,
                     group_properties: { name: 'Acme Corp' },
+                    created_at: CREATED_AT,
+                    version: 1,
                 },
             ]
             handlers.getGroupsBatch.mockReturnValue({
@@ -365,7 +371,9 @@ describe('PersonHogGroupRepository', () => {
             })
 
             const repo = createRepo(0, new Set([TEAM_ID]))
-            const result = await repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY])
+            const result = await repo.fetchGroupsByKeys([
+                { teamId: TEAM_ID, groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+            ])
 
             expect(result).toEqual(expectedResult)
             expect(handlers.getGroupsBatch).toHaveBeenCalled()
@@ -420,6 +428,8 @@ describe('PersonHogGroupRepository', () => {
                             group_type_index: GROUP_TYPE_INDEX,
                             group_key: GROUP_KEY,
                             group_properties: {},
+                            created_at: CREATED_AT,
+                            version: 1,
                         },
                     ]
                     h.getGroupsBatch.mockImplementation(() => {
@@ -428,7 +438,9 @@ describe('PersonHogGroupRepository', () => {
                     pg.fetchGroupsByKeys.mockResolvedValue(expected)
                     return {
                         call: (repo: PersonHogGroupRepository) =>
-                            repo.fetchGroupsByKeys([TEAM_ID], [GROUP_TYPE_INDEX], [GROUP_KEY]),
+                            repo.fetchGroupsByKeys([
+                                { teamId: TEAM_ID, groupTypeIndex: GROUP_TYPE_INDEX, groupKey: GROUP_KEY },
+                            ]),
                         expected,
                     }
                 },

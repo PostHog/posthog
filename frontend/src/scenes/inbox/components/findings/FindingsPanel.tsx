@@ -15,6 +15,7 @@ import {
 import { SignalReportPriority } from '../../types'
 import { SCOUT_RUNS_WINDOW_SPAN } from '../../utils/scoutRunsWindow'
 import { ScoutEmissionCard } from '../config/scouts/ScoutEmissionCard'
+import { ScoutReportCard } from '../config/scouts/ScoutReportCard'
 
 const SEVERITY_OPTIONS: SignalReportPriority[] = ['P0', 'P1', 'P2', 'P3', 'P4']
 const SORT_OPTIONS: { value: FindingsSortKey; label: string }[] = [
@@ -25,15 +26,22 @@ const SORT_OPTIONS: { value: FindingsSortKey; label: string }[] = [
 ]
 
 /**
- * Cross-fleet findings browser — every finding the troop emitted recently in one place, newest first,
- * searchable and filterable by scout/severity with a sort toggle. Reuses the per-scout
- * `ScoutEmissionCard` with `showScout` on. Read-only; acting on a finding happens in its inbox report.
+ * Cross-fleet findings browser — everything the troop surfaced recently in one place, newest first:
+ * legacy `emit_signal` findings plus the inbox reports scouts authored/edited via the report channel.
+ * Searchable and filterable by scout/severity with a sort toggle. Reuses the per-scout
+ * `ScoutEmissionCard` / `ScoutReportCard` with scout attribution on. Read-only; acting on a finding
+ * happens in its inbox report.
  */
 export function FindingsPanel(): JSX.Element {
     const {
         filteredRows,
+        filteredReportRows,
+        reportRows,
+        touchedReports,
         availableScouts,
         totalCount,
+        authoredReportCount,
+        editedReportCount,
         scoutCount,
         latestEmittedAt,
         searchText,
@@ -43,17 +51,29 @@ export function FindingsPanel(): JSX.Element {
         hasLoadedOnce,
         emissionsLoadFailed,
         emissionsLoading,
+        scoutReportsLoading,
+        scoutReportsLoadFailed,
     } = useValues(findingsLogic)
-    const { setSearchText, setScoutFilter, setSeverityFilter, setSortKey, loadEmissions } = useActions(findingsLogic)
+    const { setSearchText, setScoutFilter, setSeverityFilter, setSortKey, loadEmissions, loadScoutReports } =
+        useActions(findingsLogic)
 
     const isFiltering =
         searchText.trim().length > 0 ||
         scoutFilter !== FINDINGS_SCOUT_FILTER_ALL ||
         severityFilter !== FINDINGS_SEVERITY_FILTER_ALL
+    // Keyed on the *touched* ids (from the runs window), not the resolved rows — a failed report
+    // fetch must keep the section on screen in an error state, not silently hide it.
+    const hasReports = touchedReports.length > 0
 
     return (
         <div className="flex flex-col gap-4 px-4 py-3">
-            <FindingsHeader totalCount={totalCount} scoutCount={scoutCount} latestEmittedAt={latestEmittedAt} />
+            <FindingsHeader
+                totalCount={totalCount}
+                authoredReportCount={authoredReportCount}
+                editedReportCount={editedReportCount}
+                scoutCount={scoutCount}
+                latestEmittedAt={latestEmittedAt}
+            />
 
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
@@ -96,17 +116,19 @@ export function FindingsPanel(): JSX.Element {
                 />
             </div>
 
-            {hasLoadedOnce && emissionsLoadFailed && totalCount > 0 && (
-                // A later poll/retry of the batched fetch failed while a prior set is still on screen
-                // (stale). The list a user triages against may be incomplete — warn rather than show it
-                // silently.
-                <LemonBanner
-                    type="warning"
-                    action={{ children: 'Retry', onClick: () => loadEmissions(), loading: emissionsLoading }}
-                >
-                    Some findings couldn't be loaded, so this list may be incomplete.
-                </LemonBanner>
-            )}
+            {hasLoadedOnce &&
+                emissionsLoadFailed &&
+                totalCount > 0 && (
+                    // A later poll/retry of the batched fetch failed while a prior set is still on screen
+                    // (stale). The list a user triages against may be incomplete — warn rather than show it
+                    // silently.
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Retry', onClick: () => loadEmissions(), loading: emissionsLoading }}
+                    >
+                        Some findings couldn't be loaded, so this list may be incomplete.
+                    </LemonBanner>
+                )}
 
             {!hasLoadedOnce ? (
                 <div className="flex flex-col gap-2">
@@ -114,24 +136,98 @@ export function FindingsPanel(): JSX.Element {
                     <LemonSkeleton className="h-14 w-full rounded" />
                     <LemonSkeleton className="h-14 w-full rounded" />
                 </div>
-            ) : emissionsLoadFailed && totalCount === 0 ? (
+            ) : emissionsLoadFailed && totalCount === 0 && !hasReports ? (
                 <FindingsErrorState onRetry={() => loadEmissions()} loading={emissionsLoading} />
-            ) : filteredRows.length === 0 ? (
+            ) : totalCount === 0 && !hasReports ? (
                 <FindingsEmptyState isFiltering={isFiltering} />
             ) : (
-                <div className="flex flex-col gap-2">
-                    {filteredRows.map((row) => (
-                        <ScoutEmissionCard
-                            // emission.id, not source_id — a run can re-emit a finding_id, sharing source_id.
-                            key={row.emission.id}
-                            skillName={row.run.skill_name}
-                            emission={row.emission}
-                            run={row.run}
-                            report={row.report}
-                            showScout
-                        />
-                    ))}
-                </div>
+                <>
+                    {/* Reports the fleet authored/edited via the report channel. Hidden entirely when
+                        no report was touched, so the legacy findings-only layout stays flat. */}
+                    {hasReports && (
+                        <div className="flex flex-col gap-2">
+                            <span className="text-xs font-medium text-default uppercase tracking-wide">Reports</span>
+                            {scoutReportsLoadFailed &&
+                                reportRows.length > 0 && (
+                                    // A later refresh failed while a previously resolved set is still on
+                                    // screen — the cards may be stale or missing newly touched reports.
+                                    <LemonBanner
+                                        type="warning"
+                                        action={{
+                                            children: 'Retry',
+                                            onClick: () => loadScoutReports(),
+                                            loading: scoutReportsLoading,
+                                        }}
+                                    >
+                                        Some reports couldn't be refreshed, so this list may be stale or incomplete.
+                                    </LemonBanner>
+                                )}
+                            {scoutReportsLoading && reportRows.length === 0 ? (
+                                <LemonSkeleton className="h-12 w-full rounded" />
+                            ) : reportRows.length === 0 ? (
+                                // Touched ids exist but none resolved — the fetches failed (or the
+                                // reports were deleted). Don't render a false "no reports": say so
+                                // and offer a retry, since the poll won't refetch an unchanged set.
+                                <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                                    <span>Couldn't load the reports your scouts authored or edited.</span>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        onClick={() => loadScoutReports()}
+                                        loading={scoutReportsLoading}
+                                    >
+                                        Retry
+                                    </LemonButton>
+                                </div>
+                            ) : filteredReportRows.length === 0 ? (
+                                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                                    No reports match your search and filters.
+                                </div>
+                            ) : (
+                                filteredReportRows.map((row) => (
+                                    <ScoutReportCard
+                                        key={row.report.id}
+                                        report={row.report}
+                                        action={row.action}
+                                        skillName={row.skillName}
+                                    />
+                                ))
+                            )}
+                        </div>
+                    )}
+
+                    {/* Legacy emit_signal findings. When reports are also on screen the section gets a
+                        heading; hidden when the fleet only produced reports (and nothing failed),
+                        mirroring the per-scout detail view's hide-empty-section rule. */}
+                    {(totalCount > 0 || emissionsLoadFailed) && (
+                        <div className="flex flex-col gap-2">
+                            {hasReports && (
+                                <span className="text-xs font-medium text-default uppercase tracking-wide">
+                                    Findings
+                                </span>
+                            )}
+                            {emissionsLoadFailed && totalCount === 0 ? (
+                                <FindingsErrorState onRetry={() => loadEmissions()} loading={emissionsLoading} />
+                            ) : filteredRows.length === 0 ? (
+                                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                                    No findings match your search and filters.
+                                </div>
+                            ) : (
+                                filteredRows.map((row) => (
+                                    <ScoutEmissionCard
+                                        // emission.id, not source_id — a run can re-emit a finding_id, sharing source_id.
+                                        key={row.emission.id}
+                                        skillName={row.run.skill_name}
+                                        emission={row.emission}
+                                        run={row.run}
+                                        report={row.report}
+                                        showScout
+                                    />
+                                ))
+                            )}
+                        </div>
+                    )}
+                </>
             )}
         </div>
     )
@@ -139,13 +235,27 @@ export function FindingsPanel(): JSX.Element {
 
 function FindingsHeader({
     totalCount,
+    authoredReportCount,
+    editedReportCount,
     scoutCount,
     latestEmittedAt,
 }: {
     totalCount: number
+    authoredReportCount: number
+    editedReportCount: number
     scoutCount: number
     latestEmittedAt: string | null
 }): JSX.Element {
+    const tallyParts: string[] = []
+    if (totalCount > 0) {
+        tallyParts.push(pluralize(totalCount, 'finding'))
+    }
+    if (authoredReportCount > 0) {
+        tallyParts.push(`${pluralize(authoredReportCount, 'report')} authored`)
+    }
+    if (editedReportCount > 0) {
+        tallyParts.push(`${pluralize(editedReportCount, 'report')} edited`)
+    }
     return (
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
@@ -153,12 +263,13 @@ function FindingsHeader({
                 <span className="text-base font-semibold text-default">Scout findings</span>
             </div>
             <p className="mb-0 text-sm text-secondary">
-                Every signal your scouts have emitted recently, in one place — newest first. See what's been surfaced
-                across the whole troop, which scout found it, and the inbox report it fed into.
+                Everything your scouts have surfaced recently, in one place — newest first: the signals they emitted and
+                the inbox reports they authored or edited. See what's been found across the whole troop and which scout
+                found it.
             </p>
-            {totalCount > 0 && (
+            {tallyParts.length > 0 && (
                 <span className="text-xs text-muted">
-                    {pluralize(totalCount, 'finding')} · {pluralize(scoutCount, 'scout')}
+                    {tallyParts.join(' · ')} · {pluralize(scoutCount, 'scout')}
                     {latestEmittedAt ? (
                         <>
                             {' · latest '}
@@ -168,8 +279,8 @@ function FindingsHeader({
                 </span>
             )}
             <span className="text-xs text-muted">
-                Covers findings from the most recent {SCOUT_RUNS_WINDOW_SPAN} of troop runs. Older findings live on in
-                the inbox reports they produced.
+                Covers the most recent {SCOUT_RUNS_WINDOW_SPAN} of troop runs. Older findings live on in the inbox
+                reports they produced.
             </span>
         </div>
     )
@@ -192,8 +303,8 @@ function FindingsEmptyState({ isFiltering }: { isFiltering: boolean }): JSX.Elem
     return (
         <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
             {isFiltering
-                ? 'No findings match your search and filters.'
-                : "Your scouts haven't emitted any findings yet. As they scan your project, what they surface shows up here."}
+                ? 'No findings or reports match your search and filters.'
+                : "Your scouts haven't surfaced anything yet. As they scan your project, the findings they emit and the reports they author show up here."}
         </div>
     )
 }

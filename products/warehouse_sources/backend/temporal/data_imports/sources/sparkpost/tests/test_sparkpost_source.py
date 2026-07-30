@@ -7,7 +7,9 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SparkPostSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sparkpost import (
+    SparkPostSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import (
     ENDPOINTS,
     LIMITED_RETENTION_ENDPOINTS,
@@ -57,8 +59,6 @@ class TestSparkPostSource:
 
         assert config.name.value == "SparkPost"
         assert config.label == "SparkPost"
-        # Shipped hidden for now (not yet exercised against a live account).
-        assert config.unreleasedSource is True
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/sparkpost.png"
 
@@ -163,7 +163,8 @@ class TestSparkPostSource:
             region="us",
             api_key="sp-key",
             endpoint="templates",
-            logger=inputs.logger,
+            team_id=99,
+            job_id="job-xyz",
             resumable_source_manager=manager,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,

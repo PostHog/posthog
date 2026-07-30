@@ -74,7 +74,7 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
     """Serializer for incoming widget messages."""
 
     distinct_id = serializers.CharField(required=False, max_length=400, help_text="PostHog distinct_id")
-    message = serializers.CharField(required=True, max_length=5000, help_text="Message content")
+    message = serializers.CharField(required=True, max_length=10000, help_text="Message content")
     traits = serializers.DictField(required=False, default=dict, help_text="Customer traits")
     session_id = serializers.CharField(required=False, max_length=64, allow_null=True, help_text="PostHog session ID")
     session_context = serializers.DictField(
@@ -160,6 +160,9 @@ class WidgetMessagesQuerySerializer(WidgetAuthSerializer):
     limit = serializers.IntegerField(required=False, default=500, min_value=1, max_value=500)
 
 
+WIDGET_TICKETS_DEFAULT_LIMIT = 100
+
+
 class WidgetTicketsQuerySerializer(WidgetAuthSerializer):
     """Serializer for fetching tickets for a widget session."""
 
@@ -169,7 +172,7 @@ class WidgetTicketsQuerySerializer(WidgetAuthSerializer):
         allow_null=True,
         help_text="Filter by ticket status",
     )
-    limit = serializers.IntegerField(required=False, default=100, min_value=1, max_value=500)
+    limit = serializers.IntegerField(required=False, default=WIDGET_TICKETS_DEFAULT_LIMIT, min_value=1, max_value=500)
     offset = serializers.IntegerField(required=False, default=0, min_value=0)
 
 

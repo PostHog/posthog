@@ -27,6 +27,7 @@ from posthog.models.user import User
 
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
+from products.tasks.backend.temporal.process_task.utils import parse_run_state
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
@@ -164,15 +165,7 @@ class SandboxWarmer:
             if existing is not None:
                 # Latest Run is terminal — resume into a successor so the warm session reuses its filesystem.
                 run_state["resume_from_run_id"] = str(existing.id)
-                snapshot_external_id = (existing.state or {}).get("snapshot_external_id")
-                if snapshot_external_id:
-                    run_state["snapshot_external_id"] = snapshot_external_id
-                    snapshot_kind = (existing.state or {}).get("snapshot_kind")
-                    if snapshot_kind:
-                        run_state["snapshot_kind"] = snapshot_kind
-                    snapshot_mount_path = (existing.state or {}).get("snapshot_mount_path")
-                    if snapshot_mount_path:
-                        run_state["snapshot_mount_path"] = snapshot_mount_path
+                run_state.update(parse_run_state(existing.state).resume_snapshot_carry_state())
 
             new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
 

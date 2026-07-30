@@ -124,6 +124,7 @@ class InsightRagContextNode(AssistantNode):
                 runner = VectorSearchQueryRunner(
                     team=self._team,
                     query=VectorSearchQuery(embedding=embedding, embeddingVersion=LATEST_ACTIONS_EMBEDDING_VERSION),
+                    user=self._user,
                 )
                 with tags_context(
                     product=Product.MAX_AI,
@@ -178,7 +179,7 @@ class InsightRagContextNode(AssistantNode):
         Since this node is already blocking, we can pre-warm the taxonomy queries to avoid further delays.
         This will slightly reduce latency.
         """
-        TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
+        TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team, user=self._user).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             analytics_props={"source": EventSource.POSTHOG_AI},
         )

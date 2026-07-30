@@ -610,7 +610,28 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             source=ast.Field(chain=["events", "timestamp"])
         )
 
-        event_filters = self._event_filters()
+        two_arm = self._legacy_first_time_two_arm_scan()
+        if two_arm:
+            # Aliasing the UNION as `events` keeps every aggregate expression below identical;
+            # only the entity conditions swap to the arms' role tags.
+            select_from = ast.JoinExpr(
+                table=ast.SelectSetQuery.create_from_queries(
+                    [
+                        self._legacy_scan_arm(self.start_event, "start"),
+                        self._legacy_scan_arm(self.return_event, "return"),
+                    ],
+                    "UNION ALL",
+                ),
+                alias="events",
+            )
+            where: ast.Expr | None = None
+            start_condition: ast.Expr = parse_expr("events.matches_start = 1")
+            return_condition: ast.Expr = parse_expr("events.is_return = 1")
+        else:
+            select_from = ast.JoinExpr(table=ast.Field(chain=["events"]))
+            where = ast.And(exprs=self._event_filters())
+            start_condition = self.start_entity_expr
+            return_condition = self.return_entity_expr
 
         start_event_timestamps = parse_expr(
             """
@@ -624,7 +645,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             """,
             {
                 "start_of_interval_sql": start_of_interval_sql,
-                "start_entity_expr": self.start_entity_expr,
+                "start_entity_expr": start_condition,
                 "filter_timestamp": self.events_timestamp_filter(),
             },
         )
@@ -641,7 +662,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 """,
                 {
                     "start_of_interval_timestamp": start_of_interval_sql,
-                    "returning_entity_expr": self.return_entity_expr,
+                    "returning_entity_expr": return_condition,
                     "filter_timestamp": self.events_timestamp_filter(),
                 },
             ),
@@ -684,12 +705,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             return_event_timestamps = self._get_return_event_timestamps_expr(
                 minimum_occurrences=self.minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
-                return_entity_expr=self.return_entity_expr,
+                return_entity_expr=return_condition,
             )
             return_event_values = None
 
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
-            min_timestamp_inner_expr = self.get_first_time_anchor_expr(self.start_event)
+            min_timestamp_inner_expr = (
+                self._legacy_two_arm_anchor_expr() if two_arm else self.get_first_time_anchor_expr(self.start_event)
+            )
 
             start_event_timestamps = parse_expr(
                 """
@@ -777,8 +800,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         inner_query = ast.SelectQuery(
             select=select_fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=event_filters),
+            select_from=select_from,
+            where=where,
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.And(
                 exprs=[
@@ -805,6 +828,73 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         )
 
         return inner_query
+
+    def _legacy_first_time_two_arm_scan(self) -> bool:
+        # The tag-column arms carry no event properties, so any per-row property read in the
+        # outer query (value breakdowns, property aggregation) keeps the single scan.
+        return (
+            self._first_time_split_shrinks_scan()
+            and not self.has_property_aggregation
+            and not has_breakdown_filter(self.query.breakdownFilter)
+        )
+
+    def _first_time_split_shrinks_scan(self) -> bool:
+        if not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            return False
+        if self._start_and_return_entities_are_same():
+            return False
+        return None not in self.runner.get_events_for_entity(self.start_event)
+
+    def _legacy_scan_arm(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> ast.SelectQuery:
+        filters = [*self.runner.arm_event_filters(entity, query_kind)]
+        if query_kind == "start":
+            # The first-ever anchor needs the no-props stream, so property matching moves into
+            # the matches_start column instead of the WHERE.
+            arm_predicate = (
+                self.entity_expr_no_props(entity)
+                if self.is_first_ever_occurrence
+                else self.entity_expr_with_props(entity)
+            )
+            matches_start: ast.Expr = (
+                self.entity_expr_with_props(entity) if self.is_first_ever_occurrence else ast.Constant(value=1)
+            )
+            is_start, is_return = 1, 0
+        else:
+            arm_predicate = self.entity_expr_with_props(entity)
+            matches_start = ast.Constant(value=0)
+            is_start, is_return = 0, 1
+        if not (isinstance(arm_predicate, ast.Constant) and arm_predicate.value is True):
+            filters.append(arm_predicate)
+
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias=self.aggregation_target_events_column,
+                    expr=ast.Field(chain=["events", self.aggregation_target_events_column]),
+                ),
+                ast.Alias(alias="timestamp", expr=ast.Field(chain=["events", "timestamp"])),
+                ast.Alias(alias="is_start", expr=ast.Constant(value=is_start)),
+                ast.Alias(alias="matches_start", expr=matches_start),
+                ast.Alias(alias="is_return", expr=ast.Constant(value=is_return)),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=filters) if filters else None,
+        )
+
+    def _legacy_two_arm_anchor_expr(self) -> ast.Expr:
+        # Mirrors get_first_time_anchor_expr with the arms' tags standing in for the entity matchers.
+        if self.is_first_ever_occurrence:
+            return parse_expr(
+                """
+                if(
+                    minIf(events.timestamp, events.is_start = 1)
+                        = minIf(events.timestamp, events.matches_start = 1),
+                    minIf(events.timestamp, events.is_start = 1),
+                    NULL
+                )
+                """
+            )
+        return parse_expr("minIf(events.timestamp, events.matches_start = 1)")
 
     def _get_minimum_occurrences_aliases(self, minimum_occurrences: int, with_dupes_expr: ast.Expr) -> list[ast.Alias]:
         """

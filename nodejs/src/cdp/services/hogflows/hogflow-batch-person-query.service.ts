@@ -84,7 +84,8 @@ export class HogFlowBatchPersonQueryService {
         team: Team,
         filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>,
         groupTypeIndex?: number,
-        cursor?: string | null
+        cursor?: string | null,
+        dedupeKey?: 'email'
     ): Promise<BlastRadiusPersonsResponse> {
         const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons` as const
 
@@ -97,6 +98,7 @@ export class HogFlowBatchPersonQueryService {
                         filters,
                         group_type_index: groupTypeIndex,
                         cursor: cursor || null,
+                        dedupe_key: dedupeKey ?? null,
                     }),
                 },
             })

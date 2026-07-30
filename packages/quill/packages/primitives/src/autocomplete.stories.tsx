@@ -258,7 +258,7 @@ export const CommandPalette: Story = {
                                                 >
                                                     {cmd.icon}
                                                     {cmd.label}
-                                                    <span className="font-mono ml-auto text-xs text-muted-foreground/80">
+                                                    <span className="font-mono ml-auto text-xs text-subtle-foreground">
                                                         2 days ago
                                                     </span>
 
@@ -348,7 +348,7 @@ export const CommandPaletteCustomEmpty: Story = {
                                                 >
                                                     {cmd.icon}
                                                     {cmd.label}
-                                                    <span className="font-mono ml-auto text-xs text-muted-foreground/80">
+                                                    <span className="font-mono ml-auto text-xs text-subtle-foreground">
                                                         2 days ago
                                                     </span>
 

@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.temporal.ingestion_acceptance_test.config import Config
+from posthog.temporal.ingestion_acceptance_test.types import IngestionAcceptanceTestInput
 
 
 @pytest.fixture
@@ -24,13 +25,13 @@ class TestRunIngestionAcceptanceTestsTimeout:
     @patch("posthog.temporal.ingestion_acceptance_test.activities.PostHogClient")
     @patch("posthog.temporal.ingestion_acceptance_test.activities.posthoganalytics.Posthog")
     @patch("posthog.temporal.ingestion_acceptance_test.activities.discover_tests", return_value=[])
-    @patch("posthog.temporal.ingestion_acceptance_test.activities.Config")
+    @patch("posthog.temporal.ingestion_acceptance_test.activities.load_config")
     @patch("posthog.temporal.ingestion_acceptance_test.activities.run_tests")
     @pytest.mark.asyncio
     async def test_sends_slack_timeout_notification_on_timeout(
         self,
         mock_run_tests: MagicMock,
-        mock_config_cls: MagicMock,
+        mock_load_config: MagicMock,
         mock_discover: MagicMock,
         mock_posthog: MagicMock,
         mock_client_cls: MagicMock,
@@ -38,7 +39,7 @@ class TestRunIngestionAcceptanceTestsTimeout:
         mock_send_timeout: MagicMock,
         config: Config,
     ) -> None:
-        mock_config_cls.return_value = config
+        mock_load_config.return_value = config
 
         def slow_run_tests(*args, **kwargs):
             time.sleep(5)
@@ -48,7 +49,7 @@ class TestRunIngestionAcceptanceTestsTimeout:
         from posthog.temporal.ingestion_acceptance_test.activities import run_ingestion_acceptance_tests
 
         with pytest.raises(asyncio.TimeoutError):
-            await run_ingestion_acceptance_tests()
+            await run_ingestion_acceptance_tests(IngestionAcceptanceTestInput())
 
         mock_send_timeout.assert_called_once_with(config, running_tests=[])
         mock_send_slack.assert_not_called()
@@ -58,13 +59,13 @@ class TestRunIngestionAcceptanceTestsTimeout:
     @patch("posthog.temporal.ingestion_acceptance_test.activities.PostHogClient")
     @patch("posthog.temporal.ingestion_acceptance_test.activities.posthoganalytics.Posthog")
     @patch("posthog.temporal.ingestion_acceptance_test.activities.discover_tests", return_value=[])
-    @patch("posthog.temporal.ingestion_acceptance_test.activities.Config")
+    @patch("posthog.temporal.ingestion_acceptance_test.activities.load_config")
     @patch("posthog.temporal.ingestion_acceptance_test.activities.run_tests")
     @pytest.mark.asyncio
     async def test_does_not_send_timeout_notification_when_tests_complete(
         self,
         mock_run_tests: MagicMock,
-        mock_config_cls: MagicMock,
+        mock_load_config: MagicMock,
         mock_discover: MagicMock,
         mock_posthog: MagicMock,
         mock_client_cls: MagicMock,
@@ -72,7 +73,7 @@ class TestRunIngestionAcceptanceTestsTimeout:
         mock_send_timeout: MagicMock,
         config: Config,
     ) -> None:
-        mock_config_cls.return_value = config
+        mock_load_config.return_value = config
 
         mock_result = MagicMock()
         mock_result.to_dict.return_value = {"success": True}
@@ -80,7 +81,7 @@ class TestRunIngestionAcceptanceTestsTimeout:
 
         from posthog.temporal.ingestion_acceptance_test.activities import run_ingestion_acceptance_tests
 
-        result = await run_ingestion_acceptance_tests()
+        result = await run_ingestion_acceptance_tests(IngestionAcceptanceTestInput())
 
         assert result == {"success": True}
         mock_send_timeout.assert_not_called()

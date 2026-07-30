@@ -343,6 +343,7 @@ class TestConversationSerializerTaskField(APIBaseTest):
             title_manually_set=False,
             description="d",
             origin_product=Task.OriginProduct.POSTHOG_AI,
+            runtime=Task.Runtime.ACP,
             repository=None,
             github_integration=None,
             github_user_integration=None,
@@ -362,6 +363,7 @@ class TestConversationSerializerTaskField(APIBaseTest):
         data = TaskSerializer(task_dto).data
 
         assert task_dto.latest_run is not None
+        self.assertEqual(data["runtime"], Task.Runtime.ACP)
         self.assertEqual(data["latest_run"]["id"], str(task_dto.latest_run.id))
 
     def test_conversation_task_serializer_outputs_latest_run_id(self):

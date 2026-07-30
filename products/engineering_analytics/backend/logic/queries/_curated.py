@@ -13,6 +13,7 @@ flow through ``ast.Constant`` placeholders in the calling query, never be string
 into these fragments.
 """
 
+import math
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -26,7 +27,13 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views import (
+    job_costs,
+    pull_requests,
+    team_members,
+    workflow_jobs,
+    workflow_runs,
+)
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -53,13 +60,25 @@ class CuratedGitHubSource:
         """The team this handle reads for — query builders need it for timezone-aware date parsing."""
         return self._team
 
+    @property
+    def repository(self) -> str:
+        """The selected source's ``owner/name`` identity for reads outside the warehouse."""
+        return self._tables.repository
+
     @classmethod
     def for_team(
-        cls, team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+        cls,
+        team: Team,
+        *,
+        source_id: str | None = None,
+        repo: str | None = None,
+        user_access_control: "UserAccessControl | None" = None,
     ) -> "CuratedGitHubSource":
         return cls(
             team=team,
-            tables=resolve_github_tables(team=team, source_id=source_id, user_access_control=user_access_control),
+            tables=resolve_github_tables(
+                team=team, source_id=source_id, repo=repo, user_access_control=user_access_control
+            ),
             user_access_control=user_access_control,
         )
 
@@ -67,15 +86,42 @@ class CuratedGitHubSource:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
-    def run_source(self) -> str:
-        """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery."""
-        return f"({workflow_runs.build_query(self._tables.workflow_runs)})"
+    def run_source(self, *, started_floor: bool = False) -> str:
+        """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
+        adds the raw-string scan floor — callers must register {run_started_floor} (see
+        run_started_floor_constant)."""
+        return f"({workflow_runs.build_query(self._tables.workflow_runs, started_floor=started_floor)})"
 
     def jobs_source(self) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced."""
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+
+    def members_source(self) -> str | None:
+        """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
+        if not self._tables.team_members:
+            return None
+        return f"({team_members.build_query(self._tables.team_members)})"
+
+    def job_cost_source(self) -> str | None:
+        """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
+        exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
+        ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
+
+        This is the single cost-computation path: ``provider`` / ``os`` / ``vcpu`` / ``billable_seconds``
+        / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
+        query aggregates the same per-job figures the exposed view (and the parity test) do — there is
+        no separate Python cost rollup to drift.
+        """
+        if not self._tables.workflow_jobs:
+            return None
+        query = job_costs.build_query(
+            jobs_table=self._tables.workflow_jobs,
+            runs_table=self._tables.workflow_runs,
+            include_run_columns=True,
+        )
+        return f"({query})"
 
     def runs_cte(self) -> str:
         """CTE materializing the curated workflow-runs source once.
@@ -102,7 +148,10 @@ class CuratedGitHubSource:
                     countIf(s = 'completed' AND c IN ('failure', 'timed_out')) AS failing,
                     -- s IS NULL: run_started_at parses to NULL on a bad/missing timestamp, and argMax
                     -- over an all-NULL group returns NULL — count those as pending, not vanished.
-                    countIf(s IS NULL OR s != 'completed') AS pending
+                    countIf(s IS NULL OR s != 'completed') AS pending,
+                    -- The names behind `failing`, sorted for a stable order — the UI shows what is
+                    -- failing under the CI tag instead of a bare count.
+                    arraySort(groupArrayIf(workflow_name, s = 'completed' AND c IN ('failure', 'timed_out'))) AS failing_workflows
                 FROM (
                     SELECT
                         head_sha,
@@ -205,3 +254,10 @@ class CuratedGitHubSource:
                 # strip the tables — bypass is set ONLY in this genuinely userless case.
                 bypass_warehouse_access_control=uac is None,
             )
+
+
+def opt_float(value: float | None) -> float | None:
+    """ClickHouse aggregate → optional float: quantile/avg over an empty set returns NaN, nullIf None."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    return float(value)

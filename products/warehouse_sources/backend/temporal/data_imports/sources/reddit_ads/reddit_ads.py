@@ -1,6 +1,8 @@
 import dataclasses
+from collections.abc import Generator
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import urljoin, urlsplit
 
 import structlog
 from dateutil import parser
@@ -8,6 +10,10 @@ from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import initial_datetime
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -19,10 +25,91 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
 
 logger = structlog.get_logger(__name__)
 
+REDDIT_ADS_BASE_URL = "https://ads-api.reddit.com/api/v3"
+# The single host our bearer token is authorized for. Every paginated `next_url` must resolve
+# back to this origin before we resend the token to it.
+REDDIT_ADS_BASE_HOST = urlsplit(REDDIT_ADS_BASE_URL).netloc
+# Guard against a runaway `next_url` chain; raise instead of returning a truncated list.
+MAX_LISTING_PAGES = 50
+# These listings run in the web request path, so never let a stalled connection pin a worker.
+LISTING_TIMEOUT_SECONDS = 10
+
 
 @dataclasses.dataclass
 class RedditAdsResumeConfig:
     next_url: str
+
+
+class RedditAdsApiError(Exception):
+    """A failed Reddit Ads API response, carrying the status so callers can branch on it.
+
+    Deliberately not named `status_code`: drf-exceptions-hog reads that attribute off any escaping
+    exception and would render Reddit's status as PostHog's HTTP response status.
+    """
+
+    def __init__(self, message: str, api_status_code: int) -> None:
+        super().__init__(message)
+        self.api_status_code = api_status_code
+
+
+class RedditAdsTooManyPagesError(Exception):
+    """A Reddit Ads list endpoint kept handing us a `next_url` past `MAX_LISTING_PAGES`."""
+
+
+def _resolve_next_url(current_url: str, next_url: str) -> str:
+    """Resolve a pagination `next_url` against the URL it came from and confirm it stays on the
+    Reddit Ads HTTPS origin before we resend the bearer token to it.
+
+    Reddit returns absolute URLs, but a relative one is resolved here (rather than crashing the
+    next request), and a cross-origin or non-HTTPS one is rejected so the token is never sent to a
+    foreign host. Smokescreen already blocks internal hosts on egress; this is cheap extra
+    hardening against external credential exfiltration."""
+    resolved = urljoin(current_url, next_url)
+    parts = urlsplit(resolved)
+    if parts.scheme != "https" or parts.netloc != REDDIT_ADS_BASE_HOST:
+        raise IntegrationAccountListingError(
+            "Reddit Ads returned an unexpected pagination link. Please try again, and reconnect your "
+            "Reddit Ads integration if this keeps happening."
+        )
+    return resolved
+
+
+def _iter_pages(path: str, access_token: str) -> Generator[list[dict]]:
+    """Yield each page of a Reddit Ads list endpoint, following `pagination.next_url` until it runs
+    out. Redirects are disabled and every `next_url` is validated against the Reddit Ads origin so
+    the bearer token only ever reaches the host it was issued for."""
+    session = make_tracked_session(allow_redirects=False, redact_values=(access_token,))
+    url = f"{REDDIT_ADS_BASE_URL}{path}"
+
+    for _ in range(MAX_LISTING_PAGES):
+        response = session.get(
+            url, headers={"Authorization": f"Bearer {access_token}"}, timeout=LISTING_TIMEOUT_SECONDS
+        )
+        if response.status_code != 200:
+            raise RedditAdsApiError(
+                f"Reddit Ads API error ({response.status_code}): {response.text}", response.status_code
+            )
+
+        body = response.json()
+        yield body.get("data") or []
+
+        next_url = (body.get("pagination") or {}).get("next_url")
+        if not next_url:
+            return
+        url = _resolve_next_url(url, next_url)
+
+    raise RedditAdsTooManyPagesError(f"Reddit returned more than {MAX_LISTING_PAGES} pages for {path}")
+
+
+def list_businesses(access_token: str) -> list[dict]:
+    """Every business the authorized Reddit member belongs to."""
+    return [business for page in _iter_pages("/me/businesses", access_token) for business in page]
+
+
+def list_business_ad_accounts(access_token: str, business_id: str) -> list[dict]:
+    """Every ad account under one business. Reddit has no endpoint for "all ad accounts I can reach",
+    so callers walk the businesses from `list_businesses` themselves."""
+    return [account for page in _iter_pages(f"/businesses/{business_id}/ad_accounts", access_token) for account in page]
 
 
 def _get_incremental_date_range(
@@ -176,7 +263,7 @@ def reddit_ads_source(
 ):
     config: RESTAPIConfig = {
         "client": {
-            "base_url": "https://ads-api.reddit.com/api/v3",
+            "base_url": REDDIT_ADS_BASE_URL,
             "auth": {
                 "type": "bearer",
                 "token": access_token,

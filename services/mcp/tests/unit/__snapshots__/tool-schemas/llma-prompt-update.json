@@ -2,7 +2,6 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "base_version": {
-            "description": "Latest version you are editing from. Used for optimistic concurrency checks.",
             "minimum": 1,
             "type": "number"
         },
@@ -30,8 +29,13 @@
         "prompt_name": {
             "pattern": "^[^/]+$",
             "type": "string"
+        },
+        "version_description": {
+            "description": "Optional note describing what changed in this version. Shown in the version history.",
+            "maxLength": 400,
+            "type": "string"
         }
     },
-    "required": ["prompt_name"],
+    "required": ["prompt_name", "base_version"],
     "type": "object"
 }

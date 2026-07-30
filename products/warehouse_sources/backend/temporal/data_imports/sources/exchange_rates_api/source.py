@@ -28,7 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_r
 from products.warehouse_sources.backend.temporal.data_imports.sources.exchange_rates_api.settings import (
     EXCHANGE_RATES_API_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.exchangeratesapi import (
     ExchangeRatesApiSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ExchangeRatesApiSource(ResumableSource[ExchangeRatesApiSourceConfig, ExchangeRatesApiResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://exchangeratesapi.io/documentation/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -49,7 +52,6 @@ class ExchangeRatesApiSource(ResumableSource[ExchangeRatesApiSourceConfig, Excha
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Exchange Rates API",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Exchange Rates API access key to pull foreign-exchange reference rates into the PostHog Data warehouse.
 
 Create a key in your [exchangeratesapi.io dashboard](https://exchangeratesapi.io/dashboard).
@@ -112,6 +114,7 @@ The free plan is restricted to the `EUR` base currency — a custom base currenc
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -132,7 +135,11 @@ The free plan is restricted to the `EUR` base currency — a custom base currenc
         return schemas
 
     def validate_credentials(
-        self, config: ExchangeRatesApiSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ExchangeRatesApiSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_exchange_rates_api_credentials(config.access_key):
             return True, None

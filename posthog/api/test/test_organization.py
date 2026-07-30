@@ -430,7 +430,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(getattr(self.organization, field))
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organizations_and_verify_list(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -486,9 +486,12 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertIn("active subscription", response.json()["detail"])
         self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
 
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
-    def test_can_delete_organization_without_active_subscription(self, mock_get_license, mock_get_billing):
+    def test_can_delete_organization_without_active_subscription(
+        self, mock_get_license, mock_get_billing, mock_start_deletion
+    ):
         mock_get_license.return_value = True
         mock_get_billing.return_value = {"has_active_subscription": False}
 
@@ -500,9 +503,11 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.delete(f"/api/organizations/{org_id}")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Organization.objects.filter(id=org_id).exists())
+        # Deletion runs asynchronously on Temporal, so the org is marked pending, not removed synchronously
+        self.assertTrue(Organization.objects.get(id=org_id).is_pending_deletion)
+        mock_start_deletion.assert_called_once()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_sets_pending_deletion_flag(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -512,9 +517,9 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
-        mock_delete_task.delay.assert_called_once()
+        mock_delete_task.assert_called_once()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_preserves_memberships(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -524,7 +529,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertTrue(OrganizationMembership.objects.filter(organization=self.organization, user=self.user).exists())
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_returns_pending_deletion_in_api(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -535,7 +540,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_pending_deletion"])
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_already_pending_deletion_returns_400(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -546,9 +551,9 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("already being deleted", response.json()["detail"])
-        mock_delete_task.delay.assert_not_called()
+        mock_delete_task.assert_not_called()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_delete_organization_fires_initiated_event(self, mock_capture, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER

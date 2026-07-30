@@ -95,6 +95,17 @@
             {% endif %}
             {{ form.concurrent_workflows.errors }}
         </div>
+
+        <div class="form-row">
+            <label for="{{ form.ignore_backfilled_dates.id_for_label }}">
+                {{ form.ignore_backfilled_dates.label }}:
+            </label>
+            {{ form.ignore_backfilled_dates }}
+            {% if form.ignore_backfilled_dates.help_text %}
+                <p class="help">{{ form.ignore_backfilled_dates.help_text }}</p>
+            {% endif %}
+            {{ form.ignore_backfilled_dates.errors }}
+        </div>
     </fieldset>
 
     <div class="submit-row">

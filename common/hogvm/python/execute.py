@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional
 
-import re2
-
 from common.hogvm.python.debugger import color_bytecode, debugger
 from common.hogvm.python.objects import (
     CallFrame,
@@ -21,7 +19,6 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTEC
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
-    _CASE_INSENSITIVE_OPTS,
     HogVMException,
     HogVMMemoryExceededException,
     HogVMRuntimeExceededException,
@@ -29,6 +26,7 @@ from common.hogvm.python.utils import (
     calculate_cost,
     get_nested_value,
     like,
+    regex_match,
     set_nested_value,
     unify_comparison_types,
 )
@@ -62,6 +60,7 @@ def execute_bytecode(
     timeout=timedelta(seconds=5),
     team: Optional["Team"] = None,
     debug=False,
+    disallowed_functions: Optional[frozenset[str]] = None,
 ) -> BytecodeResult:
     bytecodes: dict[str, Any] = input if isinstance(input, dict) else {"root": {"bytecode": input}}
     root_bytecode = bytecodes.get("root", {}).get("bytecode", []) or []
@@ -89,6 +88,7 @@ def execute_bytecode(
     debug_bytecode = []
     if isinstance(timeout, int):
         timeout = timedelta(seconds=timeout)
+    disallowed_functions = disallowed_functions or frozenset()
 
     if len(call_stack) == 0:
         call_stack.append(
@@ -179,6 +179,16 @@ def execute_bytecode(
     def check_timeout():
         if time.time() - start_time > timeout.total_seconds() and not debug:
             raise HogVMRuntimeExceededException(timeout_seconds=timeout.total_seconds(), ops_performed=ops)
+
+    def remaining_timeout() -> float:
+        # Budget left for this run, so blocking STL functions (e.g. sleep) can bound themselves to it.
+        return max(0.0, timeout.total_seconds() - (time.time() - start_time))
+
+    def check_allowed(name: str):
+        # Enforced at dispatch so it catches every path to an STL call (direct, expression call,
+        # a closure bound to a local), not just the syntactic `name(...)` a static check would see.
+        if name in disallowed_functions:
+            raise HogVMException(f"Function {name} is not allowed here")
 
     def capture_upvalue(index) -> dict:
         nonlocal upvalues
@@ -285,24 +295,16 @@ def execute_bytecode(
                 push_stack(pop_stack() not in pop_stack())
             case Operation.REGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(bool(re2.search(re2.compile(args[1]), args[0])) if args[0] and args[1] else False)
+                push_stack(regex_match(args[0], args[1]))
             case Operation.NOT_REGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(not bool(re2.search(re2.compile(args[1]), args[0])) if args[0] and args[1] else False)
+                push_stack(not regex_match(args[0], args[1]) if args[0] and args[1] else False)
             case Operation.IREGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(
-                    bool(re2.search(re2.compile(args[1], options=_CASE_INSENSITIVE_OPTS), args[0]))
-                    if args[0] and args[1]
-                    else False
-                )
+                push_stack(regex_match(args[0], args[1], case_insensitive=True))
             case Operation.NOT_IREGEX:
                 args = [pop_stack(), pop_stack()]
-                push_stack(
-                    not bool(re2.search(re2.compile(args[1], options=_CASE_INSENSITIVE_OPTS), args[0]))
-                    if args[0] and args[1]
-                    else False
-                )
+                push_stack(not regex_match(args[0], args[1], case_insensitive=True) if args[0] and args[1] else False)
             case Operation.GET_GLOBAL:
                 chain = [pop_stack() for _ in range(next_token())]
                 if chunk_globals and chain[0] in chunk_globals:
@@ -552,11 +554,12 @@ def execute_bytecode(
                             args = stack_keep_first_elements(len(stack) - arg_count)
                         push_stack(functions[name](*args))
                     elif name in STL:
+                        check_allowed(name)
                         if version == 0:
                             args = [pop_stack() for _ in range(arg_count)]
                         else:
                             args = stack_keep_first_elements(len(stack) - arg_count)
-                        push_stack(STL[name].fn(args, team, stdout, timeout.total_seconds()))
+                        push_stack(STL[name].fn(args, team, stdout, remaining_timeout()))
                     elif name in BYTECODE_STL:
                         arg_names = BYTECODE_STL[name][0]
                         if len(arg_names) != arg_count:
@@ -619,6 +622,7 @@ def execute_bytecode(
                 elif callable.get("__hogCallable__") == "stl":
                     if callable["name"] not in STL:
                         raise HogVMException(f"Unsupported function call: {callable['name']}")
+                    check_allowed(callable["name"])
                     stl_fn = STL[callable["name"]]
                     if stl_fn.minArgs is not None and args_length < stl_fn.minArgs:
                         raise HogVMException(
@@ -632,7 +636,7 @@ def execute_bytecode(
                         args = list(reversed([pop_stack() for _ in range(args_length)]))
                         if stl_fn.maxArgs is not None and len(args) < stl_fn.maxArgs:
                             args = [*args, *([None] * (stl_fn.maxArgs - len(args)))]
-                    push_stack(stl_fn.fn(args, team, stdout, timeout.total_seconds()))
+                    push_stack(stl_fn.fn(args, team, stdout, remaining_timeout()))
 
                 elif callable.get("__hogCallable__") == "async":
                     raise HogVMException("Async functions are not supported")

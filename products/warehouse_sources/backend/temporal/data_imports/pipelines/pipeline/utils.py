@@ -23,6 +23,7 @@ from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -63,8 +64,10 @@ type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json
 type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], int]
 
 
-class BillingLimitsWillBeReachedException(Exception):
-    pass
+class BillingLimitsWillBeReachedException(NonReportableError):
+    """The sync was intentionally halted because the account will cross its Data Warehouse billing
+    limit. Expected control flow, not a defect: the workflow marks the job BILLING_LIMIT_TOO_LOW,
+    and subclassing NonReportableError keeps it out of error tracking."""
 
 
 class DuplicatePrimaryKeysException(Exception):
@@ -292,19 +295,26 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
             else:
                 try:
                     casted_column = incoming_column.cast(delta_field.type).combine_chunks()
-                except pa.ArrowInvalid as e:
-                    # A narrowing cast overflowed. The usual cause is the source column's type
-                    # being widened upstream (e.g. Postgres `integer` → `bigint`) after the Delta
-                    # column was created with the narrower type. delta-rs cannot widen an existing
-                    # column in place, so retrying is futile — surface an actionable error telling
-                    # the user to reset and fully re-sync the table.
-                    if pa.types.is_integer(delta_field.type) and pa.types.is_integer(incoming_column.type):
-                        raise SchemaColumnTypeChangedException(
-                            f"Source column type changed: '{delta_field.name}' has values that no longer "
-                            f"fit its stored type {delta_field.type} (incoming data is now "
-                            f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
-                        ) from e
-                    raise
+                except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as e:
+                    # Reaching this cast already means the incoming type differs from the stored
+                    # Delta type (see the guard above) and the timestamp path didn't apply, so a
+                    # failure here is a deterministic, unretryable incompatibility: the source
+                    # column's type changed under a table created with a narrower type. Common
+                    # shapes are an integer column widened upstream (Postgres `integer` → `bigint`),
+                    # an integer-created column now receiving fractional values ("Float value 19.99
+                    # was truncated converting to int64"), non-numeric text arriving for a numeric
+                    # column ("Failed to parse string: '80-150' as a scalar of type int32"), a
+                    # value that overflows the stored decimal precision, or a cast pyarrow has no
+                    # kernel for at all (e.g. `time64` → `double`, raised as ArrowNotImplementedError
+                    # rather than ArrowInvalid). delta-rs cannot change a column's type in place, so
+                    # retrying is futile — surface an actionable error telling the user to reset and
+                    # fully re-sync. Lossless widening (e.g. a whole-valued float into an integer
+                    # column) still casts fine and never reaches here.
+                    raise SchemaColumnTypeChangedException(
+                        f"Source column type changed: '{delta_field.name}' has values that no longer "
+                        f"fit its stored type {delta_field.type} (incoming data is now "
+                        f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                    ) from e
 
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
@@ -351,14 +361,165 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
             table = table.set_column(
                 table.schema.get_field_index(column_name),
                 temp_name,
-                table.column(column_name),  # type: ignore
+                table.column(column_name),
             )
             used_names.add(temp_name)
 
     return table
 
 
+INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, "_dlt_id", "_dlt_load_id"})
+
+
+def _fold_column_name_for_match(name: str) -> str:
+    try:
+        return NamingConvention.normalize_identifier(name)
+    except ValueError:
+        return name
+
+
+def apply_enabled_columns_projection(
+    table: pa.Table,
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+    partition_keys: list[str] | None,
+) -> tuple[pa.Table, list[str]]:
+    """Drop table columns not selected in `enabled_columns`. Returns `(table, dropped_names)`.
+
+    Delta-write-side counterpart of the SQL sources' SELECT projection, for sources that can't
+    push the projection into the fetch. `None` means all columns sync. Primary keys, the active
+    incremental field, partition-key source columns, and the pipeline's own internal columns
+    (`INTERNAL_COLUMN_NAMES`) are always retained — matched by exact name, not prefix, so an
+    upstream source can't smuggle a deselected column past the projection by naming it e.g.
+    `_ph_secret` or `_dlt_secret`. Both sides are folded through the dlt naming convention: the table has already been
+    through `normalize_table_column_names` while `enabled_columns`/primary keys arrive in the
+    source namespace, so a raw comparison would drop every non-lowercase column. If the
+    projection would drop every user-facing column, the table is returned unchanged (mirrors the
+    empty-projection fallback in `filter_dwh_columns_by_enabled_columns`) — an empty table is
+    never the intended result of a column selection.
+    """
+    if enabled_columns is None:
+        return table, []
+
+    retained = {_fold_column_name_for_match(name) for name in enabled_columns}
+    for primary_key in primary_keys or []:
+        retained.add(_fold_column_name_for_match(primary_key))
+    if incremental_field:
+        retained.add(_fold_column_name_for_match(incremental_field))
+    for partition_key in partition_keys or []:
+        retained.add(_fold_column_name_for_match(partition_key))
+
+    kept_names = [
+        name
+        for name in table.column_names
+        if name in INTERNAL_COLUMN_NAMES or _fold_column_name_for_match(name) in retained
+    ]
+    dropped_names = [name for name in table.column_names if name not in set(kept_names)]
+    if not dropped_names:
+        return table, []
+    if all(name in INTERNAL_COLUMN_NAMES for name in kept_names):
+        return table, []
+    return table.select(kept_names), dropped_names
+
+
+async def observe_and_project_table(
+    table: pa.Table,
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+    partition_keys: list[str] | None,
+    observed_columns: dict[str, dict[str, Any]],
+    logger: FilteringBoundLogger,
+    log_message: str,
+) -> pa.Table:
+    """Shared observe-then-project step for `_uses_delta_write_column_selection` pipelines.
+
+    Unions the batch's columns into `observed_columns` (for the column picker) before dropping
+    non-enabled ones, so a pinned selection never hides a column from the picker. `log_message`
+    is logged with the dropped column names appended, letting each pipeline keep its own wording.
+    """
+    for observed_column in observed_schema_metadata_columns(table.schema):
+        observed_columns[observed_column["name"]] = observed_column
+
+    table, dropped_names = apply_enabled_columns_projection(
+        table, enabled_columns, primary_keys, incremental_field, partition_keys
+    )
+    if dropped_names:
+        await logger.adebug(f"{log_message}: {dropped_names}")
+    return table
+
+
+def source_uses_delta_write_column_selection(source_type: str) -> bool:
+    """True when the pipeline applies `enabled_columns` by dropping columns before the Delta
+    write (and captures the observed columns into `schema_metadata`).
+
+    False for:
+    - SQL sources — they project `enabled_columns` into their SELECT and own
+      `schema_metadata["columns"]` via schema introspection;
+    - managed-schema sources (Stripe/Paddle/Zendesk) — column selection is disabled for them
+      (their canonical HogQL schema needs the full physical column set), so the pipeline must
+      never drop their columns even if a stale `enabled_columns` is still persisted.
+    """
+    # Imported lazily: the registry pulls in every source's (often heavy) dependencies on first use.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+        SourceRegistry,  # noqa: PLC0415
+    )
+    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
+
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception:
+        return False
+    return not source.supports_column_selection and not source.has_managed_hogql_schema
+
+
+def observed_schema_metadata_columns(schema: pa.Schema) -> list[dict[str, Any]]:
+    """`schema_metadata["columns"]`-shaped entries from a pre-projection arrow schema.
+
+    Captured before `apply_enabled_columns_projection` so the persisted catalog keeps listing
+    columns the source returns even while they're being dropped — otherwise a pinned selection
+    would make deselected (and newly-added upstream) columns invisible to the column picker.
+    """
+    return [
+        {"name": field.name, "data_type": str(field.type), "is_nullable": field.nullable}
+        for field in schema
+        if field.name not in INTERNAL_COLUMN_NAMES
+    ]
+
+
+def merge_observed_columns_into_schema_metadata(config: dict[str, Any], observed_columns: list[dict[str, Any]]) -> None:
+    """Union observed column entries into `sync_type_config["schema_metadata"]["columns"]` in place.
+
+    Existing entries keep their position and are refreshed with the observed type/nullability;
+    columns previously observed but absent from this run stay listed (union, not replace) so a
+    projection or an upstream removal never shrinks the picker. Designed as a `mutate` callback
+    for `update_sync_type_config_keys`.
+    """
+    metadata = config.get("schema_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        config["schema_metadata"] = metadata
+    columns = metadata.get("columns")
+    if not isinstance(columns, list):
+        columns = []
+    metadata["columns"] = columns
+    entries_by_name = {
+        column.get("name"): column for column in columns if isinstance(column, dict) and column.get("name")
+    }
+    for observed in observed_columns:
+        existing = entries_by_name.get(observed["name"])
+        if existing is None:
+            columns.append(observed)
+        else:
+            existing["data_type"] = observed["data_type"]
+            existing["is_nullable"] = observed["is_nullable"]
+
+
 PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
+
+# Bucket for rows whose numerical partition key is null — they can't be bucketed arithmetically.
+NULL_NUMERICAL_PARTITION = "null"
 
 
 async def setup_partitioning(
@@ -453,7 +614,9 @@ def append_partition_key_to_table(
             mode = "md5"
 
         # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
-        is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
+        is_partition_key_int = normalized_partition_keys[0] in table.column_names and pa.types.is_integer(
+            table.field(normalized_partition_keys[0]).type
+        )
         are_incrementing_ints = False
         if is_partition_key_int:
             partition_column = table.column(normalized_partition_keys[0])
@@ -489,6 +652,18 @@ def append_partition_key_to_table(
         else:
             logger.debug(f"append_partition_key_to_table: partitioning mode {mode} selected")
 
+    # A persisted partition mode skips the detection block above, so the partition key column may be
+    # absent from this batch — e.g. the source's schema drifted and stopped returning the field we
+    # previously partitioned on. Reading a missing key per-row would raise a raw KeyError and fail
+    # every sync; instead those rows fall back to a catch-all bucket (via `row.get`). When the missing
+    # field is also the incremental field, the downstream incremental-value check surfaces an
+    # actionable, non-retryable error.
+    missing_partition_keys = [key for key in normalized_partition_keys if key not in table.column_names]
+    if missing_partition_keys:
+        logger.warning(
+            f"append_partition_key_to_table: partition key(s) missing from incoming table, bucketing into fallback: {missing_partition_keys}"
+        )
+
     partition_array: list[str] = []
 
     for batch in table.to_batches():
@@ -496,7 +671,7 @@ def append_partition_key_to_table(
             if mode == "md5":
                 assert partition_count is not None, "append_partition_key_to_table: partition_count is None"
 
-                primary_key_values = [str(row[key]) for key in normalized_partition_keys]
+                primary_key_values = [str(row.get(key)) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)
 
                 # this hash has no security impact
@@ -509,12 +684,26 @@ def append_partition_key_to_table(
                 assert partition_size is not None, "append_partition_key_to_table: partition_size is None"
 
                 key = normalized_partition_keys[0]
-                partition = row[key] // partition_size
+                key_value = row.get(key)
 
-                partition_array.append(str(partition))
+                if key_value is None:
+                    partition_array.append(NULL_NUMERICAL_PARTITION)
+                elif isinstance(key_value, int):
+                    partition_array.append(str(key_value // partition_size))
+                else:
+                    # A persisted "numerical" mode can outlive the integer key column that
+                    # justified it (e.g. the source's key column changed type mid-sync). Coerce
+                    # numeric values back to int so rows keep their original bucket; anything that
+                    # isn't integer-like lands in the null bucket instead of crashing the sync.
+                    try:
+                        coerced_key_value = int(key_value)
+                    except (TypeError, ValueError):
+                        partition_array.append(NULL_NUMERICAL_PARTITION)
+                    else:
+                        partition_array.append(str(coerced_key_value // partition_size))
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
-                date = row[key]
+                date = row.get(key)
 
                 if partition_format is None:
                     partition_format = "week"
@@ -536,8 +725,12 @@ def append_partition_key_to_table(
                 elif isinstance(date, datetime.date):
                     partition_array.append(date.strftime(date_format))
                 elif isinstance(date, str) and date.strip():
-                    date = parser.parse(date)
-                    partition_array.append(date.strftime(date_format))
+                    try:
+                        date = parser.parse(date)
+                        partition_array.append(date.strftime(date_format))
+                    except (ValueError, OverflowError):
+                        # Non-date-like string (e.g. a UUID primary key) — treat as unknown date
+                        partition_array.append("1970-01")
                 elif isinstance(date, str):
                     # Empty string — treat as unknown date
                     partition_array.append("1970-01")
@@ -600,7 +793,7 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
         A `pa.Decimal128Type` or `pa.Decimal256Type` with enough precision and
         scale to hold all `values`.
     """
-    max_precision = 1
+    max_int_digits = 0
     max_scale = 0
 
     for value in values:
@@ -608,23 +801,25 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
         if not isinstance(exponent, int):
             continue
 
-        # This implementation accounts for leading zeroes being excluded from digits
-        # It is based on Arrow, see:
+        # `len(digits) + exponent` is the number of digits left of the decimal point (<= 0 for a
+        # pure fraction such as 0.0012). See Arrow's decimal inference:
         # https://github.com/apache/arrow/blob/main/python/pyarrow/src/arrow/python/decimal.cc#L75
-        if exponent < 0:
-            precision = max(len(digits), -exponent)
-            scale = -exponent
-        else:
-            precision = len(digits) + exponent
-            scale = 0
+        scale = -exponent if exponent < 0 else 0
+        int_digits = max(len(digits) + exponent, 0)
 
-        max_precision = max(precision, max_precision)
+        max_int_digits = max(int_digits, max_int_digits)
         max_scale = max(scale, max_scale)
 
     # Deltalake doesn't like writing decimals with scale of 0 - it auto appends `.0`
     if max_scale == 0:
         max_scale = 1
-        max_precision += 1
+
+    # Precision must cover BOTH the integer and fractional parts. Taking the max precision and the
+    # max scale independently under-provisions integer digits when the widest value and the
+    # highest-scale value are different rows — e.g. [1000000, 0.0001] would infer a type with no
+    # room for the 7-digit integer, overflowing the Delta write. Sizing precision as
+    # integer-digits + scale keeps every value representable.
+    max_precision = max(max_int_digits + max_scale, 1)
 
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
@@ -658,6 +853,92 @@ def _decimal_array_from_values(values: list[decimal.Decimal | None]) -> pa.Array
             return pa.array(quantized, type=fallback_type)
         except Exception as exc:
             raise ValueError("Cannot build decimal array from values") from exc
+
+
+def _decimal_values_from_column(column: pa.ChunkedArray) -> list[decimal.Decimal | None] | None:
+    """Best-effort conversion of a column's values to Decimals, for a column expected to be decimal.
+
+    Handles decimal columns directly and string columns — the pipeline (and dlt) stores a decimal
+    that grew past decimal128 as text (decimal256 → string), so a batch column can arrive as
+    strings even though its stored Delta column is decimal. Returns None when a non-null value
+    can't be parsed as a decimal (a genuine decimal→text change, not a widened decimal), leaving
+    that mismatch for the caller to ignore.
+    """
+    result: list[decimal.Decimal | None] = []
+    for value in _to_list_array(column):
+        if value is None:
+            result.append(None)
+        elif isinstance(value, decimal.Decimal):
+            result.append(value)
+        else:
+            try:
+                result.append(decimal.Decimal(str(value)))
+            except (decimal.InvalidOperation, ValueError, TypeError):
+                return None
+    return result
+
+
+def _fit_decimal_values_to_type(
+    values: list[decimal.Decimal | None], target: pa.Decimal128Type | pa.Decimal256Type
+) -> pa.Array | None:
+    """Round `values` to `target`'s scale and build an array of exactly `target`.
+
+    Rounding only drops fractional precision beyond the target scale, never integer digits.
+    Returns None when a value's integer part exceeds the target's capacity (unrepresentable no
+    matter the rounding) so the caller can treat it as an unrecoverable column-type mismatch.
+    """
+    try:
+        quantized = [None if v is None else _quantize_to_scale(v, target.scale) for v in values]
+    except decimal.InvalidOperation:
+        return None
+    try:
+        return pa.array(quantized, type=target)
+    except pa.ArrowInvalid:
+        return None
+
+
+def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake.Schema) -> pa.Table:
+    """Reconcile a batch's decimal columns to the existing Delta table's decimal column types.
+
+    A Delta merge casts every source column to its stored target column type, and delta-rs cannot
+    widen a decimal column in place. When earlier schema inference stored a scale-heavy column
+    (e.g. decimal128(38, 32), only 6 integer digits), a later, larger value overflows that implicit
+    cast with an opaque ``DeltaError`` that retries forever. Pre-casting each batch column to the
+    exact stored type makes the merge cast a no-op: fitting values are rounded to the column's
+    scale, and a value whose integer part can't fit is surfaced as SchemaColumnTypeChangedException
+    so the sync stops and the table can be reset and re-synced (which recreates the column with
+    adequate integer headroom).
+    """
+    delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    for delta_field in delta_arrow_schema:
+        if not pa.types.is_decimal(delta_field.type) or delta_field.name not in pa_table.schema.names:
+            continue
+
+        column = pa_table.column(delta_field.name)
+        if column.type == delta_field.type:
+            continue
+        if not (
+            pa.types.is_decimal(column.type) or pa.types.is_string(column.type) or pa.types.is_large_string(column.type)
+        ):
+            # A decimal column paired with a non-decimal, non-text batch column is a different
+            # mismatch handled by evolve_pyarrow_schema; leave it alone.
+            continue
+
+        values = _decimal_values_from_column(column)
+        if values is None:
+            continue
+
+        target = cast(pa.Decimal128Type | pa.Decimal256Type, delta_field.type)
+        aligned = _fit_decimal_values_to_type(values, target)
+        if aligned is None:
+            raise SchemaColumnTypeChangedException(
+                f"Source column type changed: '{delta_field.name}' has decimal values that no longer "
+                f"fit its stored type {delta_field.type}. Reset and fully re-sync this table to adopt "
+                f"a wider type."
+            )
+        pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
+
+    return pa_table
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):
@@ -714,7 +995,54 @@ def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.
     return column_data.tolist()
 
 
+def _serialize_dict_columns(table_data: list[dict]) -> tuple[list[dict], set[str]]:
+    """JSON-serialize columns whose non-None values are all dicts, before any Arrow work.
+
+    Such a column ends up stored as a JSON string either way, but letting it reach `pa.array()`
+    first builds a unified struct type whose field count is the union of every row's key paths.
+    For heterogeneous nested documents (e.g. a MongoDB collection where each document's structure
+    varies) that union grows with the batch, making conversion superlinear in rows — batches of a
+    few hundred documents can take minutes and starve activity heartbeats. The struct round-trip
+    also injects the union's null-filled fields into every serialized row, bloating the stored
+    JSON with keys the original document never had. Serializing the source dicts up front keeps
+    conversion linear and preserves each document exactly.
+
+    The caller's rows are left untouched — rows needing serialization are shallow-copied — so
+    reusing or retrying with the same batch stays safe. Returns the (possibly new) row list and
+    the serialized column names so a provided schema can be coerced to string for them.
+    """
+    dict_columns: set[str] = set()
+    non_dict_columns: set[str] = set()
+    for row in table_data:
+        for key, value in row.items():
+            if value is None or key in non_dict_columns:
+                continue
+            if isinstance(value, dict):
+                dict_columns.add(key)
+            else:
+                non_dict_columns.add(key)
+                dict_columns.discard(key)
+
+    if not dict_columns:
+        return table_data, dict_columns
+
+    serialized_rows: list[dict] = []
+    for row in table_data:
+        replaced: Optional[dict] = None
+        for key in dict_columns:
+            value = row.get(key)
+            if value is not None:
+                if replaced is None:
+                    replaced = dict(row)
+                replaced[key] = _json_dumps(value)
+        serialized_rows.append(replaced if replaced is not None else row)
+
+    return serialized_rows, dict_columns
+
+
 def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+    table_data, serialized_dict_columns = _serialize_dict_columns(table_data)
+
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
         try:
@@ -770,6 +1098,16 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
             field = arrow_schema.field_by_name(str(field_name))
             field_index = arrow_schema.get_field_index(str(field_name))
+
+            # A serialized dict column holds JSON strings now; a provided schema may still declare
+            # the source's original non-string type for it, which from_pydict would fail to cast.
+            if (
+                field_name in serialized_dict_columns
+                and not pa.types.is_string(field.type)
+                and not pa.types.is_large_string(field.type)
+            ):
+                arrow_schema = arrow_schema.set(field_index, field.with_type(pa.string()))
+                field = arrow_schema.field_by_name(str(field_name))
 
             # cast double / float ndarrays to decimals if type mismatch, looks like decimals and floats are often mixed up in dialects
             if pa.types.is_decimal(field.type) and (float in unique_types_in_column or str in unique_types_in_column):
@@ -846,8 +1184,14 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     return None
 
                 if isinstance(x, str):
-                    # Non-numeric value in a column imported as a number; the caller adds column context.
-                    raise TypeError("must be real number, not str")
+                    stripped = x.strip()
+                    if stripped == "":
+                        return None
+                    try:
+                        x = decimal.Decimal(stripped)
+                    except decimal.InvalidOperation:
+                        # A genuinely non-numeric value in a column imported as a number; the caller adds column context.
+                        raise TypeError("must be real number, not str")
 
                 if (
                     math.isnan(x)
@@ -866,7 +1210,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     return None
 
                 if isinstance(x, str):
-                    raise TypeError("must be real number, not str")
+                    stripped = x.strip()
+                    if stripped == "":
+                        return None
+                    try:
+                        x = float(stripped)
+                    except ValueError:
+                        raise TypeError("must be real number, not str")
 
                 if math.isnan(x) or np.isinf(x):
                     return None
@@ -973,14 +1323,20 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                         field_index, arrow_schema.field(field_index).with_type(overflow_arr.type)
                     )
 
-        # If one type is a list, then make everything into a list
+        # If one type is a list, wrap scalars into single-element lists and JSON-stringify the column.
+        # Element types can differ across rows (e.g. a WordPress field returned as a bool in one row
+        # and an object in another), which no single pyarrow list type can hold, so serialize directly
+        # rather than via an intermediate list array that would raise ArrowInvalid on the mismatch.
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
-            list_array = pa.array(
-                [s if isinstance(s, list) else [s] for s in _to_list_array(columnar_table_data[field_name])]
+            json_array = pa.array(
+                [
+                    None if s is None else _json_dumps(s if isinstance(s, list) else [s])
+                    for s in _to_list_array(columnar_table_data[field_name])
+                ]
             )
-            columnar_table_data[field_name] = list_array
-            py_type = list
-            unique_types_in_column = {list}
+            columnar_table_data[field_name] = json_array
+            py_type = str
+            unique_types_in_column = {str}
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 

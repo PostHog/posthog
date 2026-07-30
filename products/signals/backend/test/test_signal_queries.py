@@ -9,10 +9,14 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.signals.backend.temporal.signal_queries import (
+from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
-    fetch_signals_for_report_sync,
+    ReportSignalMeta,
     fetch_source_products_for_reports,
+)
+from products.signals.backend.temporal.signal_queries import (
+    fetch_report_ids_for_scout_names,
+    fetch_signals_for_report_sync,
 )
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
@@ -29,19 +33,22 @@ class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
         inserted_at: datetime,
         deleted: bool = False,
         content: str = "the signal content",
+        skill_name: str | None = None,
     ) -> None:
         """Write one version of a signal document straight to the model-specific embeddings table.
 
         Multiple versions of the same document_id (varying inserted_at) model the
         ReplacingMergeTree's pre-merge state that the argMax dedup has to resolve.
         """
-        metadata = {
+        metadata: dict = {
             "report_id": report_id,
             "source_product": source_product,
             "source_type": "some_type",
             "source_id": f"src-{document_id}",
             "deleted": deleted,
         }
+        if skill_name is not None:
+            metadata["extra"] = {"skill_name": skill_name}
         sync_execute(
             f"""
             INSERT INTO {_MODEL_TABLE} (
@@ -93,7 +100,10 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
 
         result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
 
-        assert result == {"rA": ["errors", "replay"], "rB": ["surveys"]}
+        assert result == {
+            "rA": ReportSignalMeta(source_products=["errors", "replay"], scout_name=None),
+            "rB": ReportSignalMeta(source_products=["surveys"], scout_name=None),
+        }
 
     def test_only_returns_requested_reports(self) -> None:
         self._emit_version(document_id="d1", report_id="wanted", source_product="errors", inserted_at=self.base)
@@ -101,18 +111,49 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
 
         result = fetch_source_products_for_reports(self.team, ["wanted"])
 
-        assert result == {"wanted": ["errors"]}
+        assert result == {"wanted": ReportSignalMeta(source_products=["errors"], scout_name=None)}
+
+    def test_extracts_authoring_scout_name_from_signal_extra(self) -> None:
+        # Guards the nested `extra.skill_name` extraction that drives the inbox's "Scout · <name>"
+        # label — a broken JSON path or the anyIf filter would silently drop it back to null.
+        self._emit_version(
+            document_id="d1",
+            report_id="rScout",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-error-tracking",
+        )
+        self._emit_version(document_id="d2", report_id="rPipeline", source_product="errors", inserted_at=self.base)
+
+        result = fetch_source_products_for_reports(self.team, ["rScout", "rPipeline"])
+
+        assert result == {
+            "rScout": ReportSignalMeta(source_products=["signals_scout"], scout_name="signals-scout-error-tracking"),
+            "rPipeline": ReportSignalMeta(source_products=["errors"], scout_name=None),
+        }
 
     @parameterized.expand(
         [
             # A signal re-grouped to a different report must count under its latest report only —
             # never the old one. Pushing the report_id filter before the argMax would resurface it
             # under rOld; keeping it after preserves "latest version wins".
-            ("regrouped_to_new_report", ("rOld", False), ("rNew", False), ["rOld", "rNew"], {"rNew": ["errors"]}),
+            (
+                "regrouped_to_new_report",
+                ("rOld", False),
+                ("rNew", False),
+                ["rOld", "rNew"],
+                {"rNew": ReportSignalMeta(source_products=["errors"], scout_name=None)},
+            ),
             # Soft-delete re-emits the signal with deleted=True and a newer inserted_at -> it drops out.
             ("deleted_in_latest_version", ("rA", False), ("rA", True), ["rA"], {}),
             # ...and a delete that was later undone (newer non-deleted version) comes back.
-            ("revived_in_latest_version", ("rA", True), ("rA", False), ["rA"], {"rA": ["errors"]}),
+            (
+                "revived_in_latest_version",
+                ("rA", True),
+                ("rA", False),
+                ["rA"],
+                {"rA": ReportSignalMeta(source_products=["errors"], scout_name=None)},
+            ),
         ]
     )
     def test_latest_version_wins(
@@ -121,7 +162,7 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         first: tuple[str, bool],
         latest: tuple[str, bool],
         report_ids: list[str],
-        expected: dict[str, list[str]],
+        expected: dict[str, ReportSignalMeta],
     ) -> None:
         first_report, first_deleted = first
         latest_report, latest_deleted = latest
@@ -141,6 +182,52 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         )
 
         assert fetch_source_products_for_reports(self.team, report_ids) == expected
+
+
+class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
+    def test_returns_only_reports_authored_by_the_named_scouts(self) -> None:
+        # Guards the nested `extra.skill_name` extraction driving the inbox scout filter — a broken
+        # JSON path would silently match nothing and the filter would empty every filtered view.
+        self._emit_version(
+            document_id="d1",
+            report_id="rErrors",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-error-tracking",
+        )
+        self._emit_version(
+            document_id="d2",
+            report_id="rReplay",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-session-replay",
+        )
+        self._emit_version(document_id="d3", report_id="rPipeline", source_product="errors", inserted_at=self.base)
+
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-error-tracking"]) == {"rErrors"}
+        assert fetch_report_ids_for_scout_names(
+            self.team, ["signals-scout-error-tracking", "signals-scout-session-replay"]
+        ) == {"rErrors", "rReplay"}
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-unknown"]) == set()
+
+    def test_deleted_in_latest_version_drops_out(self) -> None:
+        self._emit_version(
+            document_id="moving",
+            report_id="rA",
+            source_product="signals_scout",
+            inserted_at=self.base,
+            skill_name="signals-scout-apm",
+        )
+        self._emit_version(
+            document_id="moving",
+            report_id="rA",
+            source_product="signals_scout",
+            inserted_at=self.base + timedelta(hours=1),
+            deleted=True,
+            skill_name="signals-scout-apm",
+        )
+
+        assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == set()
 
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):

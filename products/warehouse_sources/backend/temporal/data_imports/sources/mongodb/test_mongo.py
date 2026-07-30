@@ -12,7 +12,11 @@ from parameterized import parameterized
 from pymongo.errors import ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    MONGO_MAX_CHUNK_ROWS,
+    MONGO_MIN_CHUNK_ROWS,
+    _adaptive_chunk_size,
     _build_query,
     _get_rows_to_sync,
     _list_importable_collection_names,
@@ -459,6 +463,27 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         assert expected_substring in message.lower()
 
 
+class TestGetRetryableErrors(SimpleTestCase):
+    """DNS SRV resolution for `mongodb+srv://` happens inside the MongoClient constructor, before
+    any of our own connectivity handling runs. dnspython already retries across nameservers for
+    the whole resolution lifetime before giving up, so once Temporal retries the whole activity
+    the failure is self-recovering and must not flood error tracking as an exception."""
+
+    def setUp(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
+
+        self.retryable = MongoDBSource().get_retryable_errors()
+
+    def test_dns_lifetime_timeout_is_classified_retryable(self):
+        error_msg = (
+            "The resolution lifetime expired after 20.763 seconds: Server Do53:10.0.0.53@53 "
+            "answered The DNS operation timed out."
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB DNS SRV resolution timeout should be classified retryable: {error_msg}"
+        )
+
+
 class TestGetRowsToSync(SimpleTestCase):
     """rows_to_sync is a best-effort progress estimate; a failed count must degrade to
     0 without failing the sync, and expected pymongo errors must not be reported to
@@ -502,3 +527,21 @@ class TestListImportableCollectionNames(SimpleTestCase):
         db.list_collection_names.return_value = ["system_events", "billing.system", "systematic"]
 
         assert _list_importable_collection_names(db) == ["system_events", "billing.system", "systematic"]
+
+
+class TestAdaptiveChunkSize(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_size", None, DEFAULT_CHUNK_SIZE),
+            ("zero_size", 0, DEFAULT_CHUNK_SIZE),
+            ("negative_size", -10, DEFAULT_CHUNK_SIZE),
+            # 5 MiB docs -> 100MiB/5MiB = 20 rows, clamped up to the floor so we don't thrash on tiny chunks
+            ("huge_docs_clamped_to_min", 5 * 1024 * 1024, MONGO_MIN_CHUNK_ROWS),
+            # 1 KiB docs -> 100k rows, clamped down to the ceiling (the OOM guard for large collections)
+            ("tiny_docs_clamped_to_max", 1024, MONGO_MAX_CHUNK_ROWS),
+            # 256 KiB docs -> 100MiB/256KiB = 400 rows, between the floor and ceiling
+            ("mid_size_computed", 256 * 1024, 400),
+        ]
+    )
+    def test_adaptive_chunk_size(self, _name, avg_obj_size, expected):
+        assert _adaptive_chunk_size(avg_obj_size) == expected

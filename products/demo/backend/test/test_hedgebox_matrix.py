@@ -1,0 +1,344 @@
+import uuid
+import datetime as dt
+from types import SimpleNamespace
+from typing import Any, cast
+
+from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
+
+from products.demo.backend.logic.matrix.models import SimEvent
+from products.demo.backend.logic.products.hedgebox.matrix import HedgeboxMatrix
+from products.demo.backend.logic.products.hedgebox.taxonomy import (
+    EVENT_DOWNGRADED_PLAN,
+    EVENT_PAID_BILL,
+    EVENT_SIGNED_UP,
+    EVENT_UPGRADED_PLAN,
+    EVENT_UPLOADED_FILE,
+)
+
+
+class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
+    def test_collect_demo_data_warehouse_rows(self):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        matrix.is_complete = True
+
+        matrix.clusters = [  # ty: ignore[invalid-assignment]
+            SimpleNamespace(
+                people=[
+                    SimpleNamespace(
+                        past_events=[
+                            self._make_event(
+                                EVENT_PAID_BILL,
+                                "person-1",
+                                dt.datetime(2025, 1, 4, 12, 0, tzinfo=dt.UTC),
+                                {"amount_usd": 49.0, "plan": "business_standard"},
+                            ),
+                            self._make_event(
+                                EVENT_SIGNED_UP,
+                                "person-2",
+                                dt.datetime(2025, 1, 1, 8, 30, tzinfo=dt.UTC),
+                                {"from_invite": True},
+                            ),
+                            self._make_event(
+                                EVENT_UPLOADED_FILE,
+                                "person-3",
+                                dt.datetime(2025, 1, 2, 9, 15, tzinfo=dt.UTC),
+                                {"file_type": "pdf", "file_size_b": 2048, "used_mb": 12.5},
+                            ),
+                            self._make_event(
+                                EVENT_DOWNGRADED_PLAN,
+                                "person-4",
+                                dt.datetime(2025, 1, 5, 13, 0, tzinfo=dt.UTC),
+                                {"previous_plan": "business_pro", "new_plan": "business_standard"},
+                            ),
+                            self._make_event(
+                                EVENT_UPGRADED_PLAN,
+                                "person-4",
+                                dt.datetime(2025, 1, 3, 11, 0, tzinfo=dt.UTC),
+                                {"previous_plan": "personal_free", "new_plan": "business_standard"},
+                            ),
+                        ]
+                    )
+                ]
+            )  # type: ignore[list-item]
+        ]
+
+        table_specs = {table_spec.name: table_spec for table_spec in matrix._demo_data_warehouse_table_specs()}
+
+        assert matrix._collect_demo_data_warehouse_rows(table_specs["paid_bills"]) == [
+            (1, "person-1", "2025-01-04 12:00:00", 49.0, "business_standard")
+        ]
+        assert matrix._collect_demo_data_warehouse_rows(table_specs["signups"]) == [
+            (1, "person-2", "2025-01-01 08:30:00", True)
+        ]
+        assert matrix._collect_demo_data_warehouse_rows(table_specs["uploaded_files"]) == [
+            (1, "person-3", "2025-01-02 09:15:00", "pdf", 2048, 12.5, "")
+        ]
+        assert matrix._collect_demo_data_warehouse_rows(table_specs["plan_changes"]) == [
+            (1, "person-4", "2025-01-03 11:00:00", "upgrade", "personal_free", "business_standard"),
+            (2, "person-4", "2025-01-05 13:00:00", "downgrade", "business_pro", "business_standard"),
+        ]
+
+    def test_collect_demo_extended_person_rows(self):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        matrix.is_complete = True
+
+        matrix.clusters = [  # ty: ignore[invalid-assignment]
+            SimpleNamespace(
+                people=[
+                    SimpleNamespace(
+                        in_product_id="biz-user",
+                        properties_at_now={"email": "owner@acme.test"},
+                        account=SimpleNamespace(
+                            team_members={"biz-user", "coworker-user"},
+                            files={"a", "b", "c", "d", "e"},
+                            current_used_mb=512.0,
+                            allocation_used_fraction=0.64,
+                            current_monthly_bill_usd=40.0,
+                            plan="business/standard",
+                        ),
+                        cluster=SimpleNamespace(company=SimpleNamespace(name="Acme", industry="technology")),
+                        name="Owner Name",
+                        onboarding_variant="blue",
+                        file_engagement_variant="red",
+                        watches_marius_tech_tips=True,
+                        is_invitable=False,
+                    ),
+                    SimpleNamespace(
+                        in_product_id="solo-user",
+                        properties_at_now={"email": "solo@example.test"},
+                        account=SimpleNamespace(
+                            team_members={"solo-user"},
+                            files=set(),
+                            current_used_mb=0.0,
+                            allocation_used_fraction=0.0,
+                            current_monthly_bill_usd=0.0,
+                            plan="personal/free",
+                        ),
+                        cluster=SimpleNamespace(company=None),
+                        name="Solo User",
+                        onboarding_variant="control",
+                        file_engagement_variant="blue",
+                        watches_marius_tech_tips=False,
+                        is_invitable=True,
+                    ),
+                    SimpleNamespace(
+                        in_product_id="visitor-user",
+                        properties_at_now={},
+                        account=None,
+                        cluster=SimpleNamespace(company=None),
+                        name="Visitor User",
+                        onboarding_variant="red",
+                        file_engagement_variant="control",
+                        watches_marius_tech_tips=False,
+                        is_invitable=True,
+                    ),
+                ]
+            )  # type: ignore[list-item]
+        ]
+
+        assert matrix._collect_demo_extended_person_rows() == [
+            (
+                1,
+                "owner@acme.test",
+                "biz-user",
+                "Acme",
+                "technology",
+                "business",
+                "business/standard",
+                2,
+                5,
+                512.0,
+                0.64,
+                40.0,
+                "power_user",
+                "blue",
+                "red",
+                True,
+                False,
+            ),
+            (
+                2,
+                "solo@example.test",
+                "solo-user",
+                "Solo User",
+                "consumer",
+                "personal",
+                "personal/free",
+                1,
+                0,
+                0.0,
+                0.0,
+                0.0,
+                "signed_up",
+                "control",
+                "blue",
+                False,
+                True,
+            ),
+        ]
+
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.DataWarehouseTable.objects.create")
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
+    def test_register_demo_data_warehouse_table_on_create(self, mock_filter, mock_create):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        # Consuming project (pk=5) must reference the source/master project's (id=0) shared files,
+        # not its own — that's how pre-saved projects get warehouse data without re-simulating.
+        team = cast(Any, SimpleNamespace(pk=5))
+        user = cast(Any, SimpleNamespace())
+        credential = object()
+
+        mock_filter.return_value.first.return_value = None
+
+        matrix._register_demo_data_warehouse_table(
+            team,
+            user,
+            credential,
+            "extended_properties",
+            {"email": "String", "company_name": "String"},
+            source_team_id=0,
+        )
+
+        mock_create.assert_called_once()
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["options"] == {"csv_allow_double_quotes": True}
+        assert "team_0" in kwargs["url_pattern"]
+        assert "team_5" not in kwargs["url_pattern"]
+
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.DataWarehouseTable.objects.filter")
+    def test_register_demo_data_warehouse_table_on_update(self, mock_filter):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        team = cast(Any, SimpleNamespace(pk=5))
+        user = cast(Any, SimpleNamespace())
+        credential = object()
+        existing_table = SimpleNamespace(
+            external_data_source=None,
+            options={},
+            created_by_id=None,
+            save=MagicMock(),
+        )
+
+        mock_filter.return_value.first.return_value = existing_table
+
+        matrix._register_demo_data_warehouse_table(
+            team,
+            user,
+            credential,
+            "extended_properties",
+            {"email": "String", "company_name": "String"},
+            source_team_id=0,
+        )
+
+        assert existing_table.options == {"csv_allow_double_quotes": True}
+        assert "team_0" in existing_table.url_pattern
+        existing_table.save.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # head_object returns a dict when the file exists, None when it's missing.
+            ("already_saved", {"ContentLength": 1}, False),
+            ("not_yet_saved", None, True),
+        ]
+    )
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.object_storage.head_object")
+    def test_demo_data_warehouse_tables_need_saving(self, _name, head_result, expected, mock_head):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        mock_head.return_value = head_result
+
+        # Guards the perf contract: when the source files already exist we must NOT trigger the
+        # (multi-second-per-project) simulation again on a pre-saved signup.
+        with override_settings(
+            TEST=False,
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ACCESS_KEY_ID="key",
+            OBJECT_STORAGE_SECRET_ACCESS_KEY="secret",
+            OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+        ):
+            assert matrix.demo_data_warehouse_tables_need_saving(0) is expected
+
+    @override_settings(TEST=False, OBJECT_STORAGE_ENABLED=False)
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.object_storage.head_object")
+    def test_demo_data_warehouse_tables_need_saving_skips_when_storage_disabled(self, mock_head):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+
+        assert matrix.demo_data_warehouse_tables_need_saving(0) is False
+        mock_head.assert_not_called()
+
+    @override_settings(
+        TEST=False,
+        OBJECT_STORAGE_ENABLED=True,
+        OBJECT_STORAGE_ACCESS_KEY_ID="key",
+        OBJECT_STORAGE_SECRET_ACCESS_KEY="secret",
+        OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+    )
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.object_storage.write")
+    def test_save_demo_data_warehouse_tables_writes_source_team_files(self, mock_write):
+        matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
+        matrix.is_complete = True
+        matrix.clusters = []  # ty: ignore[invalid-assignment]  # no people -> empty rows, keys are what matters
+        source_team = cast(Any, SimpleNamespace(pk=0))
+
+        matrix.save_demo_data_warehouse_tables(source_team)
+
+        # All five demo tables (the four event-derived ones plus extended_properties) must be written
+        # under the source/master team's path so pre-saved projects can reference the same files.
+        written_keys = {call.args[0] for call in mock_write.call_args_list}
+        assert written_keys == {
+            "data-warehouse/demo_paid_bills/team_0/paid_bills.csv",
+            "data-warehouse/demo_signups/team_0/signups.csv",
+            "data-warehouse/demo_uploaded_files/team_0/uploaded_files.csv",
+            "data-warehouse/demo_plan_changes/team_0/plan_changes.csv",
+            "data-warehouse/demo_extended_properties/team_0/extended_properties.csv",
+        }
+
+    @staticmethod
+    def _make_event(event: str, distinct_id: str, timestamp: dt.datetime, properties: dict) -> SimEvent:
+        return SimEvent(
+            event=event,
+            distinct_id=distinct_id,
+            properties=properties,
+            timestamp=timestamp,
+            person_id=uuid.uuid4(),
+            person_properties={},
+            person_created_at=timestamp,
+        )
+
+
+class TestHedgeboxMatrixDemoOAuthApplication(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("local_dev", "dummy-key", True, False, False),
+            ("cloud_prod", "dummy-key", False, True, True),
+            ("self_hosted_prod", "dummy-key", False, False, True),
+            ("debug_but_cloud", "dummy-key", True, True, True),
+            ("no_oidc_key", "", True, False, True),
+        ]
+    )
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.OAuthApplication.objects.create")
+    def test_demo_oauth_app_only_created_in_local_dev(
+        self,
+        _name: str,
+        oidc_key: str,
+        debug: bool,
+        cloud: bool,
+        should_skip: bool,
+        mock_create: MagicMock,
+    ) -> None:
+        matrix = HedgeboxMatrix(seed="oauth-test", n_clusters=0)
+        team = cast(Any, SimpleNamespace(organization=SimpleNamespace()))
+        user = cast(Any, SimpleNamespace())
+
+        with override_settings(OIDC_RSA_PRIVATE_KEY=oidc_key, DEBUG=debug):
+            with patch("products.demo.backend.logic.products.hedgebox.matrix.is_cloud", return_value=cloud):
+                matrix._set_up_demo_oauth_application(team, user)
+
+        if should_skip:
+            mock_create.assert_not_called()
+        else:
+            mock_create.assert_called_once()
+            kwargs = mock_create.call_args.kwargs
+            assert kwargs["is_first_party"] is True
+            assert "example.com" not in kwargs["redirect_uris"]

@@ -174,6 +174,14 @@ export const DisplayTab = (): JSX.Element => {
                                                 updateChartSettings({ showNullsAsZero: value })
                                             }}
                                         />
+                                        <LemonSwitch
+                                            className="flex-1 w-full"
+                                            label="Show values on series"
+                                            checked={chartSettings.showValuesOnSeries ?? false}
+                                            onChange={(value) => {
+                                                updateChartSettings({ showValuesOnSeries: value })
+                                            }}
+                                        />
                                         <div className="flex flex-col gap-1">
                                             <LemonLabel>X-axis label</LemonLabel>
                                             <LemonInput

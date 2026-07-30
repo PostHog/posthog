@@ -147,7 +147,7 @@ export function NotebookHistory(): JSX.Element {
 }
 
 export function NotebookHistoryWarning(): JSX.Element | null {
-    const { previewContent } = useValues(notebookLogic)
+    const { previewContent, content } = useValues(notebookLogic)
     const { setLocalContent, clearPreviewContent, duplicateNotebook, setShowHistory } = useActions(notebookLogic)
 
     if (!previewContent) {
@@ -158,12 +158,10 @@ export function NotebookHistoryWarning(): JSX.Element | null {
         duplicateNotebook()
     }
     const onRevert = (): void => {
-        // updateEditor=true puts the historical doc into the editor so prosemirror-collab
-        // produces real steps for the delta. Without it, sendableSteps stays empty and the
-        // collab save is a no-op — revert would silently do nothing.
-        const content = previewContent
+        // The historical doc becomes the local content and is saved through the normal
+        // markdown flow, same as any other edit.
         clearPreviewContent()
-        setLocalContent(content, true)
+        setLocalContent(content)
         setShowHistory(false)
     }
 

@@ -325,7 +325,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         GITHUB_APP_CLIENT_SECRET="client_secret",
         SITE_URL="https://us.posthog.com",
     )
-    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_callback_creates_user_integration_without_installation_in_query(
@@ -385,7 +385,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         GITHUB_APP_CLIENT_SECRET="client_secret",
         SITE_URL="https://us.posthog.com",
     )
-    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_callback_ignores_query_installation_id_when_state_binds_one(
@@ -435,7 +435,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertTrue(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
         self.assertFalse(UserIntegration.objects.filter(integration_id="999").exists())
         # The installation-access check went against the cached id, not the query one.
-        verify_url = mock_verify_get.call_args[0][0]
+        verify_url = mock_verify_get.call_args[0][1]
         self.assertIn("/installations/12345/repositories", verify_url)
         self.assertNotIn("/installations/999/repositories", verify_url)
 
@@ -444,7 +444,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         GITHUB_APP_CLIENT_SECRET="client_secret",
         SITE_URL="https://us.posthog.com",
     )
-    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_discover_creates_user_integration_from_visible_installation(
@@ -500,7 +500,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         "posthog.api.github_callback.types.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
-    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     def test_github_link_oauth_discover_redirects_to_app_install_when_no_installations(
         self, mock_user_from_code, mock_requests_get, _mock_settings
@@ -530,7 +530,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("github.com/apps/posthog-dev/installations/new", response["Location"])
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
-    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     def test_github_link_callback_creates_user_integration(
@@ -576,7 +576,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         ]
     )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
-    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     def test_github_link_redirects_to_client_destination_on_success(
@@ -694,7 +694,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     def test_github_link_callback_team_oauth_authorize_creates_team_integration(
@@ -1033,7 +1033,7 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
 
 
 class TestGithubUserFromCode(APIBaseTest):
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.requests.post")
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     def test_returns_full_authorization_including_tokens(self, mock_post, mock_get):
@@ -1170,7 +1170,7 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
         )
 
     def _enable_flag(self) -> Any:
-        return patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=True)
+        return patch("posthog.api.user_integration.is_slack_app_oauth_enabled", return_value=True)
 
     def _seed_workspace_integration(self) -> Integration:
         return Integration.objects.create(
@@ -1206,7 +1206,7 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
 
     def test_slack_start_403_when_flag_off(self):
         self._seed_workspace_integration()
-        with patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=False):
+        with patch("posthog.api.user_integration.is_slack_app_oauth_enabled", return_value=False):
             response = self.client.post("/api/users/@me/integrations/slack/start/", data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -1239,7 +1239,7 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
 
     def test_slack_linkable_skips_workspaces_with_flag_off(self):
         self._seed_workspace_integration()
-        with patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=False):
+        with patch("posthog.api.user_integration.is_slack_app_oauth_enabled", return_value=False):
             response = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/")
         self.assertEqual(response.json()["results"], [])
 

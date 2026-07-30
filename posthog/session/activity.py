@@ -87,6 +87,9 @@ def sync_current_session_metadata(request: HttpRequest, force: bool = False) -> 
         "location": _location_from_ip(ip),
         "login_method": _login_method(request),
     }
+    # Note: the risk baseline columns (latitude/longitude/country_code/ua_signature/baseline_at) are
+    # NOT written here. They are owned by evaluate_session_risk, which advances them only on low-risk
+    # requests so a suspicious request can't overwrite the known-good reference (posthog/session/risk.py).
 
     # Defer the write to commit. This metadata is best-effort display data, so the write must never
     # add a query to the caller's transaction (which would break assertNumQueries assertions across
