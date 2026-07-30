@@ -115,6 +115,28 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         assert result.written == 0
         assert result.unmatched_keys == 0
 
+    def test_external_id_scope_only_syncs_that_account(self):
+        self._source(self.mrr_def, "mrr")
+        # selected columns are sorted: mrr, org_id
+        with patch(_EXECUTE, return_value=_Response([(100.0, "acme")])):
+            result = sync_custom_property_values(team_id=self.team.id, saved_query_id=self.view.id, external_id="acme")
+
+        assert result.accounts_total == 1
+        assert result.written == 1
+        assert self._active(self.acme, self.mrr_def).value_num == 100.0
+        assert not CustomPropertyValue.objects.filter(account=self.globex).exists()
+
+    def test_external_id_scope_with_no_matching_account_writes_nothing(self):
+        self._source(self.mrr_def, "mrr")
+        with patch(_EXECUTE, return_value=_Response([])) as execute:
+            result = sync_custom_property_values(
+                team_id=self.team.id, saved_query_id=self.view.id, external_id="nobody"
+            )
+
+        assert result.accounts_total == 0
+        assert result.written == 0
+        execute.assert_not_called()  # empty key set -> zero batches -> no ClickHouse query
+
     def test_run_sync_records_success_outcome(self):
         source = self._source(self.mrr_def, "mrr")
         with patch(_EXECUTE, return_value=_Response([(100.0, "acme")])):
