@@ -629,7 +629,7 @@ class TestSummarizerScannerSteps:
         assert out.title == "t"
         assert out.has_any_facet() is False
 
-    def test_facets_response_lowercases_keywords_and_friction_points(self) -> None:
+    def test_facets_response_lowercases_and_dedupes_keywords_and_friction_points(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
@@ -637,8 +637,8 @@ class TestSummarizerScannerSteps:
         facets = SummarizerFacetsResponse(
             intent="Authenticate",
             outcome="Reached reset page",
-            friction_points=["Invalid Password Error", "Buffering Page"],
-            keywords=["Login", "Failed Attempt", "Reset"],
+            friction_points=["Invalid Password Error", "Buffering Page", "invalid password error"],
+            keywords=["Login", "Failed Attempt", "Reset", "login"],
         )
         out, _ = scanner.assemble({"summary": summary, "facets": facets})
         assert isinstance(out, SummarizerOutput)
