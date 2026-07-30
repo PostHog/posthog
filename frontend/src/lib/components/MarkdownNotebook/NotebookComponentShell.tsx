@@ -12,8 +12,10 @@ import {
 } from 'react'
 
 import {
+    IconCollapse,
     IconDatabase,
     IconEllipsis,
+    IconExpand,
     IconEye,
     IconGraph,
     IconHide,
@@ -27,6 +29,7 @@ import { PostHogErrorBoundary } from '@posthog/react'
 
 import { ComponentPanelContext } from './componentPanelContext'
 import {
+    CANVAS_COMPONENT_PANEL_VISIBILITY,
     ComponentPanel,
     ComponentPanelVisibility,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
@@ -102,12 +105,15 @@ export function NotebookComponentShell({
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
     // Read-only canvases (e.g. customer profiles) keep the filters toggle: it's the only way to
     // configure nodes there, matching the legacy notebook's canvas behavior.
-    const showViewModeFilters =
-        mode === 'view' && !!allowViewModeFilters && !!definition?.viewModeFilters && !definition.hideModeActions
+    const isViewModeCanvas = mode === 'view' && !!allowViewModeFilters
+    const showViewModeFilters = isViewModeCanvas && !!definition?.viewModeFilters && !definition.hideModeActions
     const showEditPanel = (mode === 'edit' || showViewModeFilters) && componentPanels.filters
+    // Plain view mode (shared/read-only notebooks) always shows results; canvases can collapse them.
     const showViewPanel =
-        (mode === 'view' || componentPanels.results) && !(showEditPanel && definition?.exclusiveEditPanel)
+        ((mode === 'view' && !isViewModeCanvas) || componentPanels.results) &&
+        !(showEditPanel && definition?.exclusiveEditPanel)
     const showModeActions = mode === 'edit' && !!definition && !definition.hideModeActions
+    const showCollapseToggle = (mode === 'edit' || isViewModeCanvas) && !!definition && !definition.hideModeActions
     const canToggleComponentPanels = mode === 'edit'
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
     const titleDisplay = getComponentTitleDisplay(node, definition)
@@ -181,7 +187,9 @@ export function NotebookComponentShell({
         const restoredPanelVisibility =
             rememberedComponentPanels && (rememberedComponentPanels.filters || rememberedComponentPanels.results)
                 ? rememberedComponentPanels
-                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+                : isViewModeCanvas
+                  ? CANVAS_COMPONENT_PANEL_VISIBILITY
+                  : DEFAULT_COMPONENT_PANEL_VISIBILITY
         const nextPanelVisibility = hasOpenComponentPanel ? { filters: false, results: false } : restoredPanelVisibility
 
         if (hasOpenComponentPanel) {
@@ -326,28 +334,6 @@ export function NotebookComponentShell({
                     ) : (
                         <div className={titleClassName}>{titleContent}</div>
                     )}
-                    {showModeActions || showViewModeFilters ? (
-                        <div className="MarkdownNotebook__component-mode-actions">
-                            <LemonButton
-                                aria-label={filtersLabel}
-                                size="xsmall"
-                                icon={<IconPencil />}
-                                active={componentPanels.filters}
-                                tooltip={filtersLabel}
-                                onClick={() => toggleComponentPanel('filters')}
-                            />
-                            {showModeActions ? (
-                                <LemonButton
-                                    aria-label={resultsLabel}
-                                    size="xsmall"
-                                    icon={componentPanels.results ? <IconEye /> : <IconHide />}
-                                    active={componentPanels.results}
-                                    tooltip={resultsLabel}
-                                    onClick={() => toggleComponentPanel('results')}
-                                />
-                            ) : null}
-                        </div>
-                    ) : null}
                 </div>
                 {mode === 'edit' ? (
                     isEditingTitle ? (
@@ -405,8 +391,37 @@ export function NotebookComponentShell({
                         {resolvedTitle}
                     </div>
                 ) : null}
-                {mode === 'edit' || toolbarMenuItems ? (
+                {mode === 'edit' || toolbarMenuItems || showViewModeFilters || showCollapseToggle ? (
                     <div className="MarkdownNotebook__component-actions">
+                        {showModeActions || showViewModeFilters ? (
+                            <LemonButton
+                                aria-label={filtersLabel}
+                                size="xsmall"
+                                icon={<IconPencil />}
+                                active={componentPanels.filters}
+                                tooltip={filtersLabel}
+                                onClick={() => toggleComponentPanel('filters')}
+                            />
+                        ) : null}
+                        {showModeActions ? (
+                            <LemonButton
+                                aria-label={resultsLabel}
+                                size="xsmall"
+                                icon={componentPanels.results ? <IconEye /> : <IconHide />}
+                                active={componentPanels.results}
+                                tooltip={resultsLabel}
+                                onClick={() => toggleComponentPanel('results')}
+                            />
+                        ) : null}
+                        {showCollapseToggle ? (
+                            <LemonButton
+                                aria-label={hasOpenComponentPanel ? 'Collapse' : 'Expand'}
+                                size="xsmall"
+                                icon={hasOpenComponentPanel ? <IconCollapse /> : <IconExpand />}
+                                tooltip={hasOpenComponentPanel ? 'Collapse' : 'Expand'}
+                                onClick={toggleAllComponentPanels}
+                            />
+                        ) : null}
                         {toolbarMenuItems ? (
                             <LemonMenu items={toolbarMenuItems} placement="bottom-end">
                                 <LemonButton

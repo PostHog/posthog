@@ -8944,20 +8944,24 @@ After component`,
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
         const shell = container.querySelector('.MarkdownNotebook__component-shell')
-        const modeButtons = Array.from(
-            container.querySelectorAll('.MarkdownNotebook__component-mode-actions button')
-        ) as HTMLButtonElement[]
+        const actionsContainer = container.querySelector('.MarkdownNotebook__component-actions') as HTMLElement
+        const modeButtons = [
+            container.querySelector('button[aria-label="Hide filters"]'),
+            container.querySelector('button[aria-label="Hide results"]'),
+        ] as HTMLButtonElement[]
         const toolbarLeftChildren = Array.from(
             container.querySelector('.MarkdownNotebook__component-toolbar-left')?.children ?? []
         )
         const deleteButton = container.querySelector('button[aria-label="Delete component"]')
 
         expect(shell).toBeInstanceOf(HTMLElement)
-        expect(modeButtons).toHaveLength(2)
-        expect(modeButtons[0].getAttribute('aria-label')).toEqual('Hide filters')
-        expect(modeButtons[1].getAttribute('aria-label')).toEqual('Hide results')
+        // The filters/results toggles sit at the right end of the toolbar, next to collapse and delete.
+        expect(modeButtons[0]).toBeInstanceOf(HTMLButtonElement)
+        expect(modeButtons[1]).toBeInstanceOf(HTMLButtonElement)
+        expect(actionsContainer.contains(modeButtons[0])).toBe(true)
+        expect(actionsContainer.contains(modeButtons[1])).toBe(true)
         expect(toolbarLeftChildren[0].classList.contains('MarkdownNotebook__component-title')).toBe(true)
-        expect(toolbarLeftChildren[1].classList.contains('MarkdownNotebook__component-mode-actions')).toBe(true)
+        expect(actionsContainer.contains(container.querySelector('button[aria-label="Collapse"]'))).toBe(true)
         expect(deleteButton).toBeInstanceOf(HTMLButtonElement)
         const stackedPanels = Array.from(shell?.querySelectorAll('.MarkdownNotebook__component-panel') ?? [])
         expect(stackedPanels).toHaveLength(2)
@@ -9076,7 +9080,7 @@ After component`,
         const { container } = render(createElement(MarkdownNotebook, { value: '<StaticAnswer />', registry }))
 
         expect(container.querySelector('[data-testid="static-answer"]')).toBeInstanceOf(HTMLElement)
-        expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
+        expect(container.querySelector('button[aria-label$="filters"]')).toBeNull()
         expect(container.querySelector('button[aria-label="Delete component"]')).toBeInstanceOf(HTMLButtonElement)
     })
 
@@ -9231,7 +9235,7 @@ After component`,
         ) as HTMLInputElement
 
         expect(container.querySelector('[data-testid="summary-output"]')).toBeInstanceOf(HTMLElement)
-        expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
+        expect(container.querySelector('button[aria-label$="filters"]')).toBeNull()
         expect(titleInput.value).toEqual('')
         expect(titleInput.placeholder).toEqual('Cached answer summary')
     })
@@ -9431,7 +9435,7 @@ After component`,
         expect(fallback?.textContent).toContain('This tag is unknown.')
         expect(fallback?.textContent).toContain('<Tag />')
         expect(fallback?.querySelector('pre')).toBeNull()
-        expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
+        expect(container.querySelector('button[aria-label$="filters"]')).toBeNull()
 
         const getFallbackButton = (label: string): HTMLButtonElement | undefined =>
             Array.from(fallback?.querySelectorAll('button') ?? []).find((button) => button.textContent === label)

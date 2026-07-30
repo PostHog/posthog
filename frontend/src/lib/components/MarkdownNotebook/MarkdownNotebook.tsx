@@ -37,6 +37,7 @@ import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
+    CANVAS_COMPONENT_PANEL_VISIBILITY,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     getComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
@@ -5742,12 +5743,16 @@ function MarkdownNotebookEditor({
         const componentPanelCacheEntry = node.type === 'component' ? componentPanelCache[node.id] : undefined
         const persistComponentPanelVisibility =
             node.type === 'component' ? shouldPersistComponentPanelProps(node, componentDefinition) : false
+        const fallbackComponentPanels =
+            mode === 'view' && allowViewModeFilters
+                ? CANVAS_COMPONENT_PANEL_VISIBILITY
+                : DEFAULT_COMPONENT_PANEL_VISIBILITY
         const nodeComponentPanels =
             node.type === 'component'
                 ? !persistComponentPanelVisibility && componentPanelCacheEntry?.current
                     ? componentPanelCacheEntry.current
-                    : getComponentPanelVisibility(node, DEFAULT_COMPONENT_PANEL_VISIBILITY)
-                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+                    : getComponentPanelVisibility(node, fallbackComponentPanels)
+                : fallbackComponentPanels
         const shouldShowInlineInsertMenuButton =
             !isTitleRow && (isBlankInsertMenuButtonRow(node) || (isToolInsertMenuOpen && isTextBlockNode(node)))
         const hasInvalidInsertMenuQuery =

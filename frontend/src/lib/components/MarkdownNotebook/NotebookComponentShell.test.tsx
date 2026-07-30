@@ -272,4 +272,60 @@ describe('NotebookComponentShell', () => {
         expect(within(openFilters.container).getByText('Filters panel')).toBeTruthy()
         expect(within(openFilters.container).getByText('Results')).toBeTruthy()
     })
+
+    it('collapses output on read-only canvases', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: () => <div>Results</div>,
+            },
+        ])
+
+        const renderShell = (
+            allowViewModeFilters: boolean,
+            componentPanels: { filters: boolean; results: boolean }
+        ): ReturnType<typeof render> =>
+            render(
+                <NotebookComponentShell
+                    node={{
+                        id: 'probe-node',
+                        type: 'component',
+                        tagName: 'Probe',
+                        props: {},
+                    }}
+                    mode="view"
+                    componentPanels={componentPanels}
+                    persistComponentPanelVisibility={false}
+                    allowViewModeFilters={allowViewModeFilters}
+                    isSelected={false}
+                    registry={registry}
+                    toggleComponentPanel={jest.fn()}
+                    setLocalComponentPanels={jest.fn()}
+                    rememberComponentPanels={jest.fn()}
+                    setBlockRef={jest.fn()}
+                    updateNode={jest.fn()}
+                    deleteNode={jest.fn()}
+                    deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                    insertParagraphAfterNode={jest.fn()}
+                    moveFocusToAdjacentNode={jest.fn(() => false)}
+                />
+            )
+
+        // Plain view mode ignores a collapsed results panel and offers no collapse toggle.
+        const plainView = renderShell(false, { filters: false, results: false })
+        expect(within(plainView.container).getByText('Results')).toBeTruthy()
+        expect(within(plainView.container).queryByLabelText('Collapse')).toBeNull()
+        plainView.unmount()
+
+        const expandedCanvas = renderShell(true, { filters: false, results: true })
+        expect(within(expandedCanvas.container).getByText('Results')).toBeTruthy()
+        expect(within(expandedCanvas.container).getByLabelText('Collapse')).toBeTruthy()
+        expandedCanvas.unmount()
+
+        const collapsedCanvas = renderShell(true, { filters: false, results: false })
+        expect(within(collapsedCanvas.container).queryByText('Results')).toBeNull()
+        expect(within(collapsedCanvas.container).getByLabelText('Expand')).toBeTruthy()
+    })
 })
