@@ -95,8 +95,10 @@ def main() -> None:
 
     # 3. Synthetic events + persons, straight into CH/PG (idempotent).
     log("inserting synthetic events (this wipes previous synth-% rows)")
+    # PYTHONPATH: the script lives at /code/posthog/tmp_seed/, so sys.path[0] is
+    # the script dir, not /code — `import posthog` needs /code on the path.
     r = backend.run_long(
-        f"{COMPOSE} run --rm -T web python posthog/tmp_seed/generate_events.py",
+        f"{COMPOSE} run --rm -T -e PYTHONPATH=/code web python posthog/tmp_seed/generate_events.py",
         name="seed-events",
         timeout=1500,
     )
@@ -110,7 +112,7 @@ def main() -> None:
     api_key = match.group(1)
     log("personal API key minted; creating dashboard + refreshing tiles")
     r = backend.run_long(
-        f"{COMPOSE} run --rm -T web python posthog/tmp_seed/recreate_dashboard.py "
+        f"{COMPOSE} run --rm -T -e PYTHONPATH=/code web python posthog/tmp_seed/recreate_dashboard.py "
         f"posthog/tmp_seed/dashboard-fixture.json --host http://web:8000 "
         f"--api-key {shlex.quote(api_key)} --replace --clear-test-filters --refresh",
         name="seed-dashboard",
