@@ -1274,7 +1274,7 @@ async def test_stale_dashboard_selection_fails_without_retrying(
     assert delivery.error == {
         "message": NO_EXPORTABLE_INSIGHTS_MESSAGE,
         "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
-        "reason": NoExportableInsightsReason.STALE_SELECTED_INSIGHTS,
+        "reason": NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE,
         "resource_type": "dashboard",
         "available_insight_count": 1,
         "selected_insight_count": 1,
@@ -1282,7 +1282,7 @@ async def test_stale_dashboard_selection_fails_without_retrying(
     mock_send_email.assert_not_called()
     mock_capture_delivery_failed.assert_called_once()
     assert mock_capture_delivery_failed.call_args.args[2] == {
-        "reason": NoExportableInsightsReason.STALE_SELECTED_INSIGHTS,
+        "reason": NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE,
         "resource_type": "dashboard",
         "available_insight_count": 1,
         "selected_insight_count": 1,
@@ -1299,7 +1299,7 @@ async def test_stale_dashboard_selection_fails_without_retrying(
     assert properties["outcome"] == SloOutcome.SUCCESS
     assert properties["error_type"] == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
     assert properties["failure_type"] == "configuration"
-    assert properties["reason"] == NoExportableInsightsReason.STALE_SELECTED_INSIGHTS
+    assert properties["reason"] == NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
