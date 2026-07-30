@@ -28,10 +28,10 @@ function radius(callCount: number, maxCalls: number): number {
 
 /**
  * Discovery rate vs description fit, one bubble per tool, sized by call volume.
- * The quadrant lines sit at the medians of the plotted tools. The top-left
+ * The quadrant lines sit at the medians of the plotted tools. The bottom-right
  * quadrant (fits the intent, rarely picked) is where description work pays off
- * most; the bottom-right (picked despite a poor fit) usually means the
- * description undersells what the tool does.
+ * most; the top-left (picked despite a poor fit) usually means the description
+ * undersells what the tool does.
  */
 export function DiscoveryScatter(): JSX.Element | null {
     const { scatterPoints, tools, fitMedian, discoveryMedian } = useValues(mcpClusteringLogic)
@@ -61,7 +61,7 @@ export function DiscoveryScatter(): JSX.Element | null {
             <div className="flex flex-col">
                 <span className="text-xs uppercase text-muted font-medium">Discovery vs description fit</span>
                 <span className="text-xs text-muted">
-                    Tools in the upper left fit their intents but rarely get picked when advertised: the strongest
+                    Tools in the lower right fit their intents but rarely get picked when advertised: the strongest
                     candidates for a description rewrite.
                 </span>
             </div>
