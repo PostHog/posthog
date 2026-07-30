@@ -45,10 +45,10 @@ Every suite runs concurrently, with one global semaphore bounding live sandboxes
 
 ### Datasets
 
-For offline evaluation, you typically need to collect a dataset first. You can do that in [PostHog AI evals](https://us.posthog.com/ai-evals/datasets). There are a few requirements for the shape of a dataset item:
+For offline evaluation, you typically need to collect a dataset first. You can do that in [PostHog AI evals](https://us.posthog.com/ai-evals/datasets). PostHog datasets accept any JSON value, but this evaluation suite requires a narrower item shape:
 
-- The `input`, `output`, `metadata` fields must be valid JSON objects.
-- The `metadata` must contain the `team_id` field.
+- `input`, `expected_output`, and `metadata` must be JSON objects.
+- `metadata` must contain `team_id`.
 
 Remember to continuously review traces and curate your datasets–it's the key to quality.
 

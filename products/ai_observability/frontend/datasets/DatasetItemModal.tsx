@@ -2,21 +2,21 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import React from 'react'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon-ui/LemonModal/LemonModal'
 
-import { DatasetItem } from '~/types'
-
 import { JSONEditor } from '../components/JSONEditor'
-import { DatasetItemModalLogicProps, datasetItemModalLogic } from './datasetItemModalLogic'
+import type { DatasetItemModalValue } from './datasetItemModalLogic'
+import { DatasetItemModalLogicProps, datasetItemModalLogic, isStoredDatasetItem } from './datasetItemModalLogic'
+import { prettifyJson } from './utils'
 
 export interface DatasetItemModalProps {
     isOpen: boolean
     onClose: (refetchDatasetItems?: boolean) => void
     datasetId: string
-    partialDatasetItem?: Partial<DatasetItem> | null
+    partialDatasetItem?: DatasetItemModalValue | null
     /**
      * Whether the modal should display the "Save and add another" button.
      */
@@ -57,23 +57,31 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                 className="flex flex-col overflow-y-hidden"
             >
                 <LemonModalHeader>
-                    <h3>{title ?? (partialDatasetItem?.id ? 'Edit dataset item' : 'New dataset item')}</h3>
+                    <h3>
+                        {title ?? (isStoredDatasetItem(partialDatasetItem) ? 'Edit dataset item' : 'New dataset item')}
+                    </h3>
                 </LemonModalHeader>
 
                 <LemonModalContent className="flex flex-col gap-4">
                     <LemonField name="input" label="Input">
                         <JSONEditor />
                     </LemonField>
-                    <LemonField name="output" label="Output">
+                    <LemonField name="expectedOutput" label="Expected output" showOptional>
                         <JSONEditor />
                     </LemonField>
+                    {partialDatasetItem?.source_output !== undefined && partialDatasetItem.source_output !== null && (
+                        <div>
+                            <LemonLabel>Source output</LemonLabel>
+                            <JSONEditor value={prettifyJson(partialDatasetItem.source_output) ?? ''} readOnly />
+                        </div>
+                    )}
                     <LemonField name="metadata" label="Metadata">
                         <JSONEditor />
                     </LemonField>
                 </LemonModalContent>
 
                 <LemonModalFooter>
-                    {displayBulkCreationButton && !partialDatasetItem?.id && (
+                    {displayBulkCreationButton && !isStoredDatasetItem(partialDatasetItem) && (
                         <LemonButton
                             type="secondary"
                             loading={isDatasetItemFormSubmitting}

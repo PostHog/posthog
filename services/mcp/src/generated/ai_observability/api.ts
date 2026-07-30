@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 58 enabled ops
+ * PostHog API - MCP 72 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -62,6 +62,325 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
         .boolean()
         .default(llmAnalyticsPersonalSpendListQueryRefreshDefault)
         .describe('If true, bypass the result cache and re-run the underlying queries against ClickHouse.'),
+})
+
+/**
+ * List a dataset's current items or its exact contents at a prior revision.
+ */
+export const DatasetItemsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetItemsListQueryArchivedDefault = false
+
+export const DatasetItemsListQueryParams = /* @__PURE__ */ zod.object({
+    archived: zod
+        .boolean()
+        .default(datasetItemsListQueryArchivedDefault)
+        .describe('Return archived items instead of active items.'),
+    dataset: zod.string().describe('Dataset whose items should be returned.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    revision: zod.number().min(1).optional().describe('Return the exact dataset snapshot at this revision.'),
+})
+
+/**
+ * Create an item and its first immutable version. A matching external ID retry returns the existing item.
+ */
+export const DatasetItemsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetItemsCreateBodyExternalIdMax = 255
+
+export const datasetItemsCreateBodySourceTraceIdMax = 255
+
+export const datasetItemsCreateBodySourceEventIdMax = 255
+
+export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
+    dataset: zod.string().describe('Dataset that will own the item.'),
+    external_id: zod
+        .string()
+        .max(datasetItemsCreateBodyExternalIdMax)
+        .nullish()
+        .describe('Optional case-sensitive stable key used for idempotent creates.'),
+    input: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+        ])
+        .describe('Input supplied to the system under test. Any non-null JSON value is accepted.'),
+    expected_output: zod.unknown().optional().describe('Optional user-authored expected output.'),
+    source_output: zod.unknown().optional().describe('Optional actual output captured from the source trace.'),
+    metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Optional JSON object with item metadata.'),
+    source_trace_id: zod
+        .string()
+        .max(datasetItemsCreateBodySourceTraceIdMax)
+        .nullish()
+        .describe('Trace ID copied from the source event.'),
+    source_event_id: zod
+        .string()
+        .max(datasetItemsCreateBodySourceEventIdMax)
+        .nullish()
+        .describe('Event ID copied from the source trace.'),
+    source_timestamp: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Timestamp needed to retrieve the event-backed source trace.'),
+})
+
+/**
+ * Retrieve the current version of an active or archived item.
+ */
+export const DatasetItemsRetrieveParams = /* @__PURE__ */ zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Create a new immutable item version from editable fields.
+ */
+export const DatasetItemsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+    input: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+        ])
+        .optional()
+        .describe('Replacement input. Omit to keep the current value.'),
+    expected_output: zod.unknown().optional().describe('Replacement expected output. Send null to clear it.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Replacement metadata object. Send an empty object to clear it.'),
+})
+
+/**
+ * Archive an active item by creating a new immutable version.
+ */
+export const DatasetItemsArchiveParams = /* @__PURE__ */ zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsArchiveBody = /* @__PURE__ */ zod.object({
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+})
+
+/**
+ * Restore an archived item by copying content into a new immutable version.
+ */
+export const DatasetItemsRestoreParams = /* @__PURE__ */ zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsRestoreBody = /* @__PURE__ */ zod.object({
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+    source_version: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe("Historical version to copy. Omit to restore the archived version's content."),
+})
+
+/**
+ * List every immutable version of an item, newest first.
+ */
+export const DatasetItemsVersionsListParams = /* @__PURE__ */ zod.object({
+    dataset_item_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetItemsVersionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * List active datasets by default, or archived datasets when requested.
+ */
+export const DatasetsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetsListQueryArchivedDefault = false
+export const datasetsListQueryOrderByDefault = `-created_at`
+
+export const DatasetsListQueryParams = /* @__PURE__ */ zod.object({
+    archived: zod
+        .boolean()
+        .default(datasetsListQueryArchivedDefault)
+        .describe('Return archived datasets instead of active datasets.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod
+        .string()
+        .min(1)
+        .default(datasetsListQueryOrderByDefault)
+        .describe(
+            'Field and direction used to order results.\n\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at'
+        ),
+    search: zod.string().min(1).optional().describe('Search dataset names, descriptions, and metadata.'),
+})
+
+/**
+ * Create an empty dataset. Its first revision is created with its first item.
+ */
+export const DatasetsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetsCreateBodyNameMax = 400
+
+export const datasetsCreateBodyDescriptionDefault = ``
+export const datasetsCreateBodyDescriptionMax = 10000
+
+export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
+    description: zod
+        .string()
+        .max(datasetsCreateBodyDescriptionMax)
+        .default(datasetsCreateBodyDescriptionDefault)
+        .describe('Optional description of what the dataset contains.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional JSON object with descriptive dataset metadata.'),
+})
+
+/**
+ * Retrieve an active or archived dataset.
+ */
+export const DatasetsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Update descriptive dataset fields without changing its revision.
+ */
+export const DatasetsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const datasetsPartialUpdateBodyNameMax = 400
+
+export const datasetsPartialUpdateBodyDescriptionMax = 10000
+
+export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(datasetsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New dataset name. Names are unique within a project.'),
+    description: zod
+        .string()
+        .max(datasetsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('New dataset description.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Replacement JSON object for descriptive dataset metadata.'),
+})
+
+/**
+ * Archive a dataset. Archived datasets remain readable and reject item mutations.
+ */
+export const DatasetsArchiveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Restore an archived dataset without changing its item states.
+ */
+export const DatasetsRestoreParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List immutable dataset revisions, newest first.
+ */
+export const DatasetsRevisionsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this dataset.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DatasetsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**

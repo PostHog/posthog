@@ -4,15 +4,23 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import api from '~/lib/api'
 import { initKeaTests } from '~/test/init'
-import { Dataset, DatasetItem } from '~/types'
 
+import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { DatasetFormValues, DatasetLogicProps, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import { datasetsApi } from './datasetsApi'
 import { EMPTY_JSON } from './utils'
 
-jest.mock('~/lib/api')
+jest.mock('./datasetsApi', () => ({
+    datasetsApi: {
+        createDataset: jest.fn(),
+        updateDataset: jest.fn(),
+        getDataset: jest.fn(),
+        listDatasets: jest.fn(),
+        listItems: jest.fn(),
+    },
+}))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
 
 describe('aiObservabilityDatasetLogic', () => {
@@ -21,76 +29,76 @@ describe('aiObservabilityDatasetLogic', () => {
         name: 'Test Dataset',
         description: 'Test description',
         metadata: { key: 'value' },
-        team: 997,
+        team_id: 997,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
-        created_by: {
-            id: 1,
-            uuid: 'test-uuid',
-            distinct_id: 'test-distinct-id',
-            first_name: 'Test',
-            email: 'test@example.com',
-        },
-        deleted: false,
+        created_by: null,
+        archived: false,
+        current_revision: null,
+        current_revision_id: null,
     }
 
     const mockDatasetItem1: DatasetItem = {
         id: 'item-1',
         dataset: 'test-dataset-id',
-        team: 997,
+        external_id: null,
+        version: 1,
+        version_id: 'item-version-1',
+        dataset_revision: 1,
+        dataset_revision_id: 'dataset-revision-1',
+        archived: false,
         input: { query: 'test input' },
-        output: { response: 'test response 1' },
+        expected_output: { response: 'test response 1' },
+        source_output: null,
         metadata: { key: 'value' },
-        ref_trace_id: null,
-        ref_timestamp: null,
-        ref_source_id: null,
-        created_by: {
-            id: 1,
-            uuid: 'test-uuid',
-            distinct_id: 'test-distinct-id',
-            first_name: 'Test',
-            email: 'test@example.com',
-        },
+        source_trace_id: null,
+        source_timestamp: null,
+        source_event_id: null,
+        created_by: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
-        deleted: false,
+        version_created_at: '2024-01-01T00:00:00Z',
+        version_created_by: null,
+        team_id: 997,
     }
 
     const mockDatasetItem2: DatasetItem = {
         id: 'item-2',
         dataset: 'test-dataset-id',
-        team: 997,
+        external_id: null,
+        version: 1,
+        version_id: 'item-version-2',
+        dataset_revision: 2,
+        dataset_revision_id: 'dataset-revision-2',
+        archived: false,
         input: { query: 'test input 2' },
-        output: { response: 'test response 2' },
+        expected_output: { response: 'test response 2' },
+        source_output: null,
         metadata: { key: 'value2' },
-        ref_trace_id: null,
-        ref_timestamp: null,
-        ref_source_id: null,
-        created_by: {
-            id: 1,
-            uuid: 'test-uuid',
-            distinct_id: 'test-distinct-id',
-            first_name: 'Test',
-            email: 'test@example.com',
-        },
+        source_trace_id: null,
+        source_timestamp: null,
+        source_event_id: null,
+        created_by: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
-        deleted: false,
+        version_created_at: '2024-01-01T00:00:00Z',
+        version_created_by: null,
+        team_id: 997,
     }
 
-    const mockApi = api as jest.Mocked<typeof api>
+    const mockDatasetsApi = jest.mocked(datasetsApi)
 
     beforeEach(() => {
         initKeaTests()
         jest.resetAllMocks()
 
-        jest.spyOn(mockApi.datasets, 'create').mockResolvedValue(undefined as any)
-        jest.spyOn(mockApi.datasets, 'update').mockResolvedValue(undefined as any)
+        mockDatasetsApi.createDataset.mockResolvedValue(mockDataset)
+        mockDatasetsApi.updateDataset.mockResolvedValue(mockDataset)
         // Mounting with an existing datasetId fires loadDataset/loadDatasetItems/loadDatasets;
         // resolving undefined makes each loader reducer log a KEA error. Default to real shapes.
-        jest.spyOn(mockApi.datasets, 'get').mockResolvedValue(mockDataset as any)
-        jest.spyOn(mockApi.datasets, 'list').mockResolvedValue({ results: [], count: 0 } as any)
-        jest.spyOn(mockApi.datasetItems, 'list').mockResolvedValue({ results: [], count: 0, offset: 0 } as any)
+        mockDatasetsApi.getDataset.mockResolvedValue(mockDataset)
+        mockDatasetsApi.listDatasets.mockResolvedValue({ results: [], count: 0 })
+        mockDatasetsApi.listItems.mockResolvedValue({ results: [], count: 0 })
     })
 
     describe('new dataset creation', () => {
@@ -123,7 +131,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 metadata: '{"test": "value"}',
             }
 
-            ;(mockApi.datasets.create as jest.Mock).mockResolvedValue(mockDataset)
+            mockDatasetsApi.createDataset.mockResolvedValue(mockDataset)
             const routerReplaceSpy = jest.spyOn(router.actions, 'replace')
 
             await expectLogic(logic, () => {
@@ -131,7 +139,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 logic.actions.submitDatasetForm()
             }).toFinishAllListeners()
 
-            expect(mockApi.datasets.create as jest.Mock).toHaveBeenCalledWith({
+            expect(mockDatasetsApi.createDataset).toHaveBeenCalledWith({
                 name: 'New Dataset',
                 description: 'New description',
                 metadata: { test: 'value' },
@@ -142,45 +150,41 @@ describe('aiObservabilityDatasetLogic', () => {
             expect(logic.values.isEditingDataset).toBe(false)
         })
 
-        it('sends null for empty object metadata when creating dataset', async () => {
+        it('sends an empty object for empty object metadata when creating dataset', async () => {
             const formValues: DatasetFormValues = {
                 name: 'New Dataset',
                 description: 'New description',
                 metadata: EMPTY_JSON,
             }
 
-            ;(mockApi.datasets.create as jest.Mock).mockResolvedValue(mockDataset)
-
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
                 logic.actions.submitDatasetForm()
             }).toFinishAllListeners()
 
-            expect(mockApi.datasets.create as jest.Mock).toHaveBeenCalledWith({
+            expect(mockDatasetsApi.createDataset).toHaveBeenCalledWith({
                 name: 'New Dataset',
                 description: 'New description',
-                metadata: null,
+                metadata: {},
             })
         })
 
-        it('sends null for empty string metadata when creating dataset', async () => {
+        it('sends an empty object for empty string metadata when creating dataset', async () => {
             const formValues: DatasetFormValues = {
                 name: 'New Dataset',
                 description: 'New description',
                 metadata: '',
             }
 
-            ;(mockApi.datasets.create as jest.Mock).mockResolvedValue(mockDataset)
-
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
                 logic.actions.submitDatasetForm()
             }).toFinishAllListeners()
 
-            expect(mockApi.datasets.create as jest.Mock).toHaveBeenCalledWith({
+            expect(mockDatasetsApi.createDataset).toHaveBeenCalledWith({
                 name: 'New Dataset',
                 description: 'New description',
-                metadata: null,
+                metadata: {},
             })
         })
 
@@ -191,14 +195,12 @@ describe('aiObservabilityDatasetLogic', () => {
                 metadata: '{"nested": {"key": "value"}, "array": [1, 2, 3]}',
             }
 
-            ;(mockApi.datasets.create as jest.Mock).mockResolvedValue(mockDataset)
-
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
                 logic.actions.submitDatasetForm()
             }).toFinishAllListeners()
 
-            expect(mockApi.datasets.create as jest.Mock).toHaveBeenCalledWith({
+            expect(mockDatasetsApi.createDataset).toHaveBeenCalledWith({
                 name: 'New Dataset',
                 description: 'New description',
                 metadata: { nested: { key: 'value' }, array: [1, 2, 3] },
@@ -213,7 +215,7 @@ describe('aiObservabilityDatasetLogic', () => {
             }
 
             const error = { detail: 'Custom error message' }
-            ;(mockApi.datasets.create as jest.Mock).mockRejectedValue(error)
+            mockDatasetsApi.createDataset.mockRejectedValue(error)
 
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
@@ -231,7 +233,7 @@ describe('aiObservabilityDatasetLogic', () => {
             }
 
             const error = new Error('Network error')
-            ;(mockApi.datasets.create as jest.Mock).mockRejectedValue(error)
+            mockDatasetsApi.createDataset.mockRejectedValue(error)
 
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
@@ -262,15 +264,20 @@ describe('aiObservabilityDatasetLogic', () => {
                 metadata: '{"updated": "metadata"}',
             }
 
-            const updatedDataset = { ...mockDataset, ...formValues }
-            ;(mockApi.datasets.update as jest.Mock).mockResolvedValue(updatedDataset)
+            const updatedDataset: Dataset = {
+                ...mockDataset,
+                name: formValues.name,
+                description: formValues.description,
+                metadata: { updated: 'metadata' },
+            }
+            mockDatasetsApi.updateDataset.mockResolvedValue(updatedDataset)
 
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
                 logic.actions.submitDatasetForm()
             }).toFinishAllListeners()
 
-            expect(mockApi.datasets.update as jest.Mock).toHaveBeenCalledWith('existing-dataset-id', {
+            expect(mockDatasetsApi.updateDataset).toHaveBeenCalledWith('existing-dataset-id', {
                 name: 'Updated Dataset',
                 description: 'Updated description',
                 metadata: { updated: 'metadata' },
@@ -280,24 +287,22 @@ describe('aiObservabilityDatasetLogic', () => {
             expect(logic.values.isEditingDataset).toBe(false)
         })
 
-        it('sends null for empty object metadata when editing dataset', async () => {
+        it('sends an empty object for empty object metadata when editing dataset', async () => {
             const formValues: DatasetFormValues = {
                 name: 'Updated Dataset',
                 description: 'Updated description',
                 metadata: EMPTY_JSON,
             }
 
-            ;(mockApi.datasets.update as jest.Mock).mockResolvedValue(mockDataset)
-
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
                 logic.actions.submitDatasetForm()
             }).toFinishAllListeners()
 
-            expect(mockApi.datasets.update as jest.Mock).toHaveBeenCalledWith('existing-dataset-id', {
+            expect(mockDatasetsApi.updateDataset).toHaveBeenCalledWith('existing-dataset-id', {
                 name: 'Updated Dataset',
                 description: 'Updated description',
-                metadata: null,
+                metadata: {},
             })
         })
 
@@ -309,7 +314,7 @@ describe('aiObservabilityDatasetLogic', () => {
             }
 
             const error = { detail: 'Update failed' }
-            ;(mockApi.datasets.update as jest.Mock).mockRejectedValue(error)
+            mockDatasetsApi.updateDataset.mockRejectedValue(error)
 
             await expectLogic(logic, () => {
                 logic.actions.setDatasetFormValues(formValues)
@@ -329,12 +334,12 @@ describe('aiObservabilityDatasetLogic', () => {
         })
 
         it('loads dataset on mount', async () => {
-            ;(mockApi.datasets.get as jest.Mock).mockResolvedValue(mockDataset)
+            mockDatasetsApi.getDataset.mockResolvedValue(mockDataset)
             logic.mount()
 
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(mockApi.datasets.get as jest.Mock).toHaveBeenCalledWith('existing-dataset-id')
+            expect(mockDatasetsApi.getDataset).toHaveBeenCalledWith('existing-dataset-id')
         })
 
         it('sets form defaults when dataset is loaded', async () => {
@@ -343,7 +348,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 metadata: { complex: { nested: 'data' }, array: [1, 2, 3] },
             }
 
-            ;(mockApi.datasets.get as jest.Mock).mockResolvedValue(datasetWithComplexMetadata)
+            mockDatasetsApi.getDataset.mockResolvedValue(datasetWithComplexMetadata)
             logic.mount()
 
             await expectLogic(logic, () => {
@@ -384,26 +389,6 @@ describe('aiObservabilityDatasetLogic', () => {
             findMountedSpy.mockRestore()
         })
 
-        it('handles null metadata correctly in form defaults', () => {
-            const datasetWithNullMetadata = { ...mockDataset, metadata: null }
-
-            const findMountedSpy = jest.spyOn(aiObservabilityDatasetsLogic, 'findMounted')
-            findMountedSpy.mockReturnValue({
-                values: {
-                    datasets: {
-                        results: [datasetWithNullMetadata],
-                    },
-                },
-            } as any)
-
-            logic = aiObservabilityDatasetLogic({ datasetId: datasetWithNullMetadata.id })
-            logic.mount()
-
-            expect(logic.values.datasetForm.metadata).toBe(EMPTY_JSON)
-
-            findMountedSpy.mockRestore()
-        })
-
         it('handles empty object metadata correctly in form defaults', () => {
             const datasetWithEmptyMetadata = { ...mockDataset, metadata: {} }
 
@@ -430,11 +415,10 @@ describe('aiObservabilityDatasetLogic', () => {
         const props: DatasetLogicProps = { datasetId: 'existing-dataset-id' }
 
         beforeEach(() => {
-            ;(mockApi.datasets.get as jest.Mock).mockResolvedValue(mockDataset)
-            ;(mockApi.datasetItems.list as jest.Mock).mockResolvedValue({
+            mockDatasetsApi.getDataset.mockResolvedValue(mockDataset)
+            mockDatasetsApi.listItems.mockResolvedValue({
                 results: [],
                 count: 0,
-                offset: 0,
             })
             logic = aiObservabilityDatasetLogic(props)
             logic.mount()
@@ -498,7 +482,7 @@ describe('aiObservabilityDatasetLogic', () => {
                     logic.actions.setFilters({ page: 2, limit: 25 })
                 }).toFinishAllListeners()
 
-                expect(mockApi.datasetItems.list).toHaveBeenCalledWith({
+                expect(mockDatasetsApi.listItems).toHaveBeenCalledWith({
                     dataset: 'existing-dataset-id',
                     offset: 50, // (page 2 - 1) * 50 (DATASET_ITEMS_PER_PAGE)
                     limit: 50, // DATASET_ITEMS_PER_PAGE constant
@@ -510,7 +494,7 @@ describe('aiObservabilityDatasetLogic', () => {
                     logic.actions.setFilters({ page: 3, limit: 25 })
                 }).toFinishAllListeners()
 
-                expect(mockApi.datasetItems.list).toHaveBeenCalledWith({
+                expect(mockDatasetsApi.listItems).toHaveBeenCalledWith({
                     dataset: 'existing-dataset-id',
                     offset: 100, // (page 3 - 1) * 50 (DATASET_ITEMS_PER_PAGE)
                     limit: 50,
@@ -518,13 +502,13 @@ describe('aiObservabilityDatasetLogic', () => {
             })
 
             it('does not trigger API call when filters do not change', async () => {
-                const initialCallCount = (mockApi.datasetItems.list as jest.Mock).mock.calls.length
+                const initialCallCount = mockDatasetsApi.listItems.mock.calls.length
 
                 await expectLogic(logic, () => {
                     logic.actions.setFilters({ page: 1, limit: 50 }) // Same as defaults
                 }).toFinishAllListeners()
 
-                expect(mockApi.datasetItems.list).toHaveBeenCalledTimes(initialCallCount) // Should not increase
+                expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(initialCallCount) // Should not increase
             })
         })
 
@@ -564,13 +548,13 @@ describe('aiObservabilityDatasetLogic', () => {
             })
 
             it('refetches dataset items when requested on modal close', async () => {
-                const initialCallCount = (mockApi.datasetItems.list as jest.Mock).mock.calls.length
+                const initialCallCount = mockDatasetsApi.listItems.mock.calls.length
 
                 await expectLogic(logic, () => {
                     logic.actions.closeModalAndRefetchDatasetItems(true)
                 }).toFinishAllListeners()
 
-                expect(mockApi.datasetItems.list).toHaveBeenCalledTimes(initialCallCount + 1)
+                expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(initialCallCount + 1)
             })
         })
 

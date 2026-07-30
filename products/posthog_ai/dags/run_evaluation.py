@@ -14,7 +14,8 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.dags.common import JobOwners
 
-from products.ai_observability.backend.models import Dataset, DatasetItem
+from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
+from products.ai_observability.backend.models import Dataset
 from products.posthog_ai.dags.snapshot_team_data import (
     ClickhouseTeamDataSnapshot,
     PostgresTeamDataSnapshot,
@@ -59,8 +60,21 @@ def _get_team_id() -> int:
     description="Pulls the dataset and dataset items and validates inputs, outputs, metadata, and team_id presence in metadata."
 )
 def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetConfig) -> PreparedDataset:
-    dataset = Dataset.objects.exclude(deleted=True).get(id=config.dataset_id, team_id=_get_team_id())
-    dataset_items = DatasetItem.objects.exclude(deleted=True).filter(dataset=dataset).iterator(500)
+    team_id = _get_team_id()
+    dataset = (
+        Dataset.objects.for_team(team_id).select_related("current_revision").get(id=config.dataset_id, archived=False)
+    )
+    current_revision = dataset.current_revision
+    dataset_items = (
+        []
+        if current_revision is None
+        else dataset_item_versions_at_revision(
+            team_id=dataset.team_id,
+            dataset_id=dataset.id,
+            revision=current_revision.revision,
+            archived=False,
+        ).iterator(500)
+    )
 
     dataset_inputs: list[DatasetInput] = []
     for dataset_item in dataset_items:
@@ -69,9 +83,10 @@ def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetC
             dataset_inputs.append(
                 DatasetInput(
                     input=dataset_item.input,
-                    expected=dataset_item.output,
+                    expected=dataset_item.expected_output,
                     metadata=metadata,
                     team_id=metadata.get("team_id"),
+                    trace_id=dataset_item.source_trace_id,
                 )
             )
         except ValidationError:
