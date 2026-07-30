@@ -577,6 +577,23 @@ describe('sessionRecordingPlayerLogic', () => {
             }
         )
 
+        it('holds the skip-to-matching-event state until the seek target renders', async () => {
+            // the seek target lives in the first source, which is left unfetched
+            seedRecording(null, [fs(LATE_FS_TS)])
+
+            logic.actions.setSkippingToMatchingEvent(true)
+            logic.actions.seekToTimestamp(START + 1000, true)
+
+            expect(logic.values.isSkippingToMatchingEvent).toBe(true)
+            expect(logic.values.isSkipToMatchingEventWaitingForData).toBe(true)
+
+            await expectLogic(logic, () => {
+                seedRecording([fs(START), inc(START + 1000)], [fs(LATE_FS_TS)])
+            }).toDispatchActions([logic.actionCreators.setSkippingToMatchingEvent(false)])
+
+            expect(logic.values.isSkipToMatchingEventWaitingForData).toBe(false)
+        })
+
         it('does not clamp or capture when a null currentTimestamp is forwarded during player init', () => {
             // Some callers (e.g. the setPlayer listener) forward currentTimestamp
             // while it still holds its initial null — that must not be coerced to 0

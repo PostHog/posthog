@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import { EventType } from 'posthog-js/rrweb-types'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -7,9 +8,11 @@ import { sessionRecordingExperimentContextLogic } from 'scenes/session-recording
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { SessionRecordingType } from '~/types'
+import { RecordingSnapshot, SessionRecordingType } from '~/types'
 
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
+import { markLoaded } from '../snapshot-store/test-utils'
+import { snapshotDataLogic } from '../snapshotDataLogic'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -244,23 +247,60 @@ describe('playerInspectorLogic', () => {
     })
 
     describe('matching events', () => {
-        it('waits for the recording start before seeking to the first matching event', async () => {
-            const matchingProps = {
-                sessionRecordingId: '1',
-                playerKey: 'matching-event',
-                skipToFirstMatchingEvent: true,
-                matchingEventsMatchType: {
-                    matchType: 'uuid' as const,
-                    matchedEvents: [
-                        {
-                            uuid: 'matching-event',
-                            timestamp: '2025-01-01T00:00:10.000Z',
-                            session_id: '1',
-                            window_id: '1',
-                        },
-                    ],
-                },
+        const START = new Date('2025-01-01T00:00:00.000Z').valueOf()
+        const MATCHING_EVENT_TS = START + 10000
+        // Two one-minute blob sources, so a target inside the first one can be left unloaded
+        const SOURCES = ['8', '9'].map((blobKey, index) => ({
+            source: 'blob_v2',
+            blob_key: blobKey,
+            start_timestamp: new Date(START + index * 60000).toISOString(),
+            end_timestamp: new Date(START + (index + 1) * 60000).toISOString(),
+        }))
+
+        const inc = (timestamp: number): RecordingSnapshot =>
+            ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 1, data: {} }) as unknown as RecordingSnapshot
+
+        const matchingProps = {
+            sessionRecordingId: '1',
+            playerKey: 'matching-event',
+            skipToFirstMatchingEvent: true,
+            matchingEventsMatchType: {
+                matchType: 'uuid' as const,
+                matchedEvents: [
+                    {
+                        uuid: 'matching-event',
+                        timestamp: new Date(MATCHING_EVENT_TS).toISOString(),
+                        session_id: '1',
+                        window_id: '1',
+                    },
+                ],
+            },
+        }
+
+        // Seeds the snapshot store and the processed snapshots segments derive from, bypassing the
+        // network loading machinery.
+        const seedSources = (loaded: Record<number, RecordingSnapshot[]>): void => {
+            const snapshotLogic = snapshotDataLogic({ sessionRecordingId: '1' })
+            snapshotLogic.actions.loadSnapshotSourcesSuccess(SOURCES as any)
+            const processed: RecordingSnapshot[] = []
+            for (const [index, snapshots] of Object.entries(loaded)) {
+                markLoaded(snapshotLogic.cache.store, Number(index), snapshots)
+                processed.push(...snapshots)
             }
+            snapshotLogic.actions.storeUpdated()
+            dataLogic.actions.setProcessedSnapshots(processed)
+        }
+
+        const announceRecordingMeta = (): void => {
+            dataLogic.actions.loadRecordingMetaSuccess({
+                id: '1',
+                start_time: new Date(START).toISOString(),
+                end_time: new Date(START + 120000).toISOString(),
+                recording_duration: 120,
+            } as SessionRecordingType)
+        }
+
+        it('waits for the recording start before seeking to the first matching event', async () => {
             const playerLogic = sessionRecordingPlayerLogic(matchingProps)
             const matchingLogic = playerInspectorLogic(matchingProps)
             playerLogic.mount()
@@ -269,14 +309,29 @@ describe('playerInspectorLogic', () => {
             await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
             await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
 
-            dataLogic.actions.loadRecordingMetaSuccess({
-                id: '1',
-                start_time: '2025-01-01T00:00:00.000Z',
-                end_time: '2025-01-01T00:01:00.000Z',
-                recording_duration: 60,
-            } as SessionRecordingType)
+            announceRecordingMeta()
 
             await expectLogic(playerLogic).toDispatchActions([playerLogic.actionCreators.seekToTime(9000)])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
+        it('does not seek to a matching event that can never be rendered', async () => {
+            // everything is loaded and no full snapshot exists anywhere, so no position is renderable
+            seedSources({ 0: [inc(START), inc(MATCHING_EVENT_TS)], 1: [inc(START + 61000)] })
+
+            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
+            const matchingLogic = playerInspectorLogic(matchingProps)
+            playerLogic.mount()
+            matchingLogic.mount()
+
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            announceRecordingMeta()
+            await expectLogic(matchingLogic).toDispatchActions(['markSkippedToFirstMatchingEvent'])
+
+            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
+            expect(playerLogic.values.isSkippingToMatchingEvent).toBe(false)
 
             matchingLogic.unmount()
             playerLogic.unmount()

@@ -67,6 +67,7 @@ import { sessionRecordingExperimentContextLogic } from '../player-meta/sessionRe
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import {
     DoctorDiagnostics,
+    SeekRenderability,
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
 } from '../sessionRecordingPlayerLogic'
@@ -432,6 +433,7 @@ export interface playerInspectorLogicValues {
     experimentItems: ExperimentSessionContextItemApi[] // sessionRecordingExperimentContextLogic
     currentPlayerTime: number // sessionRecordingPlayerLogic
     doctorDiagnostics: DoctorDiagnostics | null // sessionRecordingPlayerLogic
+    seekRenderability: (timestamp: number) => SeekRenderability // sessionRecordingPlayerLogic
     skipToFirstMatchingEvent: boolean // sessionRecordingPlayerLogic
     allContextItems: InspectorListItem[]
     allItems: {
@@ -873,7 +875,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'uuidToIndex',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'doctorDiagnostics'],
+            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'doctorDiagnostics', 'seekRenderability'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
@@ -2112,7 +2114,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allItemsByItemType['events']?.length > 0,
         ],
     })),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 const group = values.displayGroups[index]
@@ -2163,12 +2165,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             const seekTime = Math.max(0, ceilMsToClosestSecond(timeInRecording) - 1000)
 
             actions.markSkippedToFirstMatchingEvent()
+
+            // Nothing can ever render there, so jumping would trade the playable start frame for a
+            // dead one. Leave the playhead alone and let the recording play from the beginning.
+            if (values.seekRenderability(values.start.valueOf() + seekTime).kind === 'unplayable') {
+                return
+            }
+
             if (seekTime > 1000) {
+                // The player clears this once the seek lands. The target often sits in a segment that
+                // hasn't loaded yet, and on a long recording resolving it can take a while.
                 actions.setSkippingToMatchingEvent(true)
-                cache.disposables.add(() => {
-                    const timerId = setTimeout(() => actions.setSkippingToMatchingEvent(false), 1500)
-                    return () => clearTimeout(timerId)
-                }, 'skippingToMatchingEvent')
             }
 
             actions.seekToTime(seekTime)

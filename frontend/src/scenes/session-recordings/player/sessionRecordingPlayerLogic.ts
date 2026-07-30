@@ -119,6 +119,10 @@ export interface RecordingViewedSummaryAnalytics {
     dropped_frames?: number
     max_frame_time_ms?: number
     total_frames?: number
+    // which player surface this was watched in — modal playback (e.g. an insight's persons modal)
+    // behaves differently to the inline player and can't otherwise be told apart in analytics
+    player_key?: string
+    player_mode?: SessionRecordingPlayerMode
 }
 
 export interface Player {
@@ -592,6 +596,7 @@ export interface sessionRecordingPlayerLogicValues {
     isScrubbing: boolean
     isSkippingInactivity: boolean
     isSkippingToMatchingEvent: boolean
+    isSkipToMatchingEventWaitingForData: boolean
     isWaitingForIngestion: boolean
     jumpTimeMs: number
     leadingUnplayableMs: number
@@ -746,6 +751,9 @@ export interface sessionRecordingPlayerLogicActions {
         windowId: number | undefined
     } // snapshotDataLogic
     allowPlayerChromeToHide: () => {
+        value: true
+    }
+    cancelSkipToMatchingEvent: () => {
         value: true
     }
     caughtAssetErrorFromIframe: (errorDetails: ResourceErrorDetails) => {
@@ -1252,6 +1260,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         allowPlayerChromeToHide: true,
         setMuted: (muted: boolean) => ({ muted }),
         setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => ({ skipToFirstMatchingEvent }),
+        cancelSkipToMatchingEvent: true,
         forcePause: true,
         createExternalReference: (integrationId: number, config: Record<string, any>) => ({
             integrationId,
@@ -1387,9 +1396,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isSkippingInactivity: [false, { setSkippingInactivity: (_, { isSkippingInactivity }) => isSkippingInactivity }],
+        // Cleared by syncPlayerState once the seek lands, or by the viewer taking over — never on a
+        // timer, which used to drop the label while the target was still resolving and leave a bare
+        // "Buffering…" with no explanation.
         isSkippingToMatchingEvent: [
             false,
-            { setSkippingToMatchingEvent: (_, { isSkippingToMatchingEvent }) => isSkippingToMatchingEvent },
+            {
+                setSkippingToMatchingEvent: (_, { isSkippingToMatchingEvent }) => isSkippingToMatchingEvent,
+                cancelSkipToMatchingEvent: () => false,
+                setPause: () => false,
+                startScrub: () => false,
+                setEndReached: () => false,
+                setPlayerError: () => false,
+            },
         ],
         scale: [
             1,
@@ -1864,6 +1883,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 currentTimestamp: number | undefined
             ): boolean =>
                 currentTimestamp != null && seekRenderability(currentTimestamp).kind === 'waitingForIngestion',
+        ],
+
+        // True while a skip to the first matching event is still waiting on the data for its target.
+        // Lets the overlay explain the wait and offer a way out instead of showing an unqualified label.
+        isSkipToMatchingEventWaitingForData: [
+            (s) => [s.isSkippingToMatchingEvent, s.seekRenderability, s.currentTimestamp],
+            (
+                isSkippingToMatchingEvent: boolean,
+                seekRenderability: (timestamp: number) => SeekRenderability,
+                currentTimestamp: number | undefined
+            ): boolean =>
+                isSkippingToMatchingEvent &&
+                currentTimestamp != null &&
+                isAwaitingMoreData(seekRenderability(currentTimestamp)),
         ],
 
         debugSnapshots: [
@@ -2389,6 +2422,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // endBuffer first, so the pause/play decision below reads the user's play intent rather than the buffering state that outranks it.
             actions.endBuffer()
             actions.stopAnimation()
+            // Reaching here means the playhead is renderable, which is the only honest signal that a
+            // skip-to-matching-event seek finished — the target may have needed several data arrivals.
+            if (values.isSkippingToMatchingEvent) {
+                actions.setSkippingToMatchingEvent(false)
+            }
             // rrweb throws synchronously on malformed events it replays through — surface an error
             // state rather than letting the throw escape the listener and wedge the state machine.
             try {
@@ -2780,6 +2818,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         seekToStart: () => {
             actions.seekToTime(0)
+        },
+        cancelSkipToMatchingEvent: () => {
+            // Turning the intent off too, or the next data arrival would re-target the matching event.
+            actions.setSkipToFirstMatchingEvent(false)
+            actions.seekToTime(0, true)
         },
 
         togglePlayPause: () => {
@@ -3189,7 +3232,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, props }) => ({
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
@@ -3218,6 +3261,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     currentSegment: values.currentSegment,
                     currentPlayerTime: values.currentPlayerTime,
                     error: value,
+                    recordingDurationMs: values.sessionPlayerData?.durationMs,
+                    playerKey: props.playerKey,
+                    playerMode: props.mode ?? SessionRecordingPlayerMode.Standard,
                 })
             }
         },
@@ -3273,6 +3319,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             dropped_frames: cache.droppedFrames || undefined,
             max_frame_time_ms: cache.maxFrameTime ? Math.round(cache.maxFrameTime) : undefined,
             total_frames: cache.frameCount || undefined,
+            player_key: props.playerKey,
+            player_mode: props.mode ?? SessionRecordingPlayerMode.Standard,
         }
 
         posthog.capture(

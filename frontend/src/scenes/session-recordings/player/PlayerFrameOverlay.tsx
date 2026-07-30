@@ -69,9 +69,15 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 }
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion } =
-        useValues(sessionRecordingPlayerLogic)
-    const { setPlay } = useActions(sessionRecordingPlayerLogic)
+    const {
+        currentPlayerState,
+        endReached,
+        logicProps,
+        playerError,
+        isWaitingForIngestion,
+        isSkipToMatchingEventWaitingForData,
+    } = useValues(sessionRecordingPlayerLogic)
+    const { setPlay, cancelSkipToMatchingEvent } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
         e.stopPropagation()
@@ -156,7 +162,30 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
     if (currentPlayerState === SessionPlayerState.SKIP_TO_MATCHING_EVENT) {
-        content = <div className="text-3xl italic font-medium text-white">Skipping to filtered event</div>
+        content = (
+            <div className="flex flex-col items-center gap-2 text-center text-white">
+                <div className="text-3xl italic font-medium">Skipping to filtered event</div>
+                {isSkipToMatchingEventWaitingForData && (
+                    <>
+                        <div className="text-sm max-w-100">
+                            Still loading the part of the recording where the event happened. Long recordings can take a
+                            while.
+                        </div>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            data-attr="replay-overlay-play-from-start"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                cancelSkipToMatchingEvent()
+                            }}
+                        >
+                            Play from the start
+                        </LemonButton>
+                    </>
+                )}
+            </div>
+        )
     }
     return content ? (
         <div
