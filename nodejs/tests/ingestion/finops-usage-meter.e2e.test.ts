@@ -55,9 +55,10 @@ describe('FinopsUsageMeter E2E', () => {
                 'group.id': `finops-usage-meter-e2e-${Date.now()}-${Math.random().toString(16).slice(2)}`,
                 'metadata.broker.list': (defaultConfig.KAFKA_HOSTS || '').split(',').join(','),
                 'enable.auto.commit': false,
-                'auto.offset.reset': 'earliest',
             },
-            {}
+            // auto.offset.reset is a topic-level config; a fresh group reads from the start so
+            // the meter produced before the consumer joined is still delivered.
+            { 'auto.offset.reset': 'earliest' }
         )
         await new Promise<void>((resolve, reject) => {
             consumer.on('ready', () => resolve())
