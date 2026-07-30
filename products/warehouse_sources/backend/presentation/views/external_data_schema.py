@@ -243,6 +243,8 @@ def _apply_primary_key_columns(
 
 
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
+
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
