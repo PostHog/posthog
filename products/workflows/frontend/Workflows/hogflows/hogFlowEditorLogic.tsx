@@ -1929,8 +1929,8 @@ export interface hogFlowEditorLogicActions {
         oldEdge: HogFlowActionEdge,
         newConnection: Connection
     ) => {
-        oldEdge: HogFlowActionEdge
         newConnection: Connection
+        oldEdge: HogFlowActionEdge
     }
     resetFlowFromHogFlow: (hogFlow: HogFlow) => {
         hogFlow: HogFlow
