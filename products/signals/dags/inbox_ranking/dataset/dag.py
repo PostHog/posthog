@@ -31,7 +31,8 @@ import pyarrow as pa
 
 from posthog import settings
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries
+from posthog.dags.common import dagster_tags
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT, EMBEDDING_RENDERING
@@ -54,7 +55,9 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
     LABELED_REPORT_IDS_SQL,
+    REPORT_EMBEDDINGS_QUERY_SETTINGS,
     REPORT_EMBEDDINGS_SQL,
+    etl_workload,
     hogql_rows,
     labels_team,
     merge_label_streams,
@@ -73,7 +76,17 @@ COMMON_ASSET_KWARGS: dict[str, Any] = {
     "group_name": "inbox_ranking",
     "partitions_def": partition_def,
     "tags": owner_tags,
+    # Transient ClickHouse/S3 blips shouldn't fail the daily partition outright.
+    "retry_policy": dagster.RetryPolicy(max_retries=2, delay=60),
 }
+
+
+def _tag_dagster_queries(context: dagster.AssetExecutionContext) -> None:
+    """Stamp product + dagster run tags into the thread's query tags so every ClickHouse query
+    this asset issues (sync_execute and HogQL alike) is attributable in system.query_log."""
+    tag_queries(product=Product.SIGNALS)
+    get_query_tags().with_dagster(dagster_tags(context))
+
 
 _TIMESTAMP = pa.timestamp("us", tz="UTC")
 
@@ -251,6 +264,7 @@ def _artefact_judgments(report_ids: list[str]) -> dict[str, dict[str, str | None
 def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
+    _tag_dagster_queries(context)
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
@@ -352,24 +366,26 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
 def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
+    _tag_dagster_queries(context)
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
 
-    with tags_context(product=Product.SIGNALS):
-        results = cast(
-            list[tuple[Any, ...]],
-            sync_execute(
-                REPORT_EMBEDDINGS_SQL,
-                {
-                    "product": EMBEDDING_PRODUCT,
-                    "document_type": EMBEDDING_DOCUMENT_TYPE,
-                    "rendering": EMBEDDING_RENDERING,
-                    "snapshot_end": snapshot_end.replace(tzinfo=None),
-                },
-            )
-            or [],
+    results = cast(
+        list[tuple[Any, ...]],
+        sync_execute(
+            REPORT_EMBEDDINGS_SQL,
+            {
+                "product": EMBEDDING_PRODUCT,
+                "document_type": EMBEDDING_DOCUMENT_TYPE,
+                "rendering": EMBEDDING_RENDERING,
+                "snapshot_end": snapshot_end.replace(tzinfo=None),
+            },
+            settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
+            workload=etl_workload(),
         )
+        or [],
+    )
 
     rows: list[dict[str, Any]] = []
     tombstones = 0
@@ -406,6 +422,7 @@ def inbox_report_embeddings(context: dagster.AssetExecutionContext) -> None:
 def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     if skip_unconfigured(context):
         return
+    _tag_dagster_queries(context)
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     team = labels_team()

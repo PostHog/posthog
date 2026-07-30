@@ -14,9 +14,11 @@ from typing import Any
 import dagster
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
+from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
 from products.signals.dags.inbox_ranking.common import LABELS_EPOCH, ensure_utc
@@ -39,6 +41,12 @@ def labels_team() -> Team:
         )
 
 
+def etl_workload() -> Workload:
+    """Route ETL reads to the offline cluster replicas on Cloud so they never compete with
+    customer-facing queries; local and self-hosted deployments have no offline cluster."""
+    return Workload.OFFLINE if is_cloud() else Workload.DEFAULT
+
+
 def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.datetime) -> list[tuple[Any, ...]]:
     response = execute_hogql_query(
         query=sql,
@@ -49,6 +57,10 @@ def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.
             "snapshot_end": ast.Constant(value=snapshot_end.strftime("%Y-%m-%d %H:%M:%S")),
         },
         limit_context=LimitContext.SAVED_QUERY,
+        workload=etl_workload(),
+        # The label window grows cumulatively from LABELS_EPOCH, so these aggregates need more
+        # than the 60s HogQL default; the sort key (team, date, event) keeps the scan bounded.
+        settings=HogQLGlobalSettings(max_execution_time=600),
         # The dag runs without a user; the read is a trusted internal ETL over the dogfood project.
         bypass_warehouse_access_control=True,
     )
@@ -94,6 +106,19 @@ WHERE report_id != ''
 # but a backfill run after a re-embedding or tombstone superseded the vector that existed on the
 # snapshot day can return no row for it. embedding_inserted_at lineage records which version each
 # row actually carries.
+#
+# Index reality: the sharded table orders by (team_id, toDate(timestamp), product, document_type,
+# rendering, ...) and this cross-team query has no team_id prefix, so it scans the whole table.
+# That is acceptable because the 3-month TTL bounds the table and PREWHERE filters the small
+# string columns before the wide embedding column is read; the settings below cap the blast
+# radius and keep the distributed GROUP BY (1536-float argMax states) memory-efficient.
+REPORT_EMBEDDINGS_QUERY_SETTINGS: dict[str, int] = {
+    "max_execution_time": 600,
+    "max_memory_usage": 20 * 1024**3,
+    "max_bytes_before_external_group_by": 10 * 1024**3,
+    "distributed_aggregation_memory_efficient": 1,
+}
+
 REPORT_EMBEDDINGS_SQL = f"""
 SELECT
     team_id,
