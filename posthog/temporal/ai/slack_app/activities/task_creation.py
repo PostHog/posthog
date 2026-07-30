@@ -9,6 +9,7 @@ import structlog
 from temporalio import activity
 
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.team import Team
 from posthog.temporal.ai.slack_app.attachments import (
     PreparedSlackAttachments,
     build_slack_attachment_prompt_text,
@@ -261,6 +262,26 @@ def _upload_prepared_slack_attachments(
     return uploaded, skipped_messages
 
 
+def _core_memory_block_for_mention(team: Team, user_id: int) -> str:
+    """Render the team's project memory for the mention prompt, or "" if it can't be loaded.
+
+    Memory is a quality input, not a prerequisite — a lookup failure must degrade to a
+    memory-less answer rather than kill the mention.
+    """
+    from posthog.models.user import User
+
+    from products.posthog_ai.backend.services.core_memory import build_core_memory_block
+
+    try:
+        user = User.objects.filter(pk=user_id).only("distinct_id").first()
+        if user is None:
+            return ""
+        return build_core_memory_block(team, user)
+    except Exception:
+        logger.warning("posthog_code_core_memory_load_failed", team_id=team.pk, user_id=user_id)
+        return ""
+
+
 def _build_posthog_code_task_description(
     initiator_text: str,
     thread_messages: list[dict[str, str]],
@@ -270,6 +291,7 @@ def _build_posthog_code_task_description(
     *,
     canvas_file_artifacts_enabled: bool,
     living_artifacts_enabled: bool = True,
+    core_memory_block: str = "",
 ) -> str:
     """Build the task description so the surrounding Slack thread is clearly delimited
     context up front and the initiator's @mention is the actionable prompt at the end.
@@ -294,8 +316,13 @@ def _build_posthog_code_task_description(
     `app_mention` events always carry it; if it's missing, we can't safely pick a
     single message as the initiator, so we include everything and skip the
     placeholder (the prompt below the divider still wins).
+
+    `core_memory_block` is the team's saved project memory. Slack has no system-prompt
+    channel of its own, so the memory rides in front of everything else here — it is
+    standing background for the whole thread, not part of this turn's request.
     """
     prompt = initiator_text.strip() or "Task from Slack"
+    memory_prefix = f"{core_memory_block}\n\n" if core_memory_block else ""
 
     thread_author_entry: dict[str, str] | None = None
     mentioner_entry: dict[str, str] | None = None
@@ -327,7 +354,7 @@ def _build_posthog_code_task_description(
         context_entries.pop()
 
     if not context_entries:
-        return _with_slack_delivery_constraints(
+        return memory_prefix + _with_slack_delivery_constraints(
             prompt,
             canvas_file_artifacts_enabled=canvas_file_artifacts_enabled,
             living_artifacts_enabled=living_artifacts_enabled,
@@ -380,7 +407,7 @@ def _build_posthog_code_task_description(
     roles_block = ("\n" + "\n".join(role_lines)) if role_lines else ""
     context_block = "\n".join(context_entries)
     return (
-        f"<{_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{_THREAD_CONTEXT_TAG}>"
+        f"{memory_prefix}<{_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{_THREAD_CONTEXT_TAG}>"
         f"\n\n{_with_slack_delivery_constraints(prompt, canvas_file_artifacts_enabled=canvas_file_artifacts_enabled, living_artifacts_enabled=living_artifacts_enabled)}"
     )
 
@@ -610,6 +637,7 @@ def create_posthog_code_task_for_repo_activity(
         mentioner_display_name=mentioner_display_name,
         canvas_file_artifacts_enabled=living_artifacts_enabled and _canvas_file_delivery_available(integration),
         living_artifacts_enabled=living_artifacts_enabled,
+        core_memory_block=_core_memory_block_for_mention(integration.team, user_id),
     )
 
     slack_thread_context = SlackThreadContext(
@@ -1154,6 +1182,12 @@ def _resume_task_with_new_run(
             "make your changes, commit, and push to that branch. "
             "Do NOT create a new branch or PR.]\n\n" + initial_prompt_override
         )
+
+    # A resumed run is a fresh sandbox with no history, and the override replaces the task
+    # description that carried the memory the first time round — so re-render it here.
+    core_memory_block = _core_memory_block_for_mention(integration.team, run_actor.id)
+    if core_memory_block:
+        initial_prompt_override = f"{core_memory_block}\n\n{initial_prompt_override}"
 
     extra_state["initial_prompt_override"] = initial_prompt_override
     extra_state["pending_user_message"] = initial_prompt_override

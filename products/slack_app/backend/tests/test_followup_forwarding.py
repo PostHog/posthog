@@ -570,7 +570,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
 
         task = self.Task.objects.get(team=self.team)
-        assert task.description.startswith("<slack_thread_context>")
+        # The team's project memory leads the description, so the thread context follows it.
+        assert task.description.startswith("<core_memory>")
+        assert "<slack_thread_context>" in task.description
         assert "</slack_thread_context>" in task.description
         assert task.description.endswith("do something")
 
@@ -709,9 +711,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mapping.task_id == self.task.id
 
         new_run = self.TaskRun.objects.get(id=new_run_id)
-        assert new_run.state.get("pending_user_message") == "do something"
+        # A resumed run is a fresh sandbox, and the override replaces the task description that
+        # carried the memory the first time round — so it has to be re-rendered here.
+        assert new_run.state.get("initial_prompt_override", "").startswith("<core_memory>")
+        assert new_run.state.get("pending_user_message", "").endswith("do something")
         assert new_run.state.get("pending_user_message_ts") == "1234.5679"
-        assert new_run.state.get("initial_prompt_override") == "do something"
+        assert new_run.state.get("initial_prompt_override", "").endswith("do something")
 
         # Resume path also annotates the new run with the mention-dispatch pointer.
         assert new_run.state.get("slack_mention_workflow_id") == "posthog-code-mention-T_SLACK:C123:1234.5678"
@@ -756,7 +761,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert result is True
         new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         new_run = self.TaskRun.objects.get(id=new_run_id)
-        assert new_run.state["initial_prompt_override"] == "check this run"
+        assert new_run.state["initial_prompt_override"].endswith("check this run")
         assert "check this run" in new_run.state["pending_user_message"]
         assert (
             "Slack attachment(s) available to the agent as task files: resume.txt."
@@ -1011,8 +1016,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         new_run = self.TaskRun.objects.get(id=new_run_id)
         assert mock_execute_workflow.call_args.kwargs["user_id"] == bob.id
-        assert new_run.state.get("pending_user_message") == "Bob: fix the tests"
-        assert new_run.state.get("initial_prompt_override") == "Bob: fix the tests"
+        assert new_run.state.get("pending_user_message", "").endswith("Bob: fix the tests")
+        assert new_run.state.get("initial_prompt_override", "").endswith("Bob: fix the tests")
         assert new_run.state["slack_actor_user_id"] == bob.id
         assert new_run.state["slack_actor_slack_user_id"] == "U_BOB"
 

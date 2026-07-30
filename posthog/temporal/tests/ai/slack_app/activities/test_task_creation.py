@@ -72,6 +72,28 @@ def test_build_description_includes_delivery_constraints_when_thread_has_only_in
     assert out.endswith("do something")
 
 
+@pytest.mark.parametrize(
+    "thread_messages",
+    [
+        pytest.param([], id="no_thread_context"),
+        pytest.param([{"user": "alice", "user_id": "U_ALICE", "text": "background", "ts": "1.0"}], id="thread_context"),
+    ],
+)
+def test_build_description_leads_with_core_memory_block(thread_messages):
+    # Slack gives the agent no system prompt of its own, so the description is the only channel
+    # the team's project memory can travel on — it has to survive both description shapes.
+    memory = "<core_memory>\nAcme names orgs in `organizationName`.\n</core_memory>"
+    out = _build_posthog_code_task_description(
+        "what happened?",
+        thread_messages,
+        None,
+        canvas_file_artifacts_enabled=True,
+        core_memory_block=memory,
+    )
+    assert out.startswith(f"{memory}\n\n")
+    assert out.endswith("what happened?")
+
+
 def test_build_description_falls_back_to_default_prompt_when_initiator_text_is_blank():
     out = _build_posthog_code_task_description("   ", [], None, canvas_file_artifacts_enabled=True)
     assert _SLACK_DELIVERY_CONSTRAINTS in out

@@ -5,11 +5,13 @@ its built-in prompt supplies the base identity, tools, and capabilities; PostHog
 layer in ``prompt.py`` on top. To get suffix (not override) behavior, the value is sent as the
 ``{ type: "preset", preset: "claude_code", append }`` object: the agent-server's ``buildSystemPrompt``
 keeps Claude Code's preset and appends our text (plus its own ``APPENDED_INSTRUCTIONS``), whereas a
-bare string would replace the preset entirely. Project context, groups, billing, and core memory are
-reachable via the PostHog MCP server, so they are not duplicated here; per-turn context is delivered
-separately via the ``<posthog_context>`` wrapper.
+bare string would replace the preset entirely. Project context, groups, and billing are reachable via
+the PostHog MCP server, so they are not duplicated here; per-turn context is delivered separately via
+the ``<posthog_context>`` wrapper.
 
-The service is pure over its inputs — no side effects.
+Core memory is the exception: no MCP tool exposes it, so it is appended here as a ``<core_memory>``
+block. Without it the sandbox agent runs without the team's naming, exclusions, and metric
+definitions, and reports its memory as empty.
 """
 
 from typing import Literal
@@ -17,6 +19,7 @@ from typing import Literal
 from typing_extensions import TypedDict
 
 from products.posthog_ai.backend.helpers import BaseSandboxService
+from products.posthog_ai.backend.services.core_memory import build_core_memory_block
 from products.posthog_ai.backend.services.system_prompt.prompt import POSTHOG_AI_SYSTEM_PROMPT
 
 
@@ -33,7 +36,7 @@ class ClaudeCodeSystemPrompt(TypedDict):
 
 
 class PromptService(BaseSandboxService):
-    """Provide the systemPrompt suffix for a PostHog AI sandbox Run. Stateless over its inputs."""
+    """Provide the systemPrompt suffix for a PostHog AI sandbox Run."""
 
     def build(self) -> ClaudeCodeSystemPrompt:
         """Return the PostHog AI systemPrompt as a Claude Code preset-plus-append suffix.
@@ -42,4 +45,8 @@ class PromptService(BaseSandboxService):
         ``clientConnection.newSession({ _meta: { systemPrompt } })``; the sandbox appends ``append``
         after Claude Code's own system prompt rather than replacing it.
         """
-        return {"type": "preset", "preset": "claude_code", "append": POSTHOG_AI_SYSTEM_PROMPT}
+        append = POSTHOG_AI_SYSTEM_PROMPT
+        core_memory = build_core_memory_block(self.team, self.user)
+        if core_memory:
+            append = f"{append}\n{core_memory}\n"
+        return {"type": "preset", "preset": "claude_code", "append": append}
