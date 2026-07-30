@@ -74,10 +74,15 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.41.99"
 
     def is_required(self) -> bool:
-        person_table_engine = sync_execute(
+        rows = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": "person"},
-        )[0][0]
+        )
+        if not rows:
+            # No table to convert, and this runs during Django startup — don't take boot down over it
+            return False
+
+        person_table_engine = rows[0][0]
 
         has_new_engine = "ReplicatedReplacingMergeTree" in person_table_engine and ", version)" in person_table_engine
         persons_backfill_ongoing = get_client().get(REDIS_HIGHWATERMARK_KEY) is not None

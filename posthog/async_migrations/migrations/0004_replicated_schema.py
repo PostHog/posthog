@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Optional
 
 from django.conf import settings
 
@@ -57,8 +57,15 @@ class Migration(AsyncMigrationDefinition):
     posthog_min_version = "1.36.1"
     posthog_max_version = "1.36.99"
 
-    def is_required(self):
-        return "Distributed" not in cast(str, self.get_current_engine("events"))
+    def is_required(self) -> bool:
+        engine = self.get_current_engine("events")
+        if engine is None:
+            # No `events` table to convert (ClickHouse schema not created yet). This check runs during
+            # Django startup, so returning False here keeps boot alive; `run_async_migrations` is where
+            # a genuinely missing table should block.
+            return False
+
+        return "Distributed" not in engine
 
     def get_current_engine(self, table_name: str) -> Optional[str]:
         result = sync_execute(

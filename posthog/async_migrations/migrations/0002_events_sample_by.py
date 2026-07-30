@@ -152,10 +152,15 @@ class Migration(AsyncMigrationDefinition):
         if is_cloud():
             return False
 
-        table_engine = sync_execute(
+        rows = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": EVENTS_TABLE},
-        )[0][0]
+        )
+        if not rows:
+            # No table to convert, and this runs during Django startup — don't take boot down over it
+            return False
+
+        table_engine = rows[0][0]
 
         if "Distributed" in table_engine:
             return False
