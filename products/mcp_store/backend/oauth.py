@@ -7,7 +7,6 @@ from urllib.parse import urlparse
 
 import requests
 import structlog
-import tldextract
 
 from posthog.security.url_validation import is_url_allowed
 
@@ -199,6 +198,8 @@ def _resolve_issuer(metadata: dict, expected_issuer: str) -> dict:
 
 def _registrable_domain(hostname: str) -> str | None:
     """Return the eTLD+1 (registrable domain) for a hostname, e.g. `auth.example.co.uk` -> `example.co.uk`."""
+    import tldextract  # noqa: PLC0415 — keeps the dep off the Django app-registry import path
+
     extracted = tldextract.extract(hostname)
     if not extracted.domain or not extracted.suffix:
         return None

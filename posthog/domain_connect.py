@@ -15,7 +15,6 @@ from django.conf import settings
 from django.core.cache import cache
 
 import requests
-import tldextract
 import dns.resolver
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -169,6 +168,8 @@ def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
 
     Uses the Public Suffix List via tldextract for correct TLD handling.
     """
+    import tldextract  # noqa: PLC0415 — keeps the dep off the Django startup import path
+
     full_domain = full_domain.rstrip(".")
     ext = tldextract.extract(full_domain)
     if ext.suffix:
