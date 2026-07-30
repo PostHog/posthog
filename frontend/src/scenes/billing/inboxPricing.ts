@@ -36,7 +36,11 @@ function perCreditUsd(product: BillingProductV2Type): number | null {
     if (fromProduct !== null) {
         return fromProduct
     }
-    const paidPlan = product.plans?.find((plan) => !plan.plan_key?.startsWith('free') && !plan.flat_rate)
+    // The key has to be present to say anything: `!plan_key?.startsWith('free')` is also true for a
+    // plan carrying no key at all, which would price the paywall off an unidentified plan.
+    const paidPlan = product.plans?.find(
+        (plan) => plan.plan_key && !plan.plan_key.startsWith('free') && !plan.flat_rate
+    )
     return paidPlan ? tierPriceUsd(paidPlan.tiers, paidPlan.unit_amount_usd) : null
 }
 

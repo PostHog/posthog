@@ -20,7 +20,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
  * fires is the payment-entry flow, which opens the globally mounted PaymentEntryModal (see
  * layout/GlobalModals) over the card and returns to the same URL.
  */
-export function BillingStep({ onContinue }: { onContinue: () => void }): JSX.Element {
+export function BillingStep({ onContinue, completing }: { onContinue: () => void; completing: boolean }): JSX.Element {
     const { billing, billingLoading } = useValues(billingLogic)
 
     if (!billing && billingLoading) {
@@ -45,7 +45,7 @@ export function BillingStep({ onContinue }: { onContinue: () => void }): JSX.Ele
                     <LemonButton type="secondary" to="https://posthog.com/pricing" targetBlank>
                         See pricing
                     </LemonButton>
-                    <LemonButton type="primary" status="alt" onClick={onContinue}>
+                    <LemonButton type="primary" status="alt" onClick={onContinue} loading={completing}>
                         Go to your inbox
                     </LemonButton>
                 </div>
@@ -54,7 +54,7 @@ export function BillingStep({ onContinue }: { onContinue: () => void }): JSX.Ele
     }
 
     if (billing.has_active_subscription) {
-        return <SubscribedState onContinue={onContinue} />
+        return <SubscribedState onContinue={onContinue} completing={completing} />
     }
 
     // Subscribing still activates the whole catalog (billing expands `all_products:` server-side),
@@ -69,6 +69,7 @@ export function BillingStep({ onContinue }: { onContinue: () => void }): JSX.Ele
             inboxProduct={findInboxProduct(billing.products)}
             products={billing.products}
             onContinue={onContinue}
+            completing={completing}
         />
     )
 }

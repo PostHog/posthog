@@ -174,8 +174,8 @@ export interface inboxUsageLogicMeta {
         ) => boolean
         isSubscribed: (product: BillingProductV2Type | null) => boolean
         creditsPerPr: (product: BillingProductV2Type | null) => number | null
-        pricePerPrUsd: (product: BillingProductV2Type | null, creditsPerPr: number | null) => number | null
-        freePrs: (product: BillingProductV2Type | null, creditsPerPr: number | null) => number
+        pricePerPrUsd: (product: BillingProductV2Type | null) => number | null
+        freePrs: (product: BillingProductV2Type | null) => number
         usedPrs: (
             product: BillingProductV2Type | null,
             creditsPerPr: number | null,
@@ -347,9 +347,15 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
         // billing to upgrade instead of editing a limit.
         isSubscribed: [(s) => [s.product], (product: BillingProductV2Type | null): boolean => !!product?.subscribed],
         // Credits per PR — the API's credits → PR divisor. Null means we can't safely show PRs.
-        creditsPerPr: [(s) => [s.product], deriveCreditsPerPr],
-        pricePerPrUsd: [(s) => [s.product], derivePricePerPrUsd],
-        freePrs: [(s) => [s.product], deriveFreePrs],
+        creditsPerPr: [
+            (s) => [s.product],
+            (product: BillingProductV2Type | null): number | null => deriveCreditsPerPr(product),
+        ],
+        pricePerPrUsd: [
+            (s) => [s.product],
+            (product: BillingProductV2Type | null): number | null => derivePricePerPrUsd(product),
+        ],
+        freePrs: [(s) => [s.product], (product: BillingProductV2Type | null): number => deriveFreePrs(product)],
         usedPrs: [
             (s) => [s.product, s.creditsPerPr, s.refundSummary],
             (

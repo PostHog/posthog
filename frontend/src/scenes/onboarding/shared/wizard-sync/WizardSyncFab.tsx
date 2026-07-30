@@ -105,22 +105,25 @@ export function WizardSyncFab(): JSX.Element | null {
     const syncFlagEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeCloudRun } = useValues(activeCloudRunLogic)
-    const { inlinePanelMounted } = useValues(wizardSyncUiLogic)
+    const { inlineCloudPanelMounted, inlineLocalPanelMounted } = useValues(wizardSyncUiLogic)
     // The self-driving onboarding syncs unconditionally, so its users need the detached widget too
     // once they navigate away from the install step — the sync flag only gates the legacy arm.
     const syncEnabled = syncFlagEnabled || resolveOnboardingFlowVariant(featureFlags) === 'self-driving'
 
-    // An inline install-step progress view is already showing this run, so stay out of its way. The FAB
-    // is for after the user moves on from the install step. Both inline views (cloud and local) claim
-    // the inline-panel claim, so the run is never shown in two places.
-    if (inlinePanelMounted) {
-        return null
-    }
     // Deliberately not gated on the cloud-run flag: a persisted handle is proof the run started
     // while the user was on the test arm, and a mid-experiment flag change must not strand an
     // in-flight run with no surface (and no way to dismiss it). Only STARTING runs is flag-gated.
-    if (activeCloudRun) {
+    // Checked before the inline-panel claim because that claim is made by surfaces that only ever
+    // render the *local* run: letting it win here would leave a concurrent cloud run with no
+    // progress, no cancel and no dismiss for as long as the inline surface is open.
+    if (activeCloudRun && !inlineCloudPanelMounted) {
         return <WizardSyncCloudFab handle={activeCloudRun} />
+    }
+    // An inline install-step progress view is already showing this run, so stay out of its way. The FAB
+    // is for after the user moves on from the install step. Both inline views (cloud and local) claim
+    // the inline-panel claim, so the run is never shown in two places.
+    if (inlineLocalPanelMounted || (activeCloudRun && inlineCloudPanelMounted)) {
+        return null
     }
     if (syncEnabled) {
         return <WizardSyncLocalGate />

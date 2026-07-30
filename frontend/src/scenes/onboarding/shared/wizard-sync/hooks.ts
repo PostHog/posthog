@@ -1,4 +1,4 @@
-import { useMountedLogic, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 
@@ -44,12 +44,31 @@ export function useRunElapsedSeconds(startedAt: string | null | undefined, ended
  * onboarding — those users would otherwise never be watched.
  */
 export function useSelfDrivingRunInFlight(): boolean {
+    return useSelfDrivingRunState().inFlight
+}
+
+/**
+ * The same question as `useSelfDrivingRunInFlight`, plus whether the detector has actually answered
+ * it. Callers whose wrong branch is costly — sending someone into the app mid-run — need the
+ * difference: `inFlight === false` is "no run" only once `resolved` is true, and before that it just
+ * means nobody has polled yet. The detector's first poll is jittered up to 30s, so that window is
+ * long enough to matter, which is why mounting here also asks for a targeted check.
+ */
+export function useSelfDrivingRunState(): { inFlight: boolean; resolved: boolean } {
     useMountedLogic(wizardActiveSessionDetectorLogic)
-    const { activeWorkflowId } = useValues(wizardActiveSessionDetectorLogic)
+    const { activeWorkflowId, hasResolvedSessionState } = useValues(wizardActiveSessionDetectorLogic)
+    const { check } = useActions(wizardActiveSessionDetectorLogic)
 
     useEffect(() => watchWorkflowWhileMounted(SELF_DRIVING_WORKFLOW_ID), [])
+    useEffect(() => {
+        if (!hasResolvedSessionState) {
+            check()
+        }
+        // Mount-only: a later unresolved state means a poll is already in flight or scheduled.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
-    return activeWorkflowId === SELF_DRIVING_WORKFLOW_ID
+    return { inFlight: activeWorkflowId === SELF_DRIVING_WORKFLOW_ID, resolved: hasResolvedSessionState }
 }
 
 /**

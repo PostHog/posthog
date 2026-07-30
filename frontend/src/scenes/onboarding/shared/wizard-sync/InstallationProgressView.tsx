@@ -52,9 +52,9 @@ export function InstallationProgressView({
         if (floating) {
             return
         }
-        claimInlinePanel()
-        return () => releaseInlinePanel()
-    }, [floating, claimInlinePanel, releaseInlinePanel])
+        claimInlinePanel(mode)
+        return () => releaseInlinePanel(mode)
+    }, [floating, mode, claimInlinePanel, releaseInlinePanel])
 
     const runKey = mode === 'cloud' ? runId : latestSession?.session_id
     const completed = installationProgress.phase === 'completed'

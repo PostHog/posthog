@@ -7,7 +7,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useSelfDrivingRunInFlight } from 'scenes/onboarding/shared/wizard-sync/hooks'
+import { useSelfDrivingRunState } from 'scenes/onboarding/shared/wizard-sync/hooks'
 import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
@@ -215,13 +215,22 @@ function ConnectedView({
  * bounced there by the onboarding gate, and an onboarded one is pulled away from the run mid-flight.
  */
 function ConnectedNextStep(): JSX.Element {
-    const wizardRunInFlight = useSelfDrivingRunInFlight()
+    const { inFlight, resolved } = useSelfDrivingRunState()
 
-    if (wizardRunInFlight) {
+    // Until the detector answers, assume the run: this page is reached by clicking through a
+    // provider's consent screen, which is overwhelmingly something a run sent the user off to do,
+    // and offering the app as the primary action is the one outcome that is wrong on every wizard
+    // path. The link below still gets anyone who arrived some other way where they wanted to go.
+    if (inFlight || !resolved) {
         return (
-            <p className="text-secondary text-center m-0">
-                Head back to your terminal. The setup agent picks up from here.
-            </p>
+            <div className="flex flex-col items-center gap-2">
+                <p className="text-secondary text-center m-0">
+                    Head back to your terminal. The setup agent picks up from here.
+                </p>
+                <LemonButton type="tertiary" size="small" to={urls.projectHomepage()}>
+                    Go to PostHog
+                </LemonButton>
+            </div>
         )
     }
 

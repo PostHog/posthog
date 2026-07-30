@@ -21,11 +21,14 @@ export function PlanChoice({
     inboxProduct,
     products,
     onContinue,
+    completing,
 }: {
     platformProduct: BillingProductV2Type | null
     inboxProduct: BillingProductV2Type | null
     products: BillingProductV2Type[] | undefined
     onContinue: () => void
+    /** The free pick finishes onboarding, which writes to the team before navigating. */
+    completing: boolean
 }): JSX.Element {
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
     const { reportSelfDrivingOnboardingPlanSelected } = useActions(onboardingEventUsageLogic)
@@ -63,6 +66,7 @@ export function PlanChoice({
                         fullWidth
                         center
                         onClick={continueFree}
+                        loading={completing}
                         data-attr="self-driving-onboarding-free"
                     >
                         Start free

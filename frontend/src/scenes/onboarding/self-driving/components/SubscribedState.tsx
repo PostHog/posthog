@@ -1,7 +1,13 @@
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 /** The billing step's short-circuit for a team that already subscribed: confirm and move on. */
-export function SubscribedState({ onContinue }: { onContinue: () => void }): JSX.Element {
+export function SubscribedState({
+    onContinue,
+    completing,
+}: {
+    onContinue: () => void
+    completing: boolean
+}): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <LemonBanner type="success">
@@ -11,7 +17,7 @@ export function SubscribedState({ onContinue }: { onContinue: () => void }): JSX
                 </p>
             </LemonBanner>
             <p className="text-xs text-muted m-0">Change or cancel any time from billing settings.</p>
-            <LemonButton type="primary" status="alt" onClick={onContinue} className="self-end">
+            <LemonButton type="primary" status="alt" onClick={onContinue} loading={completing} className="self-end">
                 Go to your inbox
             </LemonButton>
         </div>

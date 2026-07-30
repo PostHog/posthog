@@ -21,10 +21,11 @@ export function InstallationCard({ workflowId }: { workflowId: string }): JSX.El
     const { dialogOpen } = useValues(wizardSyncUiLogic)
     const { openDialog, closeDialog } = useActions(wizardSyncUiLogic)
 
-    // This card is the run's surface while the rail shows it, so the detached widget stands down.
+    // This card is the local run's surface while the rail shows it, so the detached widget stands
+    // down for that run. A cloud run in flight at the same time keeps its own surface.
     useEffect(() => {
-        claimInlinePanel()
-        return () => releaseInlinePanel()
+        claimInlinePanel('local')
+        return () => releaseInlinePanel('local')
     }, [claimInlinePanel, releaseInlinePanel])
 
     // Elapsed clock, frozen at the run's last update once it reaches a terminal phase.
@@ -54,7 +55,9 @@ export function InstallationCard({ workflowId }: { workflowId: string }): JSX.El
                         {syncHeadline(installationProgress)}
                     </span>
                 </div>
-                {detail && <p className="m-0 text-xs text-secondary truncate w-full">{detail}</p>}
+                {/* Wizard-supplied, so it can carry project detail that must not reach autocapture
+                    — and this whole card is a clickable element, whose text autocapture would take. */}
+                {detail && <p className="m-0 text-xs text-secondary truncate w-full ph-no-capture">{detail}</p>}
                 <PipStrip steps={installationProgress.steps} />
             </button>
             <WizardSyncDialog

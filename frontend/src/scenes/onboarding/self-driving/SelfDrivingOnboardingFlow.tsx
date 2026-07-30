@@ -29,7 +29,7 @@ import { WelcomeStep } from './steps/WelcomeStep'
 interface StepDef {
     id: SelfDrivingOnboardingStepId
     title: string
-    Content: (props: { onContinue: () => void }) => JSX.Element
+    Content: (props: { onContinue: () => void; completing: boolean }) => JSX.Element
     skippable?: boolean
     /** Step provides its own primary action (e.g. plan picks), so suppress the footer Continue. */
     hideContinue?: boolean
@@ -143,7 +143,11 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                             />
                         )}
                     </div>
-                    <div className="flex-1 flex items-center justify-center gap-1.5">
+                    <div
+                        className="flex-1 flex items-center justify-center gap-1.5"
+                        role="group"
+                        aria-label={`Step ${stepIndex + 1} of ${STEPS.length}`}
+                    >
                         {STEPS.map((s, i) => (
                             <div
                                 key={s.id}
@@ -160,7 +164,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
 
             {/* Scrollable middle: fade edges + hover scrollbar so tall steps don't hard-crop. */}
             <ScrollableShadows direction="vertical" styledScrollbars className="flex-1 min-h-0" contentClassName="px-1">
-                <step.Content onContinue={completeStep} />
+                <step.Content onContinue={completeStep} completing={isLast && isCompleting} />
             </ScrollableShadows>
 
             {/* Pinned footer — omitted when the step has neither Skip nor a footer Continue (it supplies

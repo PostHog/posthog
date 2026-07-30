@@ -232,12 +232,12 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
         }) => props,
     }),
     listeners(({ values }) => ({
-        // The flow always enters at the install step, so `started` carries a fixed entry point
-        // (legacy uses e.g. 'product_selection'). Earlier versions opened on a welcome step and
-        // reported `welcome` here.
+        // The flow always enters at the welcome step, so `started` carries a fixed entry point
+        // (legacy uses e.g. 'product_selection'). It has to match the `step_key` on the first
+        // `onboarding step viewed`, or funnels segmenting on it disagree with themselves.
         reportSelfDrivingOnboardingStarted: () => {
             posthog.capture('onboarding started', {
-                entry_point: 'install',
+                entry_point: 'welcome',
                 ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
             })
         },

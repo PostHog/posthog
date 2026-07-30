@@ -11,6 +11,12 @@ import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
 
+// Covers every way Stripe.js can fail to become usable: a blocked script, a network failure, or no
+// publishable key at all on an instance without Stripe configured. Only the first is worth a retry,
+// so the message offers a way out of the other two instead of looping the user on "try again".
+const STRIPE_UNAVAILABLE_MESSAGE =
+    "We couldn't load the payment form. Disable any ad blocker and reload the page. If it keeps failing, contact support."
+
 export const PaymentForm = (): JSX.Element => {
     const { stripeError, isLoading, redirectPath } = useValues(paymentEntryLogic)
     const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
@@ -26,7 +32,7 @@ export const PaymentForm = (): JSX.Element => {
         // Returning quietly leaves a button that does nothing at all, which reads as a broken app
         // and gives neither the user nor a support ticket anything to go on.
         if (!stripe || !elements) {
-            setStripeError('Payment form could not be loaded. Disable any ad blocker, reload the page, and try again.')
+            setStripeError(STRIPE_UNAVAILABLE_MESSAGE)
             posthog.captureException(new Error('payment entry stripe unavailable'), {
                 has_stripe: !!stripe,
                 has_elements: !!elements,
@@ -75,7 +81,7 @@ export const PaymentForm = (): JSX.Element => {
 
 export const PaymentEntryModal = (): JSX.Element => {
     const { clientSecret, paymentEntryModalOpen, apiError } = useValues(paymentEntryLogic)
-    const { hidePaymentEntryModal, initiateAuthorization } = useActions(paymentEntryLogic)
+    const { hidePaymentEntryModal, initiateAuthorization, setStripeError } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
 
     useEffect(() => {
@@ -91,9 +97,12 @@ export const PaymentEntryModal = (): JSX.Element => {
             // only symptom is an inert form.
             void loadStripeJs().catch((error) => {
                 posthog.captureException(new Error('payment entry stripe load failed', { cause: error }))
+                // Surfaced now rather than on the first click: otherwise the modal just shows a
+                // blank payment area, and the only way to find out is to submit it.
+                setStripeError(STRIPE_UNAVAILABLE_MESSAGE)
             })
         }
-    }, [paymentEntryModalOpen, stripePromise])
+    }, [paymentEntryModalOpen, stripePromise, setStripeError])
 
     useEffect(() => {
         if (paymentEntryModalOpen) {
