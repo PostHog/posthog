@@ -1355,6 +1355,51 @@ describe('dashboardLogic', () => {
                     })
             })
 
+            it('keeps tile data and marks the tile errored when a refresh terminates in a rejection stub', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+                const resultsBeforeRefresh = logic.values.insightTiles.map((t) => t.insight!.result)
+                expect(resultsBeforeRefresh.every((r) => r != null)).toBe(true)
+
+                // What getInsightWithRetry resolves to when the app-level concurrency limiter (or a
+                // server-side calculation error) rejects every attempt: an insight-shaped payload with
+                // no result and an errored query_status
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => ({
+                        ...insight,
+                        result: null,
+                        query_status: {
+                            id: 'rejected-query',
+                            team_id: 2,
+                            query_async: true,
+                            complete: false,
+                            error: true,
+                            error_code: null,
+                            error_message: 'concurrency_limit_exceeded',
+                        },
+                    }))
+
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.triggerDashboardRefresh()
+                    }).toFinishAllListeners()
+
+                    // The stub must not be committed as a successful refresh: tiles keep their data
+                    expect(logic.values.insightTiles.map((t) => t.insight!.result)).toEqual(resultsBeforeRefresh)
+                    // and surface an error state instead of rendering the null result as an empty insight
+                    expect(logic.values.refreshStatus[insight1.short_id]).toEqual(
+                        expect.objectContaining({ errored: true })
+                    )
+                    expect(logic.values.refreshStatus[insight2.short_id]).toEqual(
+                        expect.objectContaining({ errored: true })
+                    )
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                }
+            })
+
             it('pins the "X out of Y" denominator when a tile aborts mid-cycle and keeps siblings tracked', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
@@ -1801,6 +1846,30 @@ describe('dashboardLogic', () => {
             })
                 .toDispatchActions(['saveEditModeChanges', 'saveEditModeChangesSuccess', 'refreshDashboardItems'])
                 .toFinishAllListeners()
+        })
+
+        it('applying a variable value refreshes every tile with the new value attached to the request', async () => {
+            await mountDashboardWithVariable({})
+
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.overrideVariableValue(variableId, 'applied-value', false)
+                })
+                    .toDispatchActions(['overrideVariableValue', 'refreshDashboardItems'])
+                    .toFinishAllListeners()
+
+                expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+                const variablesOverride = getInsightWithRetrySpy.mock.calls[0][7]
+                expect(variablesOverride).toEqual({
+                    [variableId]: expect.objectContaining({ code_name: 'organization', value: 'applied-value' }),
+                })
+            } finally {
+                getInsightWithRetrySpy.mockRestore()
+            }
         })
     })
 
