@@ -95,6 +95,17 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     )
 
 
+# delta-rs runs a post-commit hook after every write/merge that, per table defaults
+# (`delta.enableExpiredLogCleanup=true`, 30-day `logRetentionDuration`), batch-deletes
+# `_delta_log` JSON files once a table's commit history crosses the retention window — via the
+# same object_store bulk DeleteObjects call that TRANSIENT_OBJECT_STORE_ERRORS guards elsewhere.
+# Our storage backend can return a DeleteObjects response delta-rs's XML parser doesn't
+# recognize ("unknown variant `Code`, expected `Deleted` or `Error`"), which fails the whole
+# commit even though the write itself already succeeded. We don't rely on this automatic
+# cleanup (nothing reads `_delta_log` history), so disable it on every commit we make.
+DISABLE_AUTO_LOG_CLEANUP = deltalake.PostCommitHookProperties(cleanup_expired_logs=False)
+
+
 def _delta_merge_spill_kwargs() -> dict[str, int]:
     """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
 
@@ -151,6 +162,7 @@ def _write_deltalake(
         mode=mode,
         schema_mode=schema_mode,
         commit_properties=commit_properties,
+        post_commithook_properties=DISABLE_AUTO_LOG_CLEANUP,
     )
 
 
@@ -626,6 +638,7 @@ class DeltaTableHelper:
                                 predicate=predicate,
                                 streamed_exec=True,
                                 commit_properties=merge_commit_properties,
+                                post_commithook_properties=DISABLE_AUTO_LOG_CLEANUP,
                                 **_delta_merge_spill_kwargs(),
                             )
                             .when_matched_update_all()
@@ -652,6 +665,7 @@ class DeltaTableHelper:
                             predicate=" AND ".join(predicate_ops),
                             streamed_exec=False,
                             commit_properties=commit_properties,
+                            post_commithook_properties=DISABLE_AUTO_LOG_CLEANUP,
                             **_delta_merge_spill_kwargs(),
                         )
                         .when_matched_update_all()
@@ -830,6 +844,7 @@ class DeltaTableHelper:
                             target_alias="target",
                             predicate=predicate,
                             streamed_exec=False,
+                            post_commithook_properties=DISABLE_AUTO_LOG_CLEANUP,
                             **_delta_merge_spill_kwargs(),
                         )
                         .when_matched_update(updates={"valid_to": "source.valid_from"})
@@ -861,6 +876,7 @@ class DeltaTableHelper:
             mode="append",
             schema_mode="merge",
             commit_properties=commit_properties,
+            post_commithook_properties=DISABLE_AUTO_LOG_CLEANUP,
         )
 
         delta_table = await self.get_delta_table()

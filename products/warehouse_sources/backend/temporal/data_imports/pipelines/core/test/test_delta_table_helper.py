@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     DELTA_MERGE_CONFLICT_RETRIES,
+    DISABLE_AUTO_LOG_CLEANUP,
     DeltaTableHelper,
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
@@ -572,6 +573,86 @@ class TestCompactTableConflictRetry:
 
         assert mock_delta.optimize.compact.call_count == 2
         mock_delta.update_incremental.assert_called_once()
+
+
+class TestPostCommitHookDisablesLogCleanup:
+    """Every delta-rs write/merge must pass post_commithook_properties=DISABLE_AUTO_LOG_CLEANUP.
+
+    delta-rs's default post-commit hook batch-deletes expired _delta_log files via the same
+    object_store DeleteObjects call our storage backend can answer with a shape delta-rs's XML
+    parser rejects ("unknown variant `Code`, expected `Deleted` or `Error`"), failing an
+    otherwise-successful commit. Regression test for that failure mode reappearing on any of
+    these call sites.
+    """
+
+    @pytest.mark.asyncio
+    async def test_write_disables_log_cleanup(self):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        data = pa.table({"id": [1, 2, 3]})
+        mock_delta = MagicMock()
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=mock_delta)),
+            patch("deltalake.write_deltalake") as mock_write,
+        ):
+            await helper.write_to_deltalake(
+                data=data, write_type="full_refresh", should_overwrite_table=False, primary_keys=None
+            )
+
+        assert mock_write.call_args.kwargs["post_commithook_properties"] is DISABLE_AUTO_LOG_CLEANUP
+
+    @parameterized.expand([("unpartitioned", False), ("partitioned", True)])
+    @pytest.mark.asyncio
+    async def test_incremental_merge_disables_log_cleanup(self, _name: str, partitioned: bool):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        helper._is_first_sync = False
+        data_dict: dict[str, Any] = {"id": pa.array([1, 2])}
+        if partitioned:
+            data_dict[PARTITION_KEY] = pa.array(["p0", "p0"])
+        data = pa.table(data_dict)
+
+        merge_builder = MagicMock()
+        merge_builder.when_matched_update_all.return_value = merge_builder
+        merge_builder.when_not_matched_insert_all.return_value = merge_builder
+        merge_builder.execute.return_value = {}
+
+        mock_delta = MagicMock()
+        mock_delta.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        mock_delta.metadata.return_value = MagicMock(partition_columns=[PARTITION_KEY] if partitioned else [])
+        mock_delta.merge = MagicMock(return_value=merge_builder)
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=mock_delta)),
+        ):
+            await helper.write_to_deltalake(
+                data=data, write_type="incremental", should_overwrite_table=False, primary_keys=["id"]
+            )
+
+        assert mock_delta.merge.call_args.kwargs["post_commithook_properties"] is DISABLE_AUTO_LOG_CLEANUP
+
+    @pytest.mark.asyncio
+    async def test_scd2_disables_log_cleanup(self):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        data = pa.table({"id": [1, 2], "valid_from": [datetime(2026, 1, 1), datetime(2026, 1, 2)]})
+
+        close_builder = MagicMock()
+        close_builder.when_matched_update.return_value = close_builder
+        close_builder.execute.return_value = {}
+
+        mock_delta = MagicMock()
+        mock_delta.merge = MagicMock(return_value=close_builder)
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=mock_delta)),
+            patch("deltalake.write_deltalake") as mock_write,
+        ):
+            await helper.write_scd2_to_deltalake(data=data, primary_keys=["id"])
+
+        assert mock_delta.merge.call_args.kwargs["post_commithook_properties"] is DISABLE_AUTO_LOG_CLEANUP
+        assert mock_write.call_args.kwargs["post_commithook_properties"] is DISABLE_AUTO_LOG_CLEANUP
 
 
 def _create_legacy_delta_table(path: str, *, partitioned: bool = False) -> deltalake.DeltaTable:
