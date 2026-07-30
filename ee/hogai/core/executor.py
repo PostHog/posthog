@@ -285,6 +285,7 @@ class AgentExecutor:
                     logger.info(
                         "Consumer disconnected mid-stream, leaving conversation stream in place",
                         conversation_id=str(self._conversation.id),
+                        chunks=chunk_count,
                     )
             span.end()
 
