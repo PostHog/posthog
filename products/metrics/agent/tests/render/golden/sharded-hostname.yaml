@@ -8,7 +8,16 @@ receivers:
                   # OpenMetrics first so exemplars (trace links) survive the scrape.
                   scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]
                   static_configs:
-                      - targets: ['app:9090']
+                      - targets: ['app:9090', 'worker:9091']
+                  # Shard 3 of 4: keep only targets that hash to this shard.
+                  relabel_configs:
+                      - source_labels: [__address__]
+                        modulus: 4
+                        target_label: __tmp_shard
+                        action: hashmod
+                      - source_labels: [__tmp_shard]
+                        regex: '3'
+                        action: keep
 
 processors:
     # Shed load instead of buffering unbounded memory when PostHog is unreachable.
