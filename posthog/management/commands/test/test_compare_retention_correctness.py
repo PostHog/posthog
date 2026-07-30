@@ -90,10 +90,12 @@ class TestJournal(TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "sweep.json.journal")
             handle = cmd._open_journal(path, scope="S")
+            assert handle is not None
             handle.write(journal_line(_row(1, "OK")) + "\n")
             handle.write('{"id": 2, "sho')
             handle.close()
             handle = cmd._open_journal(path, scope="S")
+            assert handle is not None
             handle.write(journal_line(_row(2, "OK")) + "\n")
             handle.close()
             recovered = cmd._load_journal(path, scope="S", restart=False)
