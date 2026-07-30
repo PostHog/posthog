@@ -803,6 +803,7 @@ doesn't conflict with concurrent PRs.
 - back_market
 - backblaze
 - basecamp
+- bcms
 - beehiiv
 - bexio
 - bigcommerce
@@ -868,6 +869,7 @@ doesn't conflict with concurrent PRs.
 - constant_contact
 - conta_azul
 - contentsquare
+- convonite
 - copper
 - cosmosdb
 - couchbase
@@ -1024,6 +1026,7 @@ doesn't conflict with concurrent PRs.
 - holded
 - honeybadger
 - honeycomb
+- hookdeck
 - hostaway
 - housecall_pro
 - hubplanner
