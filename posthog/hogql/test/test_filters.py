@@ -105,6 +105,7 @@ class TestFilters(BaseTest):
             f"SELECT event FROM events WHERE lessOrEquals(timestamp, toDateTime('2020-02-02 23:59:59.999999')) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+        # an explicit datetime upper bound is used verbatim and compared exclusively
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
@@ -113,7 +114,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE "
-            "and(lessOrEquals(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
@@ -129,7 +130,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE "
-            "and(lessOrEquals(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
@@ -146,7 +147,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE "
-            "and(lessOrEquals(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
+            "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
@@ -260,6 +261,7 @@ class TestFilters(BaseTest):
             ("no_date_range", HogQLFilters(properties=[])),
             ("empty_date_range", HogQLFilters(dateRange=DateRange())),
             ("rolling_date_from", HogQLFilters(dateRange=DateRange(date_from="-1h"))),
+            ("all_time_date_from", HogQLFilters(dateRange=DateRange(date_from="all"))),
         ]
     )
     def test_replace_filters_date_to_placeholder_skipped_when_open_ended(self, _name: str, filters: HogQLFilters):
@@ -271,6 +273,21 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             f"SELECT event FROM events WHERE equals(true, true) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_all_time_stays_unbounded(self):
+        # "All time" must not gain an end-of-today cap: unlike QueryDateRange (where "all" means
+        # "since the first event"), here it promises the whole table, including future-dated
+        # warehouse rows
+        with freeze_time("2020-02-15T13:37:42Z"):
+            select = replace_filters(
+                self._parse_select("SELECT event FROM events where {filters}"),
+                HogQLFilters(dateRange=DateRange(date_from="all")),
+                self.team,
+            )
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT event FROM events WHERE true LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_replace_filters_this_month_preset(self):

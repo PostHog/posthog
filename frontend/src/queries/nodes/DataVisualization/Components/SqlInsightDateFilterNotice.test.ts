@@ -16,23 +16,25 @@ describe('isAffectedByDateFilterResolutionChange', () => {
         ['relative week start', { date_from: 'wStart', date_to: null }, true],
         // affected: open-ended ranges gain an end-of-today upper bound
         ['absolute start with no end', { date_from: '2026-07-01', date_to: null }, true],
-        ['all time with no end', { date_from: 'all', date_to: null }, true],
-        // affected: date-only date_to now covers the whole day
+        // affected: date-only or relative date_to now covers the whole day
         ['date-only end', { date_from: '2026-07-01', date_to: '2026-07-24' }, true],
-        // unaffected: sub-day rolling windows are exempt from the fix
+        ['relative end', { date_from: '2026-07-01', date_to: '-3d' }, true],
+        // unaffected: "all" and sub-day rolling windows are exempt from the fix
+        ['all time with no end', { date_from: 'all', date_to: null }, false],
         ['rolling hour window', { date_from: '-1h', date_to: null }, false],
         ['rolling minute window', { date_from: '-30M', date_to: null }, false],
         // unaffected: explicit datetimes are used verbatim
         ['absolute start and datetime end', { date_from: '2026-07-01', date_to: '2026-07-24T23:59:59' }, false],
         // unaffected: no date filter in use
         ['empty date range', { date_from: null, date_to: null }, false],
-        // explicitDate disables snapping; only the new upper bound on open-ended ranges applies
+        // explicitDate disables the end-of-day snapping of date_to only; date_from still snaps
         [
             'explicit date with date-only end',
             { date_from: '2026-07-01', date_to: '2026-07-24', explicitDate: true },
             false,
         ],
         ['explicit date with no end', { date_from: '2026-07-01', date_to: null, explicitDate: true }, true],
+        ['explicit date with relative preset', { date_from: '-1mStart', date_to: '-1mEnd', explicitDate: true }, true],
     ])('%s -> %s', (_name, dateRange, expected) => {
         expect(isAffectedByDateFilterResolutionChange(hogQLQuery(FILTERED_SQL, { dateRange }))).toBe(expected)
     })

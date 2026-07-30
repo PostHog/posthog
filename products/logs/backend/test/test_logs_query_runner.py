@@ -1033,8 +1033,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-19T00:00:00Z")
     def test_time_bucket_single_day_no_boundary(self):
         """Query entirely within Dec 15 — should only return Dec 15 logs."""
-        # date_to is inclusive, so bound at the last microsecond of Dec 15 rather than Dec 16 midnight
-        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-15 23:59:59.999999Z"))
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-16 00:00:00Z"))
         self.assertIn("boundary-log-dec15-morning", bodies)
         self.assertIn("boundary-log-dec15-2359", bodies)
         self.assertIn("boundary-log-dec15-2359-last-micro", bodies)
@@ -1108,8 +1107,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2025-12-19T00:00:00Z")
     def test_time_bucket_excludes_outside_days(self):
         """Query for Dec 15 only — Dec 14 and Dec 16+ must not appear."""
-        # date_to is inclusive, so bound at the last microsecond of Dec 15 rather than Dec 16 midnight
-        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-15 23:59:59.999999Z"))
+        bodies = self._boundary_bodies(self._boundary_query("2025-12-15 00:00:00Z", "2025-12-16 00:00:00Z"))
         self.assertNotIn("boundary-log-dec14-noon", bodies)
         self.assertNotIn("boundary-log-dec16-midnight-exact", bodies)
         self.assertNotIn("boundary-log-dec17-midnight-exact", bodies)
@@ -1123,6 +1121,17 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("boundary-log-dec17-midnight-plus1us", bodies)
         self.assertIn("boundary-log-dec17-afternoon", bodies)
         self.assertNotIn("boundary-log-dec18-early", bodies)
+
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_relative_date_from_keeps_exact_window(self):
+        # "-1d" must mean exactly 24 hours back, not "since midnight yesterday": the count and
+        # sparkline runners resolve day-level presets exactly, so a midnight-snapped list would
+        # show logs the sparkline and header count say don't exist
+        bodies = self._boundary_bodies(self._boundary_query("-1d"))
+        self.assertIn("boundary-log-dec17-afternoon", bodies)
+        self.assertIn("boundary-log-dec18-early", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-exact", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-plus1us", bodies)
 
     # ── _normalize_filter_group tests ──────────────────────────────────
 

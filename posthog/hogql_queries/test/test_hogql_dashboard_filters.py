@@ -23,9 +23,7 @@ class TestHogQLDashboardFilters(BaseTest):
         query_runner = self._create_hogql_runner()
         query_runner.apply_dashboard_filters(DashboardFilter(date_from="-14d"))
 
-        assert query_runner.query.filters == HogQLFilters(
-            dateRange=DateRange(date_from="-14d", date_to=None, explicitDate=None)
-        )
+        assert query_runner.query.filters == HogQLFilters(dateRange=DateRange(date_from="-14d", date_to=None))
 
     def test_date_from_and_date_to_override_updates_whole_date_range(self):
         query_runner = self._create_hogql_runner(
@@ -34,7 +32,7 @@ class TestHogQLDashboardFilters(BaseTest):
         query_runner.apply_dashboard_filters(DashboardFilter(date_from="2024-07-07", date_to="2024-07-14"))
 
         assert query_runner.query.filters == HogQLFilters(
-            dateRange=DateRange(date_from="2024-07-07", date_to="2024-07-14", explicitDate=None)
+            dateRange=DateRange(date_from="2024-07-07", date_to="2024-07-14")
         )
 
     def test_properties_set_when_no_filters_present(self):

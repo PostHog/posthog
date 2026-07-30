@@ -94,23 +94,28 @@ class ReplaceFilters(CloningVisitor):
     def _open_ended_date_to(self) -> Optional[datetime]:
         """A missing date_to means "up to now" when a date filter is in use — matching how insights
         resolve the same range instead of leaving the query unbounded (which would include
-        future-dated rows). With no date filter at all, or with a sub-day rolling date_from
+        future-dated rows). With no date filter at all, with date_from="all" (which promises the
+        whole table, including future-dated warehouse rows), or with a sub-day rolling date_from
         ("-1h"), the range stays open-ended."""
         date_range = self.filters.dateRange if self.filters else None
-        if date_range is None or date_range.date_from is None:
+        if date_range is None or date_range.date_from is None or date_range.date_from == "all":
             return None
-        if date_range.date_from != "all":
-            _parsed_date, delta_mapping = self._parse_date_from()
-            if delta_mapping is not None and SUB_DAY_DELTA_KEYS & delta_mapping.keys():
-                return None
+        _parsed_date, delta_mapping = self._parse_date_from()
+        if delta_mapping is not None and SUB_DAY_DELTA_KEYS & delta_mapping.keys():
+            return None
         return self._current_time()
 
-    def _resolve_date_to(self) -> Optional[datetime]:
+    def _resolve_date_to(self) -> tuple[Optional[datetime], bool]:
         """Upper bound of the date range, resolved the way QueryDateRange resolves it for
         day-interval insights: relative and date-only values snap to the end of the day, and a
         missing date_to resolves to the end of today, so ranges like "This month" include all of
         today but nothing from the future. Explicit datetimes are used verbatim, relative sub-day
-        values ("-1h") stay exact, and explicitDate disables the end-of-day snapping."""
+        values ("-1h") stay exact, and explicitDate disables the end-of-day snapping.
+
+        Also returns whether the bound was snapped to an end-of-day instant. Snapped bounds land
+        on 23:59:59.999999 and must be compared inclusively to cover the whole day; exact bounds
+        keep the strict comparison so half-open windows (like the logs count-ranges bucket ends,
+        documented as exclusive) don't gain their boundary row."""
         date_range = self.filters.dateRange if self.filters else None
         date_to = date_range.date_to if date_range else None
         explicit_date = bool(date_range.explicitDate) if date_range else False
@@ -124,7 +129,7 @@ class ReplaceFilters(CloningVisitor):
                     verbatim_date = isoparse(date_to)
                     if verbatim_date.tzinfo is None:
                         verbatim_date = verbatim_date.replace(tzinfo=self.team.timezone_info)
-                    return verbatim_date
+                    return verbatim_date, False
                 except ValueError:
                     pass
             parsed_date, delta_mapping, _position = relative_date_parse_with_delta_mapping(
@@ -134,12 +139,12 @@ class ReplaceFilters(CloningVisitor):
                 team_week_start_day=self.team.week_start_day,
             )
             if delta_mapping is not None and SUB_DAY_DELTA_KEYS & delta_mapping.keys():
-                return parsed_date
+                return parsed_date, False
         if parsed_date is None:
-            return None
+            return None, False
         if explicit_date:
-            return parsed_date
-        return parsed_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            return parsed_date, False
+        return parsed_date.replace(hour=23, minute=59, second=59, microsecond=999999), True
 
     def _resolve_table(self, chain: list) -> Optional[Table]:
         """Resolve an AST field chain to the underlying database table, or None if not found."""
@@ -230,14 +235,11 @@ class ReplaceFilters(CloningVisitor):
             if found_groups:
                 timestamp_field = ast.Field(chain=["created_at"])
 
-            date_to = self._resolve_date_to()
+            date_to, date_to_inclusive = self._resolve_date_to()
             if date_to is not None:
                 exprs.append(
-                    # Inclusive, like insights compare against QueryDateRange's date_to — the resolved
-                    # end-of-day bound lands on 23:59:59.999999, so a strict `<` would drop rows at
-                    # exactly that microsecond
                     ast.CompareOperation(
-                        op=ast.CompareOperationOp.LtEq,
+                        op=ast.CompareOperationOp.LtEq if date_to_inclusive else ast.CompareOperationOp.Lt,
                         left=timestamp_field,
                         right=ast.Constant(value=date_to),
                     )
@@ -286,7 +288,7 @@ class ReplaceFilters(CloningVisitor):
 
             assert self.filters is not None
 
-            date_to = self._resolve_date_to()
+            date_to, _date_to_inclusive = self._resolve_date_to()
             if date_to is not None:
                 return ast.Constant(value=date_to)
             else:

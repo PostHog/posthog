@@ -24,16 +24,22 @@ export function isAffectedByDateFilterResolutionChange(source: HogQLQuery): bool
     if (!dateRange || (dateRange.date_from == null && dateRange.date_to == null)) {
         return false
     }
+    // "all" stays fully unbounded (no lower bound and no end-of-today cap), so it is unaffected
     const openEndedWithBoundedStart =
-        dateRange.date_to == null && dateRange.date_from != null && !SUB_DAY_RELATIVE_REGEX.test(dateRange.date_from)
+        dateRange.date_to == null &&
+        dateRange.date_from != null &&
+        dateRange.date_from !== 'all' &&
+        !SUB_DAY_RELATIVE_REGEX.test(dateRange.date_from)
+    const snappedDateFrom = dateRange.date_from != null && DAY_OR_COARSER_RELATIVE_REGEX.test(dateRange.date_from)
     if (dateRange.explicitDate) {
-        // explicitDate disables the snapping changes; only the new upper bound on open-ended ranges applies
-        return openEndedWithBoundedStart
+        // explicitDate disables end-of-day snapping of date_to only; date_from still snaps to midnight
+        return openEndedWithBoundedStart || snappedDateFrom
     }
     return (
         openEndedWithBoundedStart ||
-        (dateRange.date_from != null && DAY_OR_COARSER_RELATIVE_REGEX.test(dateRange.date_from)) ||
-        (dateRange.date_to != null && DATE_ONLY_REGEX.test(dateRange.date_to))
+        snappedDateFrom ||
+        (dateRange.date_to != null &&
+            (DATE_ONLY_REGEX.test(dateRange.date_to) || DAY_OR_COARSER_RELATIVE_REGEX.test(dateRange.date_to)))
     )
 }
 
