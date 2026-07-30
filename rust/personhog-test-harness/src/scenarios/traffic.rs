@@ -72,6 +72,12 @@ fn validate_args(args: &TrafficArgs) -> Result<()> {
     seed::validate_table_name(&args.pg_target_table)
 }
 
+/// How old a leftover row must be before the startup janitor reaps it.
+/// Far above any epoch length, so a live sibling pod's pool is never
+/// touched; far below forever, so crashed instances' rows don't
+/// accumulate.
+const STALE_ROW_AGE: Duration = Duration::from_secs(3600);
+
 pub async fn run(args: TrafficArgs) -> Result<()> {
     validate_args(&args)?;
 
@@ -95,11 +101,12 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // leader hasn't claimed partitions yet.
     sentinel_round_trip(&client, &pool, &args.pg_target_table, args.team_id).await?;
 
-    // A crashed prior run leaves rows behind (including the sentinel row
-    // just written); both teams belong to the harness, so boot from a
-    // clean slate.
+    // A crashed prior run leaves rows behind; reap the ones old enough
+    // that they cannot belong to a live sibling — a rolling restart
+    // briefly runs two bed pods against the same team, each on its own
+    // disjoint id pool, and a fresh row is the sibling's business.
     for team in [args.team_id, args.hostile_team_id] {
-        seed::cleanup_team(&pool, &args.pg_target_table, team).await?;
+        seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
     }
 
     // Hostile targets live for the process lifetime: their documents stay
@@ -236,14 +243,19 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         );
 
         // Rotate the pool: delete this epoch's persons so the next epoch
-        // starts from fresh documents.
-        seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
+        // starts from fresh documents. By id, not by team — a successor
+        // pod may already be running its own pool against this team.
+        seed::cleanup_persons(&pool, &args.pg_target_table, args.team_id, &person_ids).await?;
 
         if shutdown.load(Ordering::SeqCst) {
             tracing::info!("cleaning up and exiting");
-            for team in [args.team_id, args.hostile_team_id] {
-                seed::cleanup_team(&pool, &args.pg_target_table, team).await?;
-            }
+            seed::cleanup_persons(
+                &pool,
+                &args.pg_target_table,
+                args.hostile_team_id,
+                &hostile_ids,
+            )
+            .await?;
             return Ok(());
         }
     }
@@ -400,6 +412,14 @@ async fn sentinel_round_trip(
         );
     }
     tracing::info!("sentinel round-trip verified: router and database agree");
+    sqlx::query(&format!(
+        "DELETE FROM {table} WHERE team_id = $1 AND id = $2"
+    ))
+    .bind(team)
+    .bind(person_id)
+    .execute(pool)
+    .await
+    .context("deleting the sentinel person")?;
     Ok(())
 }
 

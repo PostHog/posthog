@@ -226,11 +226,7 @@ pub async fn run_probers(
                     }
                     Err(e) => {
                         collector.writes.record_failure();
-                        traffic_metrics::record_write_failed(
-                            traffic_metrics::LANE_PROBER,
-                            &e,
-                            stop.load(Ordering::Relaxed),
-                        );
+                        traffic_metrics::record_write_failed(traffic_metrics::LANE_PROBER, &e);
                         tracing::warn!(person_id, error = %e, "probe write failed");
                         continue;
                     }
@@ -293,11 +289,7 @@ pub async fn run_probers(
                         collector.reads.record_failure();
                         traffic_metrics::record_read_failed(
                             traffic_metrics::LANE_PROBER,
-                            if stop.load(Ordering::Relaxed) {
-                                traffic_metrics::REASON_SHUTDOWN
-                            } else {
-                                traffic_metrics::status_reason(&e)
-                            },
+                            traffic_metrics::status_reason(&e),
                         );
                         tracing::warn!(person_id, error = %e, "probe read failed");
                     }

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
 
@@ -71,6 +73,73 @@ pub async fn cleanup_team(pool: &PgPool, table: &str, team_id: i64) -> Result<u6
         .await
         .with_context(|| format!("cleaning up {table}"))?
         .rows_affected();
+    Ok(deleted)
+}
+
+/// Delete exactly the given person rows. Instance-scoped cleanup for the
+/// traffic bed: a rolling restart briefly runs two bed pods against the
+/// same team, and a team-wide delete from either tears the other's live
+/// pool out from under it — manufacturing the exact failed-write spike
+/// the bed exists to catch in the stack. Each pod's pool is a disjoint
+/// id set, so deleting by id makes overlap harmless. Person rows only:
+/// the traffic path never creates distinct-id rows (those belong to the
+/// gate's identity-service create path).
+pub async fn cleanup_persons(pool: &PgPool, table: &str, team_id: i64, ids: &[i64]) -> Result<u64> {
+    validate_table_name(table)?;
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
+    let deleted = sqlx::query(&format!(
+        "DELETE FROM {table} WHERE team_id = $1 AND id = ANY($2)"
+    ))
+    .bind(team)
+    .bind(ids)
+    .execute(pool)
+    .await
+    .with_context(|| format!("cleaning up persons in {table}"))?
+    .rows_affected();
+    Ok(deleted)
+}
+
+/// Reap a team's person rows older than `older_than` — the startup
+/// janitor for leftovers from crashed or killed instances. The age guard
+/// keeps it off a live sibling pod's fresh pool during a rolling-restart
+/// overlap, while dead instances' rows age into eligibility. The
+/// distinct-id tables are swept team-wide and unguarded: the traffic
+/// path never writes them, so any row there is a leftover from a gate
+/// run against this team. They go first — their FK references the person
+/// rows.
+pub async fn reap_stale_team_rows(
+    pool: &PgPool,
+    table: &str,
+    team_id: i64,
+    older_than: Duration,
+) -> Result<u64> {
+    validate_table_name(table)?;
+    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
+
+    sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
+        .bind(team)
+        .execute(pool)
+        .await
+        .context("deleting distinct ids")?;
+    sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
+        .bind(team)
+        .execute(pool)
+        .await
+        .context("deleting personless distinct ids")?;
+
+    let deleted = sqlx::query(&format!(
+        "DELETE FROM {table} \
+         WHERE team_id = $1 AND created_at < now() - make_interval(secs => $2)"
+    ))
+    .bind(team)
+    .bind(older_than.as_secs_f64())
+    .execute(pool)
+    .await
+    .with_context(|| format!("reaping stale rows in {table}"))?
+    .rows_affected();
     Ok(deleted)
 }
 
