@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.db.models import Q
 from django.dispatch import receiver
 from django.http import HttpRequest
@@ -133,6 +133,59 @@ REFRESH_TERMINAL_FAILURE_COUNT = 5
 
 # `config` key flagging a grant that only the legacy fallback credentials can refresh.
 CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
+
+# `config` key holding the push device-registration identity verification policy, read by the
+# push subscriptions endpoint. Owned by the customer, not by the provider credentials.
+CONFIG_PUSH_IDENTITY_VERIFICATION = "push_identity_verification"
+PUSH_IDENTITY_VERIFICATION_MODES = ("disabled", "optional", "required")
+
+
+def preserved_push_config(
+    team_id: int,
+    kind: str,
+    integration_id: str,
+    push_identity_verification: str | None,
+) -> dict:
+    """Config keys a push credential upsert must carry over rather than drop.
+
+    Connecting a push integration is an upsert, and the provider helpers rebuild `config` from the
+    credentials they were handed. Anything they don't know about would be lost, so rotating a
+    Firebase key or APNs .p8 would silently reset an enabled identity verification policy back to
+    disabled, reopening the device takeover it exists to prevent. Carry the existing value forward
+    unless the caller explicitly sets a new one.
+    """
+    if push_identity_verification is not None and push_identity_verification not in PUSH_IDENTITY_VERIFICATION_MODES:
+        raise ValidationError(
+            f"push_identity_verification must be one of: {', '.join(PUSH_IDENTITY_VERIFICATION_MODES)}"
+        )
+
+    # Serialize concurrent setup of this one integration for the rest of the caller's transaction.
+    # `select_for_update` alone only locks a row that already exists, so two first-time setups could
+    # both read "no policy" and the later write would clobber a policy the earlier one had just set.
+    # An advisory lock covers the not-yet-created case too, keyed on the integration's identity so it
+    # only serializes writers racing for the same integration. Every writer takes it, including one
+    # setting an explicit mode — otherwise it could slip its row in between a preserving writer's read
+    # and write, and have its policy dropped.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"{kind}:{integration_id}"])
+
+    if push_identity_verification is not None:
+        return {CONFIG_PUSH_IDENTITY_VERIFICATION: push_identity_verification}
+
+    existing = (
+        Integration.objects.select_for_update()
+        .filter(team_id=team_id, kind=kind, integration_id=integration_id)
+        .only("config")
+        .first()
+    )
+    existing_mode = (existing.config or {}).get(CONFIG_PUSH_IDENTITY_VERIFICATION) if existing else None
+    # Drop a stored value we don't recognize rather than carrying it forward. The push endpoint already
+    # treats an unknown mode as disabled, so preserving it would keep dead data alive indefinitely, and
+    # raising here would leave a corrupted integration unable to rotate its credentials.
+    if existing_mode not in PUSH_IDENTITY_VERIFICATION_MODES:
+        return {}
+    return {CONFIG_PUSH_IDENTITY_VERIFICATION: existing_mode} if existing_mode else {}
+
 
 # Values for the counter's `reason` label, bucketed from the OAuth error response.
 REFRESH_FAILURE_REASON_INVALID_GRANT = "invalid_grant"
@@ -1035,10 +1088,15 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "") -> str:
+    def authorize_url(cls, kind: str, token: str, next: str = "", team_id: int | None = None) -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
+        # Carry the initiating team through the OAuth round-trip. The fixed callback URL is not
+        # project-scoped, so without this the SPA re-resolves to the user's default team on
+        # reload and the integration lands on the wrong project.
         state_payload: dict[str, str] = {"next": next, "token": token}
+        if team_id is not None:
+            state_payload["team_id"] = str(team_id)
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -2260,7 +2318,13 @@ class FirebaseIntegration:
         self.integration = integration
 
     @classmethod
-    def integration_from_key(cls, key_info: dict, team_id: int, created_by: User | None = None) -> "Integration":
+    def integration_from_key(
+        cls,
+        key_info: dict,
+        team_id: int,
+        created_by: User | None = None,
+        push_identity_verification: str | None = None,
+    ) -> "Integration":
         scope = "https://www.googleapis.com/auth/firebase.messaging"
 
         try:
@@ -2273,23 +2337,26 @@ class FirebaseIntegration:
         if not project_id:
             raise ValidationError("Service account key must contain a project_id")
 
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="firebase",
-            integration_id=project_id,
-            defaults={
-                "config": {
-                    "project_id": project_id,
-                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
-                    "refreshed_at": int(time.time()),
+        # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
+        with transaction.atomic():
+            integration, created = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind="firebase",
+                integration_id=project_id,
+                defaults={
+                    "config": {
+                        **preserved_push_config(team_id, "firebase", project_id, push_identity_verification),
+                        "project_id": project_id,
+                        "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                        "refreshed_at": int(time.time()),
+                    },
+                    "sensitive_config": {
+                        "key_info": key_info,
+                        "access_token": credentials.token,
+                    },
+                    "created_by": created_by,
                 },
-                "sensitive_config": {
-                    "key_info": key_info,
-                    "access_token": credentials.token,
-                },
-                "created_by": created_by,
-            },
-        )
+            )
 
         if integration.errors:
             integration.errors = ""
@@ -2370,6 +2437,7 @@ class ApplePushIntegration:
         team_id: int,
         created_by: User | None = None,
         environment: str = "production",
+        push_identity_verification: str | None = None,
     ) -> "Integration":
         if not all([signing_key, key_id, team_id_apple, bundle_id]):
             raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
@@ -2377,22 +2445,26 @@ class ApplePushIntegration:
         if environment not in ("production", "sandbox"):
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="apns",
-            integration_id=f"{team_id_apple}.{bundle_id}",
-            defaults={
-                "config": {
-                    "team_id": team_id_apple,
-                    "bundle_id": bundle_id,
-                    "key_id": key_id,
-                    "environment": environment,
+        integration_id = f"{team_id_apple}.{bundle_id}"
+        # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
+        with transaction.atomic():
+            integration, created = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind="apns",
+                integration_id=integration_id,
+                defaults={
+                    "config": {
+                        **preserved_push_config(team_id, "apns", integration_id, push_identity_verification),
+                        "team_id": team_id_apple,
+                        "bundle_id": bundle_id,
+                        "key_id": key_id,
+                        "environment": environment,
+                    },
+                    "sensitive_config": {
+                        "signing_key": signing_key,
+                    },
                 },
-                "sensitive_config": {
-                    "signing_key": signing_key,
-                },
-            },
-        )
+            )
 
         if created and created_by is not None:
             integration.created_by = created_by

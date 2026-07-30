@@ -199,6 +199,8 @@ export const certificationsLogic = kea<certificationsLogicType>([
                 actions.loadCertificationsSuccess(
                     values.certifications.map((certification) => (certification.id === id ? updated : certification))
                 )
+                // Badges elsewhere read certification state off the shared schema, so refresh it.
+                actions.loadDatabase({ force: true })
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || failureMessage)
             } finally {
@@ -252,6 +254,8 @@ export const certificationsLogic = kea<certificationsLogicType>([
                     actions.loadCertificationsSuccess(
                         values.certifications.filter((certification) => certification.id !== id)
                     )
+                    // Badges elsewhere read certification state off the shared schema, so refresh it.
+                    actions.loadDatabase({ force: true })
                     lemonToast.success('Certification revoked')
                 } catch (error) {
                     lemonToast.error(apiErrorDetail(error) || 'Could not revoke the certification. Try again.')
