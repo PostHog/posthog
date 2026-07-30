@@ -50,7 +50,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
+    ENDPOINT_REQUIRED_PERMISSIONS as STRIPE_ENDPOINT_REQUIRED_PERMISSIONS,
     ENDPOINTS as STRIPE_ENDPOINTS,
+    NON_ENDPOINT_PERMISSIONS as STRIPE_NON_ENDPOINT_PERMISSIONS,
     WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
@@ -72,25 +74,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 STRIPE_BASE_URL = "https://dashboard.stripe.com"
 STRIPE_ACCOUNT_URL = f"{STRIPE_BASE_URL}/settings/account"
 
-# The API keys URL will pre-fill the form with the account ID, key name and also all the required permissions.
-PERMISSIONS = [
-    "rak_balance_transaction_source_read",
-    "rak_charge_read",
-    "rak_customer_read",
-    "rak_dispute_read",
-    "rak_payout_read",
-    "rak_product_read",
-    "rak_credit_note_read",
-    "rak_invoice_read",
-    "rak_plan_read",  # This is `price` in the UI, but `plan` in their API
-    "rak_coupon_read",  # Coupons is an importable table and needs its own scope; refunds ride on charge_read
-    "rak_subscription_read",
-    "rak_application_fee_read",
-    "rak_transfer_read",
-    "rak_connected_account_read",
-    "rak_payment_method_read",
-    "rak_webhook_write",
-]
+# The API keys URL pre-fills the form with the account ID, key name and every permission the source
+# needs. Derived from the per-endpoint scope map so adding a table can't quietly ship a key that
+# can't read it — see `ENDPOINT_REQUIRED_PERMISSIONS` for the naming rules.
+PERMISSIONS = sorted(
+    {permission for permission in STRIPE_ENDPOINT_REQUIRED_PERMISSIONS.values() if permission is not None}
+    | set(STRIPE_NON_ENDPOINT_PERMISSIONS)
+)
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
 
 
@@ -135,8 +125,10 @@ class StripeSource(
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
-            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payment methods**, **Payouts**, and **Products**
-            - Under the **Billing** resource type, select *read* for **Credit notes**, **Invoices**, **Prices**, and **Subscriptions**
+            - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Events**, **Payment Intents**, **Payment Links**, **Payment methods**, **Payouts**, **Products**, **Setup Intents**, and **Shipping rates**
+            - Under the **Billing** resource type, select *read* for **Billing meters**, **Coupons**, **Credit notes**, **Entitlements**, **Invoices**, **Prices**, **Promotion codes**, **Quotes**, **Subscriptions**, and **Tax rates**
+            - Under the **Checkout** resource type, select *read* for **Checkout Sessions**
+            - Under the **Radar** resource type, select *read* for **Reviews**
             - Under the **Connect** resource type, select *read* for the **entire resource**
             - Under the **Webhooks** resource type, select *write* for **Webhook endpoints** (required for automatic webhook creation)
             These permissions are automatically pre-filled in the API key creation form if you use the link above, so all you need to do is scroll down and click "Create Key".

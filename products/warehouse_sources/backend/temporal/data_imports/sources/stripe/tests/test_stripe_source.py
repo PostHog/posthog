@@ -55,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
+    ENDPOINT_REQUIRED_PERMISSIONS,
     ENDPOINTS,
     NON_PARTITIONED_ENDPOINTS,
     WEBHOOK_ONLY_ENDPOINTS,
@@ -824,6 +825,14 @@ class TestEndpointCatalogWiring:
         # get_rows raises "Stripe endpoint does not exist" for anything listed in ENDPOINTS but not
         # wired into _build_resources, failing the sync for that table only once a user enables it.
         assert endpoint in self.resources
+
+    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    def test_every_endpoint_declares_a_restricted_key_scope(self, endpoint):
+        # PERMISSIONS pre-fills the restricted-key form we hand customers. An endpoint added to
+        # ENDPOINTS without an entry here yields a key that can't read its table, and the sync then
+        # fails telling the customer to add a scope our own link never offered. `None` is a valid
+        # answer, but it has to be written down.
+        assert endpoint in ENDPOINT_REQUIRED_PERMISSIONS
 
     def test_nested_resources_declare_a_registered_parent(self):
         # _resolve_to_flat looks the parent up in the same map to pick the endpoint it probes for
