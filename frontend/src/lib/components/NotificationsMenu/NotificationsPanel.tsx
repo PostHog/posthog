@@ -74,9 +74,9 @@ export function NotificationsPanel(): JSX.Element {
                     </span>
                 )}
             </div>
-            {/* Only surface "Mark all read" when unread items sit on not-yet-loaded pages — the ones
-                already loaded get cleared by the 3s auto-mark-on-view as the user scrolls. */}
-            {!isArchivedTab && hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
+            {/* Surface "Mark all read" whenever the bell shows an unread count, so a single click
+                clears it — the 3s auto-mark-on-view only covers items the user keeps on screen. */}
+            {!isArchivedTab && inAppUnreadCount > 0 && (
                 <LemonButton
                     size="xsmall"
                     type="secondary"
