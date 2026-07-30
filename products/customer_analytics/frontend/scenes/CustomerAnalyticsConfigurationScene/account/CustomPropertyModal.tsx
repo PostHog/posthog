@@ -383,8 +383,6 @@ export function CustomPropertyModal(): JSX.Element {
     const profileTargetAvailable = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES] || isProfileTarget
     const hasExistingSource = !!editingDefinition?.source
     const noViews = !savedQueriesLoading && materializedViews.length === 0
-    // PostHog writes canonical properties and finds them by name, so the backend rejects a rename
-    // or a type change. Show that up front rather than letting the save fail.
     const isCanonical = !!editingDefinition?.is_canonical
     const canonicalReason = 'PostHog sets this property automatically, so its name and type are fixed.'
 

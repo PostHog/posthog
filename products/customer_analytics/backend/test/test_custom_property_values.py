@@ -18,7 +18,7 @@ from products.customer_analytics.backend.facade import (
     contracts,
 )
 from products.customer_analytics.backend.logic.custom_property_values import (
-    LAST_SLACK_MESSAGE_MIN_INTERVAL,
+    MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES,
     VALUE_SUGGESTIONS_LIMIT,
     CustomPropertyDefinitionNotFound,
     CustomPropertyValueConflict,
@@ -433,13 +433,13 @@ class TestRecordLastSlackMessageAt(BaseTest):
     def test_message_within_the_interval_does_not_write(self):
         self._record(self.at)
 
-        assert self._record(self.at + LAST_SLACK_MESSAGE_MIN_INTERVAL - timedelta(minutes=1)) is False
+        assert self._record(self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES - timedelta(minutes=1)) is False
         assert self._active_values() == [self.at]
         assert self._row_count() == 1
 
     def test_message_after_the_interval_supersedes_the_value(self):
         self._record(self.at)
-        later = self.at + LAST_SLACK_MESSAGE_MIN_INTERVAL
+        later = self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES
 
         assert self._record(later) is True
         assert self._active_values() == [later]
@@ -454,7 +454,7 @@ class TestRecordLastSlackMessageAt(BaseTest):
 
     @patch(f"{LOGIC_MODULE}._set_value")
     def test_losing_the_active_row_race_retries_instead_of_dropping_the_timestamp(self, mock_set_value):
-        later = self.at + LAST_SLACK_MESSAGE_MIN_INTERVAL
+        later = self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES
         mock_set_value.side_effect = [CustomPropertyValueConflict("rival won the active row"), None]
 
         assert self._record(later) is True
@@ -464,7 +464,7 @@ class TestRecordLastSlackMessageAt(BaseTest):
     def test_a_rival_storing_a_newer_value_stops_the_retry(self, mock_set_value):
         # The rival's value lands before the retry re-reads, so the retry must skip rather than
         # drag the stored value back to this older message.
-        newer = self.at + 2 * LAST_SLACK_MESSAGE_MIN_INTERVAL
+        newer = self.at + 2 * MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES
 
         def store_newer_then_conflict(**kwargs):
             self._set_active_value(newer)
@@ -472,7 +472,7 @@ class TestRecordLastSlackMessageAt(BaseTest):
 
         mock_set_value.side_effect = store_newer_then_conflict
 
-        assert self._record(self.at + LAST_SLACK_MESSAGE_MIN_INTERVAL) is False
+        assert self._record(self.at + MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES) is False
         assert self._active_values() == [newer]
         # The retry re-read the rival's value and skipped, rather than writing again.
         assert mock_set_value.call_count == 1

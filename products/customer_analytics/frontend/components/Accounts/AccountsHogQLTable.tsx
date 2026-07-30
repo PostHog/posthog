@@ -323,10 +323,6 @@ function CustomPropertyHistoryCell({
     )
 }
 
-// Which expansion tab gives a canonical property's value its context. PostHog writes these
-// values, so each one has a place in the account that explains where it came from. Keys must match
-// the backend's canonical names verbatim (CANONICAL_DISPLAY_TYPE_BY_NAME in
-// models/custom_property_definition.py) — that's what the definition is stored under.
 const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
     'Last Slack message at': 'summaries',
 }
@@ -335,9 +331,6 @@ export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi)
     return definition.is_canonical ? CANONICAL_PROPERTY_TAB[definition.name] : undefined
 }
 
-// A canonical timestamp doubles as a link into the tab that explains it — clicking the last Slack
-// message time opens the account's channel summaries. Split out from CustomPropertyCell so the
-// extra hooks only run for the cells that can navigate.
 function CanonicalTimestampCell({
     record,
     definition,

@@ -31,9 +31,9 @@ from products.customer_analytics.backend.test.factories import create_account
 
 MODULE = "products.conversations.backend.slack"
 TASKS_MODULE = "products.conversations.backend.tasks"
-# The "1700000000.000100" message ts used across the last-customer-message tests.
+MESSAGE_TS = "1700000000.000100"
 MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
-TEAMMATE_EMAIL = "<the org member's own address>"
+USE_TEAMMATE_EMAIL = "use-the-org-members-own-email"
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -471,7 +471,7 @@ class TestSlackLastCustomerMessage(BaseTest):
         event = {
             "type": "message",
             "channel": "C_CONFIG",
-            "ts": "1700000000.000100",
+            "ts": MESSAGE_TS,
             "user": "U123",
             "text": "Our exports are failing again",
             **overrides,
@@ -492,26 +492,23 @@ class TestSlackLastCustomerMessage(BaseTest):
 
     @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Customer", "email": "customer@acme.com"})
     def test_a_bound_channel_outside_the_support_channels_is_still_recorded(self, _mock_resolve):
-        # The binding is the account's slack_channel_id, which is independent of ticketing.
         other = create_account(team_id=self.team.id, name="Beta Corp", _properties={"slack_channel_id": "C_OTHER"})
 
         self._handle(channel="C_OTHER")
 
         assert self._recorded_values(other) == [MESSAGE_SENT_AT]
 
-    # TEAMMATE_EMAIL stands in for the org member's address, which isn't reachable when
-    # parameterized builds these arguments. None is an author Slack couldn't resolve.
     @parameterized.expand(
         [
             ("bot", {"bot_id": "B1"}, "customer@acme.com"),
             ("system subtype", {"subtype": "channel_join"}, "customer@acme.com"),
             ("unbound channel", {"channel": "C_UNBOUND"}, "customer@acme.com"),
-            ("posthog teammate", {}, TEAMMATE_EMAIL),
+            ("posthog teammate", {}, USE_TEAMMATE_EMAIL),
             ("unresolved author", {}, None),
         ]
     )
     def test_non_customer_messages_are_not_recorded(self, _name, overrides, email):
-        resolved = self.user.email if email == TEAMMATE_EMAIL else email
+        resolved = self.user.email if email == USE_TEAMMATE_EMAIL else email
         with patch(f"{MODULE}.resolve_slack_user", return_value={"name": "X", "email": resolved}):
             self._handle(**overrides)
 

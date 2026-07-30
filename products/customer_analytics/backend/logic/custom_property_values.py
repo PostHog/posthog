@@ -142,13 +142,7 @@ def set_account_custom_properties_by_id(
     return rows
 
 
-# Each write appends a history row and emits $account_custom_property_changed (which can start
-# workflow runs), so a busy channel must not write per message: the stored value only moves once
-# it is at least this far behind the new message.
-LAST_SLACK_MESSAGE_MIN_INTERVAL = timedelta(hours=1)
-
-# Matches _WRITE_CONFLICT_RETRIES in custom_property_sync: enough for a rival write or two, and
-# bounded so a persistent conflict can't spin.
+MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES = timedelta(hours=1)
 _LAST_SLACK_MESSAGE_WRITE_ATTEMPTS = 3
 
 
@@ -158,7 +152,7 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
     Creates the canonical definition on first write for the team — no user owns it, so
     `created_by` stays null and no activity-log entry is written. Skips the write when the stored
     value is newer than `timestamp` (Slack events can arrive out of order) or less than
-    `LAST_SLACK_MESSAGE_MIN_INTERVAL` behind it. Returns whether it wrote.
+    `MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES` behind it. Returns whether it wrote.
 
     Raises `InvalidCustomPropertyValue` when the team already has a property under the canonical
     name with a non-datetime type.
@@ -175,9 +169,7 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
             .values_list("value_datetime", flat=True)
             .first()
         )
-        # Doubles as the monotonicity guard: a stored value newer than `timestamp` makes the
-        # difference negative, so an out-of-order event never moves the value backwards.
-        if current is not None and timestamp - current < LAST_SLACK_MESSAGE_MIN_INTERVAL:
+        if current is not None and timestamp - current < MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES:
             return False
         try:
             _set_value(
@@ -188,7 +180,7 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
                 created_by_id=None,
             )
         except CustomPropertyValueConflict:
-            continue  # a concurrent write took the active row — re-read and re-decide against it
+            continue
         return True
     return False
 

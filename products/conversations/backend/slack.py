@@ -712,8 +712,6 @@ def _record_last_slack_message(
     if is_bot or not message_ts:
         return
 
-    # The facade pulls the workflows/notebooks facades with it — keep that off the module import
-    # path, which the Slack event task loads on every message.
     from products.customer_analytics.backend.facade import api as customer_analytics  # noqa: PLC0415
 
     try:
@@ -722,9 +720,7 @@ def _record_last_slack_message(
         if account is None:
             return
         slack_user = resolve_slack_user(get_slack_client(team), slack_user_id)
-        # resolve_slack_user reports a null email for any lookup failure, so an unresolved author
-        # may be a teammate. Skipping self-corrects on their next message, while crediting it to
-        # the customer also opens the throttle window and suppresses the real one behind it.
+        # An unresolved email may belong to a teammate, so treat it as one.
         email = slack_user.get("email")
         if not email or resolve_posthog_user_for_slack(email, team):
             return
