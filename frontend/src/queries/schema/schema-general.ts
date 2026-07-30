@@ -495,6 +495,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean
     pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
@@ -2474,6 +2476,12 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
+    /**
+     * Exclude persons matching the team's "internal and test account" filters.
+     * Only person-scoped filters (person properties, cohorts) are applied. Event-scoped
+     * test account filters have no meaning in a persons query and are ignored.
+     */
+    filterTestAccounts?: boolean
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     properties?: AnyPersonScopeFilter[] | PropertyGroupFilterValue
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
@@ -8234,6 +8242,14 @@ export const externalDataSources = [
     'DuckLake',
     'Starburst',
     'Easybill',
+    'Bexio',
+    'Umami',
+    'Manychat',
+    'Kickstarter',
+    'Typesense',
+    'FirstPromoter',
+    'Zero',
+    'Inth',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

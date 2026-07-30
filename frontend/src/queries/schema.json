@@ -456,6 +456,10 @@
         "ActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "filterTestAccounts": {
+                    "description": "Exclude persons matching the team's \"internal and test account\" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored.",
+                    "type": "boolean"
+                },
                 "fixedProperties": {
                     "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
@@ -24129,7 +24133,15 @@
                 "SideShift",
                 "DuckLake",
                 "Starburst",
-                "Easybill"
+                "Easybill",
+                "Bexio",
+                "Umami",
+                "Manychat",
+                "Kickstarter",
+                "Typesense",
+                "FirstPromoter",
+                "Zero",
+                "Inth"
             ],
             "type": "string"
         },
@@ -26611,6 +26623,10 @@
                     "type": "string"
                 },
                 "timings": {
+                    "type": "boolean"
+                },
+                "typeAwareCastSimplification": {
+                    "description": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
                     "type": "boolean"
                 },
                 "useMaterializedViews": {

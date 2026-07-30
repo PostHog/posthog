@@ -5151,6 +5151,14 @@ class HogQLQueryModifiers(BaseModel):
     sessionTableVersion: SessionTableVersion | None = None
     sessionsV2JoinMode: SessionsV2JoinMode | None = None
     timings: bool | None = None
+    typeAwareCastSimplification: bool | None = Field(
+        default=None,
+        description=(
+            "Remove provably redundant casts and nullability wrappers (e.g."
+            " `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull`"
+            " fallbacks) using inferred expression types"
+        ),
+    )
     useMaterializedViews: bool | None = None
     usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(
@@ -27031,6 +27039,15 @@ class SessionBatchEventsQuery(BaseModel):
 class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=None,
+        description=(
+            'Exclude persons matching the team\'s "internal and test account" filters.'
+            " Only person-scoped filters (person properties, cohorts) are applied."
+            " Event-scoped test account filters have no meaning in a persons query and"
+            " are ignored."
+        ),
     )
     fixedProperties: (
         list[

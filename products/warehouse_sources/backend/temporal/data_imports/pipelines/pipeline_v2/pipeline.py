@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     advance_xmin_state,
     cdp_producer_clear_chunks,
     cleanup_memory,
-    finalize_desc_sort_incremental_value,
     handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
     persist_primary_keys,
@@ -39,7 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     write_chunk_for_cdp_producer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
-    notify_revenue_analytics_that_sync_has_completed,
+    run_post_load_operations,
     supports_partial_data_loading,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -54,10 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-    DeltaTableHelper,
-    is_transient_object_store_error,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import setup_partitioning
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
@@ -65,13 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
-    sync_engineering_analytics_views,
-    sync_revenue_analytics_views,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
-    set_initial_sync_complete,
-    update_last_synced_at,
     validate_schema_and_update_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -282,19 +272,16 @@ class PipelineNonDLT(Generic[ResumableData]):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
             return result
         finally:
-            # Help reduce the memory footprint of each job. This is best-effort cleanup:
-            # `get_delta_table` does object-storage I/O, so a transient storage blip here
-            # must not mask the real import error from the try body — which drives
-            # retry classification and the user-facing message — nor fail an otherwise
-            # successful sync.
+            # Help reduce the memory footprint of each job. This is best-effort cleanup of
+            # whatever `get_delta_table` already cached this run — pop rather than call, so a
+            # run that failed before ever fetching the delta table (nothing to release) doesn't
+            # make a fresh, unrelated object-storage call here that can itself raise and get
+            # captured, obscuring the real import error that's already driving retry
+            # classification and the user-facing message.
             await self._logger.adebug("Cleaning up delta table helper")
-            try:
-                delta_table = await self._delta_table_helper.get_delta_table()
-                self._delta_table_helper.get_delta_table.cache_clear()
-                if delta_table:
-                    del delta_table
-            except Exception:
-                await self._logger.aexception("Failed to clean up delta table helper")
+            delta_table = self._delta_table_helper.get_delta_table.cache_pop(self._delta_table_helper)
+            if delta_table:
+                del delta_table
 
             del self._resource
             del self._delta_table_helper
@@ -447,99 +434,18 @@ class PipelineNonDLT(Generic[ResumableData]):
         )
 
     async def _post_run_operations(self, row_count: int) -> str | None:
-        delta_table = await self._delta_table_helper.get_delta_table()
-
-        if delta_table is None:
-            await self._logger.adebug("No deltalake table, not continuing with post-run ops")
-            return None
-
-        await self._logger.adebug("Triggering compaction and vacuuming on delta table")
-        try:
-            await self._delta_table_helper.compact_table()
-        except Exception as e:
-            if is_transient_object_store_error(e):
-                # A rate-limited or connectivity blip compacting/vacuuming our own S3 bucket isn't a
-                # bug - the next sync's post-run compaction retries the same idempotent cleanup.
-                await self._logger.awarning(f"Compaction skipped: transient object-store error: {e}")
-            else:
-                capture_exception(e)
-                await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
-
-        file_uris = await self._delta_table_helper.get_file_uris()
-        await self._logger.adebug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
-
-        folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        existing_queryable_folder = self._table.queryable_folder if self._table else None
-        queryable_folder = await prepare_s3_files_for_querying(
-            folder_path,
-            self._resource_name,
-            file_uris,
-            delete_existing=True,
-            existing_queryable_folder=existing_queryable_folder,
+        return await run_post_load_operations(
+            job=self._job,
+            schema=self._schema,
+            source=self._source,
+            delta_table_helper=self._delta_table_helper,
+            row_count=row_count,
+            table_schema_dict=self._internal_schema.to_hogql_types(),
+            resource_name=self._resource_name,
             logger=self._logger,
+            last_incremental_field_value=self._last_incremental_field_value,
+            resource=self._resource,
         )
-
-        await self._logger.adebug("Updating last synced at timestamp on schema")
-        await update_last_synced_at(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
-
-        if not self._schema.initial_sync_complete:
-            await self._logger.adebug("Setting initial_sync_complete on schema")
-            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
-
-        await self._logger.adebug("Notifying revenue analytics that sync has completed")
-        await notify_revenue_analytics_that_sync_has_completed(self._schema, self._source, self._logger)
-
-        await finalize_desc_sort_incremental_value(
-            self._resource, self._schema, self._last_incremental_field_value, self._logger
-        )
-
-        # For cdc_only mode, skip registering the consolidated DataWarehouseTable — only the
-        # _cdc companion table should be visible.  The DeltaLake files still exist on S3 for
-        # the seeding step to read from.
-        if not (
-            self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode == "cdc_only"
-        ):
-            await self._logger.adebug("Validating schema and updating table")
-            await validate_schema_and_update_table(
-                run_id=str(self._job.id),
-                team_id=self._job.team_id,
-                schema_id=self._schema.id,
-                table_schema_dict=self._internal_schema.to_hogql_types(),
-                row_count=row_count,
-                queryable_folder=queryable_folder,
-                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-                primary_keys=self._resource.primary_keys,
-            )
-            await self._logger.adebug("Finished validating schema and updating table")
-
-        # Seed the _cdc companion table for CDC schemas (same logic as in run_post_load_operations
-        # for the V3 pipeline — the V2 pipeline calls validate_schema_and_update_table directly
-        # and doesn't go through run_post_load_operations).
-        if self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode in (
-            "cdc_only",
-            "both",
-        ):
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
-                _seed_cdc_companion_from_snapshot,
-            )
-
-            await self._logger.ainfo("Seeding CDC companion table from snapshot (V2 pipeline)")
-            await _seed_cdc_companion_from_snapshot(
-                schema=self._schema,
-                job=self._job,
-                source=self._source,
-                snapshot_delta_table_helper=self._delta_table_helper,
-                logger=self._logger,
-            )
-            await self._logger.ainfo("Finished seeding CDC companion table from snapshot")
-
-        await self._logger.adebug("Syncing revenue analytics views")
-        await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)
-
-        await self._logger.adebug("Syncing engineering analytics views")
-        await database_sync_to_async_pool(sync_engineering_analytics_views)(self._schema, self._source)
-
-        return queryable_folder
 
 
 def _estimate_size(obj: Any) -> int:
