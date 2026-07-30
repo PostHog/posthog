@@ -6,6 +6,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -591,19 +592,23 @@ class Command(BaseCommand):
         else:
             node_type = NodeType.VIEW
         try:
-            node, _ = Node.objects.get_or_create(
-                team_id=saved_query.team_id,
-                saved_query=saved_query,
-                dag=target,
-                defaults={"name": saved_query.name, "type": node_type},
-            )
-            properties = node.properties or {}
-            properties.setdefault("system", {})[DEGRADED_SYNC_KEY] = {
-                "error": str(error)[:500],
-                "at": timezone.now().isoformat(),
-            }
-            node.properties = properties
-            node.save(update_fields=["properties"])
+            # Atomic so a failed marker save rolls the creation back too: a committed but
+            # unmarked node would make the re-run classify this query as DROP instead of
+            # retrying the move, stranding it edge-less and invisible to the marker sweep.
+            with transaction.atomic():
+                node, _ = Node.objects.get_or_create(
+                    team_id=saved_query.team_id,
+                    saved_query=saved_query,
+                    dag=target,
+                    defaults={"name": saved_query.name, "type": node_type},
+                )
+                properties = node.properties or {}
+                properties.setdefault("system", {})[DEGRADED_SYNC_KEY] = {
+                    "error": str(error)[:500],
+                    "at": timezone.now().isoformat(),
+                }
+                node.properties = properties
+                node.save(update_fields=["properties"])
             return node
         except Exception:
             logger.exception(

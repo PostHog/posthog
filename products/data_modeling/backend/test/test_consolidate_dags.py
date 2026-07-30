@@ -316,6 +316,31 @@ class TestConsolidateDags(BaseTest):
         self.assertTrue(Edge.objects.filter(dag=target, source=events, target=good_node).exists())
         self.assertIn("adopted bad_view without edges", output)
 
+    def test_adoption_failure_rolls_back_the_node(self):
+        # If the marker save fails after get_or_create committed the node, an unmarked edge-less
+        # node would survive; the re-run would then classify the query as DROP instead of
+        # retrying the move, stranding it without the marker forever. Create + mark must commit
+        # or roll back together so the re-run sees a clean MOVE to retry.
+        target = DAG.get_or_create_default(self.team)
+        source = DAG.objects.create(team=self.team, name="posthog_team")
+        bad = self._query("bad_view", "SELECT * FROM nonexistent_table_xyz")
+        self._node(source, bad)
+
+        real_save = Node.save
+
+        def failing_marker_save(node, *args, **kwargs):
+            if kwargs.get("update_fields") == ["properties"]:
+                raise RuntimeError("connection lost")
+            return real_save(node, *args, **kwargs)
+
+        with _temporal_boundary():
+            with mock.patch.object(Node, "save", autospec=True, side_effect=failing_marker_save):
+                with self.assertRaisesRegex(CommandError, "incomplete"):
+                    self._run("--adopt-unresolvable", apply=True)
+
+        self.assertTrue(DAG.objects.filter(id=source.id).exists())
+        self.assertFalse(Node.objects.filter(dag=target, saved_query=bad).exists())
+
     def test_degraded_sync_marker_cleared_when_query_resolves_again(self):
         # A stale marker after the customer fixes their SQL would make the post-fix re-sync sweep
         # (and any dashboard keyed on the marker) report a healthy node as degraded forever.
