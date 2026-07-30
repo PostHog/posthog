@@ -51,8 +51,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
-# Substrings of the `OSError`s raised talking to our own S3-backed data-warehouse bucket that are
-# transient and self-recovering, not a bug in our code or a customer credential problem:
+# Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
+# that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
 #   (IMDS/STS blips, dispatch timeouts)
 # - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
@@ -68,15 +68,40 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 
 
 def is_transient_object_store_error(error: BaseException) -> bool:
-    return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+    """True for a transient object-store error, however delta-rs happened to surface it.
+
+    `DeltaTable.is_deltatable()` raises these as a plain `OSError`, but table-level operations
+    (e.g. `vacuum()`, `optimize.compact()`) wrap the identical underlying object-store error text in
+    `deltalake.exceptions.DeltaError` instead — same blip, different exception type depending on
+    which delta-rs entry point hit it.
+    """
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
+    )
 
 
-# A merge's conflict checker raises CommitFailedError the moment a concurrent commit added data
-# the merge predicate didn't account for — unlike a plain version-bump race, delta-rs does not
-# consume max_commit_retries or retry this itself (see delta-rs kernel/transaction/conflict_checker.rs),
-# because resolving it safely requires re-reading the table and re-running the merge, which is
-# exactly what its "must be rerun" error message asks the caller to do.
+# Delta's conflict checker raises CommitFailedError the moment a concurrent commit invalidates what
+# a committing operation read — a merge predicate, or optimize.compact's file-rewrite plan — unlike a
+# plain version-bump race, delta-rs does not consume max_commit_retries or retry this itself (see
+# delta-rs kernel/transaction/conflict_checker.rs), because resolving it safely requires re-reading
+# the table and re-running the operation, which is exactly what its "must be rerun" error message
+# asks the caller to do.
 DELTA_MERGE_CONFLICT_RETRIES = 3
+
+# `optimize.compact` plans its rewrite against the file list at the start of its scan, then reads
+# those files. A concurrent maintenance pass on the same table (e.g. a Temporal activity attempt that
+# heartbeat-timed-out but keeps running as a zombie — see this package's README on the equivalent
+# unfenced race for repartition) can vacuum one of those files out from under the scan before it gets
+# read, which delta-rs surfaces as this DeltaError. The scan failing here means the optimize aborted
+# before committing anything — the table is left exactly as it was, just still fragmented — so this is
+# safe to skip and retry on the next maintenance pass, not a bug in our logic.
+TRANSIENT_DELTA_MAINTENANCE_ERRORS = ("Optimize selected-file scan failed",)
+
+
+def is_transient_delta_maintenance_error(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS
+    )
 
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
@@ -305,8 +330,14 @@ class DeltaTableHelper:
 
         delta_table_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
 
+        # Columns added here always predate their own addition: every file the table already
+        # holds was written without this column, so it must tolerate absent values on those
+        # rows. Forcing nullable regardless of the incoming batch's own nullability (which
+        # reflects only whether *this* batch happened to contain nulls) is what lets a later
+        # `optimize.compact()` read those old files at all — a non-nullable add otherwise fails
+        # compaction with "Non-nullable column '<name>' is missing from the physical schema".
         new_fields = [
-            deltalake.Field.from_arrow(field)
+            deltalake.Field.from_arrow(field.with_nullable(True))
             for field in ensure_delta_compatible_arrow_schema(schema)
             if field.name not in delta_table_schema.names
         ]
@@ -405,23 +436,24 @@ class DeltaTableHelper:
 
         return await asyncio.to_thread(delta_table.file_uris)
 
-    async def _execute_merge_with_conflict_retry(
-        self, table: deltalake.DeltaTable, merge_fn: Callable[[], dict]
+    async def _execute_with_conflict_retry(
+        self, table: deltalake.DeltaTable, operation_fn: Callable[[], dict], operation_name: str
     ) -> dict:
-        """Run a Delta merge, refreshing the table and re-running it on a commit conflict.
+        """Run a Delta operation that commits (merge, optimize.compact, ...), refreshing the table
+        and re-running it on a commit conflict.
 
         See DELTA_MERGE_CONFLICT_RETRIES for why this can't rely on delta-rs's own retry budget.
         """
         attempt = 0
         while True:
             try:
-                return await asyncio.to_thread(merge_fn)
+                return await asyncio.to_thread(operation_fn)
             except deltalake.exceptions.CommitFailedError:
                 if attempt >= DELTA_MERGE_CONFLICT_RETRIES:
                     raise
                 attempt += 1
                 await self._logger.awarning(
-                    f"write_to_deltalake: merge commit conflict, retrying with refreshed table "
+                    f"{operation_name}: commit conflict, retrying with refreshed table "
                     f"(attempt {attempt}/{DELTA_MERGE_CONFLICT_RETRIES})"
                 )
                 await asyncio.to_thread(table.update_incremental)
@@ -444,6 +476,49 @@ class DeltaTableHelper:
                 f"(keys={dedupe_keys}) from a batch of {data.num_rows} before writing"
             )
         return deduped
+
+    async def _maybe_run_deltalite_shadow(
+        self,
+        *,
+        data: pa.Table,
+        primary_keys: list[str],
+        partition_key: str | None,
+        version_before: int,
+        version_after: int | None,
+        commit_metadata: dict[str, str] | None,
+    ) -> None:
+        """Best-effort deltalite shadow verification for this incremental batch.
+
+        Checks the per-schema rollout flag, then re-applies the batch through deltalite into a
+        throwaway copy and compares to the merge result (see ``deltalite_shadow``). Wrapped so that
+        nothing here — flag eval, import, comparison — can ever raise into the real sync. Imported
+        lazily to avoid a circular import (``deltalite_shadow`` reuses ``_purge_s3_prefix``).
+        """
+        try:
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_shadow import (
+                is_deltalite_shadow_enabled,
+                run_shadow_comparison,
+            )
+
+            enabled = await database_sync_to_async_pool(is_deltalite_shadow_enabled)(
+                self._job.team_id, str(self._job.schema_id), None
+            )
+            if not enabled:
+                return
+
+            await run_shadow_comparison(
+                uri=await self._get_delta_table_uri(),
+                storage_options=self._get_credentials(),
+                data=data,
+                primary_keys=primary_keys,
+                partition_key=partition_key,
+                version_before=version_before,
+                version_after=version_after,
+                commit_metadata=commit_metadata,
+                logger=self._logger,
+            )
+        except Exception as e:  # noqa: BLE001 - shadow must never affect the sync
+            await self._logger.awarning(f"deltalite shadow wrapper errored (ignored): {e}")
 
     async def write_to_deltalake(
         self,
@@ -506,6 +581,10 @@ class DeltaTableHelper:
 
             existing_delta_table = delta_table
 
+            # Captured before the merge so the deltalite shadow (below) can time-travel to the exact
+            # pre-merge state when it re-applies this batch into a throwaway copy.
+            version_before_merge = existing_delta_table.version()
+
             await self._logger.adebug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
@@ -563,7 +642,9 @@ class DeltaTableHelper:
                             .execute()
                         )
 
-                    merge_stats = await self._execute_merge_with_conflict_retry(existing_delta_table, _do_merge)
+                    merge_stats = await self._execute_with_conflict_retry(
+                        existing_delta_table, _do_merge, "write_to_deltalake: merge"
+                    )
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
@@ -587,10 +668,32 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                merge_stats = await self._execute_merge_with_conflict_retry(
-                    existing_delta_table, lambda: _do_merge_unpartitioned(data, predicate_ops)
+                merge_stats = await self._execute_with_conflict_retry(
+                    existing_delta_table,
+                    lambda: _do_merge_unpartitioned(data, predicate_ops),
+                    "write_to_deltalake: merge",
                 )
                 await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
+
+            # deltalite shadow verification (rollout canary, phase 1). Re-applies this exact batch
+            # through the deltalite streaming upsert into a throwaway copy and compares the result to
+            # the merge above. deltalite never writes the real table; the call is best-effort and can
+            # never affect the sync. Master-switched off by default (cheap env check first), then
+            # gated per-schema by a feature flag.
+            if settings.DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED:
+                # Version the merge just produced. delta-rs advances the table in place on commit; guard
+                # against it not advancing (fall back to latest) so we never read the pre-merge state.
+                version_after_merge: int | None = existing_delta_table.version()
+                if version_after_merge is None or version_after_merge <= version_before_merge:
+                    version_after_merge = None
+                await self._maybe_run_deltalite_shadow(
+                    data=data,
+                    primary_keys=normalized_primary_keys,
+                    partition_key=PARTITION_KEY if use_partitioning else None,
+                    version_before=version_before_merge,
+                    version_after=version_after_merge,
+                    commit_metadata=commit_metadata,
+                )
         elif (
             write_type == "full_refresh"
             or (write_type == "incremental" and delta_table is None)
@@ -742,8 +845,10 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                close_stats = await self._execute_merge_with_conflict_retry(
-                    existing_delta_table, lambda: _do_scd2_close(first_per_pk, predicate)
+                close_stats = await self._execute_with_conflict_retry(
+                    existing_delta_table,
+                    lambda: _do_scd2_close(first_per_pk, predicate),
+                    "write_scd2_to_deltalake: close merge",
                 )
                 await self._logger.adebug(f"SCD2 close stats: {json.dumps(close_stats)}")
 
@@ -830,27 +935,37 @@ class DeltaTableHelper:
         """
         return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
-    async def vacuum_table(self) -> None:
-        table = await self.get_delta_table()
-        if table is None:
-            raise Exception("Deltatable not found")
-
+    async def _vacuum(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Vacuuming table...")
         vacuum_stats = await asyncio.to_thread(
             table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
 
+    async def _compact(self, table: deltalake.DeltaTable) -> None:
+        await self._logger.adebug("Compacting table...")
+        compact_stats = await self._execute_with_conflict_retry(
+            table, lambda: table.optimize.compact(), "compact_table"
+        )
+        await self._logger.adebug(json.dumps(compact_stats))
+
+    async def vacuum_table(self) -> None:
+        table = await self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        await self._vacuum(table)
+
     async def compact_table(self) -> None:
         table = await self.get_delta_table()
         if table is None:
             raise Exception("Deltatable not found")
 
-        await self._logger.adebug("Compacting table...")
-        compact_stats = await asyncio.to_thread(table.optimize.compact)
-        await self._logger.adebug(json.dumps(compact_stats))
-
-        await self.vacuum_table()
+        await self._compact(table)
+        # Reuse the table already resolved above instead of re-fetching it: `get_delta_table`
+        # is cached only opportunistically, so a re-fetch here can race a concurrent sync of a
+        # different table evicting this table's cache entry and spuriously report it missing.
+        await self._vacuum(table)
         await self._logger.adebug("Compacting and vacuuming complete")
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
@@ -889,7 +1004,7 @@ class DeltaTableHelper:
         await self._logger.ainfo(
             f"vacuum_if_stale: {commits_since} commits since last vacuum (>= {commit_threshold}), vacuuming"
         )
-        await self.vacuum_table()
+        await self._vacuum(table)
         try:
             # Observability for the maintenance path — how often tables vacuum and how much log churn
             # accrued between vacuums. Best-effort: telemetry must never break the sync.
@@ -929,7 +1044,7 @@ class DeltaTableHelper:
         arrive here with None.
 
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
-        healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
+        healthy: one S3 LIST via `table.file_uris`. Intended for pre-write defensive cleanup
         so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
         before reaching `_post_run_operations`) cleans up before adding to the pile.
         """
@@ -937,7 +1052,7 @@ class DeltaTableHelper:
         if table is None:
             return False
 
-        file_uris = await self.get_file_uris()
+        file_uris = await asyncio.to_thread(table.file_uris)
         total_files = len(file_uris)
         if partition_count is None:
             # One directory per partition value; unpartitioned tables collapse to the single
@@ -959,7 +1074,8 @@ class DeltaTableHelper:
             return False
 
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-        await self.compact_table()
+        await self._compact(table)
+        await self._vacuum(table)
         return True
 
     async def run_maintenance(

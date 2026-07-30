@@ -4,11 +4,13 @@ on:
         # Draft PRs run a narrowed jest selection; ready PRs run the full matrix
         # (the merge gate). ready_for_review re-triggers the full run on the
         # current head when a PR leaves draft. To force the full matrix on a
-        # draft, add the `run-ci-frontend` label — labeled/unlabeled re-trigger
-        # the run so it starts without needing a new push. The `no-ci` label does
-        # the opposite: it silences this workflow on a draft entirely (prototypes),
-        # until the label is removed or the PR is marked ready for review.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # draft, add the `run-ci-frontend` label. The `no-ci` label does the
+        # opposite: it silences this workflow on a draft entirely (prototypes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by
+        # name, so every unrelated label re-ran the full jest matrix against a
+        # commit CI had already covered. A label here takes effect from the next
+        # push, or from ready_for_review.
+        types: [opened, synchronize, reopened, ready_for_review]
     push:
         branches:
             - master
@@ -455,8 +457,10 @@ jobs:
             # After the base build the tree is on the BASE branch, so guard for the scripts'
             # absence (also covers branches predating a check). Budgets are surfaced
             # warn-only further down.
+            # Comment steps skip trunk-merge/**: merge-queue draft PRs are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
             - name: Clean up legacy per-check CI comments
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -467,7 +471,7 @@ jobs:
                   fi
 
             - name: Post CI report — eager graph
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -478,7 +482,7 @@ jobs:
                   fi
 
             - name: Post CI report — bundle size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -489,7 +493,7 @@ jobs:
                   fi
 
             - name: Post CI report — dist size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -500,7 +504,7 @@ jobs:
                   fi
 
             - name: Post CI report — toolbar bundle
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -581,7 +585,18 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        runs-on: ubuntu-latest
+        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on ~6% of runs
+        # on any 16 GB runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the
+        # type graph, not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS
+        # and declaration:false change nothing, and dropping all of products/ from include
+        # removes only 891 of 13703 files because imports pull them back in. 32 GB is the next
+        # rung on Depot's ladder. Talk to #team-devex before changing.
+        #
+        # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
+        # lifecycle scripts, and Depot runners inject shared cache credentials ambiently
+        # (see _rust-build-images.yml, which skips sccache creds for the same reason).
+        # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
         # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.

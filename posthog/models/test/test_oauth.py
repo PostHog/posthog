@@ -4,7 +4,7 @@ from freezegun import freeze_time
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,6 +18,7 @@ from posthog.models.oauth import (
     revoke_application_sessions,
     revoke_oauth_session,
 )
+from posthog.models.oauth_provisioning import ProvisioningConfig
 
 
 class TestOAuthModels(TestCase):
@@ -549,3 +550,33 @@ class TestOAuthModels(TestCase):
         other_app.refresh_from_db()
         self.assertEqual(app.sessions_revoked_at, timezone.now())
         self.assertIsNone(other_app.sessions_revoked_at)
+
+
+class TestCarriesProvisioningConfig(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The backfill writes a config to every row, so an ordinary OAuth app ends up with a
+            # populated blob. Owing a partner quota has to key on what the config says, or every
+            # OAuth app's refresh starts consuming the partner token-exchange bucket.
+            ("all_default_config", {"is_provisioning_partner": False, "config": ProvisioningConfig()}, False),
+            ("partner_flag", {"is_provisioning_partner": True, "config": ProvisioningConfig()}, True),
+            # An admin disabling a partner clears the flag, and its outstanding tokens must stay
+            # throttled rather than being exempted by the same action.
+            (
+                "disabled_partner",
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(disabled=True)},
+                True,
+            ),
+            (
+                "quota_recorded",
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limit_source="admin")},
+                True,
+            ),
+        ]
+    )
+    def test_carries_provisioning_config(self, _name: str, fields: dict, expected: bool) -> None:
+        app = OAuthApplication(
+            is_provisioning_partner=fields["is_provisioning_partner"],
+            _provisioning_config=fields["config"].model_dump(mode="json"),
+        )
+        assert app.carries_provisioning_config is expected

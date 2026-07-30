@@ -878,9 +878,10 @@ export const getHogFlowsReputationRetrieveUrl = (projectId: string, params?: Hog
 }
 
 /**
- * Email deliverability reputation for this project: the latest project-wide snapshot and the
- * latest recent snapshot per workflow (worst first, capped). Written daily by the Node
- * evaluator; everything is null/empty until the first run.
+ * Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
+ * the fly from app metrics: a project-wide aggregate plus per-workflow rows (worst first,
+ * capped). Display only — reputation judgment and enforcement live with AWS SES tenant
+ * management, which attributes sends per team.
  */
 export const hogFlowsReputationRetrieve = async (
     projectId: string,

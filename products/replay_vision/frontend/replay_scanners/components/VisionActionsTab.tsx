@@ -164,7 +164,7 @@ function VisionActionsTable({
                     >
                         {action.name}
                     </Link>
-                    {action.is_scanner_digest && <LemonTag type="highlight">Daily digest</LemonTag>}
+                    {action.is_scanner_digest && <LemonTag type="highlight">Featured digest</LemonTag>}
                     {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
                 </span>
             ),
