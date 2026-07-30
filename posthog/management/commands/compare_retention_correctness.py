@@ -3,8 +3,10 @@
 A stripped-down companion to ``compare_retention_legacy_vs_dwh``: no timing, no query-log
 resource stats, no HogQL embedding, no per-insight report blocks. It runs each affected
 RetentionQuery insight twice (variant OFF then ON), diffs the two result sets, and prints a
-one-line-per-mismatch summary. The expensive parts of the full tool are gone and insights are
-checked concurrently, so a correctness sweep finishes in a fraction of the time.
+one-line-per-mismatch summary. A heartbeat line every 10 insights shows elapsed time, ETA, and the
+running counts, so a long healthy (all-OK) run still shows liveness. The expensive parts of the
+full tool are gone and insights are checked concurrently, so a correctness sweep finishes in a
+fraction of the time.
 
 Concurrency is spread *across teams*, never within one. The unit of parallelism is a team: each
 team's insights are checked serially in a single lane, and up to ``--concurrency`` distinct teams
@@ -82,11 +84,12 @@ import argparse
 import threading
 import contextvars
 import dataclasses
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any, Optional
 
 from unittest.mock import patch
@@ -103,7 +106,9 @@ from posthog.hogql_queries.query_runner import get_query_runner
 # The patch path comes from the sibling command (which defines it locally, not via import) so this
 # pair of files stays runnable when copied onto a prod pod regardless of the image's vintage.
 from posthog.management.commands.compare_retention_legacy_vs_dwh import (
+    HEARTBEAT_EVERY,
     RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
+    _fmt_duration,
     attribute_variant_errors,
     classify_insight,
     compute_interval_context,
@@ -620,12 +625,16 @@ class Command(BaseCommand):
         total = len(insights)
         progress_lock = threading.Lock()
         done = 0
+        counts: Counter[str] = Counter()
+        started_at = perf_counter()
 
         def report(row: Row) -> None:
             nonlocal done
             with progress_lock:
                 done += 1
+                counts[row.status] += 1
                 self._print_progress(done, total, row)
+                self._print_heartbeat(done, total, started_at, counts)
 
         rows: list[Row] = []
         # One process-wide patch; each worker selects its variant via the ContextVar.
@@ -665,6 +674,19 @@ class Command(BaseCommand):
         style = self.style.ERROR if is_bad else self.style.WARNING
         suffix = f" — {row.detail}" if row.detail else ""
         self.stdout.write(style(f"[{done}/{total}] {row.status} {row.short_id} (team {row.team_id}){suffix}"))
+
+    def _print_heartbeat(self, done: int, total: int, started_at: float, counts: Counter[str]) -> None:
+        """Elapsed/ETA line every HEARTBEAT_EVERY insights: per-row output stays quiet on OK, so a
+        long healthy run would otherwise print nothing. Called with the progress lock held."""
+        if done != total and done % HEARTBEAT_EVERY:
+            return
+        elapsed = perf_counter() - started_at
+        eta = (elapsed / done) * (total - done)
+        errors = sum(count for status, count in counts.items() if status.startswith("ERROR"))
+        self.stdout.write(
+            f"[{done}/{total}] elapsed={_fmt_duration(elapsed)} eta={_fmt_duration(eta)} — "
+            f"ok={counts['OK']} mismatch={counts['MISMATCH']} errors={errors} skipped={counts['SKIPPED']}"
+        )
 
     def _print_summary(self, rows: list[Row]) -> None:
         counts = {status: sum(1 for r in rows if r.status == status) for status in PROGRESS_STATUSES}
