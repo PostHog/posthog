@@ -29,10 +29,13 @@ const HEALTH_TAG: Record<AwsTenantReputationHealthEnumApi, { label: string; type
 // tenant-level AWS verdict (HEALTH_TAG above) — these coarser buckets are just a triage aid for
 // spotting which workflows are pulling the project's numbers in the wrong direction.
 //
-// Thresholds sit just below AWS SES's tenant pause lines so an "elevated" rate is a heads-up
-// before AWS enforces, and "high" means the workflow is above the level AWS pauses tenant sending
-// at. If AWS updates the pause thresholds, update these to match:
-// https://docs.aws.amazon.com/ses/latest/dg/reputationdashboardmessages.html
+// Thresholds mirror SES's account-level reputation dashboard warning lines (bounce: 5% review /
+// 10% pause; complaint: 0.1% review / 0.5% pause), deliberately conservative early warnings.
+// Actual tenant enforcement (the Standard reputation policy) pauses much higher — high-severity
+// findings at >15% bounce / >1% complaint — so a "high" rate here means "fix this now", not
+// "sending is about to stop". Sources:
+// https://docs.aws.amazon.com/ses/latest/dg/reputationdashboardmessages.html (dashboard lines)
+// https://aws.amazon.com/blogs/messaging-and-targeting/implement-tenants-in-your-amazon-ses-environment-part-3-implementation-guide/ (tenant policy lines)
 const RATE_THRESHOLDS = {
     bounce: { elevated: 0.03, high: 0.05 },
     complaint: { elevated: 0.001, high: 0.005 },
@@ -65,9 +68,9 @@ function RateCell({ rate, kind }: { rate: number; kind: 'bounce' | 'complaint' }
     const elevatedPct = formatRate(RATE_THRESHOLDS[kind].elevated)
     const tooltip =
         level === 'high'
-            ? `Above ${highPct} ${label}. We may pause sending for this project at this level.`
+            ? `Above ${highPct} ${label}. This damages deliverability and, if it keeps climbing, sending for this project can be paused.`
             : level === 'elevated'
-              ? `Above ${elevatedPct} ${label}. Worth investigating before it climbs into the pause zone (${highPct}).`
+              ? `Above ${elevatedPct} ${label}. Worth investigating before it reaches ${highPct}.`
               : `Below ${elevatedPct} ${label}.`
     return (
         <Tooltip title={tooltip}>
