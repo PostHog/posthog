@@ -268,10 +268,6 @@ describe('action.conditional_branch', () => {
             expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 30 }))
         })
 
-
-
-
-
         it('records a rekey wake as advanced and consumes the one-shot flag when the merge makes the condition match', async () => {
             // A merge re-keyed this parked wait onto the survivor and woke it (rekeyWake). The re-check
             // now finds the condition true. Consuming the flag is what keeps the next re-check from
