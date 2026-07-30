@@ -102,6 +102,28 @@ class TestResolveSettlePlan:
     def test_resolves_and_clamps(self, settle, expected):
         assert resolve_settle_plan(settle) == expected
 
+    @pytest.mark.parametrize(
+        "settle,expected",
+        [
+            # Absent strategy resolves to the session default, not the trace default.
+            (None, ("inactivity", 3600, 86400)),
+            ({}, ("inactivity", 3600, 86400)),
+            # Session-sized values survive; the trace ceilings would have crushed these to 1800/7200.
+            (
+                {"strategy": "inactivity", "quiet_period_seconds": 86400, "max_age_seconds": 604800},
+                ("inactivity", 86400, 604800),
+            ),
+            ({"strategy": "inactivity", "quiet_period_seconds": 3600}, ("inactivity", 3600, 86400)),
+            # Session ceilings still clamp above their own bounds.
+            ({"strategy": "inactivity", "quiet_period_seconds": 999999}, ("inactivity", 86400, 86400)),
+            ({"strategy": "inactivity", "max_age_seconds": 9999999}, ("inactivity", 3600, 604800)),
+            ({"strategy": "fixed_window", "window_seconds": 604800}, ("fixed_window", 604800, 604800)),
+            ({"strategy": "fixed_window", "window_seconds": 9999999}, ("fixed_window", 604800, 604800)),
+        ],
+    )
+    def test_resolves_and_clamps_for_session_target(self, settle, expected):
+        assert resolve_settle_plan(settle, "session") == expected
+
 
 def _mock_activities(calls: list[str]) -> list[Any]:
     @activity.defn(name="fetch_evaluation_activity")

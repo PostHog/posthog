@@ -56,6 +56,16 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import (
+    DEFAULT_SETTLE_STRATEGY_BY_TARGET,
+    SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
+    SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
+    SESSION_EVAL_MAX_MAX_AGE_SECONDS,
+    SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MAX_WINDOW_SECONDS,
+    SESSION_EVAL_MIN_MAX_AGE_SECONDS,
+    SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MIN_WINDOW_SECONDS,
     TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
     TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -144,34 +154,53 @@ def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:
     return int(min(max(value, floor), ceiling))
 
 
-def resolve_settle_plan(settle: dict[str, Any] | None) -> tuple[str, int, int]:
+# (floor, ceiling, default) per field, per target. The workflow re-clamps what the serializer
+# already validated, so a payload written before a bound moved can never wedge the settle phase.
+_SETTLE_BOUNDS: dict[str, dict[str, tuple[int, int, int]]] = {
+    "trace": {
+        "window": (TRACE_EVAL_MIN_WINDOW_SECONDS, TRACE_EVAL_MAX_WINDOW_SECONDS, TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+        "quiet": (
+            TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
+            TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
+            TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+        ),
+        "max_age": (TRACE_EVAL_MIN_MAX_AGE_SECONDS, TRACE_EVAL_MAX_MAX_AGE_SECONDS, TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS),
+    },
+    "session": {
+        "window": (
+            SESSION_EVAL_MIN_WINDOW_SECONDS,
+            SESSION_EVAL_MAX_WINDOW_SECONDS,
+            SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
+        ),
+        "quiet": (
+            SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+            SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+            SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+        ),
+        "max_age": (
+            SESSION_EVAL_MIN_MAX_AGE_SECONDS,
+            SESSION_EVAL_MAX_MAX_AGE_SECONDS,
+            SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
+        ),
+    },
+}
+
+
+def resolve_settle_plan(settle: dict[str, Any] | None, target: str = "trace") -> tuple[str, int, int]:
     """Resolve the settle config into (strategy, primary_seconds, max_age_seconds).
 
     Deterministic and exception-free on purpose: the serializer already validated the stored
     config, so anything malformed here is a payload bug — falling back to defaults keeps a bad
     payload from wedging the workflow. max_age is coerced to cover at least one quiet period.
     """
+    bounds = _SETTLE_BOUNDS.get(target, _SETTLE_BOUNDS["trace"])
     config = settle or {}
-    if config.get("strategy") == "inactivity":
-        quiet = _clamp(
-            config.get("quiet_period_seconds"),
-            TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
-            TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
-            TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        )
-        max_age = _clamp(
-            config.get("max_age_seconds"),
-            TRACE_EVAL_MIN_MAX_AGE_SECONDS,
-            TRACE_EVAL_MAX_MAX_AGE_SECONDS,
-            TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
-        )
+    strategy = config.get("strategy") or DEFAULT_SETTLE_STRATEGY_BY_TARGET.get(target, "fixed_window")
+    if strategy == "inactivity":
+        quiet = _clamp(config.get("quiet_period_seconds"), *bounds["quiet"])
+        max_age = _clamp(config.get("max_age_seconds"), *bounds["max_age"])
         return ("inactivity", quiet, max(max_age, quiet))
-    window = _clamp(
-        config.get("window_seconds"),
-        TRACE_EVAL_MIN_WINDOW_SECONDS,
-        TRACE_EVAL_MAX_WINDOW_SECONDS,
-        TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
-    )
+    window = _clamp(config.get("window_seconds"), *bounds["window"])
     return ("fixed_window", window, window)
 
 
