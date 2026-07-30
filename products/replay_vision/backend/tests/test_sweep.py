@@ -5,8 +5,11 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from clickhouse_driver.errors import ServerException
+from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
@@ -26,8 +29,10 @@ from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestio
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
+    SWEEP_WORKFLOW_EXECUTION_TIMEOUT,
     build_process_vision_action_workflow_id,
 )
+from products.replay_vision.backend.temporal.errors import TRANSIENT_QUERY_ERROR_TYPE
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
@@ -177,6 +182,48 @@ class TestFindScannerCandidatesActivity:
             )
         assert exc_info.value.non_retryable is True
 
+    @parameterized.expand(
+        [
+            ("query_was_cancelled", ServerException("Query was cancelled.", code=394)),
+            ("socket_timeout", ServerException("Timeout exceeded while reading from socket", code=209)),
+            ("network_error", ServerException("I/O error", code=210)),
+            ("at_capacity", ClickHouseAtCapacity()),
+            ("execution_time_limit", ClickHouseQueryTimeOut()),
+        ]
+    )
+    def test_transient_clickhouse_failure_is_classified_retryable(self, _name: str, error: Exception) -> None:
+        scanner = _make_scanner()
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+        ) as MockQuery:
+            MockQuery.return_value.run.side_effect = error
+            with pytest.raises(ApplicationError) as exc_info:
+                find_scanner_candidates_activity(
+                    FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
+
+        assert exc_info.value.type == TRANSIENT_QUERY_ERROR_TYPE
+        assert exc_info.value.non_retryable is False
+
+    @parameterized.expand(
+        [
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded()),
+            ("syntax_error", ServerException("Syntax error", code=62)),
+        ]
+    )
+    def test_doomed_clickhouse_failure_is_not_classified_retryable(self, _name: str, error: Exception) -> None:
+        scanner = _make_scanner()
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+        ) as MockQuery:
+            MockQuery.return_value.run.side_effect = error
+            with pytest.raises(type(error)):
+                find_scanner_candidates_activity(
+                    FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+                )
+
 
 # advance_scanner_watermark_activity
 
@@ -252,10 +299,12 @@ class _SweepMocks:
         self.activity_results = activity_results or {}
         self.child_errors_for_ids = child_errors_for_ids or {}
         self.activity_calls: list[tuple[Any, Any]] = []
+        self.activity_options: dict[Any, dict[str, Any]] = {}
         self.child_calls: list[dict[str, Any]] = []
 
-    async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
+    async def execute_activity(self, activity_fn: Any, activity_input: Any, **options: Any) -> Any:
         self.activity_calls.append((activity_fn, activity_input))
+        self.activity_options[activity_fn] = options
         # Default to 0 in-flight (full headroom) unless a test overrides it.
         if activity_fn is count_in_flight_by_team_activity and activity_fn not in self.activity_results:
             return InFlightApplyCounts(scanner=0, team=0)
@@ -318,6 +367,27 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
         find_scanner_candidates_activity,
     ]
     assert mocks.child_calls == []
+
+
+@pytest.mark.asyncio
+async def test_candidate_scan_retries_within_the_sweep_window() -> None:
+    mocks = _SweepMocks(
+        activity_results={
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        }
+    )
+
+    await _run_sweep(mocks)
+
+    options = mocks.activity_options[find_scanner_candidates_activity]
+    # A single attempt means one ClickHouse blip drops the whole tick, and retries that can't be
+    # scheduled before the workflow deadline are no retries at all.
+    assert (options["retry_policy"].maximum_attempts or 0) > 1
+    assert options["schedule_to_close_timeout"] < SWEEP_WORKFLOW_EXECUTION_TIMEOUT
+    assert (
+        options["retry_policy"].maximum_attempts * options["start_to_close_timeout"]
+        <= options["schedule_to_close_timeout"]
+    )
 
 
 @pytest.mark.asyncio

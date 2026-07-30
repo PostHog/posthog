@@ -10,6 +10,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     ScannerCandidateQuery,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import as_transient_query_error
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
@@ -54,7 +55,17 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
     )
-    candidates = candidate_query.run()
+    try:
+        candidates = candidate_query.run()
+    except Exception as exc:
+        # A cluster-side cancellation, capacity rejection, or execution-time cutoff isn't this scanner's
+        # fault — classify it so Temporal retries the tick instead of dropping the whole sweep as an
+        # unexplained internal error.
+        if (transient := as_transient_query_error(exc)) is not None:
+            record_sweep_outcome("query_transient_error")
+            raise transient from exc
+        record_sweep_outcome("query_failed")
+        raise
 
     record_sweep_outcome("candidates_found" if candidates else "no_candidates", candidates=len(candidates))
     return FindScannerCandidatesOutput(

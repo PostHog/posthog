@@ -88,6 +88,14 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
+# Per-attempt budget for the candidate scan: the query's own max_execution_time (180s) plus headroom
+# for the scanner reads around it.
+FIND_SCANNER_CANDIDATES_TIMEOUT = dt.timedelta(seconds=200)
+# Whole-activity budget across retries. Three attempts plus backoff fit inside it and it still leaves
+# most of SWEEP_WORKFLOW_EXECUTION_TIMEOUT for dispatching children and advancing the watermark, so a
+# retry after a ClickHouse blip is actually schedulable instead of being cut off by the workflow deadline.
+FIND_SCANNER_CANDIDATES_SCHEDULE_TO_CLOSE_TIMEOUT = dt.timedelta(minutes=11)
+
 
 def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
     """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.

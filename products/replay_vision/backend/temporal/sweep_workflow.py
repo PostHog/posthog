@@ -30,6 +30,8 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
+    FIND_SCANNER_CANDIDATES_SCHEDULE_TO_CLOSE_TIMEOUT,
+    FIND_SCANNER_CANDIDATES_TIMEOUT,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
     REFRESH_PROMPT_SUGGESTION_TIMEOUT,
@@ -55,6 +57,15 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
 
 _VISION_ACTION_EVAL_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=5), maximum_interval=dt.timedelta(minutes=1), maximum_attempts=3
+)
+# The candidate scan is a read against the offline cluster, so a cancellation or capacity rejection is
+# worth a retry within the same tick: with a single attempt one blip drops the whole sweep — no children
+# dispatched, watermark not advanced. Malformed-config and other doomed failures raise non-retryably.
+_FIND_CANDIDATES_RETRY = common.RetryPolicy(
+    initial_interval=dt.timedelta(seconds=5),
+    backoff_coefficient=2.0,
+    maximum_interval=dt.timedelta(seconds=20),
+    maximum_attempts=3,
 )
 
 
@@ -124,8 +135,9 @@ class SweepScannerWorkflow(PostHogWorkflow):
         find_result = await wf.execute_activity(
             find_scanner_candidates_activity,
             FindScannerCandidatesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id, candidate_limit=headroom),
-            start_to_close_timeout=dt.timedelta(seconds=200),
-            retry_policy=common.RetryPolicy(maximum_attempts=1),
+            start_to_close_timeout=FIND_SCANNER_CANDIDATES_TIMEOUT,
+            schedule_to_close_timeout=FIND_SCANNER_CANDIDATES_SCHEDULE_TO_CLOSE_TIMEOUT,
+            retry_policy=_FIND_CANDIDATES_RETRY,
         )
         if not find_result.candidates:
             return
