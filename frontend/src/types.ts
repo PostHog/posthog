@@ -76,6 +76,7 @@ import type {
     SharingConfigurationSettings,
     TileFilters,
     UserProductListItem,
+    UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -383,6 +384,8 @@ export interface UserType extends UserBaseType {
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     hide_mcp_hints?: boolean
+    /** Per-user UI customization. Null means no customization: every element is shown. */
+    ui_configuration?: UserUIConfiguration | null
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: HedgehogConfig
@@ -1821,6 +1824,8 @@ export interface CohortType {
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
     filters: {
         properties: CohortCriteriaGroupFilter
+        /** Exclude internal and test users (person-scoped team filters) at calculation time */
+        filterTestAccounts?: boolean
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
@@ -7186,6 +7191,7 @@ export type HogFunctionTypeType =
     | 'site_destination'
     | 'site_app'
     | 'transformation'
+    | 'transformation_log'
 
 export type HogFunctionType = {
     id: string
@@ -7347,6 +7353,21 @@ export type CyclotronJobInvocationGlobals = {
         body: Record<string, any>
         headers: Record<string, string>
         ip?: string
+    }
+    // Only applies to log transformations (see buildLogRecordGlobals)
+    record?: {
+        body: string | null
+        attributes: Record<string, string>
+        resource_attributes: Record<string, string>
+        severity_text: string | null
+        severity_number: number | null
+        service_name: string | null
+        instrumentation_scope: string | null
+        event_name: string | null
+        timestamp: number | null
+        observed_timestamp: number | null
+        trace_id: string | null
+        span_id: string | null
     }
     // For HogFlows, workflow-level variables
     variables?: Record<string, any>

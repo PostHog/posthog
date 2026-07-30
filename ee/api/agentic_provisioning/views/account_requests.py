@@ -64,7 +64,7 @@ class AccountRequestsView(ProvisioningAPIView):
             scopes = sorted(effective_ceiling(partner.ceiling_scopes))
         configuration = data["configuration"]
 
-        if not partner.provisioning_can_create_accounts:
+        if not partner.provisioning.can_create_accounts:
             capture_provisioning_event("account_request", "error", error_code="account_creation_disabled")
             raise ProvisioningError("forbidden", "Account creation is not enabled for this partner", status=403)
 

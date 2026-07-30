@@ -1,6 +1,7 @@
 use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde_json::json;
 use tracing::{debug, info, warn};
 
@@ -129,8 +130,10 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     }
     let empty_skipped = empty_pairs.len();
 
+    // Payload preparation (serialization + zstd compression) is CPU-bound,
+    // so spread it across cores.
     let uploads = valid_pairs
-        .into_iter()
+        .into_par_iter()
         .map(TryInto::try_into)
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;

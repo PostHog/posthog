@@ -14,6 +14,7 @@ from llm_gateway.config import Settings
 
 BASETEN_PUBLIC_MODEL = "@cf/zai-org/glm-5.2"
 BASETEN_GLM_MODEL = "zai-org/GLM-5.2"
+BASETEN_METRIC_MODEL = "baseten/zai-org/glm-5.2"
 _BASETEN_LITELLM_MODEL = f"openai/{BASETEN_GLM_MODEL}"
 
 
