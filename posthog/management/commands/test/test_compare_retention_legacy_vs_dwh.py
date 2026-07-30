@@ -1,3 +1,6 @@
+import os
+import json
+import tempfile
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -9,6 +12,8 @@ from posthog.schema import QueryTiming, RetentionResult, RetentionValue
 
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.management.commands.compare_retention_legacy_vs_dwh import (
+    CellDiff,
+    CorrectnessDiff,
     InsightFinding,
     ResourceStats,
     _cell_is_trailing,
@@ -20,7 +25,10 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     classify_insight,
     compute_perf_result,
     diff_retention_results,
+    finding_from_dict,
+    finding_to_json_line,
     intersect_stable_mismatch,
+    load_progress_findings,
     parse_query_log_rows,
     referenced_ids,
     summarize_samples,
@@ -513,3 +521,85 @@ class TestBuildPerfAggregate(TestCase):
         self.assertEqual(aggregate.n_improvements, 1)
         self.assertEqual(aggregate.wall_ratio_dist["median"], 1.0)
         self.assertEqual(aggregate.worst_by_rel[0].insight_id, 1)
+
+
+class TestProgressState(TestCase):
+    # A field added to any finding dataclass without updating finding_from_dict makes --resume
+    # crash or silently drop recorded work; the full round trip locks the two sides together.
+    def _full_finding(self):
+        finding = InsightFinding(
+            insight_id=7,
+            short_id="abc123",
+            team_id=42,
+            name="Weekly retention",
+            url="https://example.com/insights/abc123",
+            status="MISMATCH",
+            has_breakdown=True,
+            legacy_hogql="SELECT legacy",
+            dwh_hogql="SELECT dwh",
+            legacy_query_ids=["q1", "q2"],
+            dwh_query_ids=["q3"],
+            bytes_ratio=1.5,
+        )
+        cell = CellDiff(
+            breakdown_value="Chrome",
+            row_label="Week 0",
+            value_label="Week 1",
+            field="count",
+            legacy=10.0,
+            dwh=8.0,
+            abs_diff=2.0,
+            rel_diff=-0.2,
+            values_stable=True,
+        )
+        finding.correctness = CorrectnessDiff(
+            status="MISMATCH",
+            row_count_legacy=2,
+            row_count_dwh=1,
+            breakdown_keys_legacy=["Chrome", None],
+            breakdown_keys_dwh=["Chrome"],
+            breakdown_only_legacy=[None],
+            breakdown_only_dwh=[],
+            other_bucket_changed=True,
+            cell_diffs=[cell],
+            notes=["row (breakdown=None, label='Week 1') present in legacy but missing in DWH"],
+            rows_only_legacy=[(None, "Week 1")],
+            rows_only_dwh=[],
+            trailing_cell_diffs=[CellDiff(None, "Week 3", "Week 0", "count", 5.0, 6.0, 1.0, 0.2)],
+        )
+        finding.perf = compute_perf_result(
+            [100.0, 110.0], [150.0, 160.0], [90.0, 95.0], [140.0, 150.0], regression_rel=0.10, regression_ms=50.0
+        )
+        finding.resource_legacy = ResourceStats(1000, 10, 100, 5, 1)
+        finding.resource_dwh = ResourceStats(2000, 20, 200, 10, 2)
+        return finding
+
+    @parameterized.expand(
+        [
+            ("fully_populated", True),
+            ("skipped_all_optionals_none", False),
+        ]
+    )
+    def test_json_line_round_trip(self, _name, full):
+        if full:
+            finding = self._full_finding()
+        else:
+            finding = InsightFinding(
+                insight_id=1, short_id="s1", team_id=1, name="", url="", status="SKIPPED", skip_reason="24h"
+            )
+        restored = finding_from_dict(json.loads(finding_to_json_line(finding)))
+        self.assertEqual(restored, finding)
+
+    def test_load_keeps_last_record_per_insight_id(self):
+        # A crash between the per-insight append and the end-of-run rewrite leaves an id twice;
+        # double-counting it would inflate the report and the resume skip set.
+        stale = self._full_finding()
+        other = InsightFinding(insight_id=8, short_id="def456", team_id=42, name="", url="", status="OK")
+        updated = InsightFinding(insight_id=7, short_id="abc123", team_id=42, name="", url="", status="OK")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = os.path.join(tmp_dir, "progress.jsonl")
+            with open(path, "w") as handle:
+                for finding in (stale, other, updated):
+                    handle.write(finding_to_json_line(finding) + "\n")
+            loaded = load_progress_findings(path)
+        self.assertEqual({f.insight_id: f.status for f in loaded}, {7: "OK", 8: "OK"})

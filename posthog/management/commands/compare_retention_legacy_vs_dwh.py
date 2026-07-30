@@ -32,8 +32,18 @@ Examples:
     # Production (multi-node): read resource stats from the distributed archive table
     python manage.py compare_retention_legacy_vs_dwh --limit 200 \\
         --query-log-table query_log_archive --no-flush-query-log --query-log-wait 90
+
+    # Every retention insight, with progress state: each finding is appended to the JSONL file
+    # the moment its insight finishes, so an interrupted run keeps its work; rerun with --resume
+    # to skip what's done and fold the recorded findings into the final report
+    python manage.py compare_retention_legacy_vs_dwh --all --progress-path retention_cmp.jsonl
+    python manage.py compare_retention_legacy_vs_dwh --all --progress-path retention_cmp.jsonl --resume
+
+(For a correctness-only sweep over everything, the concurrent ``compare_retention_correctness``
+command with ``--state-file`` is much faster — this command is the one that also measures perf.)
 """
 
+import os
 import re
 import json
 import time
@@ -41,6 +51,7 @@ import uuid
 import argparse
 import statistics
 import dataclasses
+from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import nullcontext
 from copy import deepcopy
@@ -84,6 +95,7 @@ ROLLING_24H_WINDOW_MODE = "24_hour_windows"
 CLICKHOUSE_EXECUTE_TIMING_KEY = "clickhouse_execute"
 DEFAULT_MAX_CELL_DIFFS = 25
 DEFAULT_WORST_N = 15
+HEARTBEAT_EVERY = 10
 _SAFE_TABLE_RE = re.compile(r"^[A-Za-z0-9_.]+$")
 
 
@@ -804,6 +816,107 @@ def build_perf_aggregate(findings: list[InsightFinding], *, worst_n: int) -> Per
 
 
 # --------------------------------------------------------------------------------------
+# Progress state (JSONL: one finding per line, appended as each insight finishes)
+# --------------------------------------------------------------------------------------
+
+
+def finding_to_json_line(finding: InsightFinding) -> str:
+    return json.dumps(dataclasses.asdict(finding), default=str)
+
+
+def _cell_diffs_from(payload: Optional[list[dict[str, Any]]]) -> list[CellDiff]:
+    return [CellDiff(**cell) for cell in payload or []]
+
+
+def _row_keys_from(payload: Optional[list[Any]]) -> list[Any]:
+    # JSON turns the (breakdown_value, label) tuple keys into lists; restore the tuples.
+    return [tuple(key) if isinstance(key, list) else key for key in payload or []]
+
+
+def _correctness_from(payload: Optional[dict[str, Any]]) -> Optional[CorrectnessDiff]:
+    if payload is None:
+        return None
+    return CorrectnessDiff(
+        **{
+            **payload,
+            "cell_diffs": _cell_diffs_from(payload.get("cell_diffs")),
+            "trailing_cell_diffs": _cell_diffs_from(payload.get("trailing_cell_diffs")),
+            "rows_only_legacy": _row_keys_from(payload.get("rows_only_legacy")),
+            "rows_only_dwh": _row_keys_from(payload.get("rows_only_dwh")),
+        }
+    )
+
+
+def _perf_from(payload: Optional[dict[str, Any]]) -> Optional[PerfResult]:
+    if payload is None:
+        return None
+    return PerfResult(
+        **{
+            **payload,
+            "wall_legacy": VariantTiming(**payload["wall_legacy"]),
+            "wall_dwh": VariantTiming(**payload["wall_dwh"]),
+            "ch_legacy": VariantTiming(**payload["ch_legacy"]),
+            "ch_dwh": VariantTiming(**payload["ch_dwh"]),
+        }
+    )
+
+
+def _resources_from(payload: Optional[dict[str, Any]]) -> Optional[ResourceStats]:
+    return ResourceStats(**payload) if payload is not None else None
+
+
+def finding_from_dict(payload: dict[str, Any]) -> InsightFinding:
+    return InsightFinding(
+        **{
+            **payload,
+            "correctness": _correctness_from(payload.get("correctness")),
+            "perf": _perf_from(payload.get("perf")),
+            "resource_legacy": _resources_from(payload.get("resource_legacy")),
+            "resource_dwh": _resources_from(payload.get("resource_dwh")),
+        }
+    )
+
+
+def load_progress_findings(path: str) -> list[InsightFinding]:
+    """Findings recorded by a previous run. On duplicate insight ids the last record wins — a crash
+    between the per-insight append and the end-of-run rewrite can leave the same insight twice."""
+    by_id: dict[int, InsightFinding] = {}
+    with open(path) as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                finding = finding_from_dict(json.loads(line))
+            except Exception as exc:
+                raise CommandError(
+                    f"Cannot parse {path}:{line_number} ({_fmt_exception(exc)}) — was it written by a "
+                    "different version of this command? Remove the file to start over."
+                ) from exc
+            by_id[finding.insight_id] = finding
+    return list(by_id.values())
+
+
+def save_progress_findings(path: str, findings: list[InsightFinding]) -> None:
+    # Write-then-replace so a crash mid-write can't corrupt the progress file.
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w") as handle:
+        for finding in findings:
+            handle.write(finding_to_json_line(finding) + "\n")
+    os.replace(tmp_path, path)
+
+
+def _fmt_duration(seconds: float) -> str:
+    seconds = max(0.0, seconds)
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m{secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
+
+
+# --------------------------------------------------------------------------------------
 # Execution (touches the query runner + ClickHouse)
 # --------------------------------------------------------------------------------------
 
@@ -1351,7 +1464,21 @@ class Command(BaseCommand):
         parser.add_argument("--insight-id", type=int, action="append", help="Restrict to insight DB id(s); repeatable")
         parser.add_argument("--short-id", type=str, action="append", help="Restrict to insight short_id(s); repeatable")
         parser.add_argument("--limit", type=int, default=100, help="Max insights to process (default 100)")
+        parser.add_argument("--all", action="store_true", help="Process every matching insight (ignores --limit)")
         parser.add_argument("--sample", type=int, default=None, help="Randomly sample N insights instead of by date")
+        parser.add_argument(
+            "--progress-path",
+            type=str,
+            default=None,
+            help="JSONL progress state: each finding is appended (and flushed) the moment its insight "
+            "finishes, so an interrupted run keeps its work. Pass the same path with --resume to continue.",
+        )
+        parser.add_argument(
+            "--resume",
+            action="store_true",
+            help="Skip insights already recorded in --progress-path and fold the recorded findings into this "
+            "run's report. Use the same filters as the original run — recorded findings are included as-is.",
+        )
         parser.add_argument("--perf-iterations", type=int, default=5, help="Interleaved timing iterations per variant")
         parser.add_argument("--warmup", action="store_true", help="Run one discarded warmup per variant first")
         parser.add_argument("--no-perf", action="store_true", help="Correctness only; skip timing and resource stats")
@@ -1408,25 +1535,49 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        insights = self._select_insights(options)
-        if not insights:
+        if options["all"] and options["sample"]:
+            raise CommandError("--all and --sample are mutually exclusive")
+        loaded = self._load_progress(options)
+        insights = self._select_insights(options, exclude_ids={f.insight_id for f in loaded})
+        if not insights and not loaded:
             self.stdout.write(self.style.WARNING("No retention insights matched the given filters."))
             return
 
-        self.stdout.write(f"Comparing {len(insights)} retention insight(s)…")
+        if loaded:
+            self.stdout.write(f"Resuming: {len(loaded)} finding(s) loaded from {options['progress_path']}.")
+        if insights:
+            self.stdout.write(f"Comparing {len(insights)} retention insight(s)…")
+        else:
+            self.stdout.write("Nothing new to compare — regenerating the report from the recorded findings.")
         run_id = uuid.uuid4().hex[:8]
-        findings: list[InsightFinding] = []
-        all_query_ids: list[str] = []
+        findings: list[InsightFinding] = list(loaded)
+        # Loaded findings' query ids go into the lookup too, so a resumed run attaches resource
+        # stats to work done before the interruption (the archive table still has those rows).
+        all_query_ids: list[str] = [qid for f in loaded for qid in (*f.legacy_query_ids, *f.dwh_query_ids)]
+        started_at = perf_counter()
 
-        for index, insight in enumerate(insights, start=1):
-            finding = self._process_insight(insight, run_id, options)
-            findings.append(finding)
-            all_query_ids.extend(finding.legacy_query_ids)
-            all_query_ids.extend(finding.dwh_query_ids)
-            self._print_progress(index, len(insights), finding, options["verbosity"])
+        progress_handle = open(options["progress_path"], "a") if options["progress_path"] else None
+        try:
+            for index, insight in enumerate(insights, start=1):
+                finding = self._process_insight(insight, run_id, options)
+                findings.append(finding)
+                all_query_ids.extend(finding.legacy_query_ids)
+                all_query_ids.extend(finding.dwh_query_ids)
+                if progress_handle is not None:
+                    progress_handle.write(finding_to_json_line(finding) + "\n")
+                    progress_handle.flush()
+                self._print_progress(index, len(insights), finding, options["verbosity"])
+                self._print_heartbeat(index, len(insights), started_at, findings)
+        finally:
+            if progress_handle is not None:
+                progress_handle.close()
 
         if options["clickhouse_stats"] and not options["no_perf"] and all_query_ids:
             self._attach_resource_stats(findings, all_query_ids, options)
+        if options["progress_path"]:
+            # Rewrite with resource stats attached, so a later --resume or report regeneration
+            # does not depend on the query log still retaining this run's rows.
+            save_progress_findings(options["progress_path"], findings)
 
         aggregate = build_perf_aggregate(findings, worst_n=DEFAULT_WORST_N)
         run_meta = self._build_run_meta(findings, options)
@@ -1443,7 +1594,19 @@ class Command(BaseCommand):
         if options["fail_on_mismatch"] and run_meta["counts"]["mismatch"]:
             raise CommandError(f"{run_meta['counts']['mismatch']} insight(s) mismatched between variants")
 
-    def _select_insights(self, options: dict[str, Any]) -> list[Insight]:
+    def _load_progress(self, options: dict[str, Any]) -> list[InsightFinding]:
+        path: Optional[str] = options["progress_path"]
+        if options["resume"] and not path:
+            raise CommandError("--resume requires --progress-path")
+        if options["resume"] and options["sample"]:
+            raise CommandError("--sample picks a random set and cannot resume a sweep")
+        if not path or not os.path.exists(path):
+            return []
+        if not options["resume"]:
+            raise CommandError(f"{path} already exists — pass --resume to continue that run, or remove the file")
+        return load_progress_findings(path)
+
+    def _select_insights(self, options: dict[str, Any], exclude_ids: Optional[set[int]] = None) -> list[Insight]:
         queryset = Insight.objects.filter(saved=True, deleted=False, query__source__kind="RetentionQuery")
         if options["team_id"]:
             queryset = queryset.filter(team_id__in=options["team_id"])
@@ -1451,10 +1614,16 @@ class Command(BaseCommand):
             queryset = queryset.filter(id__in=options["insight_id"])
         if options["short_id"]:
             queryset = queryset.filter(short_id__in=options["short_id"])
+        if exclude_ids:
+            queryset = queryset.exclude(id__in=exclude_ids)
         queryset = queryset.select_related("team")
         if options["sample"]:
             return list(queryset.order_by("?")[: options["sample"]])
-        return list(queryset.order_by("created_at")[: options["limit"]])
+        # The id tiebreaker keeps the order stable across runs when created_at values collide.
+        queryset = queryset.order_by("created_at", "id")
+        if options["all"]:
+            return list(queryset)
+        return list(queryset[: options["limit"]])
 
     def _process_insight(self, insight: Insight, run_id: str, options: dict[str, Any]) -> InsightFinding:
         base_url = options["base_url"].rstrip("/")
@@ -1659,7 +1828,10 @@ class Command(BaseCommand):
             "insight_id",
             "short_id",
             "limit",
+            "all",
             "sample",
+            "progress_path",
+            "resume",
             "perf_iterations",
             "warmup",
             "no_perf",
@@ -1688,6 +1860,20 @@ class Command(BaseCommand):
         }
         with open(path, "w") as handle:
             json.dump(payload, handle, indent=2, default=str)
+
+    def _print_heartbeat(self, index: int, total: int, started_at: float, findings: list[InsightFinding]) -> None:
+        """Elapsed/ETA line every HEARTBEAT_EVERY insights, so a long run with quiet (all-OK)
+        stretches still shows liveness. Counts are cumulative — on --resume they include loaded findings."""
+        if index != total and index % HEARTBEAT_EVERY:
+            return
+        elapsed = perf_counter() - started_at
+        eta = (elapsed / index) * (total - index)
+        counts: Counter[str] = Counter(f.status for f in findings)
+        errors = sum(count for status, count in counts.items() if status.startswith("ERROR"))
+        self.stdout.write(
+            f"[{index}/{total}] elapsed={_fmt_duration(elapsed)} eta={_fmt_duration(eta)} — "
+            f"ok={counts['OK']} mismatch={counts['MISMATCH']} errors={errors} skipped={counts['SKIPPED']}"
+        )
 
     def _print_progress(self, index: int, total: int, finding: InsightFinding, verbosity: int) -> None:
         if verbosity < 2 and finding.status in ("OK", "SKIPPED"):
