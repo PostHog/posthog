@@ -1151,6 +1151,18 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A chart render holds a worker for up to 90s, so it needs a far lower ceiling than the
+    # ClickHouse throttles. Keyed per team so rotating API keys doesn't split the bucket.
+    scope = "task_run_chart_render"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
 class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "alert_test_delivery"
     rate = "10/minute"

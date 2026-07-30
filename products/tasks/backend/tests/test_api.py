@@ -8029,9 +8029,12 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
     }
 
-    def _post_chart(self, scopes, body, run_id=None):
+    def _post_chart(self, scopes, body):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        return self._post_chart_to_run(scopes, body, task=task, run_id=str(run.id))
+
+    def _post_chart_to_run(self, scopes, body, *, task, run_id):
         api_key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -8041,7 +8044,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         )
         self.client.force_authenticate(None)
         return self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run_id or run.id}/living_artifacts/chart/",
+            f"/api/projects/@current/tasks/{task.id}/runs/{run_id}/living_artifacts/chart/",
             body,
             format="json",
             headers={"authorization": f"Bearer {api_key_value}"},
@@ -8087,6 +8090,14 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
             mock_create.call_args.kwargs["artifact"]["metadata"],
             {"image_url": "https://app.dev/exporter/export-1.png?token=abc", "posthog_url": data["url"]},
         )
+        # The facade rejects any export_context whose source isn't an InsightVizNode, so a wrong
+        # wrapping here would 400 every real request with the assertions above still green.
+        mock_render.assert_called_once_with(
+            team=self.team,
+            created_by=self.user,
+            export_context={"source": self.CHART_QUERY},
+            insight_id=None,
+        )
 
     @parameterized.expand(
         [
@@ -8119,9 +8130,10 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_unknown_run_rejected_before_render(self, mock_render):
-        response = self._post_chart(
+        response = self._post_chart_to_run(
             ["task:write", "query:read"],
             {"name": "Chart", "query": self.CHART_QUERY},
+            task=self.create_task(),
             run_id="00000000-0000-0000-0000-000000000000",
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

@@ -246,7 +246,7 @@ class TestRelaySlackMessage(TestCase):
         assert "no file was attached to Slack for this run" in posted
 
     def _create_pending_slack_file_artifact(
-        self, *, name: str, filename: str, content_type: str, metadata: dict | None = None
+        self, *, name: str, filename: str, content_type: str, metadata: dict
     ) -> tuple[TaskArtifact, str]:
         storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/{filename}"
         location = {
@@ -268,7 +268,7 @@ class TestRelaySlackMessage(TestCase):
             adapter=TaskArtifact.Adapter.SLACK_FILE,
             status=TaskArtifact.Status.ACTIVE,
             location=location,
-            metadata={"delivery_status": "pending", **(metadata or {})},
+            metadata={"delivery_status": "pending", **metadata},
             versions=[
                 {
                     "version": 1,
@@ -323,6 +323,7 @@ class TestRelaySlackMessage(TestCase):
             name="report.xlsx",
             filename="report.v1.xlsx",
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            metadata={},
         )
         slack = self._mock_slack_upload(mock_integration_for_mapping)
         mock_read_bytes.return_value = b"workbook bytes"

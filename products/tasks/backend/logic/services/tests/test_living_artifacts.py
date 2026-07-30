@@ -18,6 +18,8 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
+    _chart_card_blocks,
+    _section_blocks,
     create_living_artifact,
     deliver_pending_slack_file_artifacts,
     edit_living_artifact,
@@ -529,6 +531,38 @@ class TestLivingArtifacts(TestCase):
                 content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_file_adapter_allows_images_without_file_scope(self, mock_integration_for_mapping, _mock_flag):
+        # Charts deliver as image blocks pointing at a public url, so re-tightening the scope check
+        # to cover images would 400 every chart call in the rollout this feature ships into.
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack_integration = MagicMock()
+        slack_integration.missing_scopes.return_value = {"files:write"}
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Signups by week.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+        )
+
+        self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_FILE)
+        self.assertEqual(artifact.location["delivery_status"], "pending")
+
     def _create_mapping_with_full_scopes(self) -> None:
         # Scopes granted (the DEV-install shape) so these tests prove the feature flag
         # gates canvas/file delivery even where the in-review scopes are available.
@@ -638,22 +672,23 @@ class TestLivingArtifacts(TestCase):
 class TestChartCardBlockBuilders(SimpleTestCase):
     @parameterized.expand(
         [
-            ("url_within_limit", "https://us.posthog.com/project/1/insights/abc", True),
-            ("url_over_slack_button_cap", "https://us.posthog.com/project/1/insights/new#q=" + "x" * 3000, False),
+            ("url_within_limit", "http://localhost:8010/project/1/insights/abc", ["section", "image", "actions"]),
+            (
+                "url_over_slack_button_cap",
+                "http://localhost:8010/project/1/insights/new#q=" + "x" * 3000,
+                ["section", "image"],
+            ),
+            # Artifact metadata is caller-writable, so an off-origin url must not become a button
+            # the PostHog bot appears to vouch for.
+            ("url_off_posthog_origin", "https://phishing.example/project/1/insights/abc", ["section", "image"]),
         ]
     )
-    def test_button_only_added_when_url_fits_slack_cap(self, _name, url, expect_button):
-        from products.tasks.backend.logic.services.living_artifacts import _chart_card_blocks
-
+    def test_button_only_added_for_trusted_url_within_slack_cap(self, _name, url, expected_block_types):
         artifact = TaskArtifact(name="Chart", metadata={"posthog_url": url})
         blocks = _chart_card_blocks(artifact, "F123")
-        self.assertEqual(
-            [b["type"] for b in blocks], ["section", "image", "actions"] if expect_button else ["section", "image"]
-        )
+        self.assertEqual([b["type"] for b in blocks], expected_block_types)
 
     def test_oversized_sections_split_below_block_char_cap(self):
-        from products.tasks.backend.logic.services.living_artifacts import _section_blocks
-
         blocks = _section_blocks(["a" * 6000, "short"])
         self.assertEqual(len(blocks), 4)
         self.assertTrue(all(len(b["text"]["text"]) <= 2900 for b in blocks))

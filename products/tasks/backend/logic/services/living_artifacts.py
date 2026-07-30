@@ -8,8 +8,10 @@ import uuid
 import zipfile
 import mimetypes
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 from django.db import transaction
@@ -20,6 +22,7 @@ import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.storage import object_storage
+from posthog.utils import absolute_uri
 
 from products.tasks.backend.models import TaskArtifact, TaskRun
 
@@ -726,14 +729,18 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
                 "Use adapter=slack_message and summarize the result as text instead."
             )
         slack_integration = _slack_integration_for_mapping(mapping)
-        missing_scopes = slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
-        if missing_scopes:
+        resolved_content_type = content_type or _guess_content_type(name)
+        # Images deliver as image blocks referencing a public url, which needs no upload — and
+        # delivery skips any image it can't reference. Only non-image files always go out as channel
+        # shares, so only they require the scope up front.
+        if not resolved_content_type.startswith("image/") and slack_integration.missing_scopes(
+            frozenset({SLACK_FILE_SCOPE})
+        ):
             raise ValueError(
                 "Slack file delivery is unavailable: the Slack integration is missing the files:write scope, "
                 "so you do not have this capability. Use adapter=slack_message and summarize the result as text instead."
             )
 
-        resolved_content_type = content_type or _guess_content_type(name)
         payload = content_bytes if content_bytes is not None else content.encode("utf-8")
         artifact_key = str(artifact.id) if artifact is not None else artifact_id or uuid.uuid4().hex
         storage_path = build_living_artifact_storage_path(run, artifact_key, version, name)
@@ -874,13 +881,11 @@ def deliver_pending_slack_file_artifacts(
         image_cards.append((artifact, version_payload, file_id, file_response))
 
     if image_cards:
-        result.answer_posted, delivered_cards = _post_composed_answer_message(
-            slack, mapping=mapping, image_cards=image_cards, answer_sections=answer_sections or []
-        )
         # Only cards that actually reached the thread are delivered — an unposted image
         # is invisible (it uploaded with no channel share), so marking it delivered
         # would lose it permanently instead of leaving it pending for the next relay.
-        for artifact, version_payload, card_file_id, card_file_response in delivered_cards:
+        def _mark_card_delivered(card: _SlackImageCard) -> None:
+            artifact, version_payload, card_file_id, card_file_response = card
             if _mark_slack_file_artifact_delivered(
                 artifact=artifact,
                 version_number=int(version_payload.get("version") or artifact.current_version or 0),
@@ -888,13 +893,20 @@ def deliver_pending_slack_file_artifacts(
                 file_response=card_file_response,
             ):
                 result.delivered_count += 1
+
+        result.answer_posted = _post_composed_answer_message(
+            slack,
+            mapping=mapping,
+            image_cards=image_cards,
+            answer_sections=answer_sections or [],
+            mark_delivered=_mark_card_delivered,
+        )
     elif answer_sections is not None:
         # Compose was requested but every image upload failed: the answer text must
         # still land — and before the non-image shares below, to keep thread order.
         sections = [section for section in answer_sections if section.strip()]
         for section in sections:
-            _post_thread_text(slack, mapping=mapping, text=section)
-        result.answer_posted = bool(sections)
+            result.answer_posted |= _post_thread_text(slack, mapping=mapping, text=section)
 
     for artifact, version_payload, content_type in other_files:
         if not has_file_scope:
@@ -987,20 +999,27 @@ def _post_composed_answer_message(
     mapping: Any,
     image_cards: list[_SlackImageCard],
     answer_sections: list[str],
-) -> tuple[bool, list[_SlackImageCard]]:
+    mark_delivered: Callable[[_SlackImageCard], None],
+) -> bool:
     """Post answer text and chart cards, composed into one message when possible.
 
-    Returns ``(answer_posted, delivered_cards)`` — only cards that actually reached
-    the thread may be marked delivered by the caller."""
+    Returns whether the answer text actually reached the thread. ``mark_delivered`` is
+    called for each card as soon as its own post succeeds, so an activity that dies
+    part-way through doesn't replay the cards that already landed."""
     sections = [section for section in answer_sections if section.strip()]
     section_blocks = _section_blocks(sections)
     card_blocks: list[dict[str, Any]] = []
     for artifact, _version_payload, file_id, _file_response in image_cards:
         card_blocks.extend(_chart_card_blocks(artifact, file_id))
 
+    # The relay activity's start_to_close_timeout is a minute; a self-inflicted timeout would
+    # replay it and repost everything, so stop retrying rather than run past the budget.
+    deadline = time.monotonic() + _SLACK_POST_BUDGET_S
+
     spill_count = max(len(section_blocks) - max(_SLACK_MESSAGE_BLOCK_LIMIT - len(card_blocks), 0), 0)
+    answer_posted = False
     for block in section_blocks[:spill_count]:
-        _post_thread_text(slack, mapping=mapping, text=block["text"]["text"])
+        answer_posted |= _post_thread_text(slack, mapping=mapping, text=block["text"]["text"])
     kept = section_blocks[spill_count:]
 
     # Cards alone can exceed the block cap (17+ charts) — composing would then fail
@@ -1014,16 +1033,18 @@ def _post_composed_answer_message(
                 thread_ts=mapping.thread_ts,
                 text=fallback_text,
                 blocks=[*kept, *card_blocks],
+                deadline=deadline,
             )
-            return bool(sections), list(image_cards)
+            for card in image_cards:
+                mark_delivered(card)
+            return answer_posted or bool(kept)
         except Exception:
             logger.warning("task_artifact.slack_composed_message_failed", exc_info=True)
 
     # Degraded path: the answer must not be lost — post the text plainly, then each
     # card on its own so one bad card can't sink the others.
     for block in kept:
-        _post_thread_text(slack, mapping=mapping, text=block["text"]["text"])
-    delivered: list[_SlackImageCard] = []
+        answer_posted |= _post_thread_text(slack, mapping=mapping, text=block["text"]["text"])
     for card in image_cards:
         artifact, _version_payload, file_id, _file_response = card
         try:
@@ -1034,11 +1055,12 @@ def _post_composed_answer_message(
                 text=artifact.name,
                 blocks=_chart_card_blocks(artifact, file_id),
                 attempts=_IMAGE_BLOCK_FALLBACK_ATTEMPTS,
+                deadline=deadline,
             )
-            delivered.append(card)
+            mark_delivered(card)
         except Exception:
             logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
-    return bool(sections), delivered
+    return answer_posted
 
 
 # Section blocks hard-cap at 3000 chars, and mrkdwn conversion can expand text past
@@ -1055,11 +1077,15 @@ def _section_blocks(sections: list[str]) -> list[dict[str, Any]]:
     return blocks
 
 
-def _post_thread_text(slack: Any, *, mapping: Any, text: str) -> None:
+def _post_thread_text(slack: Any, *, mapping: Any, text: str) -> bool:
+    """Post one plain text message, reporting whether it landed — callers use this to decide
+    whether the answer still needs a fallback, so a swallowed failure must not read as sent."""
     try:
         slack.chat_postMessage(channel=mapping.channel, thread_ts=mapping.thread_ts, text=text)
+        return True
     except Exception:
         logger.warning("task_artifact.slack_thread_text_failed", exc_info=True)
+        return False
 
 
 # A freshly completed upload can't be referenced in blocks until Slack finishes
@@ -1071,9 +1097,21 @@ _IMAGE_BLOCK_POST_ATTEMPTS = 8
 _IMAGE_BLOCK_FALLBACK_ATTEMPTS = 3
 _IMAGE_BLOCK_POST_RETRY_INTERVAL_S = 1.0
 _RATE_LIMIT_MAX_WAIT_S = 10.0
+# Total wall-clock budget for all posting in one delivery, under the relay activity's
+# start_to_close_timeout of 1 minute.
+_SLACK_POST_BUDGET_S = 45.0
 # Slack rejects button urls over 3000 chars, and an ad-hoc chart url embeds the whole
 # encoded query JSON — a fat multi-series query can exceed it.
 _SLACK_BUTTON_URL_MAX_CHARS = 3000
+
+
+def _is_posthog_origin_url(url: str) -> bool:
+    try:
+        candidate = urlparse(url)
+        expected = urlparse(absolute_uri("/"))
+    except ValueError:
+        return False
+    return candidate.scheme == expected.scheme and candidate.netloc == expected.netloc
 
 
 def _chart_card_blocks(artifact: TaskArtifact, file_id: str | None) -> list[dict[str, Any]]:
@@ -1088,7 +1126,14 @@ def _chart_card_blocks(artifact: TaskArtifact, file_id: str | None) -> list[dict
         image_block,
     ]
     posthog_url = metadata.get("posthog_url")
-    if isinstance(posthog_url, str) and 0 < len(posthog_url) <= _SLACK_BUTTON_URL_MAX_CHARS:
+    if isinstance(posthog_url, str) and posthog_url and not _is_posthog_origin_url(posthog_url):
+        # Metadata is caller-writable through the generic living-artifact create/edit APIs, so an
+        # unchecked url would let a task writer publish a phishing button as the PostHog bot.
+        logger.warning(
+            "task_artifact.chart_url_untrusted_origin",
+            artifact_id=str(artifact.id),
+        )
+    elif isinstance(posthog_url, str) and 0 < len(posthog_url) <= _SLACK_BUTTON_URL_MAX_CHARS:
         blocks.append(
             {
                 "type": "actions",
@@ -1118,6 +1163,7 @@ def _post_blocks_with_processing_retry(
     text: str,
     blocks: list[dict[str, Any]],
     attempts: int = _IMAGE_BLOCK_POST_ATTEMPTS,
+    deadline: float | None = None,
 ) -> None:
     for attempt in range(1, attempts + 1):
         try:
@@ -1133,9 +1179,12 @@ def _post_blocks_with_processing_retry(
                     retry_after = float(headers.get("Retry-After") or _IMAGE_BLOCK_POST_RETRY_INTERVAL_S)
                 except (TypeError, ValueError):
                     retry_after = _IMAGE_BLOCK_POST_RETRY_INTERVAL_S
-                time.sleep(min(retry_after, _RATE_LIMIT_MAX_WAIT_S))
+                wait = min(retry_after, _RATE_LIMIT_MAX_WAIT_S)
             else:
-                time.sleep(_IMAGE_BLOCK_POST_RETRY_INTERVAL_S)
+                wait = _IMAGE_BLOCK_POST_RETRY_INTERVAL_S
+            if deadline is not None and time.monotonic() + wait >= deadline:
+                raise
+            time.sleep(wait)
 
 
 def _pending_slack_file_version(artifact: TaskArtifact) -> tuple[int, dict[str, Any]] | None:
