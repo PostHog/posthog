@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import connection as django_connection
 
@@ -71,6 +71,22 @@ class TestPostgresStatsCatalogs:
     def test_every_catalog_is_keyed_by_its_table_name(self):
         for table_name, catalog in POSTGRES_STATS_CATALOGS.items():
             assert catalog.table_name == table_name
+
+    @pytest.mark.django_db
+    def test_column_lookup_ignores_a_customer_table_of_the_same_name(self, autocommit_pg_connection):
+        # Unqualified, this matched any schema the role can see. A customer table named
+        # after a catalog — in a schema outside the source's import scope, so the collision
+        # guard never sees it — would mix its columns into the synthetic schema.
+        with autocommit_pg_connection.cursor() as cur:
+            cur.execute("CREATE SCHEMA IF NOT EXISTS stats_decoy")
+            cur.execute("DROP TABLE IF EXISTS stats_decoy.pg_stat_user_tables")
+            cur.execute("CREATE TABLE stats_decoy.pg_stat_user_tables (decoy_column text)")
+        try:
+            columns = fetch_postgres_stats_columns(autocommit_pg_connection)
+            assert "decoy_column" not in {name for name, _, _ in columns["pg_stat_user_tables"]}
+        finally:
+            with autocommit_pg_connection.cursor() as cur:
+                cur.execute("DROP TABLE IF EXISTS stats_decoy.pg_stat_user_tables")
 
     @pytest.mark.django_db
     def test_columns_come_from_the_server(self, autocommit_pg_connection):
@@ -358,6 +374,14 @@ class TestCollectStatementsScripted:
             ("SELECT * FROM t WHERE token = 'secret'", "SELECT * FROM t WHERE token = '?'"),
             ("SELECT * FROM t WHERE url = '--not-a-comment'", "SELECT * FROM t WHERE url = '?'"),
             ("SELECT * FROM t WHERE note = 'it''s here'", "SELECT * FROM t WHERE note = '?'"),
+            # Dollar quoting is a third literal syntax and bypassed the single-quote scan.
+            ("SELECT $$api_token=secret$$", "SELECT '?'"),
+            ("SELECT $tag$api_token=secret$tag$ FROM t", "SELECT '?' FROM t"),
+            ("SELECT $$outer $notatag inner$$ FROM t", "SELECT '?' FROM t"),
+            ("SELECT $$unterminated secret", "SELECT '?'"),
+            # `$1` is a parameter placeholder, not a dollar quote — the whole point of
+            # normalized text, so it has to survive.
+            ("SELECT $1, $2 FROM t WHERE id = $1", "SELECT $1, $2 FROM t WHERE id = $1"),
             # Identifiers are the signal and are already visible in the table catalogs.
             ('SELECT "odd--column" FROM t', 'SELECT "odd--column" FROM t'),
             # Unterminated: drop the remainder rather than guess where it ends.
@@ -522,6 +546,64 @@ class TestGetSchemasInjection:
         with self._patched_discovery(self.DISCOVERED):
             schemas = PostgresSource().get_schemas(_stats_config(enabled=enabled), team_id=1)
         assert [s.name for s in schemas] == ["users"]
+
+
+class TestStatisticsJobsAreNotBilled:
+    """Rows synced are billed via `Sum(rows_synced)` over jobs with `billable=True`.
+
+    Statistics snapshots append a full copy of each catalog on every run, so billing them
+    would put a customer on a per-row meter they never opted into by turning on a health
+    feature.
+    """
+
+    def _run_activity(self, team, schema_metadata: dict | None) -> Any:
+        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+            CreateExternalDataJobModelActivityInputs,
+            create_external_data_job_model_activity,
+        )
+
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=team,
+            status="running",
+            source_type="Postgres",
+            job_inputs={},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="pg_stat_user_tables" if schema_metadata else "public.users",
+            team_id=team.pk,
+            source_id=source.pk,
+            sync_type="append",
+            sync_type_config={"schema_metadata": schema_metadata} if schema_metadata else {},
+        )
+        info = MagicMock()
+        info.workflow_id = "wf"
+        info.workflow_run_id = "run"
+        base = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
+        with (
+            patch(f"{base}.activity.info", return_value=info),
+            # The activity recycles Django connections for the Temporal worker; in-test
+            # that would drop the transaction pytest-django wraps the case in.
+            patch(f"{base}.close_old_connections"),
+        ):
+            create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.pk, schema_id=schema.id, source_id=source.id, billable=True, is_v3=False
+                )
+            )
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+        return ExternalDataJob.objects.get(schema_id=schema.id)
+
+    @pytest.mark.django_db
+    def test_statistics_job_is_not_billable(self, team):
+        assert self._run_activity(team, {DATABASE_STATS_MARKER: True}).billable is False
+
+    @pytest.mark.django_db
+    def test_ordinary_table_job_stays_billable(self, team):
+        assert self._run_activity(team, None).billable is True
 
 
 class TestStatsSourceRouting:

@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import is_database_stats_row
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
@@ -221,7 +222,11 @@ def create_external_data_job_model_activity(
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
             pipeline_version=pipeline_version,
-            billable=inputs.billable,
+            # Statistics snapshots are never billed. They are PostHog's own collection for
+            # database-health detection, not data the customer asked to import, and they
+            # append a full snapshot every run — billing per row would put the customer on
+            # a meter they didn't opt into by enabling a health feature.
+            billable=inputs.billable and not is_database_stats_row(schema.schema_metadata),
             schema_snapshot=_build_schema_snapshot(schema),
         )
 

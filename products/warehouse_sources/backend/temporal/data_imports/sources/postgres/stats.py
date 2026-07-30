@@ -50,9 +50,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
 # Row caps per snapshot. Every capped catalog is ranked first — statements by cumulative
 # execution time, tables and indexes by size, buffer I/O by blocks touched — so the cap
 # drops the least interesting rows rather than an arbitrary slice.
+#
+# These are deliberately tight. Every sync appends a full snapshot, so the caps set the
+# storage growth rate, and the tail they drop is the part no detector acts on: nobody
+# opens a pull request to drop the 3,000th-largest index. Worst case is ~6.5k rows per
+# snapshot rather than ~20.5k.
 STATEMENTS_SNAPSHOT_LIMIT = 500
-TABLES_SNAPSHOT_LIMIT = 5_000
-INDEXES_SNAPSHOT_LIMIT = 10_000
+TABLES_SNAPSHOT_LIMIT = 2_000
+INDEXES_SNAPSHOT_LIMIT = 2_000
 
 # Restricts the table and index catalogs to the schema the source imports from. Applied
 # only when the source is scoped to one schema; `pg_stat_statements` carries no schema
@@ -183,6 +188,11 @@ _REDACTED_QUERY_COLUMN = "query"
 # still reads as SQL.
 _REDACTED_LITERAL = "'?'"
 
+# Opens a dollar-quoted string: `$$` or `$tag$`. A tag must start with a letter or
+# underscore, which is what keeps `$1` parameter placeholders — the whole point of
+# normalized text — from being mistaken for one.
+_DOLLAR_QUOTE = re.compile(r"\$[A-Za-z_][A-Za-z_0-9]*\$|\$\$")
+
 
 def _scope_predicate(source_schema: str | None) -> sql.SQL | sql.Composed:
     if not source_schema:
@@ -190,8 +200,8 @@ def _scope_predicate(source_schema: str | None) -> sql.SQL | sql.Composed:
     return _SCHEMA_PREDICATE.format(schema=sql.Literal(source_schema))
 
 
-def _pg_stat_statements_relation(cur: psycopg.Cursor) -> sql.Identifier | None:
-    """The qualified pg_stat_statements view, or None when the extension isn't installed.
+def _pg_stat_statements_namespace(cur: psycopg.Cursor) -> str | None:
+    """The schema pg_stat_statements is installed in, or None when it isn't.
 
     Resolved through pg_extension because the extension can live outside the search_path
     (e.g. a dedicated `extensions` schema on Supabase).
@@ -205,9 +215,15 @@ def _pg_stat_statements_relation(cur: psycopg.Cursor) -> sql.Identifier | None:
         """
     )
     row = cur.fetchone()
-    if row is None:
+    return row[0] if row is not None else None
+
+
+def _pg_stat_statements_relation(cur: psycopg.Cursor) -> sql.Identifier | None:
+    """The qualified pg_stat_statements view, or None when the extension isn't installed."""
+    namespace = _pg_stat_statements_namespace(cur)
+    if namespace is None:
         return None
-    return sql.Identifier(row[0], "pg_stat_statements")
+    return sql.Identifier(namespace, "pg_stat_statements")
 
 
 def _collect_statements(
@@ -277,10 +293,11 @@ def _scrub_statement_text(text: str) -> str:
     deallocation pressure can hold the raw form. So rather than trust that, no
     single-quoted span is ever emitted.
 
-    Double-quoted spans are identifiers — table and column names — and are kept, since
-    they are the signal and are already visible in the table catalogs. Numeric constants
-    are also kept: they are normalized in the ordinary case and carry far less than a
-    string does.
+    Both quoting syntaxes are covered: single quotes and dollar quoting (`$$…$$`,
+    `$tag$…$tag$`). Double-quoted spans are identifiers — table and column names — and are
+    kept, since they are the signal and are already visible in the table catalogs. Numeric
+    constants are also kept: they are normalized in the ordinary case and carry far less
+    than a string does.
 
     Block comments nest the way Postgres nests them, and an unterminated comment drops
     the rest of the statement, which is the safe direction.
@@ -313,6 +330,14 @@ def _scrub_statement_text(text: str) -> str:
             # statement keeps its shape without ever carrying a value.
             out.append(text[index : end + 1] if char == '"' else _REDACTED_LITERAL)
             index = end + 1
+        elif (dollar_tag := _DOLLAR_QUOTE.match(text, index)) is not None:
+            # Dollar quoting is a third literal syntax, and `SELECT $$secret$$` would
+            # otherwise pass straight through. The closing tag must match the opening one;
+            # an unterminated one drops the rest, as with comments.
+            tag = dollar_tag.group(0)
+            closing = text.find(tag, dollar_tag.end())
+            out.append(_REDACTED_LITERAL)
+            index = closing + len(tag) if closing != -1 else length
         elif text.startswith("/*", index):
             depth += 1
             index += 2
@@ -623,14 +648,23 @@ def fetch_postgres_stats_columns(conn: psycopg.Connection) -> dict[str, list[tup
     relations = [c.table_name for c in POSTGRES_STATS_CATALOGS.values() if not c.static_columns]
     columns: dict[str, list[tuple[str, str, bool]]] = {}
     with conn.cursor() as cur:
+        # Scope to the schemas the catalogs actually live in. Unqualified, a customer table
+        # called `pg_stat_user_tables` in any schema the role can see would contribute its
+        # columns under the same key — and one outside the source's import scope isn't in
+        # `discovered_names`, so the collision guard wouldn't catch it either. The result
+        # would be a synthetic schema declaring a mix of both tables' columns.
+        namespaces = ["pg_catalog"]
+        extension_namespace = _pg_stat_statements_namespace(cur)
+        if extension_namespace is not None:
+            namespaces.append(extension_namespace)
         cur.execute(
             """
             SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_name = ANY(%s)
+            WHERE table_name = ANY(%s) AND table_schema = ANY(%s)
             ORDER BY table_name, ordinal_position
             """,
-            (relations,),
+            (relations, namespaces),
         )
         for table_name, column_name, data_type, is_nullable in cur:
             columns.setdefault(table_name, []).append((column_name, data_type, is_nullable == "YES"))
