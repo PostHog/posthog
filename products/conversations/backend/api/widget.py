@@ -74,7 +74,8 @@ def _submitter_for_follow_up(team: Team, request_data: Mapping[str, Any]) -> str
     Only for tickets sent to PostHog itself. On a customer's own widget the submitter is that
     customer's end user, and their identifier is not ours to copy into our internal analytics.
     """
-    if team.id != settings.CONVERSATIONS_INTERNAL_SUPPORT_TEAM_ID:
+    internal_support_team_id = settings.CONVERSATIONS_INTERNAL_SUPPORT_TEAM_ID
+    if internal_support_team_id is None or team.id != internal_support_team_id:
         return None
     return _bounded_text(request_data.get("distinct_id") or request_data.get("identity_distinct_id"), 400)
 

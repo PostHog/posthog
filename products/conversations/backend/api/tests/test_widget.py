@@ -220,9 +220,8 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def _post_rejected_message(self, payload: dict[str, str], *, sent_to_posthog: bool = True) -> dict:
-        internal_team_id = self.team.id if sent_to_posthog else -1
-        with override_settings(CONVERSATIONS_INTERNAL_SUPPORT_TEAM_ID=internal_team_id):
+    def _post_rejected_message(self, payload: dict[str, str], *, internal_support_team_id: int | None) -> dict:
+        with override_settings(CONVERSATIONS_INTERNAL_SUPPORT_TEAM_ID=internal_support_team_id):
             with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
                 response = self.client.post("/api/conversations/v1/widget/message", payload, **self._get_headers())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -251,7 +250,9 @@ class TestWidgetAPI(BaseTest):
         ]
     )
     def test_ticket_sent_to_posthog_identifies_its_submitter(self, _name: str, use_identity: bool) -> None:
-        properties = self._post_rejected_message(self._rejected_payload(use_identity))
+        properties = self._post_rejected_message(
+            self._rejected_payload(use_identity), internal_support_team_id=self.team.id
+        )
 
         self.assertEqual(properties["team_id"], self.team.id)
         self.assertEqual(properties["submitted_distinct_id"], self.distinct_id)
@@ -264,25 +265,32 @@ class TestWidgetAPI(BaseTest):
 
     @parameterized.expand(
         [
-            ("widget_session", False),
-            ("verified_identity", True),
+            ("another_team", False, -1),
+            ("another_team_verified_identity", True, -1),
+            ("no_internal_team_configured", False, None),
         ]
     )
-    def test_ticket_sent_to_a_customers_own_widget_identifies_nobody(self, _name: str, use_identity: bool) -> None:
-        properties = self._post_rejected_message(self._rejected_payload(use_identity), sent_to_posthog=False)
+    def test_ticket_not_sent_to_posthog_identifies_nobody(
+        self, _name: str, use_identity: bool, internal_support_team_id: int | None
+    ) -> None:
+        properties = self._post_rejected_message(
+            self._rejected_payload(use_identity), internal_support_team_id=internal_support_team_id
+        )
 
         self.assertEqual(properties["team_id"], self.team.id)
         self.assertIsNone(properties["submitted_distinct_id"])
 
-        # The submitter here is the customer's own end user, so nothing identifying them may
-        # reach our internal analytics.
+        # The submitter here is a customer's own end user, so nothing identifying them may reach
+        # our internal analytics. Unconfigured has to behave the same way: report_team_action
+        # reaches our Cloud project from self-hosted installs too.
         for value in properties.values():
             self.assertNotIn(self.distinct_id, str(value))
             self.assertNotIn(self.widget_session_id, str(value))
 
     def test_rejected_send_bounds_an_overlong_submitter_id(self) -> None:
         properties = self._post_rejected_message(
-            {"message": "", "widget_session_id": self.widget_session_id, "distinct_id": "u" * 500}
+            {"message": "", "widget_session_id": self.widget_session_id, "distinct_id": "u" * 500},
+            internal_support_team_id=self.team.id,
         )
 
         self.assertEqual(properties["submitted_distinct_id"], "u" * 400)
