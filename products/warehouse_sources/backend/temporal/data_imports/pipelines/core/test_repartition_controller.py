@@ -12,6 +12,7 @@ import pyarrow as pa
 import deltalake as deltalake
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -560,6 +561,35 @@ class TestRepartitionActivity:
         emitted = [c.args[0] for c in capture.call_args_list]
         assert "warehouse_repartition_started" in emitted
         assert "warehouse_repartition_failed" not in emitted
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == 0
+
+    def test_admin_transient_infra_error_reraises_for_activity_retry(self, team):
+        # An operator staged this rewrite (trigger_reason "admin") because syncing on the old layout is
+        # pathological — deferring a transient blip to the next sync runs that crawl first. The activity
+        # must re-raise retryable so Temporal re-runs the rewrite in this run, while still emitting no
+        # failure event and consuming no attempt (in-run retries must not exhaust the budget on infra
+        # noise).
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "admin",
+                "attempts": 0,
+            }
+        )
+        mocked = AsyncMock(side_effect=OperationalError("server closed the connection unexpectedly"))
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+        ):
+            with pytest.raises(ApplicationError):
+                ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
         schema.refresh_from_db()
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
