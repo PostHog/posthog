@@ -259,7 +259,10 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     is still queryable.
     """
     buf = pa.BufferOutputStream()
-    pq.write_table(schema.empty_table(), buf)
+    # write_table() on an empty table emits a 0-row row group, which ClickHouse rejects,
+    # so write only the schema with no row groups.
+    with pq.ParquetWriter(buf, schema):
+        pass
     parquet_bytes = buf.getvalue().to_pybytes()
     file_uri = f"{table_uri}/empty_{uuid.uuid4().hex}.parquet"
     s3 = get_s3_client()

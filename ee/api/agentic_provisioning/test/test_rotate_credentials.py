@@ -75,8 +75,7 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
     def test_rotate_omits_pat_when_app_gate_off(self):
         token = self._get_bearer_token()
         app = self.partner
-        app.provisioning_issues_personal_api_key = False
-        app.save(update_fields=["provisioning_issues_personal_api_key"])
+        app.update_provisioning(issues_personal_api_key=False)
         res = self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
             token=token,

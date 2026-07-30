@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
 use common_kafka::config::KafkaConfig;
@@ -134,18 +135,143 @@ pub(crate) fn make_consumer(
     cfg.create()
 }
 
+/// A checkout stack of assign-only Kafka clients sharing one group id.
+/// Clients are checked out for the duration of one operation, returned on
+/// success, and dropped on error — a client that just failed is never
+/// reused, so error hygiene is structural. None of these clients ever
+/// joins the group protocol (no subscribe), so the group id is broker
+/// bookkeeping, not membership: pooling clients in the writer's group
+/// cannot affect the writer's rebalancing.
+///
+/// The pool exists because client construction is the dominant cost of
+/// the operations it serves: a fresh consumer pays connection setup,
+/// metadata, and coordinator discovery before its one round-trip. Warms
+/// paid that twice per partition; the dirty-index prune paid it every
+/// tick.
+pub struct ConsumerPool {
+    kafka: KafkaConfig,
+    group_id: String,
+    /// Metric label; also names the pool in logs.
+    label: &'static str,
+    stack: StdMutex<Vec<StreamConsumer>>,
+    created: AtomicU64,
+}
+
+impl ConsumerPool {
+    pub fn new(kafka: KafkaConfig, group_id: String, label: &'static str) -> Self {
+        Self {
+            kafka,
+            group_id,
+            label,
+            stack: StdMutex::new(Vec::new()),
+            created: AtomicU64::new(0),
+        }
+    }
+
+    /// Pop a pooled client or create a fresh one.
+    pub fn checkout(&self) -> CoordResult<StreamConsumer> {
+        if let Some(consumer) = self.stack.lock().unwrap().pop() {
+            return Ok(consumer);
+        }
+        self.created.fetch_add(1, Ordering::Relaxed);
+        counter!(
+            "personhog_leader_warm_clients_created_total",
+            "pool" => self.label
+        )
+        .increment(1);
+        make_consumer(&self.kafka, &self.group_id)
+            .map_err(|e| CoordError::invalid_state(format!("create {} client: {e}", self.label)))
+    }
+
+    /// Return a client after a successful operation. The assignment is
+    /// cleared so the next checkout starts from a clean slate; clearing
+    /// an unassigned client is a harmless no-op. A client whose
+    /// assignment cannot be cleared is dropped instead of pooled — the
+    /// pool's contract is that doubtful clients are never reused — with
+    /// the failure logged so a systematic cleanup problem surfaces as a
+    /// visible signal rather than silent churn.
+    pub fn give_back(&self, consumer: StreamConsumer) {
+        if let Err(e) = consumer.unassign() {
+            tracing::warn!(
+                pool = self.label,
+                error = %e,
+                "unassign failed; dropping client instead of pooling it"
+            );
+            return;
+        }
+        self.stack.lock().unwrap().push(consumer);
+    }
+
+    /// Total clients ever created — flat across operations when reuse
+    /// works; grows per operation when it does not.
+    pub fn created_count(&self) -> u64 {
+        self.created.load(Ordering::Relaxed)
+    }
+
+    /// Eagerly create `n` clients and open their broker connections
+    /// (rdkafka connects lazily, so creation alone leaves cold sockets).
+    /// Best-effort: warms cluster in deploy bursts, and a failure here
+    /// only means the first operations pay the setup they would have
+    /// paid anyway.
+    pub async fn warm_up(&self, n: usize) {
+        // Hold every connected client outside the pool until the end:
+        // returning them as we go would make the next checkout pop the
+        // client we just returned, connecting one client n times and
+        // leaving the other n-1 slots to be built cold on the hot path.
+        let mut connected = Vec::with_capacity(n);
+        for _ in 0..n {
+            let Ok(consumer) = self.checkout() else {
+                break;
+            };
+            let timeout = Duration::from_secs(5);
+            let outcome = tokio::task::spawn_blocking(move || {
+                let ok = consumer.fetch_metadata(None, timeout).is_ok();
+                (consumer, ok)
+            })
+            .await;
+            match outcome {
+                Ok((consumer, true)) => connected.push(consumer),
+                _ => break,
+            }
+        }
+        for consumer in connected {
+            self.give_back(consumer);
+        }
+    }
+}
+
+/// The two client pools the warm path and the dirty-index prune share.
+/// Separate pools because a client's group id is fixed at construction:
+/// offset queries must carry the writer's group id to OffsetFetch its
+/// committed offsets, while warming consumers carry their own.
+pub struct WarmClientPools {
+    pub offsets: ConsumerPool,
+    pub warming: ConsumerPool,
+}
+
+impl WarmClientPools {
+    pub fn new(kafka: &KafkaConfig, pod_name: &str, writer_group: &str) -> Self {
+        Self {
+            offsets: ConsumerPool::new(kafka.clone(), writer_group.to_string(), "offsets"),
+            warming: ConsumerPool::new(
+                kafka.clone(),
+                format!("personhog-leader-warm-{pod_name}"),
+                "warming",
+            ),
+        }
+    }
+}
+
 /// Query the writer consumer group's committed offset for a partition.
 /// Returns `None` if the writer has no commit yet for the partition
 /// (typical for a freshly-created topic).
 async fn fetch_writer_committed_offset(
-    kafka: &KafkaConfig,
-    writer_group: &str,
+    pool: &ConsumerPool,
     topic: &str,
     partition: u32,
     timeout: Duration,
 ) -> CoordResult<Option<i64>> {
-    let offsets =
-        fetch_writer_committed_offsets(kafka, writer_group, topic, &[partition], timeout).await?;
+    let offsets = fetch_writer_committed_offsets(pool, topic, &[partition], timeout).await?;
     Ok(offsets.get(&partition).copied())
 }
 
@@ -160,8 +286,7 @@ async fn fetch_writer_committed_offset(
 /// and parks the calling thread for up to `timeout`. We run it on the
 /// blocking pool so a slow broker can't stall the tokio runtime.
 pub async fn fetch_writer_committed_offsets(
-    kafka: &KafkaConfig,
-    writer_group: &str,
+    pool: &ConsumerPool,
     topic: &str,
     partitions: &[u32],
     timeout: Duration,
@@ -169,33 +294,37 @@ pub async fn fetch_writer_committed_offsets(
     if partitions.is_empty() {
         return Ok(HashMap::new());
     }
-    let kafka = kafka.clone();
-    let writer_group = writer_group.to_string();
+    let consumer = pool.checkout()?;
     let topic = topic.to_string();
     let partitions = partitions.to_vec();
-    tokio::task::spawn_blocking(move || {
-        let consumer = make_consumer(&kafka, &writer_group)
-            .map_err(|e| CoordError::invalid_state(format!("create offset query consumer: {e}")))?;
+    let (consumer, result) = tokio::task::spawn_blocking(move || {
         let mut tpl = TopicPartitionList::new();
         for partition in &partitions {
             tpl.add_partition(&topic, *partition as i32);
         }
-        let committed = consumer
+        let result = consumer
             .committed_offsets(tpl, timeout)
-            .map_err(|e| CoordError::invalid_state(format!("committed_offsets for group: {e}")))?;
-        let mut offsets = HashMap::new();
-        for partition in partitions {
-            if let Some(Offset::Offset(offset)) = committed
-                .find_partition(&topic, partition as i32)
-                .map(|tp| tp.offset())
-            {
-                offsets.insert(partition, offset);
-            }
-        }
-        Ok(offsets)
+            .map_err(|e| CoordError::invalid_state(format!("committed_offsets for group: {e}")))
+            .map(|committed| {
+                let mut offsets = HashMap::new();
+                for partition in partitions {
+                    if let Some(Offset::Offset(offset)) = committed
+                        .find_partition(&topic, partition as i32)
+                        .map(|tp| tp.offset())
+                    {
+                        offsets.insert(partition, offset);
+                    }
+                }
+                offsets
+            });
+        (consumer, result)
     })
     .await
-    .map_err(|e| CoordError::invalid_state(format!("offset query join: {e}")))?
+    .map_err(|e| CoordError::invalid_state(format!("offset query join: {e}")))?;
+    if result.is_ok() {
+        pool.give_back(consumer);
+    }
+    result
 }
 
 /// Decide where to start consuming for a partition.
@@ -236,6 +365,7 @@ fn resolve_start_offset(committed: Option<i64>, earliest: i64, lookback: i64) ->
 /// racing producers.
 pub async fn warm_from_kafka(
     cfg: &WarmingConfig,
+    pools: &WarmClientPools,
     cache: &PartitionedCache,
     dirty_index: &DirtyIndex,
     partition: u32,
@@ -250,8 +380,7 @@ pub async fn warm_from_kafka(
     // consumer group.
     let committed_offset = with_warm_retry("committed_offset", partition, cfg.retry, || async {
         fetch_writer_committed_offset(
-            &cfg.kafka,
-            &cfg.writer_consumer_group,
+            &pools.offsets,
             &cfg.topic,
             partition,
             cfg.committed_offsets_timeout,
@@ -260,14 +389,9 @@ pub async fn warm_from_kafka(
     })
     .await?;
 
-    let warming_group = format!(
-        "personhog-leader-warm-{pod}-p{partition}",
-        pod = cfg.pod_name
-    );
-    let consumer = Arc::new(
-        make_consumer(&cfg.kafka, &warming_group)
-            .map_err(|e| CoordError::invalid_state(format!("create warming consumer: {e}")))?,
-    );
+    // Arc because the watermark retry closure needs its own handle for
+    // the blocking pool; sole ownership returns once the retries finish.
+    let consumer = Arc::new(pools.warming.checkout()?);
 
     // `fetch_watermarks` is synchronous in rdkafka and may block for the
     // full timeout. Run it on the blocking pool so retries don't park the
@@ -426,6 +550,13 @@ pub async fn warm_from_kafka(
     );
     histogram!("personhog_leader_warm_duration_ms").record(elapsed.as_secs_f64() * 1000.0);
     counter!("personhog_leader_warmed_messages_total").increment(count);
+
+    // Every error path above dropped the consumer instead of returning
+    // it — a client that just failed is not pool material. Failing to
+    // unwrap the Arc would only mean the same disposition.
+    if let Ok(consumer) = Arc::try_unwrap(consumer) {
+        pools.warming.give_back(consumer);
+    }
 
     Ok(())
 }

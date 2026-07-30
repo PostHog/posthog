@@ -31,4 +31,20 @@ describe('getQueryFeatures', () => {
             }
         })
     })
+
+    describe('testAccountFilters', () => {
+        // The persons list is a source-less ActorsQuery and must expose the toggle. An ActorsQuery
+        // with an insight source uses that source's own toggle instead, so it must not.
+        it.each([
+            ['source-less ActorsQuery (persons list)', { kind: NodeKind.ActorsQuery }, true],
+            [
+                'ActorsQuery with an insight source',
+                { kind: NodeKind.ActorsQuery, source: { kind: NodeKind.InsightActorsQuery } },
+                false,
+            ],
+        ])('%s testAccountFilters enabled = %s', (_, query, expected) => {
+            const features = getQueryFeatures(query as any)
+            expect(features.has(QueryFeature.testAccountFilters)).toBe(expected)
+        })
+    })
 })
