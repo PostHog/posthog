@@ -594,9 +594,9 @@ export interface sessionRecordingPlayerLogicValues {
     isKioskMode: boolean
     isMuted: boolean
     isScrubbing: boolean
+    isSkipToMatchingEventWaitingForData: boolean
     isSkippingInactivity: boolean
     isSkippingToMatchingEvent: boolean
-    isSkipToMatchingEventWaitingForData: boolean
     isWaitingForIngestion: boolean
     jumpTimeMs: number
     leadingUnplayableMs: number
@@ -1074,6 +1074,11 @@ export interface sessionRecordingPlayerLogicMeta {
         ) => number
         hasLateFullSnapshot: (leadingUnplayableMs: number) => boolean
         isWaitingForIngestion: (
+            seekRenderability: (timestamp: number) => SeekRenderability,
+            currentTimestamp: number | undefined
+        ) => boolean
+        isSkipToMatchingEventWaitingForData: (
+            isSkippingToMatchingEvent: boolean,
             seekRenderability: (timestamp: number) => SeekRenderability,
             currentTimestamp: number | undefined
         ) => boolean
