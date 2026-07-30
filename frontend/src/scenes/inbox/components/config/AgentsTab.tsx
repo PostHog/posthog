@@ -105,8 +105,8 @@ export function AgentsTab(): JSX.Element {
                 </Subsection>
 
                 <Subsection
-                    title="Responders"
-                    description="Each source: 1. watches for signals, 2. spins up a Responder when something matters, 3. hands you solutions."
+                    title="Signal sources"
+                    description="Each source watches for signals and spins up work when something matters."
                 >
                     {agentsBody}
                 </Subsection>
