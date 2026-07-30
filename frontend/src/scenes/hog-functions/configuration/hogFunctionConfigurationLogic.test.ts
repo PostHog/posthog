@@ -182,5 +182,25 @@ describe('hogFunctionConfigurationLogic', () => {
                 logic.actions.submitConfiguration()
             }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
         })
+
+        it('accepting a suggested schema seeds required fields from their defaults', async () => {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+            logic.actions.setConfigurationValue('inputs.url', { value: 'https://posthog.com' })
+
+            const baseSchema = HOG_TEMPLATE.inputs_schema ?? []
+            logic.actions.setOldInputs(baseSchema)
+            logic.actions.setNewInputs([
+                ...baseSchema,
+                { key: 'blocks', type: 'json', label: 'Blocks', required: true, default: { blocks: [] } },
+            ])
+            logic.actions.acceptInputsDiff()
+
+            expect(logic.values.configuration.inputs?.blocks).toEqual({ value: { blocks: [] } })
+            expect(logic.values.newInputs).toBeNull()
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
+        })
     })
 })

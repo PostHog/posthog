@@ -14,6 +14,7 @@ import {
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -47,9 +48,14 @@ function ScannerPromptField({
 
     const onDraftedPrompt = useCallback(
         (toolOutput: { prompt?: string; error?: string }) => {
-            if (!toolOutput?.error && toolOutput?.prompt) {
-                setScannerValue(['scanner_config', 'prompt'], toolOutput.prompt)
+            const drafted = toolOutput?.prompt?.trim()
+            if (!drafted) {
+                // Silently doing nothing here is indistinguishable from a broken form: PostHog AI says it
+                // filled the prompt in, and the field stays empty until the user notices "Prompt is required".
+                lemonToast.error("PostHog AI couldn't fill in the prompt. Try asking again.")
+                return
             }
+            setScannerValue(['scanner_config', 'prompt'], drafted)
         },
         [setScannerValue]
     )

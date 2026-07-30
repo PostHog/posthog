@@ -35,6 +35,7 @@ export function HogFunctionInputs(): JSX.Element {
         setOldInputs,
         setNewInputs,
         clearInputsDiff,
+        acceptInputsDiff,
         reportAIHogFunctionInputsPrompted,
         reportAIHogFunctionInputsAccepted,
         reportAIHogFunctionInputsRejected,
@@ -114,11 +115,8 @@ export function HogFunctionInputs(): JSX.Element {
                                 type="tertiary"
                                 icon={<IconCheck color="var(--success)" />}
                                 onClick={() => {
-                                    if (newInputs) {
-                                        setConfigurationValue('inputs_schema', newInputs)
-                                    }
+                                    acceptInputsDiff()
                                     reportAIHogFunctionInputsAccepted()
-                                    clearInputsDiff()
                                 }}
                                 tooltipPlacement="top"
                                 size="small"

@@ -43,6 +43,7 @@ import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocat
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
 import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
+import { isEmptyInputValue } from './CyclotronJobInputDefaults'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
@@ -906,15 +907,12 @@ function CyclotronJobInputWithSchema({
             onInputChange?.(newSchema.key, value)
         }
 
-        const isEmptyValue = (v: unknown): boolean =>
-            v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)
-
         if (newSchema?.type && newSchema.type !== schema.type) {
             // Reset on type change; seed from schema default when one is declared
             onInputChange?.(schema.key, {
                 value: newSchema.default !== undefined ? newSchema.default : null,
             })
-        } else if (newSchema?.default !== undefined && isEmptyValue(value.value)) {
+        } else if (newSchema?.default !== undefined && isEmptyInputValue(value.value)) {
             // Seed an empty input value from the schema's default so save succeeds without a separate edit
             onInputChange?.(newSchema.key ?? schema.key, { ...value, value: newSchema.default })
         }
