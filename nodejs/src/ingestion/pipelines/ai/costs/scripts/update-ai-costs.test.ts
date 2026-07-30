@@ -57,7 +57,7 @@ describe('parseDiscountRate()', () => {
         { description: 'returns 0 for an explicit zero', discount: 0, expected: 0 },
         { description: 'reads a fractional rate', discount: 0.35, expected: 0.35 },
         { description: 'reads a rate served as a string', discount: '0.5', expected: 0.5 },
-        { description: 'clamps a negative rate to 0', discount: -0.5, expected: 0 },
+        { description: 'reads a negative rate as a markup', discount: -0.1, expected: -0.1 },
         { description: 'rejects a rate of exactly 1 (division by zero)', discount: 1, expected: 0 },
         { description: 'rejects a rate above 1 (would flip the sign)', discount: 1.5, expected: 0 },
     ])('$description', ({ discount, expected }) => {
@@ -65,10 +65,13 @@ describe('parseDiscountRate()', () => {
         expect(parseDiscountRate({ discount })).toBe(expected)
     })
 
-    it('warns on a negative rate, which would otherwise look like no promotion', () => {
+    it('recovers list from a markup, which is a negative rate', () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-        expect(parseDiscountRate({ discount: -0.5 }, 'x/y')).toBe(0)
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining('x/y'))
+        expect(parseDiscountRate({ discount: -0.1 }, 'x/y')).toBe(-0.1)
+        expect(warn).not.toHaveBeenCalled()
+        expect(buildModelCost({ prompt: '0.0000011', completion: '0.0000011', discount: -0.1 })!.prompt_token).toBe(
+            0.000001
+        )
     })
 
     it.each<{ description: string; discount: unknown }>([
@@ -274,8 +277,7 @@ describe('buildModelRow()', () => {
         ])
         expect(built!.discount).toEqual({
             model: 'openai/gpt-5.6-luna',
-            endpoints: [{ key: 'openai', discount: 0.5 }],
-            confirmation: 'confirmed',
+            endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' as const }],
         })
     })
 
@@ -295,7 +297,7 @@ describe('buildModelRow()', () => {
     it('reports not-checkable when no undiscounted sibling exists', () => {
         // Every Qwen model: Alibaba is the only route, so nothing corroborates it.
         const built = buildModelRow('qwen/qwen-plus', listPricing, [endpoint('alibaba-fp8', '0.000000169', 0.35)])
-        expect(built!.discount?.confirmation).toBe('not-checkable')
+        expect(built!.discount?.endpoints[0].confirmation).toBe('not-checkable')
     })
 
     it('warns once, naming the model, on an out-of-range rate', () => {
@@ -328,25 +330,33 @@ describe('buildModelRow()', () => {
 })
 
 describe('confirmDiscountAgainstSiblings()', () => {
-    it('is not checkable without a discounted endpoint', () => {
-        expect(confirmDiscountAgainstSiblings([candidate('azure', '0.000001', 0)])).toBe('not-checkable')
+    it('is not checkable for an undiscounted route', () => {
+        const azure = candidate('azure', '0.000001', 0)
+        expect(confirmDiscountAgainstSiblings(azure, [azure])).toBe('not-checkable')
     })
 
     it('is not checkable without an undiscounted sibling', () => {
         // Every Qwen model: Alibaba is the only first-party route.
-        expect(confirmDiscountAgainstSiblings([candidate('alibaba-fp8', '0.000000169', 0.35)])).toBe('not-checkable')
+        const alibaba = candidate('alibaba-fp8', '0.000000169', 0.35)
+        expect(confirmDiscountAgainstSiblings(alibaba, [alibaba])).toBe('not-checkable')
     })
 
     it('confirms when the de-discounted price lands on an undiscounted sibling', () => {
-        expect(
-            confirmDiscountAgainstSiblings([candidate('openai', '0.0000005', 0.5), candidate('azure', '0.000001', 0)])
-        ).toBe('confirmed')
+        const openai = candidate('openai', '0.0000005', 0.5)
+        expect(confirmDiscountAgainstSiblings(openai, [openai, candidate('azure', '0.000001', 0)])).toBe('confirmed')
     })
 
     it('reports unconfirmed when the recovered price matches no sibling', () => {
-        expect(
-            confirmDiscountAgainstSiblings([candidate('openai', '0.0000005', 0.5), candidate('azure', '0.000009', 0)])
-        ).toBe('unconfirmed')
+        const openai = candidate('openai', '0.0000005', 0.5)
+        expect(confirmDiscountAgainstSiblings(openai, [openai, candidate('azure', '0.000009', 0)])).toBe('unconfirmed')
+    })
+
+    it('judges each promoted route on its own', () => {
+        const flex = candidate('openai-flex', '0.00000025', 0.5)
+        const openai = candidate('openai', '0.0000005', 0.5)
+        const all = [flex, openai, candidate('azure', '0.000001', 0)]
+        expect(confirmDiscountAgainstSiblings(openai, all)).toBe('confirmed')
+        expect(confirmDiscountAgainstSiblings(flex, all)).toBe('unconfirmed')
     })
 
     it('compares on the prompt price, not the completion price', () => {
@@ -361,17 +371,7 @@ describe('confirmDiscountAgainstSiblings()', () => {
             cost: buildModelCost({ prompt: '0.000001', completion: '0.000002' })!,
             discount: 0,
         }
-        expect(confirmDiscountAgainstSiblings([discounted, sibling])).toBe('confirmed')
-    })
-
-    it('confirms on any one matching route when several are discounted', () => {
-        expect(
-            confirmDiscountAgainstSiblings([
-                candidate('openai-flex', '0.00000025', 0.5),
-                candidate('openai', '0.0000005', 0.5),
-                candidate('azure', '0.000001', 0),
-            ])
-        ).toBe('confirmed')
+        expect(confirmDiscountAgainstSiblings(discounted, [discounted, sibling])).toBe('confirmed')
     })
 })
 
@@ -384,8 +384,22 @@ describe('sanitizeReportCell()', () => {
         },
         { description: 'folds newlines so a row cannot be split', input: 'a\nb\r\nc', expected: 'a b c' },
         { description: 'strips pipes so a row cannot gain columns', input: 'a|b', expected: 'ab' },
-        { description: 'strips angle brackets so markup cannot render', input: '<img src=x>', expected: 'img src=x' },
+        {
+            description: 'strips angle brackets and everything else outside the allowlist',
+            input: '<img src=x>',
+            expected: 'img srcx',
+        },
         { description: 'strips backticks so code spans cannot escape', input: 'a`b', expected: 'ab' },
+        {
+            description: 'strips image syntax so a remote image cannot load in the PR body',
+            input: '![pricing](https://example.com/pixel)',
+            expected: 'pricinghttps://example.com/pixel',
+        },
+        {
+            description: 'strips link syntax so no clickable target survives',
+            input: '[click](https://evil.example)',
+            expected: 'clickhttps://evil.example',
+        },
     ])('$description', ({ input, expected }) => {
         expect(sanitizeReportCell(input)).toBe(expected)
     })
@@ -398,8 +412,7 @@ describe('sanitizeReportCell()', () => {
 describe('renderDiscountReport()', () => {
     const entry = (over: Partial<DiscountReportEntry> = {}): DiscountReportEntry => ({
         model: 'openai/gpt-5.6-luna',
-        endpoints: [{ key: 'openai', discount: 0.5 }],
-        confirmation: 'confirmed',
+        endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' as const }],
         ...over,
     })
 
@@ -418,14 +431,16 @@ describe('renderDiscountReport()', () => {
         // Numerator and denominator must differ, or a checkable-count reads the same.
         const report = renderDiscountReport([
             entry(),
-            entry({ model: 'aaa/unconfirmed', confirmation: 'unconfirmed' }),
+            entry({
+                model: 'aaa/unconfirmed',
+                endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'unconfirmed' as const }],
+            }),
             entry({
                 model: 'qwen/qwen-plus',
                 endpoints: [
-                    { key: 'alibaba-fp8', discount: 0.35 },
-                    { key: 'streamlake', discount: 0.4 },
+                    { key: 'alibaba-fp8', discount: 0.35, confirmation: 'not-checkable' as const },
+                    { key: 'streamlake', discount: 0.4, confirmation: 'not-checkable' as const },
                 ],
-                confirmation: 'not-checkable',
             }),
         ])
         expect(report).toContain('**4 endpoint(s)**')
@@ -434,23 +449,25 @@ describe('renderDiscountReport()', () => {
     })
 
     it('puts the confirmation verdict on the row it belongs to', () => {
-        const report = renderDiscountReport([entry({ confirmation: 'unconfirmed' })])
+        const report = renderDiscountReport([
+            entry({ endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'unconfirmed' as const }] }),
+        ])
         expect(report).toContain('| unconfirmed |')
     })
 
-    it('repeats neither model nor verdict on a continuation row', () => {
+    it('blanks the model on a continuation row and keeps that route verdict', () => {
         const report = renderDiscountReport([
             entry({
                 endpoints: [
-                    { key: 'openai', discount: 0.5 },
-                    { key: 'openai-flex', discount: 0.5 },
+                    { key: 'openai', discount: 0.5, confirmation: 'confirmed' as const },
+                    { key: 'openai-flex', discount: 0.5, confirmation: 'confirmed' as const },
                 ],
             }),
         ])
         const rows = report.split('\n').filter((line) => line.includes('50%'))
         expect(rows[0]).toContain('openai/gpt-5.6-luna')
         expect(rows[1]).not.toContain('openai/gpt-5.6-luna')
-        expect(rows[1]).not.toContain('confirmed')
+        expect(rows[1]).toContain('confirmed')
     })
 
     it('reports models it could not check rather than claiming a clean run', () => {
@@ -467,7 +484,11 @@ describe('renderDiscountReport()', () => {
         Array.from({ length: count }, (_, index) =>
             entry({
                 model: `vendor/model-${String(index).padStart(4, '0')}`,
-                endpoints: Array.from({ length: endpointsEach }, (_, e) => ({ key: `k${e}`, discount: 0.5 })),
+                endpoints: Array.from({ length: endpointsEach }, (_, e) => ({
+                    key: `k${e}`,
+                    discount: 0.5,
+                    confirmation: 'confirmed' as const,
+                })),
             })
         )
 
@@ -503,7 +524,11 @@ describe('renderDiscountReport()', () => {
 
     it('escapes a hostile endpoint key so it cannot break the table', () => {
         // Sanitized separately from the model id, so it needs its own input.
-        const report = renderDiscountReport([entry({ endpoints: [{ key: 'a|b\n| pwned | 9 | 9 |', discount: 0.5 }] })])
+        const report = renderDiscountReport([
+            entry({
+                endpoints: [{ key: 'a|b\n| pwned | 9 | 9 |', discount: 0.5, confirmation: 'confirmed' as const }],
+            }),
+        ])
         expect(report).not.toContain('pwned | 9 | 9 |')
         expect(report.split('\n').filter((line) => line.includes('50%'))).toHaveLength(1)
     })
@@ -530,8 +555,7 @@ describe('accumulateModelRow()', () => {
     it('collects a discount entry when the row reports one', () => {
         const discount = {
             model: 'm',
-            endpoints: [{ key: 'openai', discount: 0.5 }],
-            confirmation: 'confirmed' as const,
+            endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' as const }],
         }
         expect(accumulateModelRow(built({ discount }), 'm', totals()).discounts).toStrictEqual([discount])
     })
@@ -552,10 +576,9 @@ describe('accumulateModelRow()', () => {
 
     it('leaves the totals it was handed untouched', () => {
         const base = totals()
-        const discount = {
+        const discount: DiscountReportEntry = {
             model: 'a',
-            endpoints: [{ key: 'openai', discount: 0.5 }],
-            confirmation: 'confirmed' as const,
+            endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' }],
         }
         accumulateModelRow(built({ checked: false, discount }), 'a', base)
         expect(base.models).toHaveLength(0)
@@ -706,7 +729,7 @@ describe('collectModelRows()', () => {
             Promise.resolve([endpoint('openai', '0.0000005', 0.5), endpoint('azure', '0.000001')])
         )
         expect(totals.discounts).toHaveLength(1)
-        expect(totals.discounts[0].confirmation).toBe('confirmed')
+        expect(totals.discounts[0].endpoints[0].confirmation).toBe('confirmed')
         expect(totals.models[0].cost.openai.prompt_token).toBe(0.000001)
     })
 
@@ -861,10 +884,9 @@ describe('writeOutputs()', () => {
         // Every other call passes an empty list, which pins nothing.
         process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
         const writes = captureWrites()
-        const promo = {
+        const promo: DiscountReportEntry = {
             model: 'openai/gpt-5.6-luna',
-            endpoints: [{ key: 'openai', discount: 0.5 }],
-            confirmation: 'confirmed' as const,
+            endpoints: [{ key: 'openai', discount: 0.5, confirmation: 'confirmed' }],
         }
 
         writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [promo], 0)

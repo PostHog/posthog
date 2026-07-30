@@ -2,6 +2,8 @@ import fs from 'fs'
 import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
+import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
+
 interface ModelCost {
     prompt_token: number
     completion_token: number
@@ -55,8 +57,10 @@ const parsePricingNumber = (value: unknown): number | undefined => {
     }
 }
 
-/** A provider key means what that provider charges a direct caller, so any
- * promotion OpenRouter has already applied is divided back out. */
+/** A provider key means what that provider charges a direct caller, so whatever
+ * OpenRouter applied is divided back out. A negative `discount_to_user` is a
+ * markup and the same division recovers list; only a rate at or above 1 is
+ * invalid, which OpenRouter itself falls back to no rate. */
 export const parseDiscountRate = (pricing: Record<string, unknown>, context?: string, warn = true): number => {
     const raw = pricing.discount
     if (raw === undefined || raw === null) {
@@ -67,14 +71,15 @@ export const parseDiscountRate = (pricing: Record<string, unknown>, context?: st
     // draw a second parse-failure log from parsePricingNumber for the same field.
     const asNumber =
         typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : Number.NaN
-    if (!Number.isFinite(asNumber) || asNumber < 0 || asNumber >= 1) {
+    if (!Number.isFinite(asNumber) || asNumber >= 1) {
         if (warn) {
             console.warn(`Ignoring unusable discount ${String(raw)} for ${context ?? 'unknown model'}`)
         }
         return 0
     }
 
-    return parsePricingNumber(raw) ?? 0
+    // parsePricingNumber clamps negatives to 0, which would erase a markup.
+    return asNumber < 0 ? asNumber : (parsePricingNumber(raw) ?? 0)
 }
 
 /** Keeps a cost at the served price by hiding the rate from the shared builder. */
@@ -153,27 +158,28 @@ export interface EndpointCandidate {
 
 export type DiscountConfirmation = 'confirmed' | 'unconfirmed' | 'not-checkable'
 
-/** Corroborates the de-discount against an undiscounted sibling route. Evidence
- * only: two hosts legitimately price the same model differently, so a mismatch
- * fires on half of all checkable models. */
-export const confirmDiscountAgainstSiblings = (candidates: EndpointCandidate[]): DiscountConfirmation => {
-    const discounted = candidates.filter((candidate) => candidate.discount > 0)
-    const undiscounted = candidates.filter((candidate) => candidate.discount === 0)
-    if (discounted.length === 0 || undiscounted.length === 0) {
+/** Corroborates one route's de-discount against an undiscounted sibling. Per
+ * route, or a verdict rolled up across a model's routes gets displayed against
+ * one it never checked. Evidence only: two hosts legitimately price the same
+ * model differently, so a mismatch fires on half of all checkable routes. */
+export const confirmDiscountAgainstSiblings = (
+    candidate: EndpointCandidate,
+    candidates: EndpointCandidate[]
+): DiscountConfirmation => {
+    const undiscounted = candidates.filter((other) => other.discount === 0)
+    if (candidate.discount === 0 || undiscounted.length === 0) {
         return 'not-checkable'
     }
 
     // Both sides already went through the same rounding, so exact equality holds.
-    const siblingListPrices = new Set(undiscounted.map((candidate) => candidate.cost.prompt_token))
-    return discounted.some((candidate) => siblingListPrices.has(candidate.cost.prompt_token))
+    return undiscounted.some((other) => other.cost.prompt_token === candidate.cost.prompt_token)
         ? 'confirmed'
         : 'unconfirmed'
 }
 
 export interface DiscountReportEntry {
     model: string
-    endpoints: Array<{ key: string; discount: number }>
-    confirmation: DiscountConfirmation
+    endpoints: Array<{ key: string; discount: number; confirmation: DiscountConfirmation }>
 }
 
 /** Share of the catalogue that may go unchecked before the run says so loudly. */
@@ -182,12 +188,12 @@ export const UNCHECKED_WARN_FRACTION = 0.1
 /** Table rows rendered before the remainder collapses into a count line. */
 export const DISCOUNT_REPORT_ROW_LIMIT = 200
 
-/** Confines a third-party string to one table cell. A newline or pipe would break
- * the row apart, and angle brackets render as HTML on GitHub. */
+/** Confines a third-party string to inert text in one table cell. An allowlist,
+ * because a denylist has to anticipate every markdown construct that renders. */
 export const sanitizeReportCell = (value: string): string =>
     value
         .replace(/[\r\n]+/g, ' ')
-        .replace(/[|<>`]/g, '')
+        .replace(/[^A-Za-z0-9._:/ -]+/g, '')
         .trim()
         .slice(0, 120)
 
@@ -204,8 +210,9 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     }
 
     const rows = [...entries].sort((a, b) => a.model.localeCompare(b.model))
-    const confirmed = rows.filter((row) => row.confirmation === 'confirmed').length
-    const checkable = rows.filter((row) => row.confirmation !== 'not-checkable').length
+    const verdicts = rows.map((row) => row.endpoints.map((e) => e.confirmation))
+    const confirmed = verdicts.filter((v) => v.includes('confirmed')).length
+    const checkable = verdicts.filter((v) => v.some((c) => c !== 'not-checkable')).length
     const endpointCount = rows.reduce((total, row) => total + row.endpoints.length, 0)
 
     const lines = [
@@ -233,7 +240,7 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
         }
         for (const [index, endpoint] of row.endpoints.entries()) {
             const model = index === 0 ? sanitizeReportCell(row.model) : ''
-            const confirmation = index === 0 ? row.confirmation : ''
+            const confirmation = endpoint.confirmation
             lines.push(
                 `| ${model} | \`${sanitizeReportCell(endpoint.key)}\` | ${Math.round(endpoint.discount * 100)}% | ${confirmation} |`
             )
@@ -248,16 +255,9 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     return lines.join('\n')
 }
 
-const normalizeKeySegment = (raw: string): string =>
-    raw
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-
-const normalizeProviderKey = (endpoint: { tag?: string; provider_name?: string; name?: string }): string => {
-    const rawKey = endpoint.tag || endpoint.provider_name || endpoint.name || 'unknown'
-    return normalizeKeySegment(rawKey)
-}
+/** Shared with provider-matching: this writes the keys that module reads. */
+const endpointProviderKey = (endpoint: { tag?: string; provider_name?: string; name?: string }): string =>
+    normalizeProviderKey(endpoint.tag || endpoint.provider_name || endpoint.name || 'unknown')
 
 export interface BuiltModelRow {
     cost: Record<string, ModelCost>
@@ -288,13 +288,13 @@ export const buildModelRow = (
             continue
         }
 
-        const providerKey = normalizeProviderKey(endpoint)
+        const providerKey = endpointProviderKey(endpoint)
         // Normalized too: every key here is interpolated into canonical-providers.ts
         // as a string literal, so it must be [a-z0-9-] by construction.
         const safeProviderKey =
             providerKey && providerKey !== 'default'
                 ? providerKey
-                : `provider-${normalizeKeySegment(endpoint.provider_name ?? 'unknown') || 'unknown'}`
+                : `provider-${normalizeProviderKey(endpoint.provider_name ?? 'unknown') || 'unknown'}`
 
         cost[safeProviderKey] = endpointCost
         candidates.push({
@@ -318,8 +318,11 @@ export const buildModelRow = (
             discounted.length > 0
                 ? {
                       model: modelId,
-                      endpoints: discounted.map(({ key, discount }) => ({ key, discount })),
-                      confirmation: confirmDiscountAgainstSiblings(candidates),
+                      endpoints: discounted.map((candidate) => ({
+                          key: candidate.key,
+                          discount: candidate.discount,
+                          confirmation: confirmDiscountAgainstSiblings(candidate, candidates),
+                      })),
                   }
                 : undefined,
     }
