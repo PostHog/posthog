@@ -16,8 +16,25 @@ SCANNER_DIGEST_RRULE = "FREQ=DAILY;BYHOUR=8;BYMINUTE=0"
 
 
 def digest_name_for_scanner(scanner: "ReplayScanner") -> str:
-    # VisionAction names are unique per team, so the scanner name (itself team-unique) is baked in.
     return f"Daily digest: {scanner.name}"[:255]
+
+
+def unique_digest_name(team_id: int, base: str) -> str:
+    """A team-unique variant of `base`, suffixing " (2)", " (3)", … when the plain name is taken.
+    VisionAction names are unique per team, but the base derives from the scanner name, which isn't
+    unique — so two scanners sharing a name would otherwise collide on their digest name."""
+    base = base[:255]
+    # One query over the team's names beating this base; the count per team is small.
+    taken = set(VisionAction.objects.for_team(team_id).filter(name__startswith=base).values_list("name", flat=True))
+    if base not in taken:
+        return base
+    for n in range(2, len(taken) + 3):
+        candidate = f"{base[: 255 - len(f' ({n})')]} ({n})"
+        if candidate not in taken:
+            return candidate
+    # Unreachable given the range spans more than the collisions, but stay well-defined; the DB
+    # uniqueness constraint is the final backstop.
+    return base
 
 
 def provision_scanner_digest(scanner: "ReplayScanner", user: "User") -> VisionAction | None:
@@ -29,7 +46,7 @@ def provision_scanner_digest(scanner: "ReplayScanner", user: "User") -> VisionAc
         return VisionAction.objects.for_team(scanner.team_id).create(
             team_id=scanner.team_id,
             scanner=scanner,
-            name=digest_name_for_scanner(scanner),
+            name=unique_digest_name(scanner.team_id, digest_name_for_scanner(scanner)),
             created_by=user,
             is_scanner_digest=True,
             trigger_config={
