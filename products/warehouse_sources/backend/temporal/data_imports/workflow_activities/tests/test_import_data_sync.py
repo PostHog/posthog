@@ -251,13 +251,18 @@ async def test_posthog_internal_database_error_logged_as_warning_and_backed_off(
     logger.aexception = mock.AsyncMock()
     logger.adebug = mock.AsyncMock()
 
+    slept: list[float] = []
+
+    async def _record_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
     with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
-        with mock.patch.object(module.asyncio, "sleep", mock.AsyncMock()) as sleep_mock:
+        with mock.patch.object(module.asyncio, "sleep", _record_sleep):
             with pytest.raises(NonReportableError) as exc_info:
                 await module._handle_import_error(mock.MagicMock(), logger, error)
 
     assert exc_info.value.__cause__ is error
-    assert sleep_mock.await_args.args[0] > 0
+    assert len(slept) == 1 and slept[0] > 0
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
