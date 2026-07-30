@@ -291,10 +291,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=None,
     ),
-    # warehouse-sources-admin's error-triage classifier: one cheap Haiku call per ingested
-    # pipeline error that decides whether the error is code-fixable and which model the
-    # follow-up PostHog Code task should run on. Server-side only via the shared personal API
-    # key, Haiku-pinned, unbilled internal infra — same posture as warehouse_semantic_enrichment.
+    # warehouse-sources-admin's error-triage classifier: one call per ingested pipeline error,
+    # deciding whether it's code-fixable. Internal server-side infra, unbilled.
     "warehouse_sources_triage": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
