@@ -31350,6 +31350,13 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    export interface FacetCount {
+      /** The facet value as emitted by the summarizer (lowercased). */
+      term: string;
+      /** Number of succeeded observations that emitted this value. */
+      count: number;
+    }
+
     /**
      * * `severity_text` - severity_text
      * * `service_name` - service_name
@@ -41022,6 +41029,15 @@ export namespace Schemas {
       histogram: ScorerHistogram | null;
     }
 
+    export interface SummarizerStats {
+      /** Top friction points by emission count. */
+      friction_ranked: FacetCount[];
+      /** Top keywords by emission count. */
+      keyword_ranked: FacetCount[];
+      /** Succeeded observations that emitted at least one friction point or keyword. */
+      total_with_facets: number;
+    }
+
     export interface ObservationStats {
       /** Counts of observations by terminal status. */
       status_counts: ObservationStatusCounts;
@@ -41037,6 +41053,8 @@ export namespace Schemas {
       classifier: ClassifierStats | null;
       /** Scorer-type aggregates; null when the scanner is not a scorer. */
       scorer: ScorerStats | null;
+      /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
+      summarizer: SummarizerStats | null;
     }
 
     /**
@@ -46852,6 +46870,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -54656,6 +54676,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
