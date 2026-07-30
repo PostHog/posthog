@@ -1184,7 +1184,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # human re-enable apart from a system resume. Who last edited anything else on the row
     # stays the activity log's job. `db_constraint=False` because posthog_user is a hot table
     # and adding the FK constraint would lock it; integrity is app-level only, like the
-    # constraint-free path recommended for hot-table FKs.
+    # constraint-free path recommended for hot-table FKs. `db_index=False` because nothing
+    # queries by attribution (it is read per-row) and the FK's default index would otherwise
+    # be built non-concurrently inside the migration.
     status_changed_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -1192,6 +1194,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="+",
         db_constraint=False,
+        db_index=False,
     )
     # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
@@ -1262,6 +1265,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
             # follow-up migration: enforcing it in the same deploy that introduces the
             # dual-write breaks rolling deploys, because not-yet-replaced instances still
             # write `enabled` alone and a NOT VALID constraint already checks new writes.
+            # That follow-up must first re-run the enabled-wins reconciliation over drifted
+            # rows (enabled-only writes from old instances during the rollout window land
+            # after the 0075 backfill), then add and validate the constraint.
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
