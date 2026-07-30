@@ -188,10 +188,12 @@ _REDACTED_QUERY_COLUMN = "query"
 # still reads as SQL.
 _REDACTED_LITERAL = "'?'"
 
-# Opens a dollar-quoted string: `$$` or `$tag$`. A tag must start with a letter or
-# underscore, which is what keeps `$1` parameter placeholders — the whole point of
-# normalized text — from being mistaken for one.
-_DOLLAR_QUOTE = re.compile(r"\$[A-Za-z_][A-Za-z_0-9]*\$|\$\$")
+# Opens a dollar-quoted string: `$$` or `$tag$`. A tag follows Postgres' unquoted
+# identifier rules, so it may contain non-ASCII letters (`$秘密$`) — `[^\W\d]` is a
+# Unicode-aware "letter or underscore", and requiring that first character is what keeps
+# `$1` parameter placeholders, the whole point of normalized text, from being mistaken
+# for a tag.
+_DOLLAR_QUOTE = re.compile(r"\$(?:[^\W\d]\w*)?\$")
 
 
 def _scope_predicate(source_schema: str | None) -> sql.SQL | sql.Composed:

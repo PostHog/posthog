@@ -377,6 +377,9 @@ class TestCollectStatementsScripted:
             # Dollar quoting is a third literal syntax and bypassed the single-quote scan.
             ("SELECT $$api_token=secret$$", "SELECT '?'"),
             ("SELECT $tag$api_token=secret$tag$ FROM t", "SELECT '?' FROM t"),
+            # Dollar-quote tags follow unquoted-identifier rules, so they can be non-ASCII.
+            ("SELECT $秘密$api_token=secret$秘密$ FROM t", "SELECT '?' FROM t"),
+            ("SELECT $café$api_token=secret$café$ FROM t", "SELECT '?' FROM t"),
             ("SELECT $$outer $notatag inner$$ FROM t", "SELECT '?' FROM t"),
             ("SELECT $$unterminated secret", "SELECT '?'"),
             # A backslash escapes the next character inside a literal, so the span ends at
