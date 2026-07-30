@@ -85,6 +85,7 @@ export function InsightViz({
         filtersOverride,
         variablesOverride,
         limitContext: context?.limitContext,
+        autoRetryTransientFailures: context?.autoRetryTransientFailures,
     }
 
     const showIfFull = !!query.full

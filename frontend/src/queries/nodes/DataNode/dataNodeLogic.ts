@@ -32,6 +32,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { AUTO_RETRY_DELAYS_MS, isTransientQueryFailure } from '~/queries/nodes/DataNode/autoRetry'
 import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
@@ -135,6 +136,12 @@ export interface DataNodeLogicProps {
     maxPaginationLimit?: number
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
+    /**
+     * Retry a transient failure automatically a couple of times before surfacing an error state.
+     * Off by default: it costs backend capacity, so it's for surfaces where a dead-end error is
+     * worse than an extra query, like the web analytics dashboard's tiles.
+     */
+    autoRetryTransientFailures?: boolean
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -237,6 +244,8 @@ export interface dataNodeLogicValues {
     autoLoadRunning: boolean
     autoLoadStarted: boolean
     autoLoadToggled: boolean
+    autoRetryAttempt: number
+    autoRetryPending: boolean
     backToSourceQuery: InsightVizNode | null
     canLoadNewData: boolean
     canLoadNextData: boolean
@@ -316,6 +325,9 @@ export interface dataNodeLogicActions {
         id: string
     } // dataNodeCollectionLogic
     abortAnyRunningQuery: () => {
+        value: true
+    }
+    autoRetryQuery: () => {
         value: true
     }
     abortQuery: (payload: { queryId: string }) => {
@@ -916,6 +928,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             overrideQuery,
         }),
         abortAnyRunningQuery: true,
+        autoRetryQuery: true,
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
         setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
@@ -1282,6 +1295,26 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // Clear the response if a failure to avoid showing inconsistencies in the UI
             loadDataFailure: () => null,
         },
+        autoRetryAttempt: [
+            0,
+            {
+                autoRetryQuery: (state) => state + 1,
+                // Deliberately not reset by `loadData`: a manual "Try again" should get the error
+                // state straight back if it fails, rather than restarting the automatic retries.
+                loadDataSuccess: () => 0,
+                clearResponse: () => 0,
+                cancelQuery: () => 0,
+            },
+        ],
+        autoRetryPending: [
+            false,
+            {
+                autoRetryQuery: () => true,
+                loadDataSuccess: () => false,
+                loadDataFailure: () => false,
+                cancelQuery: () => false,
+            },
+        ],
         responseErrorObject: [
             null as Record<string, any> | null,
             {
@@ -1967,8 +2000,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
         },
-        loadDataFailure: () => {
+        loadDataFailure: async ({ errorObject }, breakpoint) => {
             actions.collectionNodeLoadDataFailure(props.key)
+
+            if (
+                !props.autoRetryTransientFailures ||
+                values.queryCancelled ||
+                values.autoRetryAttempt >= AUTO_RETRY_DELAYS_MS.length ||
+                !isTransientQueryFailure(errorObject)
+            ) {
+                return
+            }
+
+            const delayMs = AUTO_RETRY_DELAYS_MS[values.autoRetryAttempt]
+            actions.autoRetryQuery()
+            await breakpoint(delayMs)
+            // A manual "Try again" during the wait already put a query in flight
+            if (!values.dataLoading) {
+                actions.loadData()
+            }
         },
         loadNewDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)

@@ -16,7 +16,7 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
-import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { InsightEmptyState, InsightErrorState, InsightRetryingState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
@@ -176,6 +176,7 @@ export function DataTable({
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
         limitContext: context?.limitContext,
+        autoRetryTransientFailures: context?.autoRetryTransientFailures,
     }
     const {
         response,
@@ -186,6 +187,8 @@ export function DataTable({
         newDataLoading,
         highlightedRows,
         backToSourceQuery,
+        autoRetryPending,
+        autoRetryAttempt,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
@@ -1039,10 +1042,16 @@ export function DataTable({
                                 useURLForSorting={false}
                                 emptyState={
                                     responseError ? (
-                                        sourceFeatures.has(QueryFeature.displayResponseError) ? (
+                                        autoRetryPending ? (
+                                            <InsightRetryingState
+                                                query={query}
+                                                onRetry={() => loadData('force_blocking')}
+                                            />
+                                        ) : sourceFeatures.has(QueryFeature.displayResponseError) ? (
                                             <InsightErrorState
                                                 query={query}
                                                 excludeDetail
+                                                autoRetryAttempts={autoRetryAttempt}
                                                 onRetry={() => loadData('force_blocking')}
                                                 title={
                                                     queryCancelled
@@ -1055,6 +1064,7 @@ export function DataTable({
                                         ) : (
                                             <InsightErrorState
                                                 query={query}
+                                                autoRetryAttempts={autoRetryAttempt}
                                                 onRetry={() => loadData('force_blocking')}
                                             />
                                         )

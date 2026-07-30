@@ -67,6 +67,7 @@ export function buildInsightVizTileDataNodeLogicProps({
         filtersOverride,
         variablesOverride,
         limitContext,
+        autoRetryTransientFailures: true,
     }
 }
 
@@ -88,6 +89,7 @@ export function buildDataTableTileDataNodeLogicProps({
         refresh: context?.refresh,
         maxPaginationLimit: context?.dataTableMaxPaginationLimit,
         limitContext: context?.limitContext,
+        autoRetryTransientFailures: true,
     }
 }
 

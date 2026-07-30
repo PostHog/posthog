@@ -169,6 +169,8 @@ export interface insightVizDataLogicValues {
     dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable> // databaseTableListLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
+    insightAutoRetryAttempt: number // insightDataLogic
+    insightAutoRetryPending: boolean // insightDataLogic
     insightData: Record<string, any> // insightDataLogic
     insightDataError: Record<string, any> | null // insightDataLogic
     insightDataLoading: boolean // insightDataLogic
@@ -1194,7 +1196,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     connect(() => ({
         values: [
             insightDataLogic,
-            ['query', 'insightQuery', 'insightData', 'insightDataLoading', 'insightDataError'],
+            [
+                'query',
+                'insightQuery',
+                'insightData',
+                'insightDataLoading',
+                'insightDataError',
+                'insightAutoRetryPending',
+                'insightAutoRetryAttempt',
+            ],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
             databaseTableListLogic,

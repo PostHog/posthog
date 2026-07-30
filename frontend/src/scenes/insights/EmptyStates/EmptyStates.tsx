@@ -21,6 +21,7 @@ import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemo
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
@@ -201,6 +202,35 @@ const RetryButton = ({
         >
             Try again
         </LemonButton>
+    )
+}
+
+/**
+ * Shown instead of `InsightErrorState` while a transient failure is being retried automatically,
+ * so the tile reads as "still working on it" rather than a dead end the user has to act on.
+ */
+export function InsightRetryingState({
+    onRetry,
+    query,
+}: {
+    onRetry?: () => void
+    query?: Record<string, any> | Node | null
+}): JSX.Element {
+    return (
+        <div
+            data-attr="insight-retrying-state"
+            className="flex flex-col items-center gap-2 justify-center rounded px-4 py-6 h-full w-full text-center"
+        >
+            <Spinner className="text-3xl shrink-0 text-secondary" />
+            <h2 className="text-base text-secondary leading-tight mb-0">
+                That query didn&apos;t come back. Trying again…
+            </h2>
+            {onRetry && (
+                <div className="mt-2">
+                    <RetryButton onRetry={onRetry} query={query} />
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -655,6 +685,8 @@ export interface InsightErrorStateProps {
     supportOnly?: boolean
     fixWithAIComponent?: JSX.Element
     onRetry?: () => void
+    /** How many automatic retries were spent before giving up, so telemetry can tell dead ends from self-healed tiles. */
+    autoRetryAttempts?: number
 }
 
 export function InsightErrorState({
@@ -666,6 +698,7 @@ export function InsightErrorState({
     supportOnly = false,
     fixWithAIComponent,
     onRetry,
+    autoRetryAttempts,
 }: InsightErrorStateProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -677,6 +710,7 @@ export function InsightErrorState({
             error_type: 'server',
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
+            auto_retry_attempts: autoRetryAttempts ?? 0,
         })
     })
 

@@ -82,6 +82,11 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
      */
     suppressSlowQuerySuggestions?: boolean
+    /**
+     * Retry a transient query failure automatically before showing the error state, so a tile the
+     * viewer cannot edit recovers on its own instead of dead-ending on a manual "Try again".
+     */
+    autoRetryTransientFailures?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

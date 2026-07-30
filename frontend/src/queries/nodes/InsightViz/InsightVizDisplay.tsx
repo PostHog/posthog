@@ -18,6 +18,7 @@ import {
     InsightErrorState,
     InsightLoadingState,
     InsightRefreshDataHint,
+    InsightRetryingState,
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
@@ -158,6 +159,8 @@ export function InsightVizDisplay({
         insightDataLoading,
         erroredQueryId,
         timedOutQueryId,
+        insightAutoRetryPending,
+        insightAutoRetryAttempt,
         vizSpecificOptions,
         query,
         querySource,
@@ -265,13 +268,19 @@ export function InsightVizDisplay({
 
         // Insight agnostic empty states
         if (erroredQueryId) {
+            const onRetry = (): void => {
+                loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+            }
+            // A transient failure being retried isn't something the viewer has to act on yet
+            if (insightAutoRetryPending) {
+                return <InsightRetryingState query={query} onRetry={onRetry} />
+            }
             return (
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
-                    onRetry={() => {
-                        loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
-                    }}
+                    autoRetryAttempts={insightAutoRetryAttempt}
+                    onRetry={onRetry}
                 />
             )
         }
