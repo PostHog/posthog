@@ -71,6 +71,7 @@ export interface integrationsLogicValues {
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -85,6 +86,7 @@ export interface integrationsLogicValues {
             | 'vercel'
         )[]
     ) => IntegrationType[]
+    githubIntegrations: IntegrationType[]
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
     integrations: IntegrationType[] | null
@@ -145,6 +147,7 @@ export interface integrationsLogicActions {
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -240,6 +243,7 @@ export interface integrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -290,6 +294,7 @@ export interface integrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -357,6 +362,7 @@ export interface integrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -411,6 +417,7 @@ export interface integrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -458,6 +465,7 @@ export interface integrationsLogicActions {
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -516,6 +524,7 @@ export interface integrationsLogicActions {
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -559,6 +568,7 @@ export interface integrationsLogicActions {
             | 'linear'
             | 'linkedin-ads'
             | 'meta-ads'
+            | 'pardot'
             | 'pinterest-ads'
             | 'postgresql'
             | 'reddit-ads'
@@ -584,6 +594,7 @@ export interface integrationsLogicActions {
 export interface integrationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[] | undefined
+        githubIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         getIntegrationsByKind: (
             integrations: IntegrationType[] | null
         ) => (
@@ -614,6 +625,7 @@ export interface integrationsLogicMeta {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -858,7 +870,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
-            const { next, token, source, server_id } = fromParamsGivenUrl(state)
+            const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state)
             const resolvedKind = kind
             let replaceUrl: string = next || urls.settings('project-integrations')
 
@@ -903,10 +915,19 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}&state_token=${encodeURIComponent(token)}`
                     lemonToast.success('Authorization successful.')
                 } else {
-                    const integration = await api.integrations.create({
-                        kind: resolvedKind,
-                        config: { state, code },
-                    })
+                    // The callback URL is not project-scoped, so after this full-page round-trip
+                    // the SPA may have re-resolved to the user's default team. Target the team
+                    // that started the flow (carried through the OAuth state) so the integration
+                    // lands on the project the user actually chose.
+                    const parsedTeamId = Number(team_id)
+                    const initiatingTeamId = Number.isFinite(parsedTeamId) ? parsedTeamId : undefined
+                    const integration = await api.integrations.create(
+                        {
+                            kind: resolvedKind,
+                            config: { state, code },
+                        },
+                        initiatingTeamId
+                    )
 
                     // Add the integration ID to the replaceUrl so that the landing page can use it
                     const url = new URL(replaceUrl, window.location.origin)
@@ -974,6 +995,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null) => {
                 return integrations?.filter((x) => x.kind == 'slack')
+            },
+        ],
+        githubIntegrations: [
+            (s) => [s.integrations],
+            (integrations: IntegrationType[] | null): IntegrationType[] => {
+                return integrations?.filter((x) => x.kind === 'github') ?? []
             },
         ],
         getIntegrationsByKind: [

@@ -1,5 +1,7 @@
 """GitHub source and warehouse-table fixtures shared across this product's test files."""
 
+import json
+import zlib
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -82,6 +84,26 @@ def connect_github_source_without_data(
     return GitHubTables(pull_requests=pr_table.name, workflow_runs=run_table.name, repository=repository)
 
 
+def repo_id(full_name: str) -> int:
+    """A stable synthetic GitHub repo id for a fixture repo — distinct per ``owner/name``."""
+    return zlib.crc32(full_name.encode())
+
+
+def pr_association_entry(number: int, *, base_repo: str = "PostHog/posthog") -> dict[str, Any]:
+    """One entry of a run's ``pull_requests`` association, shaped like the real webhook payload.
+
+    ``base.repo.id`` is what the curated builder matches against the run's own ``repository.id`` to
+    ignore the fork network's PRs. Pass ``base_repo`` to forge an entry based in a *different* repo —
+    that's what a default-branch push really lands, and the builder must skip it.
+    """
+    return {"number": number, "base": {"repo": {"id": repo_id(base_repo)}}}
+
+
+def pr_association(*numbers: int, base_repo: str = "PostHog/posthog") -> str:
+    """A run's ``pull_requests`` association over one base repo, serialized as the column lands it."""
+    return json.dumps([pr_association_entry(number, base_repo=base_repo) for number in numbers])
+
+
 def _user(login: str) -> str:
     return f'{{"login": "{login}", "avatar_url": "https://avatars/{login}"}}'
 
@@ -102,6 +124,7 @@ def _pr_row(
     created_at: str,
     *,
     merged_at: str | None = None,
+    merge_commit_sha: str | None = None,
     head_sha: str = "",
     head_ref: str = "",
     base_ref: str = "",
@@ -118,6 +141,7 @@ def _pr_row(
         "updated_at": merged_at or created_at,
         "merged_at": merged_at,
         "closed_at": merged_at,
+        "merge_commit_sha": merge_commit_sha,
         "user": _user(login),
         "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
         "base": _base(full_name, base_ref),
@@ -138,6 +162,7 @@ def _run_row(
     run_attempt: int = 1,
     pr_number: int | None = None,
     head_branch: str = "main",
+    commit_message: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": run_id,
@@ -152,8 +177,9 @@ def _run_row(
         "run_attempt": run_attempt,
         # Mirror the real Nullable(String) column: an unassociated run lands NULL, not "[]",
         # so the builder's ifNull(pull_requests, '[]') guard is exercised on the real path.
-        "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else None,
-        "repository": f'{{"full_name": "{full_name}"}}',
+        "pull_requests": pr_association(pr_number, base_repo=full_name) if pr_number is not None else None,
+        "repository": json.dumps({"full_name": full_name, "id": repo_id(full_name)}),
+        "head_commit": json.dumps({"message": commit_message}) if commit_message is not None else None,
     }
 
 

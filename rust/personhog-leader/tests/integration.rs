@@ -24,6 +24,7 @@ use personhog_leader::cache::{
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::warming::WarmClientPools;
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
@@ -433,11 +434,18 @@ async fn writes_fenced_after_drain_reads_still_served() {
     );
     // The handler shares the cache, inflight tracker, dirty index, and
     // recovery pool with the service, exactly as main.rs wires them.
+    let warming = test_warming_config("fence-pod", KAFKA_BOOTSTRAP);
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        "fence-pod",
+        &warming.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config("fence-pod", KAFKA_BOOTSTRAP),
+        warming,
+        pools,
     );
 
     cache.create_partition(0);
@@ -542,11 +550,18 @@ async fn drain_fences_before_waiting_on_inflight() {
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
+    let warming = test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP);
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        "fence-race-pod",
+        &warming.writer_consumer_group,
+    ));
     let handler = Arc::new(LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config("fence-race-pod", KAFKA_BOOTSTRAP),
+        warming,
+        pools,
     ));
 
     cache.create_partition(0);

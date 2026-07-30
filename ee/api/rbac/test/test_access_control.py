@@ -300,6 +300,15 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.json()["inherited_resource"] == "session_recording"
         assert res.json()["inherited_access_level"] == "viewer"
 
+    def test_project_reports_no_inherited_level(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.get("/api/projects/@current/access_controls")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        # Nothing sits above a project, so it must report no inherited level — that absence is what
+        # keeps "No override" an object-default affordance rather than a project-level one
+        assert res.json()["inherited_resource"] is None
+        assert res.json()["inherited_access_level"] is None
+
     def test_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._put_access_control(notebook_id=self.other_user_notebook.short_id)

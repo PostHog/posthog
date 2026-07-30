@@ -23,8 +23,8 @@ Two warehouse views are the substrate (both non-materialized — always current,
   pre-fingerprinted (`fingerprint` = test id + digit/hex-normalized error). Group by `fingerprint`
   to get first/last seen, occurrence count, and branch spread.
 - **`engineering_analytics_ci_job_history`** — one row per job attempt with `conclusion` AND commit
-  attribution: `head_sha`, `commit_author_name`, `commit_message`, `commit_pr_number` (parsed from
-  the squash-merge suffix — the only PR attribution a master push run has). This is where greens
+  attribution: `head_sha`, `commit_author_name`, `commit_message`, `commit_pr_number` (the merged PR
+  that produced the commit, the only PR attribution a master push run has). This is where greens
   live; the logs are failure-only, so every "when did it turn red / green again" question must come
   from here, never from the logs.
 
