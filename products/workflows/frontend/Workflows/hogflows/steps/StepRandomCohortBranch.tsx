@@ -86,16 +86,13 @@ export function StepRandomCohortBranchConfiguration({
         if (count === 0) {
             return
         }
-        const base = Math.floor(100 / count)
-        const remainder = 100 - base * count
-        const normalized = cohorts.map((cohort, i) => {
-            // Distribute remainder to the first cohorts
-            return { ...cohort, percentage: base + (i < remainder ? 1 : 0) }
-        })
-        setCohorts(normalized)
+        // Cumulative boundaries in hundredths of a percent, so the shares stay as even as two decimals
+        // allow and still add up to exactly 100 (3 cohorts -> 33.33 / 33.34 / 33.33).
+        const boundary = (i: number): number => Math.round((i * 10000) / count)
+        setCohorts(cohorts.map((cohort, i) => ({ ...cohort, percentage: (boundary(i + 1) - boundary(i)) / 100 })))
     }
 
-    const totalPercentage = cohorts.reduce((sum, cohort) => sum + cohort.percentage, 0)
+    const totalPercentage = Math.round(cohorts.reduce((sum, cohort) => sum + cohort.percentage, 0) * 100) / 100
 
     return (
         <>
@@ -120,8 +117,9 @@ export function StepRandomCohortBranchConfiguration({
                             type="number"
                             min="0"
                             max="100"
+                            step="any"
                             value={cohort.percentage}
-                            onChange={(e) => updateCohortPercentage(index, parseInt(e.target.value) || 0)}
+                            onChange={(e) => updateCohortPercentage(index, parseFloat(e.target.value) || 0)}
                             className="w-20 px-2 py-1 border rounded"
                         />
                         <span>%</span>
@@ -130,7 +128,9 @@ export function StepRandomCohortBranchConfiguration({
             ))}
 
             {totalPercentage !== 100 && (
-                <div className="text-sm text-orange-600">Total percentage: {totalPercentage}% (should equal 100%)</div>
+                <div className="text-sm text-orange-600">
+                    Cohorts add up to {totalPercentage}%, not 100%. Traffic is still split in these proportions.
+                </div>
             )}
 
             <div className="flex gap-2">
