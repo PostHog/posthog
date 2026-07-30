@@ -110,6 +110,8 @@ class TestTicketAPI(APIBaseTest):
         [
             ("tags_matches_any", {"tags": '["alpha", "beta"]'}, {"alpha_beta", "alpha", "beta_gamma"}),
             ("tags_all_matches_every", {"tags_all": '["alpha", "beta"]'}, {"alpha_beta"}),
+            # tags and tags_all must compose (AND), not clobber each other.
+            ("tags_composes_with_tags_all", {"tags": '["gamma"]', "tags_all": '["beta"]'}, {"beta_gamma"}),
             ("tags_exclude_drops_tagged", {"tags_exclude": '["gamma"]'}, {"alpha_beta", "alpha"}),
             (
                 "tags_all_composes_with_tags_exclude",
@@ -2716,13 +2718,16 @@ class TestTicketViewParamFilter(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("status", "status", "bogus,nonsense"),
-            ("priority", "priority", "bogus"),
-            ("assignee", "assignee", "bogus"),
+            ("status", "status", "bogus,nonsense", "status"),
+            ("priority", "priority", "bogus", "priority"),
+            ("assignee_token", "assignee", "bogus", "assignee"),
+            ("assignee_bad_user_id", "assignee", "user:abc", "assignee"),
+            ("assignee_bad_role_id", "assignee", "role:not-a-uuid", "assignee"),
+            ("order_by", "order_by", "bogus", "sorting"),
         ]
     )
-    def test_all_invalid_param_values_leave_key_unset(self, _label, param, value):
-        assert param not in query_params_to_view_filters({param: value})
+    def test_all_invalid_param_values_leave_key_unset(self, _label, param, value, key):
+        assert key not in query_params_to_view_filters({param: value})
 
     def test_legacy_view_filters_blob_applies_without_error(self):
         # Old saved views carry 'all' sentinels, a single-value assignee, and keys the

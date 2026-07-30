@@ -112,7 +112,10 @@ class TestTicketViewAPI(APIBaseTest):
     def test_update_filters_keeps_name(self):
         created = self._create_via_api()
 
-        new_filters = {"status": ["resolved"], "assignee": {"type": "role", "id": "abc"}}
+        new_filters = {
+            "status": ["resolved"],
+            "assignee": {"type": "role", "id": "9c9a4c7e-9ab5-4f30-9b74-3d1e9f9d3a01"},
+        }
         response = self.client.patch(
             f"{self.base_url}{created['short_id']}/",
             {"filters": new_filters},
@@ -367,6 +370,8 @@ class TestTicketViewFiltersValidation(SimpleTestCase):
             ("string_token", ["user:1"], []),
             ("mixed_entries", ["me", "user:1"], ["me"]),
             ("legacy_all", "all", []),
+            ("user_non_numeric_id", [{"type": "user", "id": "abc"}], []),
+            ("role_non_uuid_id", [{"type": "role", "id": "not-a-uuid"}], []),
         ]
     )
     def test_lenient_mode_drops_invalid_assignee_entries(self, _label, assignee, expected):
@@ -382,6 +387,9 @@ class TestTicketViewFiltersValidation(SimpleTestCase):
             ("single_bogus_string", "bogus"),
             ("unknown_type", [{"type": "team", "id": 1}]),
             ("missing_id", [{"type": "user"}]),
+            # An unresolvable id would save a view that silently matches all assignees.
+            ("user_non_numeric_id", [{"type": "user", "id": "abc"}]),
+            ("role_non_uuid_id", [{"type": "role", "id": "not-a-uuid"}]),
         ]
     )
     def test_strict_writes_rejects_invalid_assignee_entries(self, _label, assignee):

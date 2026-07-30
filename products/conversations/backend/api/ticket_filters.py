@@ -59,7 +59,9 @@ VALID_CHANNEL_VALUES = frozenset(c.value for c in Channel)
 TICKET_CHANNEL_FILTER_CHOICES = [*(c.value for c in Channel), "all"]
 TICKET_SLA_FILTER_CHOICES = [*SLA_FILTER_VALUES, "all"]
 TICKET_TAGS_MATCH_CHOICES = ["any", "all"]
-TICKET_SORT_ORDER_CHOICES = [1, -1]
+# Tuple pairs, not bare ints: drf-spectacular's override loader only accepts strings
+# in plain value lists and crashes on anything else.
+TICKET_SORT_ORDER_CHOICES = [(1, 1), (-1, -1)]
 
 
 def _is_assignee_entry(value: Any) -> bool:
@@ -68,7 +70,23 @@ def _is_assignee_entry(value: Any) -> bool:
     if not isinstance(value, dict):
         return False
     entry_id = value.get("id")
-    return value.get("type") in ("user", "role") and isinstance(entry_id, str | int) and not isinstance(entry_id, bool)
+    if not isinstance(entry_id, str | int) or isinstance(entry_id, bool):
+        return False
+    # The id must resolve to a real user pk / role UUID: an unresolvable entry would
+    # silently apply no filter at query time, widening results past what was asked for.
+    if value.get("type") == "user":
+        try:
+            int(entry_id)
+        except (TypeError, ValueError):
+            return False
+        return True
+    if value.get("type") == "role":
+        try:
+            uuid.UUID(str(entry_id))
+        except ValueError:
+            return False
+        return True
+    return False
 
 
 def normalize_assignee_filter(value: Any) -> list[Any]:
@@ -174,6 +192,12 @@ class TicketViewFiltersSerializer(serializers.Serializer):
         required=False,
         help_text="'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).",
     )
+    tagsAll = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tag names the ticket must all carry (AND). Applied on top of tags/tagsMatch, "
+        "so both an any-of and an all-of constraint can be active at once.",
+    )
     tagsExclude = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -227,7 +251,7 @@ def _decode_assignee_param(raw: str) -> list[Any]:
             entries.append({"type": "user", "id": entry[5:]})
         elif entry.startswith("role:"):
             entries.append({"type": "role", "id": entry[5:]})
-    return entries
+    return [entry for entry in entries if _is_assignee_entry(entry)]
 
 
 def _decode_json_tag_list(raw: str) -> list[str] | None:
@@ -240,10 +264,11 @@ def _decode_json_tag_list(raw: str) -> list[str] | None:
     return None
 
 
-def _order_by_to_sorting(order_by: str) -> dict[str, Any]:
-    if order_by.startswith("-"):
-        return {"columnKey": order_by[1:], "order": -1}
-    return {"columnKey": order_by, "order": 1}
+def _order_by_to_sorting(order_by: str) -> dict[str, Any] | None:
+    column = order_by.removeprefix("-")
+    if column not in ALLOWED_ORDER_COLUMNS:
+        return None
+    return {"columnKey": column, "order": -1 if order_by.startswith("-") else 1}
 
 
 def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
@@ -298,8 +323,9 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
     if tags_all_param:
         tags = _decode_json_tag_list(tags_all_param)
         if tags:
-            filters["tags"] = tags
-            filters["tagsMatch"] = "all"
+            # Separate key from tags/tagsMatch so tags= and tags_all= compose (AND)
+            # instead of the later param clobbering the earlier one.
+            filters["tagsAll"] = tags
 
     tags_exclude_param = params.get("tags_exclude")
     if tags_exclude_param:
@@ -322,7 +348,9 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
 
     order_by = params.get("order_by")
     if order_by:
-        filters["sorting"] = _order_by_to_sorting(order_by)
+        sorting = _order_by_to_sorting(order_by)
+        if sorting:
+            filters["sorting"] = sorting
 
     return filters
 
@@ -467,6 +495,12 @@ def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team
             queryset = queryset.distinct()
         else:
             queryset = queryset.filter(tagged_items__tag__name__in=tags).distinct()
+
+    tags_all = [str(tag) for tag in filters.get("tagsAll") or []][:MAX_TAG_FILTER_VALUES]
+    if tags_all:
+        for tag_name in tags_all:
+            queryset = queryset.filter(tagged_items__tag__name=tag_name)
+        queryset = queryset.distinct()
 
     tags_exclude = [str(tag) for tag in filters.get("tagsExclude") or []][:MAX_TAG_FILTER_VALUES]
     if tags_exclude:
