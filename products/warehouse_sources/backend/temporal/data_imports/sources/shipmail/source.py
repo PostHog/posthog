@@ -18,11 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipmail import (
-    ShipMailSourceConfig,
+    ShipmailSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.settings import SHIPMAIL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.shipmail import (
-    ShipMailResumeConfig,
+    ShipmailResumeConfig,
     get_capabilities,
     shipmail_source,
 )
@@ -30,7 +30,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ShipMailSource(ResumableSource[ShipMailSourceConfig, ShipMailResumeConfig]):
+class ShipmailSource(ResumableSource[ShipmailSourceConfig, ShipmailResumeConfig]):
     lists_tables_without_credentials = True
     api_docs_url = "https://shipmail.to/docs/api"
 
@@ -41,11 +41,11 @@ class ShipMailSource(ResumableSource[ShipMailSourceConfig, ShipMailResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SHIP_MAIL,
+            name=SchemaExternalDataSourceType.SHIPMAIL,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
-            label="ShipMail",
+            label="Shipmail",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your ShipMail API key to sync message analytics, mailboxes, domains, and suppressions into the PostHog Data warehouse.
+            caption="""Enter your Shipmail API key to sync message analytics, mailboxes, domains, and suppressions into the PostHog Data warehouse.
 
 Grant the key the read scopes for the tables you want to sync: `messages:read`, `mailboxes:read`, `domains:read`, and `suppressions:read`.""",
             iconPath="/static/services/shipmail.png",
@@ -58,8 +58,8 @@ Grant the key the read scopes for the tables you want to sync: `messages:read`, 
                         label="API key",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
-                        placeholder="ShipMail API key",
-                        caption="Create a key in your [ShipMail API settings](https://shipmail.to/settings/api-keys).",
+                        placeholder="Shipmail API key",
+                        caption="Create a key in your [Shipmail API settings](https://shipmail.to/settings/api-keys).",
                         secret=True,
                     ),
                 ],
@@ -75,13 +75,13 @@ Grant the key the read scopes for the tables you want to sync: `messages:read`, 
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://shipmail.to": "Your ShipMail API key is invalid or has been revoked. Create a new key and reconnect.",
-            "403 Client Error: Forbidden for url: https://shipmail.to": "Your ShipMail API key is missing the read scope required for this table.",
+            "401 Client Error: Unauthorized for url: https://shipmail.to": "Your Shipmail API key is invalid or has been revoked. Create a new key and reconnect.",
+            "403 Client Error: Forbidden for url: https://shipmail.to": "Your Shipmail API key is missing the read scope required for this table.",
         }
 
     def get_schemas(
         self,
-        config: ShipMailSourceConfig,
+        config: ShipmailSourceConfig,
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
@@ -105,7 +105,7 @@ Grant the key the read scopes for the tables you want to sync: `messages:read`, 
 
     def validate_credentials(
         self,
-        config: ShipMailSourceConfig,
+        config: ShipmailSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
         api_version: str | None = None,
@@ -115,17 +115,17 @@ Grant the key the read scopes for the tables you want to sync: `messages:read`, 
             if schema_name in SHIPMAIL_ENDPOINTS:
                 required_scope = SHIPMAIL_ENDPOINTS[schema_name].required_scope
                 if "*" not in scopes and required_scope not in scopes:
-                    return False, f"Your ShipMail API key is missing the `{required_scope}` scope"
+                    return False, f"Your Shipmail API key is missing the `{required_scope}` scope"
             return True, None
         if status == 401:
-            return False, "Invalid ShipMail API key"
+            return False, "Invalid Shipmail API key"
         if status == 403:
-            return False, "Your ShipMail API key cannot access the capabilities endpoint"
-        return False, "Could not validate ShipMail API key"
+            return False, "Your Shipmail API key cannot access the capabilities endpoint"
+        return False, "Could not validate Shipmail API key"
 
     def get_endpoint_permissions(
         self,
-        config: ShipMailSourceConfig,
+        config: ShipmailSourceConfig,
         team_id: int,
         endpoints: list[str],
         api_version: str | None = None,
@@ -145,13 +145,13 @@ Grant the key the read scopes for the tables you want to sync: `messages:read`, 
                 permissions[endpoint] = f"API key is missing the `{endpoint_config.required_scope}` scope"
         return permissions
 
-    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ShipMailResumeConfig]:
-        return ResumableSourceManager[ShipMailResumeConfig](inputs, ShipMailResumeConfig)
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ShipmailResumeConfig]:
+        return ResumableSourceManager[ShipmailResumeConfig](inputs, ShipmailResumeConfig)
 
     def source_for_pipeline(
         self,
-        config: ShipMailSourceConfig,
-        resumable_source_manager: ResumableSourceManager[ShipMailResumeConfig],
+        config: ShipmailSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ShipmailResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
         return shipmail_source(

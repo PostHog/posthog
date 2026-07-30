@@ -5,7 +5,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 
 @dataclass(frozen=True)
-class ShipMailEndpointConfig:
+class ShipmailEndpointConfig:
     name: str
     path: str
     primary_keys: list[str]
@@ -14,8 +14,8 @@ class ShipMailEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
 
-SHIPMAIL_ENDPOINTS: dict[str, ShipMailEndpointConfig] = {
-    "messages": ShipMailEndpointConfig(
+SHIPMAIL_ENDPOINTS: dict[str, ShipmailEndpointConfig] = {
+    "messages": ShipmailEndpointConfig(
         name="messages",
         path="/messages/analytics",
         primary_keys=["id"],
@@ -23,21 +23,21 @@ SHIPMAIL_ENDPOINTS: dict[str, ShipMailEndpointConfig] = {
         partition_key="created_at",
         incremental_fields=[incremental_field("updated_at")],
     ),
-    "mailboxes": ShipMailEndpointConfig(
+    "mailboxes": ShipmailEndpointConfig(
         name="mailboxes",
         path="/mailboxes",
         primary_keys=["id"],
         required_scope="mailboxes:read",
         partition_key="created_at",
     ),
-    "domains": ShipMailEndpointConfig(
+    "domains": ShipmailEndpointConfig(
         name="domains",
         path="/domains",
         primary_keys=["id"],
         required_scope="domains:read",
         partition_key="created_at",
     ),
-    "suppressions": ShipMailEndpointConfig(
+    "suppressions": ShipmailEndpointConfig(
         name="suppressions",
         path="/suppressions",
         primary_keys=["email_address"],
