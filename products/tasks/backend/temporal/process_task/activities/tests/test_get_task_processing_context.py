@@ -38,6 +38,45 @@ from products.tasks.backend.temporal.process_task.utils import get_actor_distinc
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
 
 
+@pytest.mark.parametrize(
+    "state,expected",
+    [
+        ({}, False),
+        ({"resume_from_run_id": "previous-run"}, False),
+        ({"handoff_resumed": True}, False),
+        ({"snapshot_external_id": "snapshot-id"}, False),
+        (
+            {
+                "resume_from_run_id": "previous-run",
+                "snapshot_external_id": "snapshot-id",
+            },
+            True,
+        ),
+        (
+            {
+                "handoff_resumed": True,
+                "snapshot_external_id": "snapshot-id",
+            },
+            True,
+        ),
+    ],
+)
+def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, str | bool], expected: bool):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=None,
+        repository=None,
+        distinct_id="distinct-id",
+        state=state,
+    )
+
+    assert context.is_snapshot_resume is expected
+
+
 @pytest.mark.requires_secrets
 class TestIsAgentOtelTelemetryEnabled:
     @pytest.mark.parametrize(

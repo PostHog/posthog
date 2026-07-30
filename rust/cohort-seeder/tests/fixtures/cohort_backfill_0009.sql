@@ -1,6 +1,5 @@
--- Snapshot pinned to products/cohorts/backend/migrations/0007_cohortbackfillrun_cohort_bfr_reconciling_idx.py
--- (the 0004 DDL, the six columns 0006 adds, and the partial index 0007 adds). External Team/Cohort
--- foreign keys are omitted so the contract test stays schema-local.
+-- Snapshot pinned to products/cohorts/backend/migrations/0009_cohort_backfill_per_kind_uniqueness.py.
+-- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
 
 CREATE TABLE cohort_backfill_runs (
     id uuid PRIMARY KEY,
@@ -11,6 +10,7 @@ CREATE TABLE cohort_backfill_runs (
     status varchar(32) NOT NULL DEFAULT 'awaiting_boundary',
     timezone varchar(240) NOT NULL,
     boundary_at timestamptz,
+    person_scan_since timestamptz,
     boundary_established_at timestamptz,
     pinned jsonb NOT NULL DEFAULT '{}'::jsonb,
     preconditions jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -35,12 +35,12 @@ CREATE INDEX cohort_bfr_team_created_idx ON cohort_backfill_runs(team_id, create
 CREATE INDEX cohort_bfr_reconciling_idx
     ON cohort_backfill_runs(backfill_kind, reconcile_observed_at)
     WHERE status = 'reconciling';
-CREATE UNIQUE INDEX cohort_bfr_active_cohort_uq
-    ON cohort_backfill_runs(cohort_id)
+CREATE UNIQUE INDEX cohort_bfr_active_cohort_kind_uq
+    ON cohort_backfill_runs(cohort_id, backfill_kind)
     WHERE cohort_id IS NOT NULL
       AND status IN ('awaiting_boundary', 'blocked', 'seeding', 'reconciling');
-CREATE UNIQUE INDEX cohort_bfr_active_team_uq
-    ON cohort_backfill_runs(team_id)
+CREATE UNIQUE INDEX cohort_bfr_active_team_kind_uq
+    ON cohort_backfill_runs(team_id, backfill_kind)
     WHERE scope = 'team'
       AND status IN ('awaiting_boundary', 'blocked', 'seeding', 'reconciling');
 
@@ -54,6 +54,8 @@ CREATE TABLE cohort_backfill_chunks (
     claimed_at timestamptz,
     lease_expires_at timestamptz,
     s_chunk_at timestamptz,
+    person_range_lo uuid,
+    person_range_hi uuid,
     attempts integer NOT NULL DEFAULT 0,
     last_error text NOT NULL DEFAULT '',
     tiles_produced bigint NOT NULL DEFAULT 0,
@@ -72,6 +74,7 @@ CREATE TABLE cohort_backfill_run_cohorts (
     id uuid PRIMARY KEY,
     filters_shape_hash varchar(64) NOT NULL,
     behavioral_filters_shape_hash varchar(64) NOT NULL DEFAULT '',
+    person_filters_shape_hash varchar(64) NOT NULL DEFAULT '',
     pinned_filters jsonb NOT NULL,
     stamped_at timestamptz,
     superseded_at timestamptz,
@@ -92,5 +95,6 @@ CREATE TABLE posthog_cohort (
     id integer PRIMARY KEY,
     team_id integer NOT NULL,
     behavioral_filters_shape_hash varchar(64),
+    person_filters_shape_hash varchar(64),
     deleted boolean NOT NULL DEFAULT false
 );

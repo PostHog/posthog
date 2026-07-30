@@ -92,6 +92,9 @@ import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
 import type { PaginatedResponse } from '../../../lib/api'
+
+// Mirrors MANAGED_WAREHOUSE_SOURCE_PREFIX in products/warehouse_sources/backend/models/external_data_source.py.
+export const MANAGED_WAREHOUSE_SOURCE_PREFIX = 'managed_warehouse'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/schema-general'
 import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '../../../types'
@@ -664,6 +667,9 @@ export interface sqlEditorLogicActions {
     ) => {
         force?: boolean
     } // databaseTableListLogic
+    resetConnectionScope: () => {
+        value: true
+    } // databaseTableListLogic
     setConnection: (connectionId: string | null) => {
         connectionId: string | null
     } // databaseTableListLogic
@@ -1101,6 +1107,25 @@ export type sqlEditorLogicType = MakeLogicType<
     sqlEditorLogicMeta
 >
 
+// Which mounted editors currently want the shared schema catalog scoped to a connection, keyed by
+// tab id. Several editors can be mounted at once (notebook SQL nodes, metrics, endpoints) on the
+// same connection, so the last one out is the one that hands the catalog back unscoped.
+const connectionScopeOwners = new Map<string, string>()
+
+function claimConnectionScope(tabId: string, connectionId: string | null | undefined): void {
+    if (connectionId) {
+        connectionScopeOwners.set(tabId, connectionId)
+    } else {
+        connectionScopeOwners.delete(tabId)
+    }
+}
+
+// Drops this tab's claim and reports whether the scoped connection is now unclaimed.
+function releaseConnectionScope(tabId: string, scopedConnectionId: string | null): boolean {
+    connectionScopeOwners.delete(tabId)
+    return scopedConnectionId !== null && ![...connectionScopeOwners.values()].includes(scopedConnectionId)
+}
+
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
     props({ mode: SQLEditorMode.FullScene } as SqlEditorLogicProps),
@@ -1146,7 +1171,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
-            ['setConnection', 'loadDatabase'],
+            ['setConnection', 'loadDatabase', 'resetConnectionScope'],
             connectionSelectorLogic,
             ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
@@ -1820,12 +1845,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             enforceConnectionRawQueryMode: () => {
                 // Raw-only connections cannot compile HogQL — force raw SQL mode.
-                if (
-                    values.selectedConnectionId &&
-                    !values.selectedConnectionSupportsHogQL &&
-                    !values.sourceQuery.source.sendRawQuery
-                ) {
-                    actions.setSendRawQuery(true)
+                // The managed warehouse (auto-provisioned Duckgres) speaks DuckDB
+                // natively end-to-end, so raw mode is the better default for it too:
+                // it skips the HogQL reprint and reaches the engine verbatim.
+                if (values.selectedConnectionId && !values.sourceQuery.source.sendRawQuery) {
+                    const option = (values.connectionOptions ?? []).find(
+                        (option) => option.id === values.selectedConnectionId
+                    )
+                    const isManagedWarehouseSource =
+                        option?.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && option?.source_type === 'Postgres'
+
+                    if (!values.selectedConnectionSupportsHogQL || isManagedWarehouseSource) {
+                        actions.setSendRawQuery(true)
+                    }
                 }
             },
             // Options can load after a connection was restored from the URL.
@@ -2809,7 +2841,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         }
     }),
-    subscriptions(({ actions, values, cache }) => ({
+    subscriptions(({ actions, values, cache, props }) => ({
         queryInput: (queryInput: string | null) => {
             // Subquery validation results are keyed by subquery text — but the same text
             // may now refer to a subquery with different surrounding context, so drop
@@ -2893,6 +2925,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             cache.lastSelectedConnectionId = selectedConnectionId
+            claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase()
             if (selectedConnectionId) {
@@ -3453,6 +3486,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     })),
     afterMount(({ actions, props, values, cache }) => {
         cache.lastSelectedConnectionId = values.selectedConnectionId
+        claimConnectionScope(props.tabId, values.selectedConnectionId)
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
 
@@ -3657,7 +3691,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions.loadDatabase(values.databaseLoading ? { force: true } : undefined)
         }
     }),
-    beforeUnmount(({ cache, props }) => {
+    beforeUnmount(({ actions, values, cache, props }) => {
+        // The editor scopes the shared schema catalog to whichever connection it was querying, and
+        // that logic stays mounted after the editor closes. Hand it back unscoped so pages like the
+        // sources list don't render the connection's tables as if they were the project's own. Only
+        // once no mounted editor still wants that connection though, or closing one of two editors
+        // sharing a connection would leave the survivor with the wrong schema tree.
+        if (releaseConnectionScope(props.tabId, values.databaseConnectionId)) {
+            actions.resetConnectionScope()
+        }
+
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
         clearQueryOutlineOverlay(cache, props.editor)

@@ -1,12 +1,53 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
+
+
+def _compute_harness_prompt_version() -> str:
+    """Identify the harness prompt build, so runs can be grouped by the instructions they got.
+
+    Hashes this module's own source rather than a hand-maintained constant or a list of the
+    section templates. A bumped constant drifts the first time someone edits a section and
+    forgets, and hashing a named subset of templates silently misses a newly added section:
+    both failure modes merge two genuinely different prompt builds under one id, which corrupts
+    any A/B run across the change. Hashing the source can only fail the other way, splitting one
+    build into two ids after a comment or whitespace edit, which costs sample size rather than
+    correctness.
+
+    Deliberately NOT a hash of the assembled prompt: `build_run_prompt` interpolates the skill
+    body, scratchpad entries, project profile, and recent run summaries, so that hash would be
+    unique per run and could not group anything. This identifies the build; `report_channel`,
+    `skill_origin`, and `github_guidance` on the run row identify which sections that build
+    composed.
+
+    Imported values that get rendered into a section have to be hashed alongside the source,
+    because changing one changes the instructions while leaving this file's bytes untouched —
+    the false-merge direction the source hash otherwise rules out. Add to `_RENDERED_IMPORTS`
+    whenever a template starts interpolating something from another module.
+    """
+    try:
+        source = Path(__file__).read_bytes()
+    except OSError:
+        # Falls back rather than failing the import: an unreadable source file must not take the
+        # whole harness down for a field that only feeds analytics.
+        return "unknown"
+    rendered_imports = "\n".join(f"{name}={value}" for name, value in sorted(_RENDERED_IMPORTS.items()))
+    return hashlib.sha256(source + rendered_imports.encode()).hexdigest()[:12]
+
+
+# Values imported from other modules that templates in this file render into the prompt.
+_RENDERED_IMPORTS: dict[str, object] = {"MAX_REPORT_CHARTS": MAX_REPORT_CHARTS}
+
+
+HARNESS_PROMPT_VERSION = _compute_harness_prompt_version()
 
 
 class SignalScoutRunSummary(BaseModel):
@@ -359,7 +400,7 @@ _REPORT_CHARTS = f"""# Attaching charts
 - **Pin the window.** Use absolute dates wherever the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report days later.
 - **Size only when the default is wrong.** The inbox sizes a chart from its query. Set `size` to `small` (a single number, a short series), `medium`, or `large` (rows or a grid to read — retention, paths, a wide breakdown) when it isn't.
 - **At most {MAX_REPORT_CHARTS} per report**, which is far more than most reports should use. Every chart runs its query when someone opens the report, so attach the ones that carry the argument rather than everything you looked at — three charts a reader studies beat a dozen they scroll past.
-- **`charts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary — so to keep a chart, send it again. Leave `charts` out entirely and the report keeps the ones it has. Read the report first (`inbox-reports-retrieve` returns its `charts`) when you mean to add to them rather than start over.
+- **`charts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary — so to keep a chart, send it again. Leave `charts` out entirely and the report keeps the ones it has. Read the report first (`inbox-reports-retrieve` returns its `charts`) when you mean to add to them rather than start over. Send `charts: []` to take every chart down, which is what you want when the finding has moved on and the old chart would now mislead. And when an edit advances the report's evidence window, re-send the chart under the same `chart_id` with a refreshed window — fresh numbers appended beside a chart still pinned to the original dates read as a report gone stale.
 
 A trends chart and a graph built from SQL, as they arrive in `charts`:
 

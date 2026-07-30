@@ -164,6 +164,7 @@ if TYPE_CHECKING:
         DatabaseSchemaManagedViewTable,
         DatabaseSchemaPostHogTable,
         DatabaseSchemaSystemTable,
+        DatabaseSchemaTableCertification,
         DatabaseSchemaViewTable,
         DataWarehouseSyncWarning,
         HogQLQueryModifiers,
@@ -858,6 +859,8 @@ class Database(BaseModel):
         if context.team_id is None:
             raise ResolutionError("Must provide team_id to serialize database")
 
+        certifications_by_table_id, certifications_by_saved_query_id = _settled_catalog_certifications(context)
+
         # PostHog tables
         posthog_table_names = (
             []
@@ -1005,6 +1008,7 @@ class Database(BaseModel):
                         schema=schema,
                         source=source,
                         row_count=warehouse_table.row_count,
+                        certification=certifications_by_table_id.get(str(warehouse_table.id)),
                     )
                 except (QueryError, ResolutionError) as e:
                     logger.warning(
@@ -1130,6 +1134,7 @@ class Database(BaseModel):
                     query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                     row_count=row_count,
                     status=saved_query.status,
+                    certification=certifications_by_saved_query_id.get(str(saved_query.pk)),
                 )
                 continue
 
@@ -1139,6 +1144,7 @@ class Database(BaseModel):
                 name=view_name,
                 query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                 row_count=row_count,
+                certification=certifications_by_saved_query_id.get(str(saved_query.pk)),
             )
 
         return tables
@@ -2504,6 +2510,59 @@ def _schema_field_input(table: Table) -> dict[str, Any]:
         if key not in field_input and isinstance(field, (LazyJoin, Table, FieldTraverser)):
             field_input[key] = field
     return field_input
+
+
+def _settled_catalog_certifications(
+    context: HogQLContext,
+) -> tuple[dict[str, DatabaseSchemaTableCertification], dict[str, DatabaseSchemaTableCertification]]:
+    """Settled (certified/deprecated) catalog marks for the team as `(by_table_id, by_saved_query_id)`.
+
+    One bulk query keyed by target id — `(team, name)` is not unique on `DataWarehouseTable`, so a
+    name-keyed lookup could let one table's mark clobber another's. Gated on the product flag and on
+    data_catalog read access like `information_schema`, and fail-soft: certification must never break
+    schema serialization. Contexts without a `team` object (e.g. the AI schema path) skip the flag
+    evaluation and get no marks rather than paying a Team fetch.
+    """
+    from posthog.schema import DatabaseSchemaTableCertification  # noqa: PLC0415
+
+    from posthog.hogql.database.schema.information_schema import _can_read_catalog  # noqa: PLC0415
+
+    team = context.team
+    team_id = context.team_id
+
+    try:
+        from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
+        from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
+        from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
+
+        if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
+            return {}, {}
+
+        by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
+        by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
+        certifications = (
+            TableCertification.objects.for_team(team_id)
+            .filter(status__in=(CertificationStatus.CERTIFIED, CertificationStatus.DEPRECATED))
+            .exclude(table__deleted=True)
+            .exclude(table__external_data_source__deleted=True)
+            .exclude(saved_query__deleted=True)
+            .select_related("certified_by")
+        )
+        for certification in certifications:
+            serialized = DatabaseSchemaTableCertification(
+                status=certification.status,
+                notes=certification.notes or None,
+                certified_by=certification.certified_by.email if certification.certified_by else None,
+                certified_at=certification.certified_at.isoformat() if certification.certified_at else None,
+            )
+            if certification.table_id is not None:
+                by_table_id[str(certification.table_id)] = serialized
+            elif certification.saved_query_id is not None:
+                by_saved_query_id[str(certification.saved_query_id)] = serialized
+        return by_table_id, by_saved_query_id
+    except Exception:
+        logger.exception("serialize_database: failed to load catalog certifications", team_id=team_id)
+        return {}, {}
 
 
 def serialize_fields(
