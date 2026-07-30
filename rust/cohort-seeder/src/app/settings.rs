@@ -2,15 +2,24 @@
 //! `config`, `domain`, `store`, and its `app` siblings; this `TryFrom<&Config>` is what keeps the
 //! dependency arrow pointing down (`config` no longer names an `app` type).
 
-use std::num::{NonZeroU16, NonZeroUsize};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::domain::PlanCaps;
+use crate::domain::{PlanCaps, RunKind};
 use crate::store::{LeaseDuration, LeaseDurationError, MaxAttempts, MaxAttemptsError};
 
 use super::deliver::QUEUE_FULL_BACKOFF_CAP;
 use super::orchestrator::ORCHESTRATOR_LIVENESS_DEADLINE;
+
+/// The person seed path's tunables. `OrchestratorSettings.person` is `None` when
+/// `SEEDER_PERSON_SEEDS_ENABLED` is off — the type encodes "person path off".
+#[derive(Debug, Clone, Copy)]
+pub struct PersonSettings {
+    pub seeds_per_sec: NonZeroU32,
+    pub persons_per_chunk: NonZeroU64,
+    pub emit_nonmatchers: bool,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct OrchestratorSettings {
@@ -20,9 +29,11 @@ pub struct OrchestratorSettings {
     pub(super) max_chunk_attempts: MaxAttempts,
     pub(super) plan_caps: PlanCaps,
     pub(super) producer: ProducerSettings,
+    pub(super) person: Option<PersonSettings>,
 }
 
 impl OrchestratorSettings {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         run_poll_interval: Duration,
         max_concurrent_chunks: usize,
@@ -31,6 +42,7 @@ impl OrchestratorSettings {
         max_lookback_days: u32,
         bands_per_day: u16,
         producer: ProducerSettings,
+        person: Option<PersonSettings>,
     ) -> Result<Self, OrchestratorSettingsError> {
         if run_poll_interval.is_zero() {
             return Err(OrchestratorSettingsError::ZeroPollInterval);
@@ -63,7 +75,22 @@ impl OrchestratorSettings {
                 bands_per_day,
             },
             producer,
+            person,
         })
+    }
+
+    pub fn person(&self) -> Option<&PersonSettings> {
+        self.person.as_ref()
+    }
+
+    /// The backfill kinds discovery binds. With the person gate off this is `['behavioral']`, so
+    /// the running binary's behavior is identical to today's.
+    pub(super) fn discovery_kinds(&self) -> &'static [RunKind] {
+        if self.person.is_some() {
+            &[RunKind::Behavioral, RunKind::PersonProperty]
+        } else {
+            &[RunKind::Behavioral]
+        }
     }
 }
 
@@ -75,6 +102,18 @@ impl TryFrom<&Config> for OrchestratorSettings {
             config.seeder_max_inflight_tiles,
             Duration::from_millis(config.seeder_queue_full_backoff_ms),
         )?;
+        let person = config
+            .seeder_person_seeds_enabled
+            .then(|| {
+                Ok::<_, OrchestratorSettingsError>(PersonSettings {
+                    seeds_per_sec: NonZeroU32::new(config.seeder_person_seeds_per_sec)
+                        .ok_or(OrchestratorSettingsError::ZeroPersonSeedRate)?,
+                    persons_per_chunk: NonZeroU64::new(config.seeder_persons_per_chunk)
+                        .ok_or(OrchestratorSettingsError::ZeroPersonsPerChunk)?,
+                    emit_nonmatchers: config.seeder_person_emit_nonmatchers,
+                })
+            })
+            .transpose()?;
         Ok(Self::new(
             Duration::from_secs(config.seeder_run_poll_secs),
             config.seeder_max_concurrent_chunks,
@@ -83,6 +122,7 @@ impl TryFrom<&Config> for OrchestratorSettings {
             config.seeder_max_lookback_days,
             config.seeder_bands_per_day,
             producer,
+            person,
         )?)
     }
 }
@@ -105,6 +145,10 @@ pub enum OrchestratorSettingsError {
     MaxAttemptsOutOfRange,
     #[error("bands per day must be between 1 and 32767")]
     BandsPerDayOutOfRange,
+    #[error("person seeds per second must be greater than zero")]
+    ZeroPersonSeedRate,
+    #[error("persons per chunk must be greater than zero")]
+    ZeroPersonsPerChunk,
 }
 
 /// The produce sequencing's tunables: the in-flight delivery bound and the queue-full backoff (capped
@@ -192,6 +236,7 @@ mod tests {
                     400,
                     1,
                     producer_settings(),
+                    None,
                 ),
                 OrchestratorSettingsError::PollIntervalExceedsLivenessDeadline,
             ),
@@ -204,6 +249,7 @@ mod tests {
                     400,
                     1,
                     producer_settings(),
+                    None,
                 ),
                 OrchestratorSettingsError::ZeroPollInterval,
             ),
@@ -216,6 +262,7 @@ mod tests {
                     400,
                     1,
                     producer_settings(),
+                    None,
                 ),
                 OrchestratorSettingsError::ZeroConcurrency,
             ),
@@ -228,6 +275,7 @@ mod tests {
                     400,
                     1,
                     producer_settings(),
+                    None,
                 ),
                 OrchestratorSettingsError::LeaseTooShort,
             ),
@@ -240,6 +288,7 @@ mod tests {
                     400,
                     1,
                     producer_settings(),
+                    None,
                 ),
                 OrchestratorSettingsError::ZeroMaxAttempts,
             ),
@@ -252,6 +301,7 @@ mod tests {
                     400,
                     0,
                     producer_settings(),
+                    None,
                 ),
                 OrchestratorSettingsError::BandsPerDayOutOfRange,
             ),
@@ -264,6 +314,7 @@ mod tests {
                     400,
                     u16::MAX,
                     producer_settings(),
+                    None,
                 ),
                 OrchestratorSettingsError::BandsPerDayOutOfRange,
             ),
@@ -271,6 +322,41 @@ mod tests {
         for (result, expected) in cases {
             assert_eq!(result.unwrap_err(), expected);
         }
+    }
+
+    /// Dark-by-default: with the gate off discovery binds behavioral only; enabling it validates
+    /// the person rates the way `ZeroTileRate` guards the behavioral pacer.
+    #[test]
+    fn person_settings_are_gated_and_validated() {
+        let config = Config::init_from_hashmap(&HashMap::new()).unwrap();
+        let dark = OrchestratorSettings::try_from(&config).unwrap();
+        assert!(dark.person().is_none());
+        assert_eq!(dark.discovery_kinds(), &[RunKind::Behavioral]);
+
+        let mut enabled = config.clone();
+        enabled.seeder_person_seeds_enabled = true;
+        let lit = OrchestratorSettings::try_from(&enabled).unwrap();
+        assert!(lit.person().is_some());
+        assert_eq!(
+            lit.discovery_kinds(),
+            &[RunKind::Behavioral, RunKind::PersonProperty]
+        );
+
+        enabled.seeder_person_seeds_per_sec = 0;
+        assert!(matches!(
+            OrchestratorSettings::try_from(&enabled),
+            Err(SettingsError::Orchestrator(
+                OrchestratorSettingsError::ZeroPersonSeedRate
+            ))
+        ));
+        enabled.seeder_person_seeds_per_sec = 2000;
+        enabled.seeder_persons_per_chunk = 0;
+        assert!(matches!(
+            OrchestratorSettings::try_from(&enabled),
+            Err(SettingsError::Orchestrator(
+                OrchestratorSettingsError::ZeroPersonsPerChunk
+            ))
+        ));
     }
 
     #[test]

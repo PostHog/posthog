@@ -1,9 +1,9 @@
 //! App layer: the seeder poll loop that discovers runs, fills claim slots, and drains on shutdown.
-//! Depends on `store`, `clickhouse`, `kafka`, `domain`, and its `app` siblings (`prepare`, `execute`,
-//! `settings`); it is the crate's top module, imported only by `main`.
+//! Depends on `store`, `clickhouse`, `kafka`, `domain`, and its `app` siblings (`prepare`,
+//! `execute`, `person_execute`, `person_plan`, `settings`); it is the crate's top module, imported
+//! only by `main`.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::time::Duration;
 
 use common_types::cohort::TeamAllowlist;
@@ -14,8 +14,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use crate::clickhouse::person_scanner::PersonScanner;
 use crate::clickhouse::scanner::ChunkScanner;
-use crate::domain::{ClaimKind, PinnedRun, RunId};
+use crate::domain::{ClaimKind, RunId};
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
 use crate::observability::metrics::{CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED};
@@ -24,11 +25,22 @@ use crate::store::Claimant;
 
 use super::completion::CompletionDriver;
 use super::execute::{execute_chunk, record_task_result, ChunkOutcome, ChunkTaskContext};
-use super::prepare::refresh_runs;
+use super::person_execute::{execute_person_chunk, PersonChunkTaskContext};
+use super::person_plan::{plan_person_run, PersonPlanRequest};
+use super::prepare::{refresh_runs, PreparedRun};
 use super::settings::OrchestratorSettings;
 
 const PRODUCER_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 pub const ORCHESTRATOR_LIVENESS_DEADLINE: Duration = Duration::from_secs(60);
+/// One planning scan at a time: it streams a team's whole live person-id set from ClickHouse.
+const MAX_CONCURRENT_PLANNING_SCANS: usize = 1;
+
+/// The person path's infra clients, present only when `SEEDER_PERSON_SEEDS_ENABLED` is on. The
+/// pacer is separate from the behavioral tile pacer so the two throughputs tune independently.
+pub struct PersonComponents {
+    pub scanner: PersonScanner,
+    pub pacer: TilePacer,
+}
 
 pub struct SeederOrchestrator {
     pool: PgPool,
@@ -41,6 +53,7 @@ pub struct SeederOrchestrator {
     handle: Handle,
     claimant: Claimant,
     completion_driver: Option<CompletionDriver>,
+    person: Option<PersonComponents>,
 }
 
 impl SeederOrchestrator {
@@ -55,6 +68,7 @@ impl SeederOrchestrator {
         handle: Handle,
         claimed_by: String,
         completion_driver: Option<CompletionDriver>,
+        person: Option<PersonComponents>,
     ) -> Self {
         let claimant =
             Claimant::new(claimed_by).expect("seeder claimant is 1..=255 bytes by construction");
@@ -69,6 +83,7 @@ impl SeederOrchestrator {
             handle,
             claimant,
             completion_driver,
+            person,
         }
     }
 
@@ -78,6 +93,8 @@ impl SeederOrchestrator {
         let mut poll = tokio::time::interval(self.settings.run_poll_interval);
         poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut tasks = JoinSet::new();
+        let mut planning: JoinSet<RunId> = JoinSet::new();
+        let mut planning_inflight: HashSet<RunId> = HashSet::new();
         let mut eligible_runs = HashMap::new();
         let mut reported_runs = HashSet::new();
         self.handle.report_healthy();
@@ -92,15 +109,35 @@ impl SeederOrchestrator {
                     self.fill_claim_slots(&eligible_runs, &mut tasks, &shutdown).await;
                     self.handle.report_healthy();
                 }
+                Some(result) = planning.join_next(), if !planning.is_empty() => {
+                    match result {
+                        Ok(run_id) => {
+                            planning_inflight.remove(&run_id);
+                        }
+                        Err(error) => {
+                            warn!(error = %error, "person planning task failed unexpectedly");
+                            planning_inflight.clear();
+                        }
+                    }
+                    self.handle.report_healthy();
+                }
                 _ = poll.tick() => {
-                    eligible_runs = refresh_runs(
+                    let refreshed = refresh_runs(
                         &self.pool,
                         &self.store,
                         &self.allowlist,
+                        self.settings.discovery_kinds(),
                         self.settings.plan_caps,
                         &mut reported_runs,
                     )
                     .await;
+                    eligible_runs = refreshed.eligible;
+                    self.spawn_person_planning(
+                        refreshed.planning,
+                        &mut planning,
+                        &mut planning_inflight,
+                        &shutdown,
+                    );
                     self.reap_poisoned_chunks(&eligible_runs).await;
                     self.fill_claim_slots(&eligible_runs, &mut tasks, &shutdown).await;
                     if let Some(driver) = &self.completion_driver {
@@ -116,6 +153,9 @@ impl SeederOrchestrator {
             }
         }
 
+        // The planning insert is a single statement, so aborting a planner mid-scan leaves either
+        // zero chunks or all chunks.
+        planning.shutdown().await;
         info!(
             active_chunks = tasks.len(),
             "stopping claims and draining active chunks"
@@ -133,9 +173,37 @@ impl SeederOrchestrator {
         info!("cohort seeder orchestrator stopped");
     }
 
+    fn spawn_person_planning(
+        &self,
+        requests: Vec<PersonPlanRequest>,
+        planning: &mut JoinSet<RunId>,
+        planning_inflight: &mut HashSet<RunId>,
+        shutdown: &CancellationToken,
+    ) {
+        let (Some(person), Some(person_settings)) = (&self.person, self.settings.person) else {
+            return;
+        };
+        for request in requests {
+            if planning.len() >= MAX_CONCURRENT_PLANNING_SCANS || shutdown.is_cancelled() {
+                return;
+            }
+            if !planning_inflight.insert(request.run.run_id) {
+                continue;
+            }
+            planning.spawn(plan_person_run(
+                self.pool.clone(),
+                self.store.clone(),
+                person.scanner.clone(),
+                person_settings.persons_per_chunk,
+                request,
+                shutdown.clone(),
+            ));
+        }
+    }
+
     /// Dead-letter `scanning` chunks whose lease expired at the attempt cap — the chunks a
     /// hard-crashed worker left behind, which the claim predicate no longer reclaims.
-    async fn reap_poisoned_chunks(&self, eligible_runs: &HashMap<RunId, Arc<PinnedRun>>) {
+    async fn reap_poisoned_chunks(&self, eligible_runs: &HashMap<RunId, PreparedRun>) {
         if eligible_runs.is_empty() {
             return;
         }
@@ -159,7 +227,7 @@ impl SeederOrchestrator {
 
     async fn fill_claim_slots(
         &self,
-        eligible_runs: &HashMap<RunId, Arc<PinnedRun>>,
+        eligible_runs: &HashMap<RunId, PreparedRun>,
         tasks: &mut JoinSet<ChunkOutcome>,
         shutdown: &CancellationToken,
     ) {
@@ -190,36 +258,55 @@ impl SeederOrchestrator {
             if kind == ClaimKind::Reclaim {
                 counter!(CHUNKS_RECLAIMED).increment(1);
             }
-            let Some(run) = eligible_runs.get(&chunk.spec().lease.run_id()).cloned() else {
-                let chunk_lease = chunk.spec().lease;
+            let chunk_lease = chunk.spec().lease;
+            let Some(prepared) = eligible_runs.get(&chunk_lease.run_id()) else {
                 if let Err(error) = self.store.unclaim(chunk_lease).await {
                     warn!(?chunk_lease, error = %error, "claimed chunk had no validated run and could not be unclaimed");
                 }
                 continue;
             };
-            counter!(CHUNKS_CLAIMED).increment(1);
-            let store = self.store.clone();
-            let scanner = self.scanner.clone();
-            let producer = self.producer.clone();
-            let pacer = self.pacer.clone();
-            let producer_settings = self.settings.producer;
-            let shutdown = shutdown.clone();
-            tasks.spawn(async move {
-                execute_chunk(
-                    ChunkTaskContext {
+            match prepared {
+                PreparedRun::Behavioral(run) => {
+                    counter!(CHUNKS_CLAIMED).increment(1);
+                    let ctx = ChunkTaskContext {
                         chunk,
                         lease,
-                        run,
-                        store,
-                        scanner,
-                        producer,
-                        pacer,
-                        producer_settings,
-                    },
-                    shutdown,
-                )
-                .await
-            });
+                        run: run.clone(),
+                        store: self.store.clone(),
+                        scanner: self.scanner.clone(),
+                        producer: self.producer.clone(),
+                        pacer: self.pacer.clone(),
+                        producer_settings: self.settings.producer,
+                    };
+                    let shutdown = shutdown.clone();
+                    tasks.spawn(async move { execute_chunk(ctx, shutdown).await });
+                }
+                PreparedRun::Person(run) => {
+                    // Unreachable while the gate is off: discovery never yields person runs then.
+                    let (Some(person), Some(person_settings)) =
+                        (&self.person, self.settings.person)
+                    else {
+                        if let Err(error) = self.store.unclaim(chunk_lease).await {
+                            warn!(?chunk_lease, error = %error, "person chunk claimed with the person path disabled and could not be unclaimed");
+                        }
+                        continue;
+                    };
+                    counter!(CHUNKS_CLAIMED).increment(1);
+                    let ctx = PersonChunkTaskContext {
+                        chunk,
+                        lease,
+                        run: run.clone(),
+                        store: self.store.clone(),
+                        scanner: person.scanner.clone(),
+                        producer: self.producer.clone(),
+                        pacer: person.pacer.clone(),
+                        producer_settings: self.settings.producer,
+                        emit_nonmatchers: person_settings.emit_nonmatchers,
+                    };
+                    let shutdown = shutdown.clone();
+                    tasks.spawn(async move { execute_person_chunk(ctx, shutdown).await });
+                }
+            }
         }
     }
 }

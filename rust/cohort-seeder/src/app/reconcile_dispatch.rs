@@ -12,7 +12,7 @@ use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 use rdkafka::error::KafkaError;
 use sqlx::PgPool;
 
-use crate::domain::{ReconcileTile, RunId};
+use crate::domain::{ReconcileTile, RunId, RunKind};
 use crate::kafka::producer::{
     EnqueueError, PartitionCountError, SeedPartition, SeedPartitionCountError, SeedTileProducer,
 };
@@ -142,7 +142,9 @@ pub async fn prepare_reconcile_dispatch(
     let progress = PgChunkStore::new(pool.clone())
         .chunk_progress(run_id)
         .await?;
-    let planning_proven = read_planning_stamp(pool, run_id).await?.is_some();
+    let planning_proven = read_planning_stamp(pool, run_id, RunKind::Behavioral)
+        .await?
+        .is_some();
     validate_completion(run_id, progress.remaining(), planning_proven, completion)?;
     let prepared = PreparedReconcileDispatch {
         run,

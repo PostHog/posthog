@@ -3,8 +3,10 @@
 use chrono::{DateTime, NaiveDateTime};
 use metrics::counter;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 use crate::events::CohortStreamEvent;
+use crate::filters::TeamId;
 use crate::metrics::STAGE1_GLOBALS_PARSE_ERROR;
 
 /// A malformed `properties`/`person_properties` JSON payload.
@@ -61,11 +63,35 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
 pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let person_properties =
         parse_optional_json(event.person_properties.as_deref(), "person_properties")?;
+    Ok(person_scope_globals(
+        event.team_id,
+        event.person_id.as_str(),
+        person_properties,
+    ))
+}
 
-    Ok(json!({
-        "person": { "id": event.person_id.as_str(), "properties": person_properties },
-        "project": { "id": event.team_id },
-    }))
+/// Globals for a persons-table scan row — no event exists, only the person's latest properties.
+/// Funnels through the same shape core as [`build_person_property_globals`], so the seeder's
+/// person-property evaluation is byte-identical to the live event path's.
+pub fn build_person_scan_globals(
+    team_id: TeamId,
+    person_id: Uuid,
+    properties: &str,
+) -> Result<Value, GlobalsError> {
+    let person_properties = parse_optional_json(Some(properties), "person_properties")?;
+    Ok(person_scope_globals(
+        team_id.0,
+        &person_id.to_string(),
+        person_properties,
+    ))
+}
+
+/// The one constructor of the `{"person":{"id","properties"},"project":{"id"}}` shape.
+fn person_scope_globals(team_id: i32, person_id: &str, person_properties: Value) -> Value {
+    json!({
+        "person": { "id": person_id, "properties": person_properties },
+        "project": { "id": team_id },
+    })
 }
 
 /// Parse a raw JSON payload, treating `None` or empty string as `{}`.
@@ -235,6 +261,30 @@ mod tests {
         e.person_properties = Some(String::new());
         let globals = build_person_property_globals(&e).unwrap();
         assert_eq!(globals["person"]["properties"], json!({}));
+    }
+
+    /// Shape lock: the scan builder and the live event builder must produce byte-equal globals for
+    /// equal inputs — the correctness anchor that keeps seeder evals equivalent to live evals.
+    #[test]
+    fn scan_globals_are_byte_equal_to_event_globals_for_equal_inputs() {
+        let person_id = Uuid::parse_str("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        for properties in [r#"{"email":"u@p.com","plan":"paid"}"#, "", "{}"] {
+            let mut e = event();
+            e.team_id = 42;
+            e.person_id = person_id.to_string();
+            e.person_properties = Some(properties.to_string());
+            let from_event = build_person_property_globals(&e).unwrap();
+            let from_scan = build_person_scan_globals(TeamId(42), person_id, properties).unwrap();
+            assert_eq!(
+                serde_json::to_string(&from_scan).unwrap(),
+                serde_json::to_string(&from_event).unwrap(),
+            );
+        }
+        assert_eq!(
+            build_person_scan_globals(TeamId(42), person_id, "").unwrap()["person"]["properties"],
+            json!({})
+        );
+        assert!(build_person_scan_globals(TeamId(42), person_id, "{not json").is_err());
     }
 
     #[test]

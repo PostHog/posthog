@@ -15,11 +15,11 @@ use tracing::{info, warn};
 use crate::clickhouse::scanner::ChunkScanner;
 use crate::domain::{
     ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, PinnedRun,
-    ProducedChunk, ScannedChunk,
+    ProducedChunk, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
-use crate::observability::metrics::{CHUNKS_CONFIRMED, CHUNKS_FAILED};
+use crate::observability::metrics::{CHUNKS_CONFIRMED, CHUNKS_FAILED, TILES_PRODUCED};
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::lease::LeaseHandle;
 use crate::store::RenderedError;
@@ -81,7 +81,10 @@ pub(super) async fn execute_chunk(
     };
     // PostMark: drain the remaining delivery acks and fold the high-water marks.
     let produced = match deliver::await_deliveries(enqueued, inflight, &lease_cancel).await {
-        Ok(produced) => produced,
+        Ok(produced) => {
+            counter!(TILES_PRODUCED).increment(produced.tiles_produced());
+            produced
+        }
         Err(halt) => return resolve_halt(&store, halt, &shutdown).await,
     };
     // PostMark: the terminal confirm — on failure the row is `produced`, so it is failed for retry.
@@ -99,13 +102,13 @@ pub(super) async fn execute_chunk(
 /// Whether a halt struck before or after the store marked the chunk `produced` — the discriminator
 /// the recovery matrix turns on. Each chunk state names its stage as a `const` via [`ChunkState`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FailureStage {
+pub(super) enum FailureStage {
     PreMark,
     PostMark,
 }
 
 /// The pipeline states seen by recovery: their [`FailureStage`] and their lease-bearing spec.
-trait ChunkState {
+pub(super) trait ChunkState {
     const STAGE: FailureStage;
     fn spec(&self) -> ChunkSpec;
 }
@@ -118,6 +121,15 @@ impl ChunkState for ClaimedChunk {
 }
 
 impl ChunkState for ScannedChunk {
+    const STAGE: FailureStage = FailureStage::PreMark;
+    fn spec(&self) -> ChunkSpec {
+        self.spec()
+    }
+}
+
+/// Pre-mark like [`ScannedChunk`]: a pre-mark unclaim with already-enqueued seeds keeps the same
+/// at-least-once semantics — the consumer's LWW/idempotent apply absorbs the re-scan.
+impl ChunkState for StreamedChunk {
     const STAGE: FailureStage = FailureStage::PreMark;
     fn spec(&self) -> ChunkSpec {
         self.spec()
@@ -159,7 +171,7 @@ impl FailureDisposition {
 
 /// Apply the recovery matrix to a halted state: render the operator detail, decide the disposition
 /// from the state's stage and the shutdown flag, and drive the fencing store write.
-async fn resolve_halt<S: ChunkState, E: std::error::Error>(
+pub(super) async fn resolve_halt<S: ChunkState, E: std::error::Error>(
     store: &PgChunkStore,
     halt: Halted<S, E>,
     shutdown: &CancellationToken,
@@ -191,9 +203,7 @@ async fn resolve_halt<S: ChunkState, E: std::error::Error>(
 
 /// Re-wrap the store's mark error as the produce error the recovery path renders, preserving the
 /// persisted `marking the chunk produced failed: …` text while the store stays store-typed.
-fn mark_produced_halt(
-    halt: Halted<ScannedChunk, ChunkStoreError>,
-) -> Halted<ScannedChunk, ProduceError> {
+pub(super) fn mark_produced_halt<S>(halt: Halted<S, ChunkStoreError>) -> Halted<S, ProduceError> {
     let Halted { state, reason } = halt;
     let reason = match reason {
         HaltReason::Failed(error) => HaltReason::Failed(ProduceError::MarkProduced(error)),

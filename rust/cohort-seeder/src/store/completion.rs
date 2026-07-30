@@ -20,7 +20,7 @@ use std::fmt;
 use crate::domain::{
     BehavioralShapeHash, BehavioralShapeHashError, CompletionParts, CompletionPhase,
     CompletionStatus, DispatchEpoch, MarkerWatch, ObservationEnds, PartitionBitmap,
-    PartitionBitmapError, ReconcileHwms, RunId, WatchPositions, MARKER_WATCH_SCHEMA,
+    PartitionBitmapError, ReconcileHwms, RunId, RunKind, WatchPositions, MARKER_WATCH_SCHEMA,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
@@ -266,23 +266,27 @@ impl ReconcilingClaim {
 }
 
 /// Stamp the planning proof (`chunks_planned_at`) exactly once for a seeding run — the durable
-/// evidence that day-chunk planning ran, which distinguishes a legitimately zero-chunk run from one
-/// whose planning has not yet happened. Re-filters `backfill_kind` like every entry point here, so a
-/// `person_property` run id handed in by a caller can never enter this protocol.
+/// evidence that chunk planning ran, which distinguishes a legitimately zero-chunk run from one
+/// whose planning has not yet happened. The stamp pair is the one kind-parameterized exception to
+/// this module's hardcoded behavioral filters: person runs earn their planning proof here too,
+/// while every other entry point stays behavioral-only, so a `person_property` run id handed to
+/// the reconcile protocol can never enter it.
 pub async fn mark_chunks_planned(
     pool: &PgPool,
     run_id: RunId,
+    kind: RunKind,
 ) -> Result<PlanningStampOutcome, CompletionStoreError> {
     let stamped = sqlx::query_scalar::<_, RunId>(
         r#"
         UPDATE cohort_backfill_runs
         SET chunks_planned_at = now(), updated_at = now()
-        WHERE id = $1 AND backfill_kind = 'behavioral' AND status = 'seeding'
+        WHERE id = $1 AND backfill_kind = $2 AND status = 'seeding'
           AND chunks_planned_at IS NULL
         RETURNING id
         "#,
     )
     .bind(run_id)
+    .bind(kind.as_str())
     .fetch_optional(pool)
     .await?;
     Ok(if stamped.is_some() {
@@ -297,12 +301,14 @@ pub async fn mark_chunks_planned(
 pub async fn read_planning_stamp(
     pool: &PgPool,
     run_id: RunId,
+    kind: RunKind,
 ) -> Result<Option<DateTime<Utc>>, CompletionStoreError> {
     let stamp: Option<Option<DateTime<Utc>>> = sqlx::query_scalar(
         "SELECT chunks_planned_at FROM cohort_backfill_runs \
-         WHERE id = $1 AND backfill_kind = 'behavioral'",
+         WHERE id = $1 AND backfill_kind = $2",
     )
     .bind(run_id)
+    .bind(kind.as_str())
     .fetch_optional(pool)
     .await?;
     Ok(stamp.flatten())
