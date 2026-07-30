@@ -81,6 +81,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -6150,6 +6151,8 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
+    suspended?: DataWarehouseSavedQueryApiSuspended
     upstream_dependency_count?: number
     downstream_dependency_count?: number
     created_at?: string
