@@ -25,7 +25,7 @@ class ReplayObservationUsage(UUIDModel):
     )
     scanner_id = models.UUIDField(
         null=True,
-        help_text="The scanner that produced this observation; per-scanner credit limits aggregate on this (plain id, no FK).",
+        help_text="The scanner that produced this observation. Per-scanner credit limits aggregate on this (plain id, no FK).",
     )
     observation_created_at = models.DateTimeField(
         help_text="The observation's created_at; the monthly quota window filters on this.",

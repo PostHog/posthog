@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
             model_name="replayobservationusage",
             name="scanner_id",
             field=models.UUIDField(
-                help_text="The scanner that produced this observation; per-scanner credit limits aggregate on this (plain id, no FK).",
+                help_text="The scanner that produced this observation. Per-scanner credit limits aggregate on this (plain id, no FK).",
                 null=True,
             ),
         ),

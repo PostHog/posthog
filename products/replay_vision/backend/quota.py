@@ -146,7 +146,7 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
 class ScannerBudget(CreditBudget):
     """A scanner's own allowance, carrying what one more observation costs.
 
-    `credits_used` is the full draw (settled receipts plus live reservations); `settled_credits` is
+    `credits_used` is the full draw: settled receipts plus live reservations. `settled_credits` is
     only what has actually posted to the ledger.
     """
 
@@ -207,7 +207,7 @@ def compute_scanner_budgets(
     scanner budgets taken alongside it cannot straddle a period boundary.
     """
     # noqa comment below: prompt_evaluation pulls in the temporal package, whose activities import
-    # this module — deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
+    # this module. Deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
     from products.replay_vision.backend.prompt_evaluation import (  # noqa: PLC0415
         in_flight_evaluation_credits_by_scanner,
     )
@@ -234,7 +234,7 @@ def compute_scanner_budgets(
     in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, scanner_ids)
     # Read the limits here rather than taking them as a parameter: a caller that forgot to pass them
     # would get credit_limit=None, which reads as "uncapped" and would silently disable enforcement.
-    # nosemgrep: idor-lookup-without-team (org-level aggregation; the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
+    # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
     scanner_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
         "id", "credit_limit", "model"
     )
