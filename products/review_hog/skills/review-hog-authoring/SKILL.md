@@ -30,6 +30,12 @@ whether it _runs_ is a per-user setting in **Inbox → Code review**.
 | Blind-spot check    | `review-hog-blind-spots-<slug>` | Exactly one active; selecting swaps | `review-hog-blind-spots-general`           |
 | Validation criteria | `review-hog-validation-<slug>`  | Exactly one active; selecting swaps | `review-hog-validation-criteria`           |
 
+PostHog's canonical perspectives are Logic & Correctness, Contracts & Security, and Performance &
+Reliability (all on by default), plus Design System & UI Consistency
+(`review-hog-perspective-design-system`), which ships **off** — it is listed in everyone's
+Perspectives menu but only runs for users who switch it on. Check which of these the user already
+has enabled before proposing a new lens: a custom that re-covers an enabled canonical wastes a pass.
+
 ## Authoring flow
 
 1. **Ground yourself.** Using the PostHog MCP skill tools, `skill-list` the team's `review-hog-*`

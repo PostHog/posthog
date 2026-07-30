@@ -158,14 +158,17 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    same Sonnet 5 @ xhigh via the `CHUNKING_*` constants (identical prompt — the sandbox only adds repo
    access the agent may not use). Returns the
    `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
-5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
-   concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
-   each with **no cross-perspective context** — overlap is left to dedup (7):
+5. **Parallel perspective review** — `review_chunks` runs the acting user's **enabled specialist
+   perspectives concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
+   each with **no cross-perspective context** — overlap is left to dedup (7). Default-on:
    - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
    - **Performance & Reliability** (`PerspectiveType.PERFORMANCE_RELIABILITY`)
 
-   The three perspectives come from the ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`);
+   plus the opt-in canonical **Design System & UI Consistency** (`review-hog-perspective-design-system`,
+   `OPT_IN_PERSPECTIVE_SKILL_NAMES`) — seeded and listed for everyone, but only run for users who
+   enable it under Inbox → Code review — and any custom perspective the user authored and switched on.
+   The default-on three come from the ordered `PERSPECTIVES` registry (`reviewer/skill_loader.py`);
    `load_perspectives_for_run(team_id)` pins each one's current `LLMSkill` version for the run. Delivery is
    **pull** — the prompt instructs the sandbox agent to `skill-get(review-hog-perspective-…, version=N)` over
    MCP and apply that perspective's focus, rather than splicing the focus text into the prompt. Each
@@ -375,7 +378,7 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
   `<your_review_perspective>` block instructs the agent to `skill-get(PERSPECTIVE_SKILL_NAME, version=N)` over
   MCP and apply that perspective's focus (pull delivery). → `IssuesReview`. The perspective focuses themselves
   live as **DB-synced LLMA skills** at
-  `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`.
+  `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability,design-system}/SKILL.md`.
 - `issue_deduplicator/prompt.jinja` — mark duplicates (same file + overlapping lines + similar root cause)
   and issues matching prior review comments; keep the single most comprehensive representative. →
   `IssueDeduplication`.

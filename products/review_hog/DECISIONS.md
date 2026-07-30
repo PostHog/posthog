@@ -3440,3 +3440,35 @@ the model/effort is brand-new, add it to the registry in **both** repos (`utils.
 gateway model list in `@posthog/agent`) or startup validation rejects it on one side.
 
 ---
+
+## 2026-07 — a fourth canonical perspective (Design System & UI Consistency), shipped off by default
+
+**Problem.** Every review ran the same three lenses, and all three deliberately stay out of UI territory
+(logic-correctness ends with "Code style or formatting → not a ReviewHog concern"). Nothing owned whether new
+UI reuses lemon-ui / quill / `lib` components, stays on brand, or is generic AI-generated filler with
+premature generics, variant booleans, and re-export shims. Frontend PRs came back with zero component-reuse
+findings because no lens was looking; the blind-spot sweep could stumble onto some of it, but had no UI
+hunting grounds. The enforcement mirror already existed as authoring doctrine — the `writing-ui-components`
+skill (`.agents/skills/`) — so the perspective body is its review-side counterpart, not invented rules.
+
+**Decision: canonical, but opt-in.** `skills/review-hog-perspective-design-system/SKILL.md`, discovered and
+seeded by `lazy_seed` like the other canonicals, listed in everyone's Perspectives menu — but **not**
+auto-enabled.
+
+- `CANONICAL_PERSPECTIVE_SKILL_NAMES` (what `visible_skill_names` advertises to everyone) split from
+  `AUTO_ENABLED_PERSPECTIVE_SKILL_NAMES` (what `register_missing_perspective_configs` seeds enabled).
+  `OPT_IN_PERSPECTIVE_SKILL_NAMES` is the difference. `progress.py`'s no-configs-yet pass estimate follows
+  the auto-enabled count, not the canonical count.
+- **Why not just auto-enable it (add it to `PERSPECTIVES`)?** Seeding is `get_or_create` on every run, so a
+  new name in that tuple switches the lens on for every existing user at once — a fourth sandbox pass per
+  chunk on every review in the org, backend-only PRs included, with no way to have opted out first.
+- **Why not leave it out of the canonical set entirely?** Then nobody could enable it: `visible_skill_names`
+  shows canonicals plus the customs _you_ authored, and a seeded row has no `created_by`, so it would be
+  invisible to everyone and 404 on PATCH. Visibility and default-enablement had to become separate ideas.
+- **Lane boundaries are explicit in the body** (logic → Logic & Correctness, XSS/`dangerouslySetInnerHTML` →
+  Contracts & Security, re-render cost → Performance & Reliability, linter-owned formatting → nobody) and the
+  lens self-limits to frontend files, so on a backend-only chunk it returns nothing rather than reaching. UI
+  consistency and AI-slop stayed **one** lens: the slop tells (gradients, glassmorphism, icon-tile grids) are
+  read as brand-consistency violations, so splitting them would have burned two passes on one hunting ground.
+- No enum member for it: `PerspectiveType` is only the auto-seed list, and `source_perspective` is stamped
+  from `skill_name`, so a canonical without an enum member is first-class.

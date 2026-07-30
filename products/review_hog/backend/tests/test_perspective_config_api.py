@@ -7,7 +7,9 @@ from posthog.models import Team, User
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives
 from products.review_hog.backend.reviewer.skill_loader import (
+    AUTO_ENABLED_PERSPECTIVE_SKILL_NAMES,
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
+    OPT_IN_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
     REVIEW_HOG_VALIDATION_SKILL_NAME,
     register_missing_perspective_configs,
@@ -15,6 +17,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
 from products.skills.backend.models.skills import LLMSkill
 
 _CUSTOM = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}custom-x"
+_OPT_IN = OPT_IN_PERSPECTIVE_SKILL_NAMES[0]
 
 
 class TestReviewPerspectiveConfigAPI(APIBaseTest):
@@ -35,16 +38,28 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         )
 
     def test_list_shows_canonicals_enabled_and_custom_disabled(self) -> None:
-        # The menu surfaces every perspective skill with this user's enable state — canonicals seed on,
-        # a custom not yet switched on shows off — so the future UI can render the full toggle list.
+        # The menu surfaces every perspective skill with this user's enable state — default-on
+        # canonicals seed on, an opt-in canonical and a custom not yet switched on show off — so the
+        # UI can render the full toggle list.
         self._author_custom()
 
         res = self.client.get(f"{self.base}/")
 
         assert res.status_code == 200
         by_name = {item["skill_name"]: item["enabled"] for item in res.json()}
-        assert all(by_name[name] is True for name in CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert all(by_name[name] is True for name in AUTO_ENABLED_PERSPECTIVE_SKILL_NAMES)
+        assert by_name[_OPT_IN] is False
         assert by_name[_CUSTOM] is False
+
+    def test_enabling_an_opt_in_canonical_upserts_the_config(self) -> None:
+        # An opt-in canonical is listed but has no config row until the user toggles it — the PATCH
+        # must upsert one, the same single call that switches on a custom.
+        res = self.client.patch(f"{self.base}/{_OPT_IN}/", {"enabled": True}, format="json")
+
+        assert res.status_code == 200
+        assert res.json()["enabled"] is True
+        config = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=_OPT_IN)
+        assert config.enabled is True
 
     def test_enabling_a_custom_perspective_upserts_the_config(self) -> None:
         # Authoring a custom skill then PATCHing it on must create an enabled config in one call — the
@@ -61,7 +76,7 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
     def test_cannot_disable_the_last_enabled_perspective(self) -> None:
         # The min-1 floor: a user must always keep ≥1 perspective on, or their reviews would run empty.
         register_missing_perspective_configs(self.team.id, self.user.id)
-        names = sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        names = sorted(AUTO_ENABLED_PERSPECTIVE_SKILL_NAMES)
         for name in names[:2]:
             assert self.client.patch(f"{self.base}/{name}/", {"enabled": False}, format="json").status_code == 200
 
@@ -75,7 +90,7 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         # The min-1 floor counts only perspectives: an enabled validator in the shared table must not
         # let a user disable their last perspective.
         register_missing_perspective_configs(self.team.id, self.user.id)
-        names = sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        names = sorted(AUTO_ENABLED_PERSPECTIVE_SKILL_NAMES)
         for name in names[:2]:
             assert self.client.patch(f"{self.base}/{name}/", {"enabled": False}, format="json").status_code == 200
         ReviewSkillConfig.objects.for_team(self.team.id).create(
@@ -116,7 +131,7 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         # get never matched, and every call after the first 500ed on the unique constraint (and the
         # raw-id LLMSkill lookups 404ed / listed an empty menu).
         env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
-        name = CANONICAL_PERSPECTIVE_SKILL_NAMES[0]
+        name = AUTO_ENABLED_PERSPECTIVE_SKILL_NAMES[0]
         url = f"/api/projects/{env.id}/review_hog/perspectives/{name}/"
 
         listing = self.client.get(f"/api/projects/{env.id}/review_hog/perspectives/")
