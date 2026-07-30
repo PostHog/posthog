@@ -13,14 +13,28 @@ import type { RunObservationApi, VisionActionApi, VisionActionRunApi } from '../
 
 /**
  * Resolve the `[obs N]` citation markers the synthesizer leaves in a group summary into `[N]` links to
- * each observation. `N` is the observation's stable `index` (its position in the summary), so a deleted
+ * each observation. Adjacent markers collapse into one bracket group (`[2, 5, 33]`) where every number
+ * stays its own link. `N` is the observation's stable `index` (its position in the summary), so a deleted
  * observation drops its citation rather than misdirecting to a renumbered neighbor.
  */
 export function resolveObservationCitations(markdown: string, observations: readonly RunObservationApi[]): string {
     const byIndex = new Map(observations.map((obs) => [obs.index, obs]))
-    return markdown.replace(/\[obs (\d+)\]/g, (_match, n: string) => {
-        const obs = byIndex.get(Number(n))
-        return obs ? `[[${n}]](${urls.replayVisionObservation(obs.id)})` : ''
+    return markdown.replace(/\[obs \d+\](?:[ \t]*\[obs \d+\])*/g, (group) => {
+        const cited: { n: string; url: string }[] = []
+        for (const [, n] of group.matchAll(/\[obs (\d+)\]/g)) {
+            const obs = byIndex.get(Number(n))
+            if (obs) {
+                cited.push({ n, url: urls.replayVisionObservation(obs.id) })
+            }
+        }
+        // Brackets and commas sit inside the link texts (escaped) so the whole group inherits the
+        // superscript citation styling, which only targets the <a> elements (ScannerSummary.scss).
+        return cited
+            .map(({ n, url }, i) => {
+                const text = `${i === 0 ? '\\[' : ''}${n}${i === cited.length - 1 ? '\\]' : ','}`
+                return `[${text}](${url})`
+            })
+            .join(' ')
     })
 }
 

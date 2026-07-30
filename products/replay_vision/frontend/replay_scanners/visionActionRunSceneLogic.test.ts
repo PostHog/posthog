@@ -12,24 +12,45 @@ const obs = (index: number, id: string): RunObservationApi => ({
     created_at: '2026-01-01T00:00:00Z',
 })
 
+const link = (id: string): string => urls.replayVisionObservation(id)
+
 describe('resolveObservationCitations', () => {
-    it('links resolvable [obs N] markers as [N] and drops the ones that no longer resolve', () => {
+    it('links a lone [obs N] marker as an [N] link and drops the ones that no longer resolve', () => {
         // obs 3 has no matching observation (deleted, or the model invented it) — it must be dropped, not
         // rendered as a dead `[3]` or misdirected to another row.
-        const out = resolveObservationCitations('Friction here [obs 1] [obs 2]. Gone [obs 3].', [
-            obs(1, 'aaa'),
-            obs(2, 'bbb'),
+        const out = resolveObservationCitations('Friction here [obs 1]. Gone [obs 3].', [obs(1, 'aaa'), obs(2, 'bbb')])
+        expect(out).toBe(`Friction here [\\[1\\]](${link('aaa')}). Gone .`)
+    })
+
+    it('collapses adjacent markers into one bracket group where every number is its own link', () => {
+        const out = resolveObservationCitations('Direct to the button [obs 2] [obs 5] [obs 33].', [
+            obs(2, 'aaa'),
+            obs(5, 'bbb'),
+            obs(33, 'ccc'),
         ])
-        expect(out).toBe(
-            `Friction here [[1]](${urls.replayVisionObservation('aaa')}) [[2]](${urls.replayVisionObservation(
-                'bbb'
-            )}). Gone .`
-        )
+        // Renders as `[2, 5, 33]`: brackets and commas live inside the link texts so the whole group
+        // gets the superscript citation styling.
+        expect(out).toBe(`Direct to the button [\\[2,](${link('aaa')}) [5,](${link('bbb')}) [33\\]](${link('ccc')}).`)
+    })
+
+    it('drops unresolvable markers from a group and keeps the brackets balanced', () => {
+        const out = resolveObservationCitations('Here [obs 1] [obs 3] [obs 2].', [obs(1, 'aaa'), obs(2, 'bbb')])
+        expect(out).toBe(`Here [\\[1,](${link('aaa')}) [2\\]](${link('bbb')}).`)
+    })
+
+    it('drops a group entirely when none of its markers resolve', () => {
+        const out = resolveObservationCitations('Nothing left [obs 3] [obs 4].', [obs(1, 'aaa')])
+        expect(out).toBe('Nothing left .')
+    })
+
+    it('does not collapse markers separated by other text or newlines', () => {
+        const out = resolveObservationCitations('One [obs 1], two [obs 2]\n[obs 1]', [obs(1, 'aaa'), obs(2, 'bbb')])
+        expect(out).toBe(`One [\\[1\\]](${link('aaa')}), two [\\[2\\]](${link('bbb')})\n[\\[1\\]](${link('aaa')})`)
     })
 
     it('maps a citation to its index, not its array position, after an earlier observation is deleted', () => {
         // obs 1 was deleted, so the array starts at index 2. `[obs 2]` must still resolve to id 'bbb'.
         const out = resolveObservationCitations('See [obs 2].', [obs(2, 'bbb'), obs(3, 'ccc')])
-        expect(out).toBe(`See [[2]](${urls.replayVisionObservation('bbb')}).`)
+        expect(out).toBe(`See [\\[2\\]](${link('bbb')}).`)
     })
 })
