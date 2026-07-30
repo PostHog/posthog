@@ -44713,6 +44713,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly scout_name: string | null;
+      /** Canonical deep link to this report in the PostHog inbox. */
+      readonly report_url: string;
       /**
          * PR URL from the latest implementation task run, if available.
          * @nullable
