@@ -110,7 +110,7 @@ from posthog.clickhouse.client.limit import (
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
+from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type, is_query_budget_error
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
@@ -275,7 +275,9 @@ _SHARED_MODE_WHITELIST = {
 }
 
 
-def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutcome]:
+def _classify_error_for_slo(
+    exc: Exception, *, customer_authored_sql: bool = False
+) -> tuple[QueryErrorCategory, SloOutcome]:
     """Classify a query exception for SLO emission.
 
     Returns the QueryErrorCategory plus the SloOutcome that should be reported:
@@ -284,10 +286,12 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
       abuse, or normal interaction (cancel-on-navigate-away), not platform
       reliability. The completed event still fires with the error_category tag
       so dashboards can slice by it.
-    - QUERY_PERFORMANCE_ERROR and unclassified exceptions → FAILURE. Timeouts
-      and OOM dominate that category at scale; the user-input limits inside it
-      (EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded) are a minority
-      worth living with for now.
+    - QUERY_PERFORMANCE_ERROR and unclassified exceptions → FAILURE, with one
+      exception: when the query body is SQL the customer wrote and submitted
+      over the public query API (`customer_authored_sql`), exceeding one of the
+      execution budgets we impose on that path is their input, so it reports
+      SUCCESS. Everything else in the category — OOM, row limits, and any
+      timeout on a query we generated ourselves — stays a FAILURE.
 
     UserAccessControlError is folded into USER_ERROR locally since
     classify_query_error doesn't recognise it but a 403 is the user's input,
@@ -297,6 +301,8 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
         return QueryErrorCategory.USER_ERROR, SloOutcome.SUCCESS
     category = classify_query_error(exc)
     if category in (QueryErrorCategory.USER_ERROR, QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED):
+        return category, SloOutcome.SUCCESS
+    if customer_authored_sql and is_query_budget_error(exc):
         return category, SloOutcome.SUCCESS
     return category, SloOutcome.FAILURE
 
@@ -1329,6 +1335,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     limit_context: LimitContext
     # query service means programmatic access and /query endpoint
     is_query_service: bool = False
+    # Whether the query body is SQL the customer wrote, rather than one we generated from an
+    # insight config. Only HogQLQueryRunner sets this. It decides whether hitting an execution
+    # budget counts against our SLO — see `_classify_error_for_slo`.
+    runs_customer_authored_sql: bool = False
     workload: Workload
     # Opt-in (set by process_query_model): on a cache hit, keep the results segment of the
     # cached response as raw JSON bytes in raw_cached_results_bytes instead of parsing it,
@@ -1930,17 +1940,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # (cache_hit / cache_miss / blocking / async_dispatched) stays intact so
                     # dashboards can attribute errors to the path they happened in. Errors that fire
                     # before any branch tag is set leave execution_path unset, which is honest.
-                    category, outcome = _classify_error_for_slo(exc)
+                    category, outcome = _classify_error_for_slo(
+                        exc, customer_authored_sql=self.is_query_service and self.runs_customer_authored_sql
+                    )
                     if outcome == SloOutcome.SUCCESS:
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
                         # Capture only what classifies as a FAILURE outcome. User-input query errors
-                        # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
-                        # deliberately not captured — they're returned to the user as 4xx. Note this
-                        # gate is the SLO outcome, not a strict platform-vs-user split:
-                        # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
-                        # those are user-input limits — see _classify_error_for_slo.
+                        # (USER_ERROR / cancelled / rate-limited, and customer SQL exceeding the
+                        # public API's execution budget) classify as SUCCESS above and are
+                        # deliberately not captured — they're returned to the user with actionable
+                        # guidance. Note this gate is the SLO outcome, not a strict platform-vs-user
+                        # split: the rest of QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even
+                        # though some of it is user-input limits — see _classify_error_for_slo.
                         capture_exception(exc)
                     if self._query_failure_caching_enabled:
                         # Transient error classes classify to None and are never recorded.

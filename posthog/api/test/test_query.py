@@ -42,7 +42,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
-from posthog.models.utils import UUIDT
+from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -64,6 +66,30 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         detail = response.json()["detail"]
         self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
         self.assertNotIn("app:query:per-org", detail)
+
+    @parameterized.expand([("personal_api_key", True, False), ("session", False, True)])
+    def test_query_timeout_capture_depends_on_access_method(self, _name, use_personal_api_key, expected_captured):
+        # Customer SQL over the public API hits a 10s execution budget we impose on purpose, so the
+        # timeout is their query being slow — reporting it buries real failures in error tracking.
+        # The same timeout on an app query still gets reported.
+        if use_personal_api_key:
+            key_value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="test", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"]
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=ClickHouseQueryTimeOut()),
+            patch("posthog.api.query.capture_exception") as mock_capture_exception,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_504_GATEWAY_TIMEOUT)
+        self.assertEqual(mock_capture_exception.called, expected_captured)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

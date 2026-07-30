@@ -230,6 +230,25 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
     return QueryErrorCategory.ERROR
 
 
+QUERY_BUDGET_ERRORS = (
+    ClickHouseQueryTimeOut,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQuerySizeExceeded,
+)
+
+
+def is_query_budget_error(e: Exception) -> bool:
+    """Whether the query exceeded a budget we deliberately impose on it (execution time or size).
+
+    Distinct from the rest of QUERY_PERFORMANCE_ERROR (OOM, too many rows) in that the limit is our
+    own policy: when the query body is the customer's own SQL, hitting it says the SQL is too slow
+    for the budget, not that anything is broken on our side.
+    """
+    if isinstance(e, ServerException):
+        return look_up_clickhouse_error_code_meta(e).name in ("TIMEOUT_EXCEEDED", "TOO_SLOW")
+    return isinstance(e, QUERY_BUDGET_ERRORS)
+
+
 # Specific error classes we need
 # These exist here and are not dynamically created because they are used in the codebase.
 class CHQueryErrorS3Error(InternalCHQueryError):

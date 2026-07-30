@@ -791,6 +791,47 @@ class TestQueryRunner(BaseTest):
         captured = any(call.args and call.args[0] is raised_exc for call in mock_capture_exception.call_args_list)
         assert captured == expected_captured
 
+    @parameterized.expand(
+        [
+            # Customer SQL over the public query API runs under a deliberately tight execution
+            # budget, so exceeding it is their query being slow — not something to report.
+            ("customer_sql_timeout", True, ClickHouseQueryTimeOut, SloOutcome.SUCCESS, False),
+            ("customer_sql_query_size", True, ClickHouseQuerySizeExceeded, SloOutcome.SUCCESS, False),
+            # The carve-out is only for the budgets we impose, not for the rest of the category.
+            ("customer_sql_out_of_memory", True, ClickHouseQueryMemoryLimitExceeded, SloOutcome.FAILURE, True),
+            # A timeout on a query we generated ourselves is still ours to answer for.
+            ("generated_query_timeout", False, ClickHouseQueryTimeOut, SloOutcome.FAILURE, True),
+        ]
+    )
+    def test_query_service_budget_errors_on_customer_sql_are_not_captured(
+        self, _name, runs_customer_authored_sql, exception_class, expected_outcome, expected_captured
+    ):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        TestQueryRunner.runs_customer_authored_sql = runs_customer_authored_sql
+        raised_exc = exception_class()
+
+        def calculate_raises(self):
+            raise raised_exc
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        runner.is_query_service = True
+
+        with (
+            mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed,
+            mock.patch("posthog.hogql_queries.query_runner.capture_exception") as mock_capture_exception,
+        ):
+            with pytest.raises(exception_class):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        completed_kwargs = mock_emit_slo_completed.call_args.kwargs
+        assert completed_kwargs["properties"].outcome == expected_outcome
+        # The category tag is unchanged either way, so dashboards can still slice these out.
+        assert completed_kwargs["extra_properties"]["error_category"] == "query_performance_error"
+
+        captured = any(call.args and call.args[0] is raised_exc for call in mock_capture_exception.call_args_list)
+        assert captured == expected_captured
+
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL

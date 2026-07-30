@@ -50,7 +50,7 @@ from posthog.clickhouse.client.execute_async import cancel_query, get_query_stat
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, is_query_budget_error
 from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
@@ -232,6 +232,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         data = self.get_model(upgraded_query, QueryRequest)
 
         query = None
+        is_query_service = get_query_tag_value("access_method") == "personal_api_key"
         try:
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
@@ -255,7 +256,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)
                 or is_insight_actors_options_query(query_dict)
-            ) and get_query_tag_value("access_method") != "personal_api_key":
+            ) and not is_query_service:
                 # QUERY_ASYNC provides extended max execution time for insight queries
                 limit_context = LimitContext.QUERY_ASYNC
             else:
@@ -264,9 +265,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
                 process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
-                process_span.set_attribute(
-                    "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"
-                )
+                process_span.set_attribute("query.is_query_service", is_query_service)
                 if limit_context is not None:
                     process_span.set_attribute("query.limit_context", limit_context.value)
                 result = process_query_model(
@@ -275,7 +274,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                     execution_mode=execution_mode,
                     query_id=client_query_id,
                     user=request.user,  # type: ignore[arg-type]
-                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                    is_query_service=is_query_service,
                     limit_context=limit_context,
                     analytics_props=analytics_props,
                 )
@@ -347,7 +346,11 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
         except Exception as e:
-            capture_exception(e)
+            # Customer SQL exceeding the execution budget we impose on the public query API is
+            # their query being too slow, not a fault of ours: they get the 504 with its
+            # "materialize this" guidance, and it stays out of error tracking.
+            if not (is_query_service and getattr(query, "kind", None) == "HogQLQuery" and is_query_budget_error(e)):
+                capture_exception(e)
             raise
 
     @extend_schema(
