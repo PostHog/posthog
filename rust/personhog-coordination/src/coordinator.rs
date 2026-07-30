@@ -1322,6 +1322,22 @@ async fn filter_pods_for_k8s(
             continue;
         }
 
+        // Lazily start the controller watch from the registration's own
+        // ref — the coordinator has no pod of its own to discover from,
+        // and without a watch `classify_departure` has no intent to
+        // consult. Idempotent, so calling per evaluation is cheap; the
+        // first evaluation after a watch starts may still classify
+        // Unknown, which safely leaves the pod active until intent
+        // arrives.
+        if let Err(e) = k8s.watch_controller(controller).await {
+            tracing::warn!(
+                controller = %controller,
+                error = %e,
+                "failed to start controller watch; treating pod as active"
+            );
+            continue;
+        }
+
         let reason = k8s.classify_departure(controller, generation).await;
 
         match (&controller.kind, pod.status, reason) {
