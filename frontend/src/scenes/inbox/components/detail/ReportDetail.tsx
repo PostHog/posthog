@@ -352,7 +352,7 @@ export function InboxDetailFrame({
                     <DetailSection icon={summary.icon} title={summary.title}>
                         {report.summary ? (
                             <LemonMarkdown
-                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
+                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
                                 disableImages
                                 renderChartRef={renderChartRef}
                             >
@@ -364,7 +364,7 @@ export function InboxDetailFrame({
                             </p>
                         )}
                         {trailingCharts.length > 0 && (
-                            <div className="flex flex-col gap-3">
+                            <div className="flex flex-col gap-4 mt-5">
                                 {trailingCharts.map((chart) => (
                                     <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
                                 ))}
