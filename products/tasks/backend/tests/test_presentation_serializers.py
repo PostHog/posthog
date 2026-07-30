@@ -27,6 +27,10 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         serializer = TaskWriteSerializer(data={"origin_product": origin_product})
         serializer.is_valid()
         assert ("origin_product" in serializer.errors) is expected_rejected
+        if origin_product == "signal_report":
+            assert serializer.errors["origin_product"][0] == (
+                "Update the PostHog app to create Signal Report tasks, then try again."
+            )
 
     @parameterized.expand(
         [

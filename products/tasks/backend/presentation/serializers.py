@@ -597,7 +597,7 @@ class TaskWriteSerializer(serializers.Serializer):
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
         if value == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
-            raise serializers.ValidationError("origin_product 'signal_report' is reserved for signal report tasks")
+            raise serializers.ValidationError("Update the PostHog app to create Signal Report tasks, then try again.")
         if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
             raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
         if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
