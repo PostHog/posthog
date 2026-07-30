@@ -7,12 +7,15 @@ use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
 use dashmap::DashMap;
 use envconfig::Envconfig;
+use k8s_awareness::{K8sAwareness, PodInfo};
+use kube::Client;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tokio_util::sync::CancellationToken;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -253,8 +256,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Invalid advertise address configuration");
     tracing::info!(%advertise_address, "advertising gRPC address for routing");
 
+    // Discover this pod's owning controller and generation so the
+    // coordinator can steer placement away from old-generation pods
+    // during rollouts. Fail-open: without the discovery the leader
+    // registers exactly as before and only loses rollout awareness.
+    let (controller, generation, k8s_awareness) = if config.k8s_awareness_enabled {
+        match discover_own_controller(&config, coordination_handle.shutdown_token()).await {
+            Ok((awareness, info)) => {
+                tracing::info!(
+                    controller = %info.controller,
+                    generation = %info.generation,
+                    "K8s awareness enabled; controller discovered"
+                );
+                (Some(info.controller), info.generation, Some(awareness))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "K8s awareness enabled but controller discovery failed; \
+                     registering without rollout awareness"
+                );
+                (None, String::new(), None)
+            }
+        }
+    } else {
+        (None, String::new(), None)
+    };
+
     let pod_config = PodConfig {
         pod_name: config.pod_name.clone(),
+        generation,
+        controller,
         lease_ttl: config.lease_ttl,
         heartbeat_interval: config.heartbeat_interval(),
         advertise_address: Some(advertise_address),
@@ -277,7 +309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let pod = PodHandle::new(store, pod_config, Arc::new(handler), None);
+    let pod = PodHandle::new(store, pod_config, Arc::new(handler), k8s_awareness);
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
@@ -450,4 +482,23 @@ async fn run_dirty_index_prune_loop(
             .set(lag as f64);
         }
     }
+}
+
+/// Build a K8s awareness client and discover this pod's owning controller
+/// and generation. The awareness handle is returned alongside so the pod
+/// can also classify its own departure at drain time.
+async fn discover_own_controller(
+    config: &Config,
+    cancel: CancellationToken,
+) -> Result<(Arc<K8sAwareness>, PodInfo), String> {
+    let namespace = config.resolve_k8s_namespace()?;
+    let client = Client::try_default()
+        .await
+        .map_err(|e| format!("failed to create K8s client: {e}"))?;
+    let awareness = Arc::new(K8sAwareness::new(client, namespace, cancel));
+    let info = awareness
+        .discover_controller(&config.pod_name)
+        .await
+        .map_err(|e| format!("controller discovery failed: {e}"))?;
+    Ok((awareness, info))
 }

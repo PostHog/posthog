@@ -13,6 +13,8 @@ common-kafka = { path = "../common/kafka" }
 common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+k8s-awareness = { path = "../common/k8s-awareness" }
+kube = { version = "0.98", features = ["client"] }
 lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }
@@ -28,6 +30,7 @@ rdkafka = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
