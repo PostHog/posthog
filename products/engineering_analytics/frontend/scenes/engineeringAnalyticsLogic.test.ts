@@ -706,6 +706,7 @@ describe('engineeringAnalyticsLogic', () => {
             duration_seconds: 300,
             run_attempt: 1,
             pr_number: 10,
+            commit_pr_number: null,
             ...overrides,
         })
         const groups = groupRunsByCommit([

@@ -6907,9 +6907,9 @@ snapshots:
     scenes-app-replay-vision--scanners-list--light:
         hash: v1.k794b7964.99f5f4499dca089b44d7bce7dee60424c7bdeefb860a8882d5ca8cbf06abce69.MHJZLg5-Q8USBaHeY-N_hqBMtEfuRArXAsAgnwEk4gs
     scenes-app-replay-vision--summarizer-overview--dark:
-        hash: v1.k794b7964.c801b1da1f1c38a3e6560c462008a090ecb86373896e7974c4996c07b9bcef0d.G0L7uSVxm7HgUbRrYPlfWLNTq4K1uLVER89MMY9yQj0
+        hash: v1.k794b7964.e5827be3112c9cb7af5526a41eb02da1c5ef1982eb9d2af887e0649119f8def5.-yMhrm4zkIgcYpOcdAKwqy1w5SEDHRXT5pTfaNENKFg
     scenes-app-replay-vision--summarizer-overview--light:
-        hash: v1.k794b7964.6c3926b9189f1b772238b9fcdcb356c659f069faea561727fc50bf9aae40c620.umdwMDJ9PO4HQvOsDy5ry_XAuke9swpQAjZVowYt8tQ
+        hash: v1.k794b7964.f4cd388175bf16358030e2ad02abff949e1dccb34b702bb9ce8c4ce65ff32dfe.gfKH-mJ2VVS664K3yW1pg4gqSkPEBoFSspoe-446uOc
     scenes-app-saved-insights--empty-state--dark:
         hash: v1.k794b7964.43545664c9133c8afd354be6a6ed8f808c35b381101325d9605114632fcdc0c9.l8w9uEOEmrH6Xl1kNd9ueRtg_51cJUSjWLdjWDM0Fko
     scenes-app-saved-insights--empty-state--light:
@@ -6922,14 +6922,10 @@ snapshots:
         hash: v1.k794b7964.e9ffaf5a9af0f5e766cba20128491f842dce8849c041b3d3f4e6432e94306998.dHNQ6L9tFR-OVJ-o_zgDyElo7v8pXfSoXl8ZEBl20eE
     scenes-app-saved-insights--search-results--light:
         hash: v1.k794b7964.a7e1c5334e9e3c3ea3c616dbf31ab9d8e0cc428db4376f10152b022959500d5e.CNZ66Ebm_c7BNBYLPPBwS9iiz2O3P-mkE46XuBkGKos
-    scenes-app-saved-insights-new-insight-menu--chips-overlay--dark:
-        hash: v1.k794b7964.fcabcc79cc98ec8be499627e122f1d8e85c04cef4904ed35937c58402487bd88.pdnqrw_LEDnkyYxZPkmenVsjYaWYuHl2GOpAqMIA9Fg
-    scenes-app-saved-insights-new-insight-menu--chips-overlay--light:
-        hash: v1.k794b7964.734bf73c0aacf34fa60365106192d1a705ce2470faccd609b493bc6013427bff.DlKlVXWYBikhZE9lb-F8QKKTFPHVLET5XZdYeS0GRH4
-    scenes-app-saved-insights-new-insight-menu--grouped-overlay--dark:
-        hash: v1.k794b7964.5a65f3fe94b288f66e436ecd8677bc2d1b3fe08ca885f03eae64bc8847b783ee.Rbg5_4VnhqIM110O92Rsb0SKEPt3aFNSAEDRY-msHPc
-    scenes-app-saved-insights-new-insight-menu--grouped-overlay--light:
-        hash: v1.k794b7964.1ed49ef01f24d1bf519ec7a184b4ae9a809705421510221f60fe5d22ab5052f7.FTV3mfkHio4riI82tiGFRA4e-rcdasqh62XJtba9AXU
+    scenes-app-saved-insights-new-insight-menu--overlay--dark:
+        hash: v1.k794b7964.5a65f3fe94b288f66e436ecd8677bc2d1b3fe08ca885f03eae64bc8847b783ee.YfBWEDQwkl46pC03TjLQBVNXq96nOm91Lc0KcpIXegc
+    scenes-app-saved-insights-new-insight-menu--overlay--light:
+        hash: v1.k794b7964.b1f8b76506ff046ee7667a54f64fc587413ce238932d26039b8fa398d864f19f.X8ZiWahHO3f74wwMcFkt2tCuh29Dn6IZL_CXzVZUxHI
     scenes-app-sessionattributionexplorer--session-attribution-explorer--dark:
         hash: v1.k794b7964.f155136ab341d343517047052786c945b29e035f5c6688c170ddb34644977402.YdTYmTEtPQ8DA5jLsTAJuOZMdr956Jug7d1kOO4BvDM
     scenes-app-sessionattributionexplorer--session-attribution-explorer--light:
