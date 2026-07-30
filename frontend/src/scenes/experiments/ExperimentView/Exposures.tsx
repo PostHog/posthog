@@ -223,12 +223,18 @@ function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.
 
 function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
     const exposureConfig = exposureCriteria?.exposure_config
-    if (!exposureConfig) {
-        return `Default (${EXPOSURE_DEFAULT_EVENT})`
+    const base = exposureConfig
+        ? `Custom (${getExposureConfigDisplayName(exposureConfig)})`
+        : `Default (${EXPOSURE_DEFAULT_EVENT})`
+
+    // Exclusions shrink the exposed population, so say so here rather than let the numbers move
+    // with nothing on screen explaining it.
+    const exclusionCount = exposureCriteria?.exclusions?.length ?? 0
+    if (exclusionCount === 0) {
+        return base
     }
 
-    const displayName = getExposureConfigDisplayName(exposureConfig)
-    return `Custom (${displayName})`
+    return `${base}, ${exclusionCount} exclusion${exclusionCount === 1 ? '' : 's'}`
 }
 
 export function Exposures(): JSX.Element {
