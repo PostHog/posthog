@@ -310,6 +310,9 @@ export interface llmPromptLogicActions {
     openPublishReview: () => {
         value: true
     }
+    removeConfig: () => {
+        value: true
+    }
     removeLabel: (labelName: string) => {
         labelName: string
     }
@@ -503,6 +506,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         toggleOutlineExpanded: true,
         showConfigEditor: true,
+        removeConfig: true,
         cancelEditing: true,
         setPublishConflict: (publishConflict: PublishConflict | null) => ({ publishConflict }),
         requestPublish: true,
@@ -586,6 +590,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             false,
             {
                 showConfigEditor: () => true,
+                removeConfig: () => false,
                 setMode: () => false,
                 loadPromptSuccess: () => false,
             },
@@ -1248,6 +1253,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             if (!values.promptForm.config.trim()) {
                 actions.setPromptFormValue('config', STARTER_PROMPT_CONFIG)
             }
+        },
+
+        // Only clears the form: the stored config goes away when the version is published,
+        // and the review modal shows that as a config change first.
+        removeConfig: () => {
+            actions.setPromptFormValue('config', '')
         },
 
         requestPublish: () => {

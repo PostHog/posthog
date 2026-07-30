@@ -824,7 +824,7 @@ export function PromptExperiments({ prompt }: { prompt: LLMPrompt }): JSX.Elemen
 
 function PromptConfigEditField(): JSX.Element | null {
     const { promptForm, isConfigEditorVisible } = useValues(llmPromptLogic)
-    const { showConfigEditor } = useActions(llmPromptLogic)
+    const { showConfigEditor, removeConfig } = useActions(llmPromptLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG]) {
@@ -852,11 +852,27 @@ function PromptConfigEditField(): JSX.Element | null {
         <div className="pb-4">
             <LemonField
                 name="config"
-                label="Configuration"
+                label={
+                    <div className="flex items-center gap-2">
+                        <span>Configuration</span>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            status="danger"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                removeConfig()
+                            }}
+                            tooltip="Removed from the prompt when you publish"
+                            data-attr="llma-prompt-remove-config-button"
+                        >
+                            Remove
+                        </LemonButton>
+                    </div>
+                }
                 help={
                     'Optional JSON object with model parameters or other settings for your app, for example {"model": "gpt-4o", "temperature": 0}. ' +
-                    'Stored with this version and returned when you fetch the prompt. Clear the text to remove it. ' +
-                    "Don't store secrets here."
+                    "Stored with this version and returned when you fetch the prompt. Don't store secrets here."
                 }
             >
                 {({ value, onChange }) => (
