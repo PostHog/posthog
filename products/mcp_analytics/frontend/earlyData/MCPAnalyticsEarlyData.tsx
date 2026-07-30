@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconClock, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { dataColorVars } from 'lib/colors'
 import { ExplorerHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -12,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { Card } from '../dashboard/Card'
 import { formatMs, formatNumber } from '../dashboard/formatters'
 import { HarnessLogo } from '../dashboard/harness'
+import type { MCPIntentThemeApi } from '../generated/api.schemas'
 import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { ChecklistItem, EarlyRecentCall } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
@@ -198,19 +200,78 @@ function LiveActivityCard(): JSX.Element {
     )
 }
 
+// `total` is every intent analysed, so the bar reads as this theme's share of them. The backend
+// assigns each intent to at most one theme, which is what keeps the shares adding up.
+//
+// Themes are categories rather than one measure over time, so each gets its own colour from the
+// data palette — a stack of identical brand-blue bars reads as one repeated thing.
+//
+// LemonProgress needs an explicit bgColor here: its default is `var(--color-bg-primary)`, which is a
+// neutral in LemonUI but brand orange inside a quill Card, so the unfilled remainder renders as a
+// second, larger-looking value. Applies to every LemonProgress under a quill Card.
+function IntentThemeRow({
+    theme,
+    total,
+    color,
+}: {
+    theme: MCPIntentThemeApi
+    total: number
+    color: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="flex items-baseline justify-between gap-2">
+                <span className="text-base font-medium">{theme.name}</span>
+                <span className="text-muted text-sm shrink-0">{formatNumber(theme.intent_count)}</span>
+            </div>
+            <LemonProgress
+                percent={total > 0 ? (theme.intent_count / total) * 100 : 0}
+                bgColor="var(--color-bg-surface-tertiary)"
+                strokeColor={color}
+            />
+            <p className="text-muted text-sm m-0">{theme.description}</p>
+            {theme.example_intent ? (
+                <p className="text-muted text-sm italic m-0 line-clamp-2" title={theme.example_intent}>
+                    “{theme.example_intent}”
+                </p>
+            ) : null}
+            {theme.tools.length > 0 ? (
+                <div className="flex gap-1 flex-wrap">
+                    {theme.tools.slice(0, 4).map((tool) => (
+                        <LemonTag key={tool} size="small">
+                            {tool}
+                        </LemonTag>
+                    ))}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
 // The AI digest is the product here: real intents are all worded differently, so
-// verbatim grouping can't answer "what are agents trying to do". The raw list is
-// strictly the degraded state for when generation is unavailable (no LLM key).
+// verbatim grouping can't answer "what are agents trying to do". We ask the LLM to
+// group them into themes and render those as structured rows; the raw frequency
+// list is strictly the degraded state for when generation is unavailable (no LLM key).
 function IntentsCard(): JSX.Element {
-    const { intentDigest, intentDigestLoading, intentThemes } = useValues(mcpEarlyDataLogic)
+    const { intentDigest, intentDigestLoading, intentFrequencies } = useValues(mcpEarlyDataLogic)
 
     return (
         <Card title="What agents are trying to do">
-            {intentDigest?.digest ? (
-                <div className="flex flex-col gap-2">
+            {/* Both, not just the summary: nothing resolved into themes means the rows would be an
+                empty gap under a headline, and the verbatim list says more than that. */}
+            {intentDigest?.digest && intentDigest.themes.length > 0 ? (
+                <div className="flex flex-col gap-3">
                     <p className="text-base m-0">{intentDigest.digest}</p>
+                    {intentDigest.themes.map((theme, index) => (
+                        <IntentThemeRow
+                            key={`${index}-${theme.name}`}
+                            theme={theme}
+                            total={intentDigest.intentCount}
+                            color={`var(--${dataColorVars[index % dataColorVars.length]})`}
+                        />
+                    ))}
                     <span className="text-muted text-sm">
-                        AI summary of the last {formatNumber(intentDigest.intentCount)} agent intents
+                        AI grouping of the last {formatNumber(intentDigest.intentCount)} agent intents
                     </span>
                 </div>
             ) : intentDigestLoading ? (
@@ -220,14 +281,14 @@ function IntentsCard(): JSX.Element {
                     <LemonSkeleton className="h-4 w-2/3" />
                     <span className="text-muted text-sm">Summarizing recent agent intents…</span>
                 </div>
-            ) : intentThemes.length === 0 ? (
+            ) : intentFrequencies.length === 0 ? (
                 <span className="text-muted text-base">
                     No agent intents captured yet — they show up here as agents explain what they're doing.
                 </span>
             ) : (
                 <div className="flex flex-col gap-2">
                     <ul className="flex flex-col gap-2 m-0 pl-4">
-                        {intentThemes.map(({ intent, count }) => (
+                        {intentFrequencies.map(({ intent, count }) => (
                             <li key={intent} className="text-base">
                                 {intent}
                                 {count > 1 ? <span className="text-muted text-sm"> ×{count}</span> : null}
@@ -262,7 +323,10 @@ function ClientsCard(): JSX.Element {
                                 </span>
                                 <span className="text-muted">{formatNumber(row.calls)}</span>
                             </div>
-                            <LemonProgress percent={maxCalls > 0 ? (row.calls / maxCalls) * 100 : 0} />
+                            <LemonProgress
+                                percent={maxCalls > 0 ? (row.calls / maxCalls) * 100 : 0}
+                                bgColor="var(--color-bg-surface-tertiary)"
+                            />
                         </div>
                     ))}
                 </div>
