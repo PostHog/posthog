@@ -22,7 +22,10 @@ BRAINTREE_HOSTS = {
 # GraphQL API version (date-versioned header, required). Opaque vendor labels — never parsed.
 BRAINTREE_VERSION_2019_01_01 = "2019-01-01"
 BRAINTREE_VERSION_2026_07_14 = "2026-07-14"
-PAGE_SIZE = 100
+# Braintree's GraphQL search fields reject `first` above 50, so this is a vendor
+# ceiling rather than a tuning knob.
+MAX_PAGE_SIZE = 50
+PAGE_SIZE = MAX_PAGE_SIZE
 # Braintree recommends generous timeouts due to async transaction processing.
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRY_ATTEMPTS = 5
