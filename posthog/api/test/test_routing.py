@@ -6,8 +6,10 @@ from datetime import timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.apps import apps
+from django.db import OperationalError
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
@@ -15,6 +17,7 @@ from django.utils import timezone
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from parameterized import parameterized
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -173,6 +176,25 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], self.team.id)
+
+    @parameterized.expand(
+        [
+            ("query_wait_timeout", "query_wait_timeout"),
+            ("connection_failed", "connection failed"),
+        ]
+    )
+    def test_transient_db_error_on_team_lookup_returns_retryable_503(self, _name: str, marker: str):
+        with patch.object(Team.objects, "select_related", side_effect=OperationalError(marker)):
+            response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers["Retry-After"], "1")
+        self.assertEqual(response.json()["code"], "temporarily_unavailable")
+
+    def test_non_transient_db_error_on_team_lookup_is_not_masked(self):
+        with patch.object(Team.objects, "select_related", side_effect=OperationalError("some other failure")):
+            with self.assertRaises(OperationalError):
+                self.client.get(f"/api/environments/{self.team.id}/foos/")
 
     def test_cannot_override_special_methods(self):
         with pytest.raises(Exception) as e:

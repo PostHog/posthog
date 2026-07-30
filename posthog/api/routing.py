@@ -3,6 +3,7 @@ from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
+from django.db import OperationalError
 from django.db.models.query import QuerySet
 
 from opentelemetry import trace
@@ -24,6 +25,8 @@ from posthog.auth import (
     SharingPasswordProtectedAuthentication,
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
+from posthog.db_errors import is_transient_db_error
+from posthog.exceptions import TemporarilyUnavailable
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import reset_current_team_id, set_current_team_id
@@ -422,23 +425,30 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def team(self) -> Team:
-        if team_from_token := self._get_team_from_request():
-            team = team_from_token
-        elif self._is_project_view:
-            team = Team.objects.select_related("organization").get(
-                id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
-            )
-        elif self.param_derived_from_user_current_team == "team_id":
-            user = cast(User, self.request.user)
-            assert user.team is not None
-            team = user.team
-        else:
-            try:
-                team = Team.objects.select_related("organization").get(id=self.team_id)
-            except (Team.DoesNotExist, ValueError):
-                raise NotFound(
-                    detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+        try:
+            if team_from_token := self._get_team_from_request():
+                team = team_from_token
+            elif self._is_project_view:
+                team = Team.objects.select_related("organization").get(
+                    id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
                 )
+            elif self.param_derived_from_user_current_team == "team_id":
+                user = cast(User, self.request.user)
+                assert user.team is not None
+                team = user.team
+            else:
+                try:
+                    team = Team.objects.select_related("organization").get(id=self.team_id)
+                except (Team.DoesNotExist, ValueError):
+                    raise NotFound(
+                        detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                    )
+        except OperationalError as e:
+            # This lookup sits on effectively every team-scoped request, so a saturated
+            # connection pool would otherwise surface as an unhandled 500 to the user.
+            if not is_transient_db_error(e):
+                raise
+            raise TemporarilyUnavailable() from e
 
         tag_queries(**get_team_query_tags(team))
         return team

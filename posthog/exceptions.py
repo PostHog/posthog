@@ -1,3 +1,4 @@
+from math import ceil
 from typing import Any, Optional, TypedDict
 
 from django.http.request import HttpRequest
@@ -58,6 +59,18 @@ class PaidFeatureException(APIException):
 class Conflict(APIException):
     status_code = status.HTTP_409_CONFLICT
     default_code = "conflict"
+
+
+class TemporarilyUnavailable(APIException):
+    """Retryable failure — e.g. a database connection pool that is momentarily saturated.
+
+    `wait` is read by `exception_handler` to emit a `Retry-After` header.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "temporarily_unavailable"
+    default_detail = "The server is temporarily unable to handle the request. Please retry."
+    wait = 1
 
 
 class ClickHouseAtCapacity(APIException):
@@ -150,6 +163,10 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     from posthog.utils import absolute_uri
 
     response = _exceptions_hog_handler(exc, context)
+    retry_after = getattr(exc, "wait", None) if isinstance(exc, APIException) else None
+    if response is not None and retry_after:
+        # drf-exceptions-hog builds its own response, so DRF's Retry-After handling never runs.
+        response["Retry-After"] = str(ceil(retry_after))
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
         # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
