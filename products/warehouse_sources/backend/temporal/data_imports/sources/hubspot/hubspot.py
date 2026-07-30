@@ -196,6 +196,13 @@ def _backfill_missing_properties(row: dict[str, Any], expected_properties: list[
         row.setdefault(prop, None)
 
 
+def _backfill_missing_associations(row: dict[str, Any], association_types: list[str]) -> None:
+    """HubSpot omits `associations` entirely for a record that has none, so without this the column
+    is absent from every row in a batch and PyArrow infers a schema that's missing it."""
+    for association in association_types:
+        row.setdefault(association, [])
+
+
 def _flatten_result(result: dict[str, Any]) -> dict[str, Any]:
     """Flatten a HubSpot CRM API result into a flat dict.
 
@@ -385,6 +392,7 @@ def get_rows(
             row = _flatten_result(result)
             if expected_properties:
                 _backfill_missing_properties(row, expected_properties)
+            _backfill_missing_associations(row, config.associations)
             batcher.batch(row)
 
             if batcher.should_yield():
@@ -705,6 +713,7 @@ def get_rows_via_search(
                 row = _flatten_result(result)
                 if expected_properties:
                     _backfill_missing_properties(row, expected_properties)
+                _backfill_missing_associations(row, config.associations)
 
                 row_cursor_ms = _iso_to_ms(row.get(cursor_prop))
                 if row_cursor_ms is not None:
