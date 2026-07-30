@@ -14,11 +14,12 @@ from posthog.api.oauth.cimd import (
     fetch_and_upsert_cimd_application,
 )
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning import ProvisioningRateLimits
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
 
 WIZARD_CLIENT_ID = "test-wizard-client"
 
@@ -38,10 +39,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             algorithm="RS256",
             is_first_party=True,
             is_provisioning_partner=True,
-            provisioning_partner_type="wizard",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
 
     def _wizard_account_request(self, request_id: str, email: str, challenge: str):
@@ -131,8 +131,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         assert res.json()["error"]["code"] == "unauthorized"
 
     def test_inactive_client_secret_partner_rejected(self):
-        self.partner.provisioning_active = False
-        self.partner.save(update_fields=["provisioning_active"])
+        self.partner.update_provisioning(active=False)
 
         res = self._post_with_client_secret(
             "/api/agentic/provisioning/account_requests",
@@ -161,10 +160,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             redirect_uris="https://legacy.example.com/callback",
             algorithm="RS256",
             is_provisioning_partner=False,
-            provisioning_partner_type="stripe",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
 
         res = self._post_api(
@@ -226,9 +224,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             redirect_uris="https://localhost",
             algorithm="RS256",
             is_provisioning_partner=True,
-            provisioning_partner_type="disabled",
-            provisioning_active=True,
-            provisioning_can_create_accounts=False,
+            _provisioning_config=provisioning_config(active=True, can_create_accounts=False),
         )
 
         res = self._post_api(
@@ -245,7 +241,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
     # --- Org naming ---
 
-    def test_wizard_org_named_with_partner_type(self):
+    def test_org_named_after_the_partner_app(self):
         _, challenge = self._pkce_pair()
         email = "org-name-test@example.com"
 
@@ -255,7 +251,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         membership = user.organization_memberships.first()
         assert membership is not None
         org = membership.organization
-        assert org.name == f"Wizard ({email})"
+        assert org.name == f"PostHog Wizard ({email})"
 
     # --- PAT scopes ---
 
@@ -277,8 +273,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
     # --- is_active kill switch ---
 
     def test_inactive_pkce_partner_rejected(self):
-        self.wizard_app.provisioning_active = False
-        self.wizard_app.save(update_fields=["provisioning_active"])
+        self.wizard_app.update_provisioning(active=False)
 
         _, challenge = self._pkce_pair()
         res = self._wizard_account_request("req_inactive_pkce", "inactive-pkce@example.com", challenge)
@@ -289,8 +284,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
     def test_partner_without_can_provision_resources_rejected(self):
         token = self._get_bearer_token()
 
-        self.partner.provisioning_can_provision_resources = False
-        self.partner.save(update_fields=["provisioning_can_provision_resources"])
+        self.partner.update_provisioning(can_provision_resources=False)
 
         res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
         assert res.status_code == 403
@@ -310,10 +304,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             is_cimd_client=True,
             cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
-            provisioning_partner_type="wizard",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
 
         _, challenge = self._pkce_pair()
@@ -343,9 +336,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             is_cimd_client=True,
             cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
-            provisioning_partner_type="wizard",
-            provisioning_active=False,
-            provisioning_can_create_accounts=True,
+            _provisioning_config=provisioning_config(active=False, can_create_accounts=True),
         )
 
         _, challenge = self._pkce_pair()
@@ -382,10 +373,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             is_cimd_client=True,
             cimd_metadata_url=cimd_url,
             is_provisioning_partner=True,
-            provisioning_partner_type="wizard",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
         self.addCleanup(real_cache.delete, _cache_key(cimd_url))
         # _identify_pkce_partner warms the blocklist cache with a 1-year TTL; clear it too.
@@ -468,9 +458,9 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         app = self._register()
         assert app.is_cimd_client
         assert app.is_provisioning_partner
-        assert app.provisioning_active
-        assert app.provisioning_can_create_accounts
-        assert app.provisioning_can_provision_resources
+        assert app.provisioning.active
+        assert app.provisioning.can_create_accounts
+        assert app.provisioning.can_provision_resources
 
         _, challenge = self._pkce_pair()
         res = self.client.post(
@@ -534,10 +524,12 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             is_cimd_client=True,
             cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
-            provisioning_rate_limit_account_requests=10,
+            _provisioning_config=provisioning_config(
+                active=True,
+                can_create_accounts=True,
+                can_provision_resources=True,
+                rate_limits=ProvisioningRateLimits(account_requests=10),
+            ),
         )
 
         _, challenge = self._pkce_pair()
@@ -558,8 +550,7 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         assert post_account_request("ratelimit-1@example.com").status_code == 200
 
         partner = OAuthApplication.objects.get(cimd_metadata_url=CIMD_PROV_URL)
-        partner.provisioning_rate_limit_account_requests = 2
-        partner.save(update_fields=["provisioning_rate_limit_account_requests"])
+        partner.update_provisioning_rate_limits(account_requests=2)
 
         assert post_account_request("ratelimit-2@example.com").status_code == 200
         res = post_account_request("ratelimit-3@example.com")
@@ -644,9 +635,9 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
                 is_cimd_client=True,
                 cimd_metadata_url=url,
                 is_provisioning_partner=True,
-                provisioning_active=True,
-                provisioning_can_create_accounts=True,
-                provisioning_can_provision_resources=True,
+                _provisioning_config=provisioning_config(
+                    active=True, can_create_accounts=True, can_provision_resources=True
+                ),
             )
 
         url = f"https://{base_domain}/path-0/metadata.json"
@@ -675,9 +666,9 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             is_cimd_client=True,
             cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
 
         email = "cimd-org-name@example.com"
@@ -731,9 +722,9 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
             is_cimd_client=True,
             cimd_metadata_url=CIMD_PROV_URL,
             is_provisioning_partner=True,
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
         block_cimd_url(CIMD_PROV_URL)
 

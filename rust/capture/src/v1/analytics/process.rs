@@ -23,13 +23,16 @@ use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
+use crate::ingestion_warnings::{emit_rate_limit_warning, v1_request_context};
 use crate::router;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::types::SinkResult;
 use crate::v1::sinks::{serialize_batch, Destination};
 use crate::v1::Error;
-use common_ingestion_warnings::{WarningType, CAPTURE_V1_ANALYTICS};
+use common_ingestion_warnings::{
+    emit_request_warning, WarningEmitter, WarningType, CAPTURE_V1_ANALYTICS, CAPTURE_V1_RATE_LIMIT,
+};
 
 /// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
 ///
@@ -160,7 +163,13 @@ pub async fn process_batch(
     // overflowable lane is reachable, so behavior is identical across paths.
     if state.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-            let _ = apply_token_distinct_id_limits(limiter, context, &mut events).await;
+            let _ = apply_token_distinct_id_limits(
+                limiter,
+                context,
+                state.ingestion_warning_emitter.as_deref(),
+                &mut events,
+            )
+            .await;
         }
     }
 
@@ -321,19 +330,6 @@ pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn S
     }
 }
 
-/// Stamps request-level context (sdk lib/version, request path) into a
-/// warning's details map. Keys are camelCase to match the v2 `DEFAULT`
-/// extractors' expectations for entity keys.
-fn warning_context_details(context: &Context) -> serde_json::Map<String, serde_json::Value> {
-    let mut details = serde_json::Map::new();
-    if let Some((lib, version)) = context.sdk_lib_and_version() {
-        details.insert("lib".to_string(), serde_json::json!(lib));
-        details.insert("libVersion".to_string(), serde_json::json!(version));
-    }
-    details.insert("path".to_string(), serde_json::json!(context.path));
-    details
-}
-
 /// Best-effort v2 ingestion warning for a whole-batch validation abort (4xx).
 /// The batch is rejected as a unit, so `count` charges the full batch length;
 /// no per-event identifiers exist at this point. Unregistered tags emit
@@ -344,19 +340,17 @@ fn emit_batch_abort_warning(
     err: &Error,
     batch_len: usize,
 ) {
-    let Some(ref emitter) = state.ingestion_warning_emitter else {
-        return;
-    };
     let Some(warning) = WarningType::from_tag(err.tag()) else {
         return;
     };
     // `empty_batch` aborts have batch_len == 0; the rejected request is still
     // one occurrence, so never charge a count of zero.
-    emitter.emit(
-        context.api_token.clone(),
+    emit_request_warning(
+        state.ingestion_warning_emitter.as_deref(),
+        &v1_request_context(context),
         CAPTURE_V1_ANALYTICS,
         warning,
-        warning_context_details(context),
+        serde_json::Map::new(),
         batch_len.max(1) as u64,
     );
 }
@@ -371,9 +365,12 @@ fn emit_validation_drop_warnings(
     context: &Context,
     events: &[WrappedEvent],
 ) {
-    let Some(ref emitter) = state.ingestion_warning_emitter else {
+    let emitter = state.ingestion_warning_emitter.as_deref();
+    if emitter.is_none() {
+        // Checked up front so a deployment with warnings off doesn't pay for the
+        // grouping pass below.
         return;
-    };
+    }
 
     // (count, identifiers-of-the-single-event-if-unique) per warning type.
     type DropGroup<'a> = (u64, Option<(&'a str, Uuid)>);
@@ -394,8 +391,9 @@ fn emit_validation_drop_warnings(
         }
     }
 
+    let request = v1_request_context(context);
     for (warning, (count, single_event)) in grouped {
-        let mut details = warning_context_details(context);
+        let mut details = serde_json::Map::new();
         if let Some((distinct_id, uuid)) = single_event {
             // A public request can submit a `distinct_id` far larger than
             // CAPTURE_V1_DISTINCT_ID_MAX_SIZE (that oversized value is exactly
@@ -416,8 +414,9 @@ fn emit_validation_drop_warnings(
             }
             details.insert("eventUuid".to_string(), serde_json::json!(uuid.to_string()));
         }
-        emitter.emit(
-            context.api_token.clone(),
+        emit_request_warning(
+            emitter,
+            &request,
             CAPTURE_V1_ANALYTICS,
             warning,
             details,
@@ -829,6 +828,7 @@ struct TokenDistinctIdTally {
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
     context: &RequestContext,
+    emitter: Option<&dyn WarningEmitter>,
     events: &mut [WrappedEvent],
 ) -> TokenDistinctIdTally {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
@@ -915,6 +915,14 @@ async fn apply_token_distinct_id_limits(
             distinct_id_count = distinct_id_count,
             distinct_ids = %preview,
             "events rate limited by distinct_id -- person processing disabled"
+        );
+
+        emit_rate_limit_warning(
+            emitter,
+            &v1_request_context(context),
+            CAPTURE_V1_RATE_LIMIT,
+            &limited_distinct_ids,
+            limited_event_count,
         );
     }
 
@@ -2353,7 +2361,7 @@ mod tests {
             wrapped_event("$identify", "user-2"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         for ev in &events {
             assert_eq!(ev.result, EventResult::Ok);
@@ -2371,7 +2379,7 @@ mod tests {
             wrapped_event("$identify", "user-2"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         let ok_ev = find_by_did(&events, "user-1");
         assert_eq!(ok_ev.result, EventResult::Ok);
@@ -2391,7 +2399,7 @@ mod tests {
         let ctx = td_context();
         let mut events = vec![malformed_wrapped_event()];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         let ev = &events[0];
         assert_eq!(ev.result, EventResult::Drop);
@@ -2409,7 +2417,7 @@ mod tests {
             wrapped_event("$click", "user-1"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         for ev in &events {
             assert_eq!(ev.result, EventResult::Warning, "should be Warning");
@@ -2442,7 +2450,7 @@ mod tests {
         pd.result = EventResult::Drop;
         pd.destination = Destination::Drop;
 
-        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         // Pre-dropped event untouched
         let dropped = find_by_did(&events, "user-1");
@@ -2473,7 +2481,7 @@ mod tests {
         events[0].force_disable_person_processing = true;
         events[0].details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
 
-        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         // Already-flagged event WAS evaluated against the limiter...
         assert!(
@@ -2514,7 +2522,7 @@ mod tests {
         events[2].result = EventResult::Drop;
         events[2].destination = Destination::Drop;
 
-        let tally = apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        let tally = apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         let mut seen = calls.lock().unwrap().clone();
         seen.sort();
@@ -2554,7 +2562,7 @@ mod tests {
             wrapped_event("$pageview", "cool-1"),
         ];
 
-        let tally = apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        let tally = apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         assert_eq!(
             tally,
@@ -2564,6 +2572,64 @@ mod tests {
                 already_disabled: 0,
             }
         );
+    }
+
+    // The hot key is what a customer needs to act on, so it must reach the
+    // warning — but only when the batch identifies it unambiguously. With
+    // several hot keys any single pick would be arbitrary, so the count stands
+    // in for them.
+    #[rstest::rstest]
+    #[case::one_hot_key(vec!["phc_tok:hot-1"], vec!["hot-1", "hot-1", "cool-1"], 2, 1, Some("hot-1"))]
+    #[case::several_hot_keys(vec!["phc_tok:hot-1", "phc_tok:hot-2"], vec!["hot-1", "hot-2", "cool-1"], 2, 2, None)]
+    #[tokio::test]
+    async fn td_limits_emit_a_warning_naming_the_hot_key(
+        #[case] limited_keys: Vec<&str>,
+        #[case] distinct_ids: Vec<&str>,
+        #[case] expected_count: u64,
+        #[case] expected_distinct_id_count: u64,
+        #[case] expected_distinct_id: Option<&str>,
+    ) {
+        let limiter = mock_limiter(limited_keys);
+        let ctx = td_context();
+        let emitter = CollectingEmitter::default();
+        let mut events: Vec<WrappedEvent> = distinct_ids
+            .iter()
+            .map(|did| wrapped_event("$pageview", did))
+            .collect();
+
+        apply_token_distinct_id_limits(&limiter, &ctx, Some(&emitter), &mut events).await;
+
+        let emitted = emitter.emitted();
+        assert_eq!(emitted.len(), 1, "one warning per batch, not per event");
+        let w = &emitted[0];
+        assert_eq!(w.warning, WarningType::HighVolumeDistinctId);
+        assert_eq!(w.source, CAPTURE_V1_RATE_LIMIT);
+        assert_eq!(w.count, expected_count);
+        assert_eq!(
+            w.extra_details["distinctIdCount"],
+            serde_json::json!(expected_distinct_id_count)
+        );
+        assert_eq!(
+            w.extra_details.get("distinctId").and_then(|v| v.as_str()),
+            expected_distinct_id
+        );
+        // Attribution comes from the request's PostHog-Sdk-Info header.
+        assert_eq!(w.extra_details["lib"], serde_json::json!("posthog-rs"));
+        assert_eq!(w.extra_details["libVersion"], serde_json::json!("1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn td_limits_within_the_limit_emit_nothing() {
+        // Warnings are for the customer, so a clean batch must stay silent even
+        // with the limiter and emitter both wired up.
+        let limiter = mock_limiter(vec![]);
+        let ctx = td_context();
+        let emitter = CollectingEmitter::default();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+
+        apply_token_distinct_id_limits(&limiter, &ctx, Some(&emitter), &mut events).await;
+
+        assert!(emitter.emitted().is_empty());
     }
 
     #[tokio::test]
@@ -2578,7 +2644,7 @@ mod tests {
             vec![wrapped_event("$pageview", "user-1")
                 .with_destination(Destination::AnalyticsHistorical)];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Warning);
@@ -2866,7 +2932,7 @@ mod tests {
             wrapped_event("$pageview", "user-pos-4"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
 
         assert_eq!(
             distinct_id_sequence(&events),
@@ -2935,7 +3001,7 @@ mod tests {
         let mut tdctx = test_utils::test_context();
         tdctx.api_token = "phc_tok".to_string();
         let limiter = mock_limiter(vec!["phc_tok:user-pos-2"]);
-        apply_token_distinct_id_limits(&limiter, &tdctx, &mut events).await;
+        apply_token_distinct_id_limits(&limiter, &tdctx, None, &mut events).await;
         assert_eq!(
             distinct_id_sequence(&events),
             expected,

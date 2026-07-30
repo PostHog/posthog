@@ -232,6 +232,16 @@ def _rank_scored_candidates(
 ) -> list[_ResolvedReviewer]:
     scores = _score_candidates(login_weights, activity_by_login)
 
+    # Activity-only owners are a last resort: only surface them when no weighted (blame/agent)
+    # candidate is still active in the area, so we don't pad noise next to a live reviewer.
+    # Recency, not map membership, decides "active" — the cached area map can be stale.
+    def _weighted_candidate_still_active(login: str) -> bool:
+        activity = activity_by_login.get(login)
+        return activity is not None and activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS
+
+    if any(_weighted_candidate_still_active(login) for login in login_weights):
+        scores = {login: score for login, score in scores.items() if login in login_weights}
+
     def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
         login, score = item
         activity = activity_by_login.get(login)
