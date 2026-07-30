@@ -117,7 +117,9 @@ export interface materializationJobsLogicActions {
         savedQuery: DataWarehouseSavedQuery | null
         payload?: any
     }
-    resumeMaterialization: () => any
+    resumeMaterialization: () => {
+        value: true
+    }
     setResumingMaterialization: (resuming: boolean) => {
         resuming: boolean
     }
