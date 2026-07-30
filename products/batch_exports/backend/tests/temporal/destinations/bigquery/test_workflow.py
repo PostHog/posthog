@@ -37,7 +37,10 @@ from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils i
     TEST_TIME,
     assert_clickhouse_records_in_bigquery,
 )
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
@@ -148,13 +151,15 @@ async def test_bigquery_export_workflow(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await activity_environment.client.execute_workflow(
-                BigQueryBatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=60),
+            await asyncio.wait_for(
+                activity_environment.client.execute_workflow(
+                    BigQueryBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                ),
+                timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
             )
 
         runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
@@ -239,13 +244,15 @@ async def test_bigquery_export_workflow_without_events(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await activity_environment.client.execute_workflow(
-                BigQueryBatchExportWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=10),
+            await asyncio.wait_for(
+                activity_environment.client.execute_workflow(
+                    BigQueryBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                ),
+                timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
             )
 
         runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
@@ -389,13 +396,15 @@ async def test_bigquery_export_workflow_handles_unexpected_insert_activity_error
                 ),
             ):
                 with pytest.raises(WorkflowFailureError):
-                    await activity_environment.client.execute_workflow(
-                        BigQueryBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(seconds=20),
+                    await asyncio.wait_for(
+                        activity_environment.client.execute_workflow(
+                            BigQueryBatchExportWorkflow.run,
+                            inputs,
+                            id=workflow_id,
+                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        ),
+                        timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                     )
 
     runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
