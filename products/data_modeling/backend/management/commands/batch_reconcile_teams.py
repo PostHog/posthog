@@ -123,7 +123,7 @@ class Command(BaseCommand):
         plans = []
         for dag in dag_list:
             preview = preview_dag_schedules(dag, seed=True)
-            dag_record = {
+            dag_record: dict = {
                 "dag_id": str(dag.id),
                 "name": dag.name,
                 "planned_tiers": sorted(_seconds(t) for t in preview.desired_tiers),
