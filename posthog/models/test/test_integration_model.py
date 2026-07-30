@@ -249,6 +249,21 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge_method": "S256",
             }
 
+    def test_authorize_url_carries_initiating_team_id_in_state(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url(
+                "salesforce", token="state_token", next="/projects/test", team_id=228502
+            )
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+            assert state["team_id"] == "228502"
+
+    def test_authorize_url_omits_team_id_when_not_provided(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert "team_id" not in parse_qs(params["state"])
+
     def test_authorize_url_pkce_challenge_matches_cached_verifier(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("salesforce", token="pkce_state_token", next="/projects/test")
