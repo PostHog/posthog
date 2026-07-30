@@ -135,11 +135,12 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 </LemonMarkdown>
             )}
 
-            {/* Opens the recording at the segment in the player modal. */}
+            {/* Opens the recording at the segment in the player modal; disables when it wasn't captured. */}
             <ViewRecordingButton
                 sessionId={extra.session_id}
                 timestamp={segmentSeekTime}
                 openPlayerIn={RecordingPlayerType.Modal}
+                checkRecordingExists
                 label="View replay"
                 type="secondary"
                 size="small"
