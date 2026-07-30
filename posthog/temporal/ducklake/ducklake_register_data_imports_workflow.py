@@ -1,12 +1,14 @@
 import re
 import json
+import time
 import uuid
+import random
 import typing
 import hashlib
 import datetime as dt
 import contextlib
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -44,6 +46,10 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 LOGGER = get_logger(__name__)
 DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
+CATALOG_CONFLICT_ERROR_TYPE = "DuckLakeCatalogCommitConflict"
+_CATALOG_STAGE_MAX_ATTEMPTS = 5
+_CATALOG_STAGE_BASE_BACKOFF_SECONDS = 1.0
+_CATALOG_STAGE_MAX_BACKOFF_SECONDS = 20.0
 
 
 @dataclasses.dataclass
@@ -189,8 +195,7 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             return False
 
         try:
-            with _connect_to_duckgres_for_team(inputs.team_id) as conn:
-                _register_prepared_parquet_files(inputs, conn, landing_paths)
+            _register_prepared_parquet_files(inputs, landing_paths, logger)
         except _StalePreparedGenerationError:
             logger.info("Skipping stale prepared Parquet generation before catalog swap")
             return False
@@ -319,16 +324,116 @@ def _connect_to_duckgres_for_team(team_id: int) -> Iterator[psycopg.Connection]:
 
 def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
+    landing_paths: list[str],
+    logger: typing.Any,
+) -> None:
+    # Two commits rather than one: the shadow table only becomes visible to readers at the
+    # rename, so splitting there keeps a lost catalog race from replaying the expensive
+    # `ducklake_add_data_files` work when it is the swap that conflicted.
+    _run_catalog_stage(
+        "stage_prepared_files",
+        lambda conn: _stage_prepared_files(inputs, conn, landing_paths),
+        inputs,
+        logger,
+    )
+    _run_catalog_stage(
+        "swap_live_table",
+        lambda conn: _swap_live_table(inputs, conn),
+        inputs,
+        logger,
+    )
+
+
+def _run_catalog_stage(
+    stage_name: str,
+    stage: Callable[[psycopg.Connection], None],
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    logger: typing.Any,
+) -> None:
+    """Run one catalog transaction, retrying when it loses a race on the shared DuckLake catalog.
+
+    Registrations for different tables commit into the same catalog, and now that every
+    prepared generation gets its own workflow run they routinely overlap. A conflict is
+    retryable in place: the Parquet files are already copied, so only the catalog work
+    replays. Each attempt reconnects because the connection that failed to commit is left
+    in an unusable transaction state.
+    """
+    for attempt in range(1, _CATALOG_STAGE_MAX_ATTEMPTS + 1):
+        try:
+            with _connect_to_duckgres_for_team(inputs.team_id) as conn:
+                setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
+                stage(conn)
+            return
+        except Exception as error:
+            if not _is_catalog_commit_conflict(error):
+                raise
+            if attempt == _CATALOG_STAGE_MAX_ATTEMPTS:
+                raise ApplicationError(
+                    f"DuckLake catalog commit for {stage_name} lost its race "
+                    f"after {_CATALOG_STAGE_MAX_ATTEMPTS} attempts: {error}",
+                    type=CATALOG_CONFLICT_ERROR_TYPE,
+                ) from error
+            backoff = _catalog_conflict_backoff_seconds(attempt)
+            logger.warning(
+                "DuckLake catalog commit conflicted; retrying registration",
+                stage=stage_name,
+                attempt=attempt,
+                backoff_seconds=round(backoff, 2),
+                error=str(error),
+            )
+            time.sleep(backoff)
+
+
+def _catalog_conflict_backoff_seconds(attempt: int) -> float:
+    ceiling = min(_CATALOG_STAGE_BASE_BACKOFF_SECONDS * 2 ** (attempt - 1), _CATALOG_STAGE_MAX_BACKOFF_SECONDS)
+    # Full jitter, so writers that collided don't line up again on the next attempt.
+    return random.uniform(_CATALOG_STAGE_BASE_BACKOFF_SECONDS / 2, ceiling)
+
+
+# DuckLake surfaces a lost catalog race as a failure while committing the snapshot rows,
+# which psycopg reports as a transaction-state error rather than a distinct SQLSTATE.
+_CATALOG_CONFLICT_MESSAGE_MARKERS = (
+    "ducklake_snapshot",
+    "ducklake_table",
+    "ducklake_data_file",
+    "ducklake_metadata",
+    "concurrent",
+    "conflict",
+)
+
+
+def _is_catalog_commit_conflict(error: BaseException) -> bool:
+    for exception in _exception_chain(error):
+        if isinstance(exception, psycopg.errors.SerializationFailure | psycopg.errors.DeadlockDetected):
+            return True
+        if isinstance(exception, psycopg.errors.InvalidTransactionState | psycopg.errors.TransactionRollback):
+            return True
+        if isinstance(exception, psycopg.Error):
+            message = str(exception).lower()
+            if any(marker in message for marker in _CATALOG_CONFLICT_MESSAGE_MARKERS):
+                return True
+    return False
+
+
+def _exception_chain(error: BaseException) -> Iterator[BaseException]:
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _stage_prepared_files(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
     landing_paths: list[str],
 ) -> None:
     schema_name = inputs.metadata.ducklake_schema_name
-    table_name = inputs.metadata.ducklake_table_name
     shadow_name = _data_imports_shadow_table_name(inputs)
     parquet_paths = psql.SQL("[{}]").format(psql.SQL(", ").join(psql.Literal(path) for path in landing_paths))
     partition_columns = _hive_partition_columns(inputs.metadata.landing_uri, landing_paths)
 
-    setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
     with conn.transaction():
         conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
         conn.execute(
@@ -388,6 +493,16 @@ def _register_prepared_parquet_files(
                 non_retryable=True,
             )
 
+
+def _swap_live_table(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    conn: psycopg.Connection,
+) -> None:
+    schema_name = inputs.metadata.ducklake_schema_name
+    table_name = inputs.metadata.ducklake_table_name
+    shadow_name = _data_imports_shadow_table_name(inputs)
+
+    with conn.transaction():
         if not _prepared_generation_is_current(inputs):
             raise _StalePreparedGenerationError
 
@@ -473,7 +588,13 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 activity_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=30),
                 heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
+                # A lost catalog race is retried inside the activity; these attempts cover the
+                # case where even that budget is exhausted, so the generation isn't dropped.
+                retry_policy=RetryPolicy(
+                    maximum_attempts=4,
+                    initial_interval=dt.timedelta(seconds=30),
+                    maximum_interval=dt.timedelta(minutes=5),
+                ),
             )
             if not copy_applied:
                 logger.info("Prepared Parquet generation became stale; registration skipped")

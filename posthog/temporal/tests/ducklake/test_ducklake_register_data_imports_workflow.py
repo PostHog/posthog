@@ -3,6 +3,7 @@ import contextlib
 import pytest
 from unittest.mock import MagicMock
 
+import psycopg
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
@@ -163,7 +164,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
 
     assert applied is True
-    connect.assert_called_once_with("postgresql://duckgres", autocommit=True)
+    # Staging the files and swapping the live table commit separately.
+    assert connect.call_count == 2
+    connect.assert_called_with("postgresql://duckgres", autocommit=True)
     assert s3.copies == [
         (
             "source/team/customers__query/_ph_partition_key=2026-07/a.parquet",
@@ -245,6 +248,59 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     assert not any("DROP TABLE IF EXISTS" in query and "customers" in query for query in executed)
     assert not any("RENAME TO" in query for query in executed)
+
+
+@pytest.mark.parametrize(
+    "conflicting_commits,expected_success",
+    [(99, False), (1, True)],
+    ids=["conflicts_forever", "conflicts_once"],
+)
+def test_copy_activity_retries_a_lost_catalog_race_without_recopying_parquet(
+    conflicting_commits: int, expected_success: bool, monkeypatch
+):
+    copies: list[str] = []
+
+    def copy_files(source_uri: str, landing_uri: str) -> list[str]:
+        copies.append(landing_uri)
+        return [f"{landing_uri}/file.parquet"]
+
+    monkeypatch.setattr(registration_module, "_copy_prepared_parquet_files", copy_files)
+    monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(registration_module.time, "sleep", MagicMock())
+    heartbeater = MagicMock()
+    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
+    heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+
+    commits = {"count": 0}
+
+    @contextlib.contextmanager
+    def connect(team_id: int):
+        conn = MagicMock()
+        conn.execute.return_value = MagicMock(fetchone=MagicMock(return_value=(3,)))
+
+        @contextlib.contextmanager
+        def transaction():
+            yield
+            commits["count"] += 1
+            if commits["count"] <= conflicting_commits:
+                raise psycopg.errors.InvalidTransactionState("current transaction is aborted")
+
+        conn.transaction = transaction
+        yield conn
+
+    monkeypatch.setattr(registration_module, "_connect_to_duckgres_for_team", connect)
+
+    if expected_success:
+        assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is True
+    else:
+        with pytest.raises(ApplicationError) as error:
+            copy_and_register_ducklake_data_imports_activity(_activity_inputs())
+        assert error.value.type == registration_module.CATALOG_CONFLICT_ERROR_TYPE
+
+    # The Parquet copy happens before the catalog work, so retries must not repeat it.
+    assert len(copies) == 1
 
 
 def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
