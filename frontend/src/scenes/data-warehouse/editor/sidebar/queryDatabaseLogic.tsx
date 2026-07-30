@@ -1749,7 +1749,7 @@ export interface queryDatabaseLogicMeta {
             searchTerm: string,
             searchTreeData: TreeDataItem[],
             treeData: TreeDataItem[],
-            connectionId: string | null,
+            treeConnectionId: string | null,
             selectedDirectSource:
                 | {
                       job_inputs?: Record<string, any>
@@ -1762,10 +1762,10 @@ export interface queryDatabaseLogicMeta {
             expandedFolders: string[]
         ) => string[]
         expandedFolders: (
-            connectionId: string | null,
+            treeConnectionId: string | null,
             expandedFoldersByConnection: Record<string, string[]>
         ) => string[]
-        defaultExpandedRootIds: (connectionId: string | null, displayedTreeData: TreeDataItem[]) => string[]
+        defaultExpandedRootIds: (treeConnectionId: string | null, displayedTreeData: TreeDataItem[]) => string[]
         expandedItemIds: (activeExpandedFolderIds: string[], defaultExpandedRootIds: string[]) => string[]
         joinsByFieldName: (joins: DataWarehouseViewLink[]) => Record<string, DataWarehouseViewLink>
         sidebarOverlayTreeItems: (
