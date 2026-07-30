@@ -1,3 +1,4 @@
+import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { calculateInputCost, resolveCacheReportingExclusive } from './input-costs'
@@ -160,6 +161,37 @@ describe('resolveCacheReportingExclusive()', () => {
             expected: false,
         },
         {
+            name: 'falls back to exclusive for a non-Anthropic provider when cache reads exceed input tokens',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'xiaomi/mimo-v2.5',
+                $ai_input_tokens: 149,
+                $ai_cache_read_input_tokens: 23104,
+            },
+            expected: true,
+        },
+        {
+            name: 'stays inclusive for a non-Anthropic provider when cache reads fit within input tokens',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o',
+                $ai_input_tokens: 1000,
+                $ai_cache_read_input_tokens: 500,
+            },
+            expected: false,
+        },
+        {
+            name: 'explicit false wins over the provably-not-inclusive fallback',
+            properties: {
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o',
+                $ai_cache_reporting_exclusive: false,
+                $ai_input_tokens: 100,
+                $ai_cache_read_input_tokens: 200,
+            },
+            expected: false,
+        },
+        {
             name: 'returns false when event has no properties',
             properties: undefined,
             expected: false,
@@ -177,6 +209,71 @@ describe('resolveCacheReportingExclusive()', () => {
             timestamp: '',
         } as PluginEvent
         expect(resolveCacheReportingExclusive(event)).toBe(expected)
+    })
+
+    describe('fallback counter', () => {
+        async function fallbackCount(prior: 'inclusive' | 'anthropic_inclusive'): Promise<number> {
+            const data = await aiCacheExclusiveFallbackCounter.get()
+            return data.values.find((v) => v.labels.prior === prior)?.value ?? 0
+        }
+
+        beforeEach(() => {
+            aiCacheExclusiveFallbackCounter.reset()
+        })
+
+        it.each<{
+            name: string
+            properties: Record<string, any>
+            expected: { inclusive: number; anthropic_inclusive: number }
+        }>([
+            {
+                name: 'counts a non-Anthropic fallback flip under prior=inclusive',
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'xiaomi/mimo-v2.5',
+                    $ai_input_tokens: 149,
+                    $ai_cache_read_input_tokens: 23104,
+                },
+                expected: { inclusive: 1, anthropic_inclusive: 0 },
+            },
+            {
+                name: 'counts an Anthropic-via-Vercel fallback flip under prior=anthropic_inclusive',
+                properties: {
+                    $ai_provider: 'gateway',
+                    $ai_framework: 'vercel',
+                    $ai_model: 'anthropic/claude-opus-4.6',
+                    $ai_input_tokens: 247,
+                    $ai_cache_read_input_tokens: 6287,
+                },
+                expected: { inclusive: 0, anthropic_inclusive: 1 },
+            },
+            {
+                name: 'does not count an inclusive event whose cache tokens fit within input tokens',
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-4o',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 500,
+                },
+                expected: { inclusive: 0, anthropic_inclusive: 0 },
+            },
+            {
+                name: 'does not count an explicitly declared event even when tokens are provably not inclusive',
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-4o',
+                    $ai_cache_reporting_exclusive: true,
+                    $ai_input_tokens: 100,
+                    $ai_cache_read_input_tokens: 200,
+                },
+                expected: { inclusive: 0, anthropic_inclusive: 0 },
+            },
+        ])('$name', async ({ properties, expected }) => {
+            resolveCacheReportingExclusive(createAIEvent(properties))
+
+            expect(await fallbackCount('inclusive')).toBe(expected.inclusive)
+            expect(await fallbackCount('anthropic_inclusive')).toBe(expected.anthropic_inclusive)
+        })
     })
 })
 
@@ -595,15 +692,15 @@ describe('calculateInputCost()', () => {
             expect(result).toBe('0')
         })
 
-        it('handles cache read tokens exceeding input tokens', () => {
+        it('resolves to exclusive accounting when cache read tokens exceed input tokens', () => {
             const event = createOpenAITestEvent(100, 200, { $ai_model: 'gpt-4' })
             const result = calculateInputCost(event, testModel)
 
-            // Regular: (100 - 200) = -100, negative regular tokens
             // Read: 200 * 0.000001 * 0.5 = 0.0001
-            // Regular: -100 * 0.000001 = -0.0001
-            // Total: 0.0001 + (-0.0001) = 0
-            expectCostToBeCloseTo(result, 0)
+            // Regular: 100 * 0.000001 = 0.0001
+            // Total: 0.0001 + 0.0001 = 0.0002
+            expectCostToBeCloseTo(result, 0.0002)
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(true)
         })
 
         it('handles very large token counts', () => {
