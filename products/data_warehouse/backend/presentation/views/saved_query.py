@@ -333,6 +333,12 @@ class DataWarehouseSavedQueryMinimalSerializer(
         read_only_fields = fields
 
 
+class SavedQuerySuspensionSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When materialization was suspended.")
+    reason = serializers.CharField(help_text="Error from the materialization run that tripped suspension.")
+    job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
+
+
 class DataWarehouseSavedQuerySerializer(
     DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
@@ -369,6 +375,7 @@ class DataWarehouseSavedQuerySerializer(
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
+    suspended = serializers.SerializerMethodField(read_only=True)
     folder_id = TeamScopedPrimaryKeyRelatedField(
         source="folder",
         queryset=DataWarehouseSavedQueryFolder.objects.all(),
@@ -429,6 +436,7 @@ class DataWarehouseSavedQuerySerializer(
             "is_test",
             "expires_at",
             "user_access_level",
+            "suspended",
         ]
         read_only_fields = [
             "id",
@@ -446,6 +454,7 @@ class DataWarehouseSavedQuerySerializer(
             "is_materialized",
             "origin",
             "expires_at",
+            "suspended",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -485,6 +494,21 @@ class DataWarehouseSavedQuerySerializer(
             return view.latest_activity_id
 
         return None
+
+    @extend_schema_field(
+        serializers.DictField(
+            child=SavedQuerySuspensionSerializer(),
+            help_text="Engines this query's materialization is suspended for after repeated failures. "
+            "Suspended engines are skipped by scheduled runs until the query is resumed.",
+        )
+    )
+    def get_suspended(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
+        from products.data_modeling.backend.facade.api import suspension_state_for_saved_query
+
+        return {
+            engine: SavedQuerySuspensionSerializer(entry).data
+            for engine, entry in suspension_state_for_saved_query(view).items()
+        }
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
