@@ -8,7 +8,7 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1277_drop_duckgresserverteam_hot_table_fks")]
+    dependencies = [("posthog", "1278_identityproviderconfig_config_scope_and_more")]
 
     operations = [
         migrations.CreateModel(
