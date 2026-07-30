@@ -4,6 +4,7 @@ from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import InterfaceError, OperationalError
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
@@ -14,6 +15,10 @@ from django.views.generic.base import RedirectView
 import structlog
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from prometheus_client import CollectorRegistry, generate_latest, multiprocess
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    TimeoutError as RedisTimeoutError,
+)
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -209,6 +214,19 @@ def _release_github_webhook_delivery(handler_name: str, delivery_id: str) -> Non
         )
 
 
+def _is_transient_infrastructure_error(exc: BaseException) -> bool:
+    """Whether a handler failure is infrastructure (pool saturation, dropped connection) rather
+    than a bug in the handler. Walks the cause chain, since ORM code often re-raises wrapped."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OperationalError | InterfaceError | RedisConnectionError | RedisTimeoutError):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 @csrf_exempt
 def github_webhook(request: HttpRequest) -> HttpResponse:
     """Unified GitHub App webhook dispatcher.
@@ -250,6 +268,7 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
     )
 
     response: HttpResponse | None = None
+    transient_failure = False
     for name, handler in handlers:
         if delivery_id and _is_duplicate_github_webhook_delivery(name, delivery_id):
             logger.info("github_webhook_handler_deduped", event_type=event_type, delivery_id=delivery_id, handler=name)
@@ -258,16 +277,29 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         try:
             handler_response = handler(request, event_type, payload, delivery_id)
         except Exception as e:
+            is_transient = _is_transient_infrastructure_error(e)
             logger.exception(
-                "github_webhook_handler_failed", event_type=event_type, delivery_id=delivery_id, handler=name
+                "github_webhook_handler_failed",
+                event_type=event_type,
+                delivery_id=delivery_id,
+                handler=name,
+                transient=is_transient,
             )
-            capture_exception(e)
+            if is_transient:
+                # A pool blip or dropped connection isn't a handler bug: ask GitHub to redeliver
+                # rather than swallowing the delivery into a 200 that can never be retried.
+                transient_failure = True
+            else:
+                capture_exception(e)
             if delivery_id:
                 _release_github_webhook_delivery(name, delivery_id)
             continue
 
         if response is None and handler_response is not None:
             response = handler_response
+
+    if transient_failure:
+        return HttpResponse("Transient error, please redeliver", status=503)
 
     return response if response is not None else HttpResponse(status=200)
 

@@ -4,7 +4,9 @@ import hashlib
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.core.cache import cache
+from django.db import InterfaceError, OperationalError
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -15,6 +17,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
+from posthog.urls import GITHUB_WEBHOOK_HANDLERS
 
 
 def _signature(payload: bytes, secret: str) -> str:
@@ -195,3 +198,60 @@ class TestGitHubInstallationWebhook(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertTrue(Integration.objects.filter(kind="github", integration_id="12345").exists())
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TestGitHubWebhookHandlerFailures(SimpleTestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+        cache.clear()
+
+    def _post(self, handler, delivery_id: str = "delivery-1"):
+        payload_bytes = json.dumps({"action": "opened"}).encode("utf-8")
+        with (
+            patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret", return_value=self.webhook_secret),
+            patch.dict(GITHUB_WEBHOOK_HANDLERS, {"pull_request": [("failing", handler)]}, clear=False),
+        ):
+            return self.client.post(
+                "/webhooks/github/",
+                data=payload_bytes,
+                content_type="application/json",
+                headers={
+                    "x-hub-signature-256": _signature(payload_bytes, self.webhook_secret),
+                    "x-github-event": "pull_request",
+                    "x-github-delivery": delivery_id,
+                },
+            )
+
+    @parameterized.expand(
+        [
+            ("operational_error", OperationalError("query_wait_timeout"), 503),
+            ("interface_error", InterfaceError("connection already closed"), 503),
+            ("wrapped_operational_error", RuntimeError("boom"), 503),
+            ("handler_bug", ValueError("bad payload"), 200),
+        ]
+    )
+    def test_transient_failures_ask_github_to_redeliver(self, name, exception, expected_status):
+        if name == "wrapped_operational_error":
+            exception.__cause__ = OperationalError("query_wait_timeout")
+
+        def handler(request, event_type, payload, delivery_id):
+            raise exception
+
+        response = self._post(handler)
+
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_transient_failure_does_not_burn_the_dedup_key(self):
+        calls = []
+
+        def handler(request, event_type, payload, delivery_id):
+            calls.append(delivery_id)
+            if len(calls) == 1:
+                raise OperationalError("query_wait_timeout")
+            return None
+
+        self.assertEqual(self._post(handler).status_code, 503)
+        self.assertEqual(self._post(handler).status_code, 200)
+        self.assertEqual(len(calls), 2)

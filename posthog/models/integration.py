@@ -518,6 +518,11 @@ class Integration(models.Model):
                 fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
             )
         ]
+        indexes = [
+            # Cross-team lookups by provider identity — e.g. resolving a GitHub installation from a
+            # webhook — can't use the team-leading unique constraint.
+            models.Index(fields=["kind", "integration_id"], name="integration_kind_extid"),
+        ]
 
     @property
     def display_name(self) -> str:
