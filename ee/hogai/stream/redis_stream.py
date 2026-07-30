@@ -59,6 +59,8 @@ CONVERSATION_STREAM_MAX_LENGTH = 1000  # Maximum number of messages to keep in s
 CONVERSATION_STREAM_CONCURRENT_READ_COUNT = 8
 CONVERSATION_STREAM_PREFIX = "conversation-stream:"
 CONVERSATION_STREAM_TIMEOUT = 30 * 60  # 30 minutes
+# How often the reader checks that the stream key still exists while no messages are arriving.
+CONVERSATION_STREAM_LIVENESS_CHECK_INTERVAL = 5.0  # seconds
 
 
 class ConversationEvent(BaseModel):
@@ -290,6 +292,7 @@ class ConversationRedisStream:
         current_id = start_id
         start_time = asyncio.get_running_loop().time()
         last_iteration_time = None
+        last_liveness_check = time.time()
 
         while True:
             current_time = time.time()
@@ -309,7 +312,14 @@ class ConversationRedisStream:
                 )
 
                 if not messages:
-                    # No new messages after blocking, continue polling
+                    # Silence is ambiguous: the writer may just be slow, or the stream may have been
+                    # deleted (a new generation, a cancellation) or expired, in which case nothing
+                    # will ever arrive. Without this check the reader polls until the 30-minute
+                    # timeout, so the client sits on a dead stream for half an hour before failing.
+                    if current_time - last_liveness_check >= CONVERSATION_STREAM_LIVENESS_CHECK_INTERVAL:
+                        last_liveness_check = current_time
+                        if not await self._redis_client.exists(self._stream_key):
+                            raise StreamError("Conversation stream is no longer available")
                     continue
 
                 for _, stream_messages in messages:
@@ -345,6 +355,11 @@ class ConversationRedisStream:
                         else:
                             yield data
 
+            except StreamError:
+                # Errors we raised ourselves already carry the real cause — most importantly the
+                # error status the writer put on the stream. Re-raise instead of letting the
+                # catch-all below flatten them into "Unexpected error reading conversation stream".
+                raise
             except redis_exceptions.ConnectionError:
                 raise StreamError("Connection lost to conversation stream")
             except redis_exceptions.TimeoutError:

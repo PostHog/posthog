@@ -151,6 +151,31 @@ class TestAgentExecutor(BaseTest):
             mock_wait.assert_called_once()
             mock_delete.assert_called_once()
 
+    async def test_stream_conversation_keeps_stream_when_consumer_disconnects(self):
+        with (
+            patch.object(self.manager._redis_stream, "wait_for_stream") as mock_wait,
+            patch.object(self.manager._redis_stream, "read_stream") as mock_read,
+            patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
+            patch.object(self.manager, "_redis_stream_to_assistant_output") as mock_convert,
+        ):
+
+            async def mock_read_stream():
+                while True:
+                    chunk = Mock()
+                    chunk.timestamp = time.time()
+                    yield chunk
+
+            mock_wait.return_value = True
+            mock_read.return_value = mock_read_stream()
+            mock_delete.return_value = True
+            mock_convert.return_value = ("message", {"content": "chunk"})
+
+            generator = self.manager.stream_conversation()
+            await generator.__anext__()
+            await generator.aclose()
+
+            mock_delete.assert_not_called()
+
     async def test_stream_conversation_stream_not_available(self):
         """Test streaming when stream is not available."""
         with patch.object(self.manager._redis_stream, "wait_for_stream") as mock_wait:

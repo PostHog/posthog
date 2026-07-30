@@ -223,6 +223,9 @@ class AgentExecutor:
             AssistantOutput generator
         """
         chunk_count = 0
+        # Whether the read reached its own end (completion or error) rather than the consumer
+        # walking away. Only then is it safe to drop the stream — see the finally block.
+        read_finished = False
         # Use start_span + use_span (without making the span "current" across yields).
         # `start_as_current_span` inside an async generator attaches the span to the running
         # task's contextvars; when the generator yields, the consumer task resumes with that
@@ -261,7 +264,9 @@ class AgentExecutor:
 
                     if message:
                         yield message
+                read_finished = True
             except Exception as e:
+                read_finished = True
                 with trace.use_span(span, end_on_exit=False):
                     posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
                     logger.exception("Error streaming conversation", error=e)
@@ -269,7 +274,18 @@ class AgentExecutor:
         finally:
             with trace.use_span(span, end_on_exit=False):
                 span.set_attribute("posthog_ai.stream_conversation.chunks", chunk_count)
-                await self._redis_stream.delete_stream()
+                # A closed generator means the client went away (tab closed, proxy timeout), not
+                # that the workflow stopped. Deleting the stream here used to strand the still
+                # running workflow: its output went to a key nobody was reading, and a reconnect
+                # waited for a key that only reappears on the next write. The stream carries a TTL
+                # that is refreshed on every write, so leaving it is safe.
+                if read_finished:
+                    await self._redis_stream.delete_stream()
+                else:
+                    logger.info(
+                        "Consumer disconnected mid-stream, leaving conversation stream in place",
+                        conversation_id=str(self._conversation.id),
+                    )
             span.end()
 
     async def _redis_stream_to_assistant_output(self, message: StreamEvent) -> AssistantOutput | None:

@@ -139,7 +139,22 @@ class TestRedisStream(BaseTest):
                 async for _ in self.redis_stream.read_stream():
                     pass
 
-            self.assertIn("Unexpected error reading", str(context.exception))
+            self.assertIn("Test error", str(context.exception))
+
+    @pytest.mark.asyncio
+    async def test_read_stream_ends_when_stream_key_disappears(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.xread = AsyncMock(return_value=[])
+            mock_client.exists = AsyncMock(return_value=0)
+
+            with (
+                patch("ee.hogai.stream.redis_stream.CONVERSATION_STREAM_LIVENESS_CHECK_INTERVAL", 0),
+                self.assertRaises(StreamError) as context,
+            ):
+                async for _ in self.redis_stream.read_stream():
+                    pass
+
+            self.assertIn("no longer available", str(context.exception))
 
     @pytest.mark.asyncio
     async def test_read_stream_timeout(self):
