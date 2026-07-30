@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCode } from '@posthog/icons'
+import { IconCode, IconRevert } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -16,9 +16,23 @@ import { QueryDiffViewer } from './components/QueryDiffViewer'
 import { editorSceneLogic } from './editorSceneLogic'
 import { InsightHistory } from './InsightHistory'
 import { queryHistoryLogic } from './queryHistoryLogic'
+import { sqlEditorLogic } from './sqlEditorLogic'
+
+// The query as of this edit — what "Restore" loads back into the editor.
+function restorableQueryFromLog(logItem: HumanizedActivityLogItem): string | null {
+    const change = logItem.unprocessed?.detail.changes?.find(
+        (c) => c.field === 'query' && extractQuery(c.after) !== ''
+    )
+    return change ? extractQuery(change.after) : null
+}
 
 function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
+    const { editingView } = useValues(editorSceneLogic)
+    const { closeHistoryModal } = useActions(editorSceneLogic)
+    const { setSuggestedQueryInput } = useActions(sqlEditorLogic)
+
+    const restorableQuery = restorableQueryFromLog(logItem)
 
     return (
         <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
@@ -44,6 +58,22 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
                     </div>
                 </div>
                 <div className="flex flex-row gap-2">
+                    {restorableQuery && restorableQuery !== (editingView?.query?.query ?? '') && (
+                        <LemonButton
+                            size="small"
+                            icon={<IconRevert />}
+                            tooltip="Load this version into the editor to review and restore"
+                            data-attr="sql-editor-view-history-restore"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setSuggestedQueryInput(restorableQuery, 'query_history')
+                                // Close the modal so the restore diff in the editor is visible
+                                closeHistoryModal()
+                            }}
+                        >
+                            Restore
+                        </LemonButton>
+                    )}
                     <LemonButton icon={<IconCode />} onClick={() => setIsExpanded(!isExpanded)} active={isExpanded} />
                 </div>
             </div>
