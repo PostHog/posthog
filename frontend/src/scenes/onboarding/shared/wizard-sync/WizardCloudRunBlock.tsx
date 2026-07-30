@@ -1,13 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCheckCircle, IconChevronDown, IconGithub, IconPullRequest } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconChevronDown, IconGithub, IconPullRequest, IconRefresh } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
+import {
+    GitHubRepositoryPicker,
+    type RepositoryPickerSummary,
+    githubManageInstallationUrl,
+} from 'lib/integrations/GitHubIntegrationHelpers'
+import { githubIntegrationLogic } from 'lib/integrations/githubIntegrationLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
+import { IntegrationType } from '~/types'
+
+import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { InstallationProgressView } from './InstallationProgressView'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
@@ -124,41 +132,149 @@ export function WizardCloudRunBlock({
                     Connect GitHub
                 </LemonButton>
             ) : (
-                <div className="flex w-full flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                        <div className="relative flex-1">
-                            <IconGithub className="absolute left-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />
-                            <GitHubRepositoryPicker
-                                integrationId={githubIntegration.id}
-                                value={selectedRepository ?? ''}
-                                onChange={(repository) => setSelectedRepository(repository)}
-                                // Make the combobox read as a dropdown, not a text field: the LemonInput
-                                // root defaults to `cursor: text` (unlayered SCSS), so override with `!`.
-                                className="pl-7 pr-7 !cursor-pointer"
-                            />
-                            {!selectedRepository && (
-                                <IconChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />
-                            )}
-                        </div>
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPullRequest />}
-                            onClick={() => startCloudRun()}
-                            loading={cloudRunStatus === 'submitting'}
-                            disabledReason={selectedRepository ? undefined : 'Pick a repository first'}
-                            data-attr="wizard-cloud-run-open-pr"
-                        >
-                            Install PostHog here
-                        </LemonButton>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-muted">
-                        <IconCheckCircle className="text-success" />
-                        <span>
-                            Connected{githubIntegration.display_name ? ` to ${githubIntegration.display_name}` : ''}
-                        </span>
-                    </div>
-                </div>
+                <RepositoryPicker
+                    integration={githubIntegration}
+                    selectedRepository={selectedRepository}
+                    onSelectRepository={setSelectedRepository}
+                    onStart={startCloudRun}
+                    submitting={cloudRunStatus === 'submitting'}
+                    connectGitHubUrl={connectGitHubUrl}
+                />
             )}
         </WizardModeShell>
+    )
+}
+
+/**
+ * Repo picking, and every way out of it. The list comes from a GitHub App installation that may not
+ * cover the repo the user wants, and is served from a cache that can be an hour stale — so the escape
+ * hatches (widen the installation, re-sync the list) are always on screen, not just once it's empty.
+ */
+function RepositoryPicker({
+    integration,
+    selectedRepository,
+    onSelectRepository,
+    onStart,
+    submitting,
+    connectGitHubUrl,
+}: {
+    integration: IntegrationType
+    selectedRepository: string | null
+    onSelectRepository: (repository: string | null) => void
+    onStart: () => void
+    submitting: boolean
+    /** Fallback when we don't know the installation id — re-runs the App authorize flow. */
+    connectGitHubUrl: string
+}): JSX.Element {
+    const { repositoriesRefreshing } = useValues(githubIntegrationLogic({ id: integration.id }))
+    const { refreshRepositories } = useActions(githubIntegrationLogic({ id: integration.id }))
+    const { reportContextOnboardingRepositoryPickerDegraded } = useActions(onboardingEventUsageLogic)
+
+    const [summary, setSummary] = useState<RepositoryPickerSummary | null>(null)
+
+    const onRepositoriesLoaded = useCallback(
+        (loaded: RepositoryPickerSummary) => {
+            setSummary(loaded)
+            if (loaded.total === 0 || loaded.pushable === 0) {
+                reportContextOnboardingRepositoryPickerDegraded({
+                    integrationId: integration.id,
+                    reason: loaded.total === 0 ? 'empty' : 'all_unpushable',
+                    totalCount: loaded.total,
+                    pushableCount: loaded.pushable,
+                })
+            }
+        },
+        [integration.id, reportContextOnboardingRepositoryPickerDegraded]
+    )
+
+    const manageUrl = githubManageInstallationUrl(integration) ?? connectGitHubUrl
+    const noneUsable = !!summary && summary.pushable === 0
+    const escapeHatches = (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <span>Repository not listed?</span>
+            <Link to={manageUrl} target="_blank" data-attr="wizard-cloud-run-manage-github-access">
+                Manage GitHub access
+            </Link>
+            <LemonButton
+                size="xsmall"
+                type="tertiary"
+                icon={<IconRefresh />}
+                onClick={() => refreshRepositories()}
+                loading={repositoriesRefreshing}
+                data-attr="wizard-cloud-run-refresh-repositories"
+            >
+                Refresh list
+            </LemonButton>
+        </div>
+    )
+
+    return (
+        <div className="flex w-full flex-col gap-2">
+            <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                    <IconGithub className="absolute left-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />
+                    <GitHubRepositoryPicker
+                        integrationId={integration.id}
+                        value={selectedRepository ?? ''}
+                        onChange={(repository) => onSelectRepository(repository)}
+                        // We push a branch and open a PR, so read-only repos are shown but not pickable.
+                        requireWriteAccess
+                        onRepositoriesLoaded={onRepositoriesLoaded}
+                        emptyStateComponent={
+                            <div className="p-2 space-y-1 text-xs text-muted">
+                                <div className="font-semibold text-default">No repositories available</div>
+                                <div>This GitHub installation doesn't give PostHog access to any repository yet.</div>
+                                {escapeHatches}
+                            </div>
+                        }
+                        // Make the combobox read as a dropdown, not a text field: the LemonInput
+                        // root defaults to `cursor: text` (unlayered SCSS), so override with `!`.
+                        className="pl-7 pr-7 !cursor-pointer"
+                    />
+                    {!selectedRepository && (
+                        <IconChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />
+                    )}
+                </div>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPullRequest />}
+                    onClick={() => onStart()}
+                    loading={submitting}
+                    disabledReason={
+                        noneUsable
+                            ? "We can't open a pull request in any of the repositories PostHog can see"
+                            : selectedRepository
+                              ? undefined
+                              : 'Pick a repository first'
+                    }
+                    data-attr="wizard-cloud-run-open-pr"
+                >
+                    Install PostHog here
+                </LemonButton>
+            </div>
+            {noneUsable && (
+                <LemonBanner type="warning" data-attr="wizard-cloud-run-no-usable-repositories">
+                    <div className="space-y-1 text-sm">
+                        <div className="font-semibold">
+                            {summary?.total === 0
+                                ? 'PostHog has access to no repositories'
+                                : "PostHog can't open a pull request in any repository it can see"}
+                        </div>
+                        <div className="text-muted">
+                            {summary?.total === 0
+                                ? 'Grant the PostHog GitHub App access to the repository you want to instrument, then refresh the list.'
+                                : 'Every repository listed is read-only for the PostHog GitHub App. Grant it write access to the repository you want to instrument, or run the wizard yourself instead.'}
+                        </div>
+                    </div>
+                </LemonBanner>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                    <IconCheckCircle className="text-success" />
+                    <span>Connected{integration.display_name ? ` to ${integration.display_name}` : ''}</span>
+                </div>
+                {escapeHatches}
+            </div>
+        </div>
     )
 }

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { type ReactNode, useEffect, useMemo } from 'react'
 
 import {
     IconC,
@@ -31,11 +31,47 @@ import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api
 
 import { githubIntegrationLogic } from './githubIntegrationLogic'
 
+/**
+ * The GitHub App installation settings page — where a user widens a `repository_selection: "selected"`
+ * installation to include a repo we can't currently see. Null when we don't know the installation.
+ */
+export function githubManageInstallationUrl(integration: { config?: Record<string, any> | null }): string | null {
+    const installationId = integration.config?.installation_id
+    if (!installationId) {
+        return null
+    }
+    const accountName = integration.config?.account?.name
+    return integration.config?.account?.type === 'Organization' && accountName
+        ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
+        : `https://github.com/settings/installations/${installationId}`
+}
+
+/** Why a repo we can see still can't be the target of a pull request. */
+export const NO_WRITE_ACCESS_REASON =
+    "You don't have write access to this repository, so we can't push a branch or open a pull request in it."
+
+/** What the picker actually ended up offering, for callers that need to react to a degraded list. */
+export type RepositoryPickerSummary = {
+    /** Repositories the installation can see. */
+    total: number
+    /** Of those, the ones we could open a pull request in. */
+    pushable: number
+}
+
 export type GitHubRepositoryPickerProps = {
     integrationId: number
     value: string
     onChange: (value: string) => void
     className?: string
+    /**
+     * For flows that push a branch / open a PR: repos with `can_push === false` are listed but not
+     * selectable. Left off, they stay selectable (read-only access is enough for e.g. linking issues).
+     */
+    requireWriteAccess?: boolean
+    /** Rendered in place of the default "no options" line — use it to offer a way out. */
+    emptyStateComponent?: ReactNode
+    /** Fired once the repository list has loaded, and again whenever the counts change. */
+    onRepositoriesLoaded?: (summary: RepositoryPickerSummary) => void
 }
 
 export const GitHubRepositoryPicker = ({
@@ -43,8 +79,21 @@ export const GitHubRepositoryPicker = ({
     onChange,
     integrationId,
     className,
+    requireWriteAccess = false,
+    emptyStateComponent,
+    onRepositoriesLoaded,
 }: GitHubRepositoryPickerProps): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId)
+    const { options, loading, summary } = useRepositories(integrationId, { requireWriteAccess })
+
+    const { total, pushable } = summary
+    useEffect(() => {
+        if (!loading) {
+            onRepositoriesLoaded?.({ total, pushable })
+        }
+        // onRepositoriesLoaded's identity changes every render for inline callbacks; the counts are
+        // what the caller actually reacts to.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, total, pushable])
 
     return (
         <LemonInputSelect
@@ -56,6 +105,7 @@ export const GitHubRepositoryPicker = ({
             options={options}
             loading={loading}
             className={className}
+            emptyStateComponent={emptyStateComponent}
         />
     )
 }
@@ -154,7 +204,10 @@ function RepoOptionLabel({ repo }: { repo: GitHubRepoApi }): JSX.Element {
     )
 }
 
-export function useRepositories(integrationId: number): { options: LemonInputSelectOption[]; loading: boolean } {
+export function useRepositories(
+    integrationId: number,
+    { requireWriteAccess = false }: { requireWriteAccess?: boolean } = {}
+): { options: LemonInputSelectOption[]; loading: boolean; summary: RepositoryPickerSummary } {
     const logic = githubIntegrationLogic({ id: integrationId })
     const { repositories, repositoriesLoading } = useValues(logic)
     const { loadRepositories } = useActions(logic)
@@ -168,9 +221,24 @@ export function useRepositories(integrationId: number): { options: LemonInputSel
             // Most-recently-pushed first so the repo the user is working in floats to the top.
             [...repositories]
                 .sort((a, b) => pushedAtMs(b.pushed_at) - pushedAtMs(a.pushed_at))
-                .map((r) => ({ key: r.name, label: r.full_name, labelComponent: <RepoOptionLabel repo={r} /> })),
+                .map((r) => ({
+                    key: r.name,
+                    label: r.full_name,
+                    labelComponent: <RepoOptionLabel repo={r} />,
+                    // Listing a repo we can't push to as selectable sends the user down a flow that
+                    // cannot end in a pull request, so say no here rather than at the far end.
+                    disabledReason: requireWriteAccess && r.can_push === false ? NO_WRITE_ACCESS_REASON : undefined,
+                })),
+        [repositories, requireWriteAccess]
+    )
+
+    const summary = useMemo(
+        () => ({
+            total: repositories.length,
+            pushable: repositories.filter((r) => r.can_push !== false).length,
+        }),
         [repositories]
     )
 
-    return { options, loading: repositoriesLoading }
+    return { options, loading: repositoriesLoading, summary }
 }

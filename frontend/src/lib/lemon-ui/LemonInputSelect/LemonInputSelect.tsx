@@ -75,7 +75,9 @@ function VirtualizedOptionRow<T = string>({
     const option = visibleOptions[index]
     const isFocused = index === selectedIndex
     const isSelected = stringKeys.includes(option.key)
-    const isDisabled = wasLimitReached && !isSelected
+    const disabledReason =
+        option.disabledReason ?? (wasLimitReached && !isSelected ? `Limit of ${limit} options reached` : undefined)
+    const isDisabled = !!disabledReason
     return (
         <LemonButton
             style={style}
@@ -86,7 +88,7 @@ function VirtualizedOptionRow<T = string>({
             active={isFocused}
             onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
             onMouseEnter={() => setSelectedIndex(index)}
-            disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
+            disabledReason={disabledReason}
             tooltip={option.tooltip}
             icon={getOptionIcon(option, isSelected)}
             sideAction={
@@ -123,6 +125,8 @@ export interface LemonInputSelectOption<T = string> {
     labelComponent?: React.ReactNode
     /** Shown when hovering the dropdown option row and any snack rendered for the selected value. */
     tooltip?: TooltipTitle
+    /** When set, the option is listed but not selectable, and this explains why. */
+    disabledReason?: string
     /** @internal */
     __isInput?: boolean
     /** @internal - marks custom values (user-created, not in original options) */
@@ -563,7 +567,9 @@ export function LemonInputSelect<T = string>({
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         if (e.key === 'Enter') {
             e.preventDefault()
-            const itemToAdd = displayOptions[selectedIndex]?.key
+            const focusedOption = displayOptions[selectedIndex]
+            // Keyboard selection has to respect a disabled option just as the click handler does.
+            const itemToAdd = focusedOption?.disabledReason ? undefined : focusedOption?.key
 
             if (itemToAdd) {
                 _onActionItem(displayOptions[selectedIndex]?.key, null)
@@ -951,7 +957,10 @@ export function LemonInputSelect<T = string>({
                             displayOptions.map((option, index) => {
                                 const isFocused = index === selectedIndex
                                 const isSelected = stringKeys.includes(option.key)
-                                const isDisabled = wasLimitReached && !isSelected
+                                const disabledReason =
+                                    option.disabledReason ??
+                                    (wasLimitReached && !isSelected ? `Limit of ${limit} options reached` : undefined)
+                                const isDisabled = !!disabledReason
                                 return (
                                     <LemonButton
                                         key={option.key}
@@ -961,7 +970,7 @@ export function LemonInputSelect<T = string>({
                                         active={isFocused}
                                         onClick={(e) => !isDisabled && _onActionItem(option.key, e)}
                                         onMouseEnter={() => setSelectedIndex(index)}
-                                        disabledReason={isDisabled ? `Limit of ${limit} options reached` : undefined}
+                                        disabledReason={disabledReason}
                                         tooltip={option.tooltip}
                                         icon={getOptionIcon(option, isSelected)}
                                         sideAction={

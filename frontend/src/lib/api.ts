@@ -234,6 +234,7 @@ import type { ErrorTrackingRecommendation } from 'products/error_tracking/fronte
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
     GitHubBranchesResponseApi,
+    GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
@@ -1599,6 +1600,10 @@ export class ApiRequest {
 
     public integrationGitHubRepositories(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
+    }
+
+    public integrationGitHubRepositoriesRefresh(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrationGitHubRepositories(id, teamId).addPathComponent('refresh')
     }
 
     public integrationGitHubBranches(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -6298,6 +6303,10 @@ const api = {
             params?: { limit?: number; offset?: number; search?: string }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
+        },
+        /** Force a live re-sync of the cached repository list (server-side cooldown: 30s). */
+        async githubRepositoriesRefresh(id: IntegrationType['id']): Promise<GitHubReposRefreshResponseApi> {
+            return await new ApiRequest().integrationGitHubRepositoriesRefresh(id).create()
         },
         async githubBranches(
             id: IntegrationType['id'],

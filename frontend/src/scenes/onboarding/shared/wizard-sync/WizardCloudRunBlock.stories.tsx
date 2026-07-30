@@ -145,11 +145,14 @@ function cloudRunStory({
     drive,
     waitForSelector,
     extraPlay,
+    repositories,
 }: {
     integrations: IntegrationType[]
     drive?: () => void
     waitForSelector: string
     extraPlay?: () => Promise<void>
+    /** Override the repository list the picker loads (defaults to the metadata-rich fixture above). */
+    repositories?: typeof githubReposResponse.repositories
 }): Story {
     return {
         render: () => {
@@ -160,6 +163,14 @@ function cloudRunStory({
             useStorybookMocks({
                 get: {
                     '/api/environments/:team_id/integrations': { results: integrations },
+                    ...(repositories
+                        ? {
+                              '/api/environments/:team_id/integrations/:id/github_repos': {
+                                  repositories,
+                                  has_more: false,
+                              },
+                          }
+                        : {}),
                 },
             })
 
@@ -222,6 +233,24 @@ export const RepoPickerOpen: Story = cloudRunStory({
             }
         }, WAIT_OPTIONS)
     },
+})
+
+/**
+ * Every repository the installation can see is read-only — previously these were selectable and the
+ * run was launched against a repo we could never open a PR in. Now they're listed but disabled, the
+ * kickoff button is blocked, and the block explains how to widen access.
+ */
+export const AllRepositoriesReadOnly: Story = cloudRunStory({
+    integrations: [githubIntegration],
+    repositories: githubReposResponse.repositories.map((repo) => ({ ...repo, can_push: false })),
+    waitForSelector: '[data-attr="wizard-cloud-run-no-usable-repositories"]',
+})
+
+/** The installation grants access to nothing at all — the dropdown says so and offers a way out. */
+export const NoRepositories: Story = cloudRunStory({
+    integrations: [githubIntegration],
+    repositories: [],
+    waitForSelector: '[data-attr="wizard-cloud-run-no-usable-repositories"]',
 })
 
 /**
