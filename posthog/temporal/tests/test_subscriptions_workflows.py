@@ -36,6 +36,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.exports.backend.temporal.subscriptions.activities import (
+    _resolve_exportable_insights,
     advance_next_delivery_date,
     create_delivery_record,
     create_export_assets,
@@ -1332,6 +1333,34 @@ async def test_create_export_assets_classifies_missing_resource(team, user):
         )
 
     assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+
+
+async def test_resolve_exportable_insights_classifies_deleted_dashboard(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Deleted", created_by=user, deleted=True)
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+
+    result = await _resolve_exportable_insights(subscription)
+
+    assert result.tile_insight_pairs == []
+    assert result.available_insight_count == 0
+    assert result.selected_insight_count == 0
+    assert result.no_exportable_reason == NoExportableInsightsReason.DASHBOARD_DELETED
+
+
+async def test_resolve_exportable_insights_filters_explicit_dashboard_selection(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Selected", created_by=user)
+    selected_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="selected01", name="Selected")
+    other_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="other01", name="Other")
+    await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=selected_insight)
+    await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=other_insight)
+    subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
+    await sync_to_async(subscription.dashboard_export_insights.add)(selected_insight)
+
+    result = await _resolve_exportable_insights(subscription)
+
+    assert [insight.id for _, insight in result.tile_insight_pairs] == [selected_insight.id]
+    assert result.available_insight_count == 2
+    assert result.selected_insight_count == 1
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
