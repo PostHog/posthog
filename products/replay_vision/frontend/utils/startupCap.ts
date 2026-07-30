@@ -5,7 +5,7 @@ import type { BillingType } from '~/types'
 import type { VisionQuotaApi } from '../generated/api.schemas'
 import { CREDITS_PER_DOLLAR } from './credits'
 
-/** The startup program's monthly Replay vision ceiling in credits. Billing enforces the same number in dollars. */
+/** Billing enforces this same ceiling server-side, in dollars. */
 export const STARTUP_CAP_CREDITS: number = STARTUP_PROGRAM_BILLING_LIMIT_MAX * CREDITS_PER_DOLLAR
 
 export const STARTUP_CAP_EXPLANATION = `The startup program caps Replay vision spend at $${STARTUP_PROGRAM_BILLING_LIMIT_MAX.toLocaleString()} per month, so credits can't all go to Replay vision at once.`
