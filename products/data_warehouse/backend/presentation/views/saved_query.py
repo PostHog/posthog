@@ -77,7 +77,6 @@ from products.warehouse_sources.backend.facade.models import (
 
 logger = structlog.get_logger(__name__)
 
-
 # A DataWarehouseSavedQuery's activity log also records materialization syncs and status
 # transitions (activity="sync_triggered", status changes) that advance the log without the query
 # being edited. Optimistic-concurrency ("modified by someone else") must key off the latest activity
