@@ -26,10 +26,17 @@ exporters:
         compression: gzip
         headers:
             authorization: 'Bearer ${env:POSTHOG_API_KEY}'
+        sending_queue:
+            enabled: true
+            # Survives restarts: batches persist to disk until delivered.
+            storage: file_storage
         retry_on_failure:
             enabled: true
 
 extensions:
+    file_storage:
+        directory: '${env:QUEUE_DIR:-/var/lib/posthog-agent}'
+        create_directory: true
     health_check:
         endpoint: 0.0.0.0:13133
 
@@ -44,7 +51,7 @@ service:
                           prometheus:
                               host: 0.0.0.0
                               port: 8888
-    extensions: [health_check]
+    extensions: [health_check, file_storage]
     pipelines:
         metrics:
             receivers: [prometheus]
