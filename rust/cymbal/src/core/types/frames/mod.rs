@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use common_types::error_tracking::{FrameData, FrameId, RawFrameId};
-use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -39,8 +38,6 @@ pub(crate) fn record_frame_resolution_failure(
     // single bad release would warn-storm the logs. The counter above carries the signal.
     tracing::debug!(lang = lang, reason = reason, error = %err, "frame resolution failed");
 }
-
-pub mod releases;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
@@ -173,8 +170,6 @@ pub struct Frame {
     // use in the frontend
     #[serde(skip)]
     pub context: Option<Context>,
-    #[serde(skip)]
-    pub release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
