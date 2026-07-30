@@ -7,7 +7,7 @@ construct PromQL live using the discovery workflow from the main skill doc.
 ## 1. "Is ingestion healthy?" — quick health check
 
 Start by pulling up the main dashboard:
-`get_dashboard_by_uid` with uid `"ingestion-general"`.
+`get_dashboard_by_uid` with uid `"ingestion-health"`.
 
 Then verify these signals in order:
 
@@ -195,7 +195,7 @@ Then check infrastructure health:
 
 ## 9. "Session replay ingestion issues" — replay pipeline
 
-1. **Replay-specific dashboard** — `get_dashboard_by_uid` with uid `"ingestion-session-recordings"`.
+1. **Replay-specific dashboard** — `get_dashboard_by_uid` with uid `"ingestion-sessionreplay"`.
 2. **Consumer lag** — `kminion_kafka_consumer_group_topic_lag_seconds{group_id="session-recordings-blob-v2"}`.
 3. **Replay metrics** — `list_prometheus_metric_names` regex `"recording_blob_ingestion_v2_.*"`.
    Key: batch size, S3 upload latency, session manager operations.
