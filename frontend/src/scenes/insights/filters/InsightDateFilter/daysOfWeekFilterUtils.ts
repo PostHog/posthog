@@ -1,4 +1,4 @@
-import { DateRange, TrendsQuery } from '~/queries/schema/schema-general'
+import { DateRange } from '~/queries/schema/schema-general'
 
 export type IsoDayOfWeek = NonNullable<DateRange['daysOfWeek']>[number]
 
@@ -67,7 +67,7 @@ export function daysOfWeekLabel(days: IsoDayOfWeek[]): string {
 export function computeDaysOfWeekUpdate(
     excludedDays: IsoDayOfWeek[],
     dateRange: DateRange | null | undefined
-): Partial<TrendsQuery> {
+): { dateRange: DateRange } {
     const included = invertDaysOfWeek(excludedDays)
     const daysOfWeek = included.length === 0 || included.length === DAYS_IN_WEEK ? null : sortDays(included)
     return { dateRange: { ...dateRange, daysOfWeek } }

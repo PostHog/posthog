@@ -11,6 +11,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { FunnelVizType } from '~/types'
+
 import {
     computeDaysOfWeekUpdate,
     daysOfWeekSetsEqual,
@@ -24,16 +26,21 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, interval, querySource, trendsFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { dateRange, interval, querySource, trendsFilter, funnelsFilter, isTrends, isFunnels, isLifecycle } =
+        useValues(insightVizDataLogic(insightProps))
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
     const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
 
     // The picker speaks excluded days; the query schema stores included days
     const excludedDaysOfWeek = getExcludedDaysOfWeek(dateRange)
+    // Funnel steps and time-to-convert deliberately lack backend daysOfWeek support: dropping
+    // mid-sequence events has ambiguous semantics (see funnel_event_query.py)
+    const supportsDaysOfWeek =
+        isTrends || isLifecycle || (isFunnels && funnelsFilter?.funnelVizType === FunnelVizType.Trends)
     // The backend rejects daysOfWeek together with smoothing, so don't offer it
     const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
-    const showDaysOfWeekExclusions = isTrends && !smoothingActive
+    const showDaysOfWeekExclusions = supportsDaysOfWeek && !smoothingActive
 
     // Enabling smoothing hides the control, so clear daysOfWeek on that transition (never on
     // mount): the backend rejects the combination and there'd be no UI left to remove it
@@ -52,7 +59,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     }
     const handleExclusionsChange = (next: DateFilterExclusions): void => {
         const nextExcludedDaysOfWeek = parseIsoDaysOfWeek(next.days)
-        if (isTrends && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)) {
+        if (showDaysOfWeekExclusions && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)) {
             updateQuerySource(computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange))
         }
         if (next.incomplete !== exclusions.incomplete) {
