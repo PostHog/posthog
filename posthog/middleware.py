@@ -14,7 +14,10 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.core.cache import cache
-from django.core.exceptions import MiddlewareNotUsed
+from django.core.exceptions import (
+    MiddlewareNotUsed,
+    ValidationError as DjangoValidationError,
+)
 from django.db import (
     connection,
     connections as db_connections,
@@ -33,6 +36,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -42,6 +46,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, 
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
+from posthog.exceptions import flatten_validation_error
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
@@ -1251,6 +1256,16 @@ class SocialAuthExceptionMiddleware:
             error_detail = self._get_error_detail(exception)
             params = urlencode({"error_code": "social_login_failure", "error_detail": error_detail})
             return redirect(f"/login?{params}")
+
+        # The social auth pipeline runs inside social_django's plain Django view, so a
+        # ValidationError raised in it (an unusable invite, a claim the IdP never sent) never
+        # reaches DRF's exception handler and would otherwise 500 behind a generic error page.
+        if isinstance(exception, DRFValidationError | DjangoValidationError):
+            code, detail = flatten_validation_error(exception)
+            error_params = {"error_code": code or "social_login_failure"}
+            if detail:
+                error_params["error_detail"] = detail
+            return redirect(f"/login?{urlencode(error_params)}")
 
         return None
 

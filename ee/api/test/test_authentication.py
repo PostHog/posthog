@@ -10,7 +10,6 @@ from freezegun.api import freeze_time
 from unittest.mock import patch
 
 from django.core import mail
-from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -20,7 +19,7 @@ from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingP
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationInvite, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -764,22 +763,75 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(ValidationError) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                format="multipart",
-                follow=True,
-            )
-
-        self.assertEqual(
-            str(e.exception),
-            "{'name': ['This field is required and was not provided by the IdP.']}",
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            format="multipart",
         )
 
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error_code=missing_idp_claim", response.headers["Location"])
+        self.assertIn("did+not+send+your+name", response.headers["Location"])
+
+        self.assertEqual(User.objects.count(), user_count)
+
+    def _post_saml_assertion(self, extra_session: dict[str, Any] | None = None, follow: bool = False):
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6", **(extra_session or {})})
+        _session.save()
+
+        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), encoding="utf_8") as f:
+            saml_response = f.read()
+
+        return self.client.post(
+            "/complete/saml/",
+            {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+            format="multipart",
+            follow=follow,
+        )
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_saml_login_falls_through_to_jit_when_the_only_invite_is_expired(self):
+        with freeze_time("2021-06-01T00:00:00.000Z"):
+            OrganizationInvite.objects.create(organization=self.organization, target_email="engineering@posthog.com")
+
+        user_count = User.objects.count()
+        response = self._post_saml_assertion(follow=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertRedirects(response, "/")
+        self.assertEqual(User.objects.count(), user_count + 1)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_saml_login_ignores_a_lingering_invite_for_an_existing_member(self):
+        user = User.objects.create_and_join(
+            organization=self.organization, email="engineering@posthog.com", password=None, is_email_verified=True
+        )
+        OrganizationInvite.objects.create(organization=self.organization, target_email="engineering@posthog.com")
+
+        response = self._post_saml_assertion(follow=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertRedirects(response, "/")
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(user.pk))
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_saml_login_with_an_invite_for_another_email_redirects_with_the_reason(self):
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization, target_email="someone-else@posthog.com"
+        )
+
+        user_count = User.objects.count()
+        response = self._post_saml_assertion(extra_session={"invite_id": str(invite.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error_code=invalid_recipient", response.headers["Location"])
         self.assertEqual(User.objects.count(), user_count)
 
     @freeze_time("2021-08-25T22:09:14.252Z")

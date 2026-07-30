@@ -31,9 +31,18 @@ from posthog.api.webauthn import (
 )
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
+from posthog.exceptions import flatten_validation_error
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
-from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models import (
+    InviteExpiredException,
+    Organization,
+    OrganizationDomain,
+    OrganizationInvite,
+    OrganizationMembership,
+    Team,
+    User,
+)
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
@@ -799,11 +808,35 @@ def lookup_invite_for_saml(email: str, organization_domain_id: str) -> Optional[
     organization_domain = OrganizationDomain.objects.get(id=organization_domain_id)
     if not organization_domain:
         return None
-    return (
-        OrganizationInvite.objects.filter(target_email=email, organization=organization_domain.organization)
+    # This lookup is implicit: the user never clicked an invite link, we inferred one from the SAML
+    # assertion. So only pick up an invite that would still pass validate(), because an expired row
+    # or one whose recipient is already a member would otherwise hijack the login and dead-end it in
+    # an unhandled ValidationError. Skipping those lets the user fall through to JIT provisioning.
+    invite = (
+        OrganizationInvite.objects.filter(
+            target_email=email,
+            organization=organization_domain.organization,
+            created_at__gte=timezone.now() - timedelta(INVITE_DAYS_VALIDITY),
+        )
         .order_by("-created_at")
         .first()
     )
+    if invite is None:
+        return None
+    if OrganizationMembership.objects.filter(
+        organization_id=organization_domain.organization_id, user__email__iexact=email
+    ).exists():
+        return None
+    return invite
+
+
+def social_invite_error_params(exception: Exception) -> dict[str, str]:
+    """Turn an invite validation failure into login query params the frontend can explain."""
+    code, detail = flatten_validation_error(exception)
+    params = {"error_code": code or "invalid_invite"}
+    if detail:
+        params["error_detail"] = detail
+    return params
 
 
 def process_social_invite_signup(
@@ -964,7 +997,10 @@ def social_create_user(
             user.save()
 
         if invite_id:
-            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user)
+            try:
+                process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user)
+            except (exceptions.ValidationError, ValidationError) as e:
+                return redirect(f"/login?{urlencode(social_invite_error_params(e))}")
         else:
             process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user)
 
@@ -978,10 +1014,16 @@ def social_create_user(
         missing_attr = "email" if not email else "name"
         posthoganalytics.tag("email", email)
         posthoganalytics.tag("name", full_name)
-        raise ValidationError(
-            {missing_attr: "This field is required and was not provided by the IdP."},
-            code="required",
+        # A misconfigured IdP claim mapping is the admin's to fix, so name the missing claim and
+        # send them back to the login page instead of raising into the generic 500 page.
+        params = urlencode(
+            {
+                "error_code": "missing_idp_claim",
+                "error_detail": f"Your login provider did not send your {missing_attr}. "
+                "Please ask your administrator to map it in your SSO configuration.",
+            }
         )
+        return redirect(f"/login?{params}")
 
     # If we get here then it's a new user. We'll check for outstanding invites for them
     # on the organization domain or if JIT provisioning is enabled, we'll provision them.
@@ -990,7 +1032,10 @@ def social_create_user(
 
     if invite_id:
         from_invite = True
-        user = process_social_invite_signup(strategy, invite_id, email, full_name)
+        try:
+            user = process_social_invite_signup(strategy, invite_id, email, full_name)
+        except (exceptions.ValidationError, ValidationError) as e:
+            return redirect(f"/login?{urlencode(social_invite_error_params(e))}")
         if user is None:
             return redirect("/login?error_code=invalid_invite")
 

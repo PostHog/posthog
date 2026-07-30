@@ -1,11 +1,15 @@
 from typing import Any, Optional, TypedDict
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import (
+    APIException,
+    ValidationError as DRFValidationError,
+)
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -165,3 +169,28 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
             metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
             response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
     return response
+
+
+def flatten_validation_error(exception: Exception) -> tuple[Optional[str], Optional[str]]:
+    """Reduce a DRF or Django ValidationError to a single (code, message) pair.
+
+    DRF nests detail as a str, a list, or a field-keyed dict, and `get_codes()` mirrors that shape.
+    Callers outside a DRF view (social auth pipeline, middleware) need one code and one sentence to
+    put in a redirect, so pick the first leaf of each.
+    """
+    if isinstance(exception, DRFValidationError):
+        return _first_leaf(exception.get_codes()), _first_leaf(exception.detail)
+
+    if isinstance(exception, DjangoValidationError):
+        messages = exception.messages
+        return getattr(exception, "code", None), messages[0] if messages else None
+
+    return None, None
+
+
+def _first_leaf(value: Any) -> Optional[str]:
+    while isinstance(value, dict | list):
+        if not value:
+            return None
+        value = next(iter(value.values())) if isinstance(value, dict) else value[0]
+    return str(value) if value is not None else None

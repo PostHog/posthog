@@ -36,4 +36,13 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
+    // Invite validation codes raised by the SSO pipeline (OrganizationInvite.validate).
+    expired: 'Your invite has expired. Please ask your administrator for a new one.',
+    invalid_recipient:
+        'Your invite was sent to a different email address than the one your login provider gave us. Please ask your administrator to invite the address you log in with.',
+    user_already_member: "You're already a member of this organization. Please try logging in again.",
+    existing_email_address:
+        'Another account with your email address already belongs to this organization. Please contact your administrator.',
+    missing_idp_claim:
+        "Your login provider didn't send us your name or email address. Please ask your administrator to check that both are mapped in your SSO configuration.",
 }
