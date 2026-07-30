@@ -153,6 +153,16 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         gauge!("personhog_traffic_epoch_target_rps").set(rate);
         tracing::info!(epoch, rate = format!("{rate:.0}"), "epoch starting");
 
+        // The hostile pool outlives epochs; keep its liveness stamp fresh
+        // so a sibling pod's startup janitor never reaps it mid-use.
+        seed::refresh_created_at(
+            &pool,
+            &args.pg_target_table,
+            args.hostile_team_id,
+            &hostile_ids,
+        )
+        .await?;
+
         let person_ids = Arc::new(
             seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.pool_size).await?,
         );

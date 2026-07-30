@@ -102,6 +102,33 @@ pub async fn cleanup_persons(pool: &PgPool, table: &str, team_id: i64, ids: &[i6
     Ok(deleted)
 }
 
+/// Re-stamp `created_at` on the given rows. The janitor's age guard
+/// reads `created_at` as a liveness stamp, so rows that live across
+/// epochs (the hostile pool) must be refreshed each epoch — otherwise a
+/// successor pod's janitor reaps them mid-use once their seeding time
+/// ages past the threshold, even though their owner is still running.
+pub async fn refresh_created_at(
+    pool: &PgPool,
+    table: &str,
+    team_id: i64,
+    ids: &[i64],
+) -> Result<()> {
+    validate_table_name(table)?;
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
+    sqlx::query(&format!(
+        "UPDATE {table} SET created_at = now() WHERE team_id = $1 AND id = ANY($2)"
+    ))
+    .bind(team)
+    .bind(ids)
+    .execute(pool)
+    .await
+    .with_context(|| format!("refreshing created_at in {table}"))?;
+    Ok(())
+}
+
 /// Reap a team's person rows older than `older_than` — the startup
 /// janitor for leftovers from crashed or killed instances. The age guard
 /// keeps it off a live sibling pod's fresh pool during a rolling-restart
