@@ -3,6 +3,7 @@ import {
     escapeInlineMarkdownText,
     escapeMarkdownBlockLines,
     makeEmptyParagraph,
+    NOTEBOOK_BLOCK_SEPARATOR,
     parseMarkdownNotebook,
     sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
@@ -121,8 +122,10 @@ export function appendMarkdownNotebookBlock(
     blockMarkdown: string
 ): JSONContent {
     const markdown = getMarkdownNotebookMarkdown(content)
+    // An appended block is a node in its own right, so it gets the wider separator rather than
+    // folding into the card the notebook currently ends with.
     return buildMarkdownNotebookContent(
-        [markdown, blockMarkdown].filter((block) => block.trim()).join('\n\n'),
+        [markdown, blockMarkdown].filter((block) => block.trim()).join(NOTEBOOK_BLOCK_SEPARATOR),
         getMarkdownNotebookNodeId(content)
     )
 }

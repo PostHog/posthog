@@ -349,10 +349,10 @@ export function InboxDetailFrame({
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
             <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
                 <div className="min-w-0 flex flex-col gap-5">
-                    <DetailSection icon={summary.icon} title={summary.title}>
+                    <DetailSection icon={summary.icon} title={summary.title} collapsible>
                         {report.summary ? (
                             <LemonMarkdown
-                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
+                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
                                 disableImages
                                 renderChartRef={renderChartRef}
                             >
@@ -364,7 +364,7 @@ export function InboxDetailFrame({
                             </p>
                         )}
                         {trailingCharts.length > 0 && (
-                            <div className="flex flex-col gap-3">
+                            <div className="flex flex-col gap-4 mt-5">
                                 {trailingCharts.map((chart) => (
                                     <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
                                 ))}
@@ -385,6 +385,7 @@ export function InboxDetailFrame({
                         <DetailSection
                             icon={<IconSearch />}
                             title="Evidence"
+                            collapsible
                             rightSlot={
                                 <Tooltip title={FINDINGS_TOOLTIP}>
                                     <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
