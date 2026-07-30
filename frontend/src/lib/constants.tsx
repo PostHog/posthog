@@ -256,6 +256,7 @@ export const FEATURE_FLAGS = {
     ALERTS_REAL_TIME_INTERVAL: 'alerts-real-time-interval', // owner: #team-analytics-platform, gates real-time (2-minute) insight alert interval
     ALERTS_REDESIGNED_EDIT_MODAL: 'alerts-redesigned-edit-modal', // owner: #team-analytics-platform, gates the redesigned alert edit/create modal (wizard for new, sections for edit)
     AMPLITUDE_BATCH_IMPORT_OPTIONS: 'amplitude-batch-import-options', // owner: #team-ingestion
+    APM_ANOMALY_DETECTION: 'apm-anomaly-detection', // owner: #team-apm (@jonmcwest, @frankh), gates zero-config log/trace/metric anomaly detection
     APPROVALS: 'approvals', // owner: @yasen-posthog #team-platform-features
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     BACKFILL_WORKFLOWS_DESTINATION: 'backfill-workflows-destination', // owner: #team-batch-exports
