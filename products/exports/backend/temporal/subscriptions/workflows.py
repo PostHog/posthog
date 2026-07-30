@@ -60,11 +60,6 @@ from products.exports.backend.temporal.subscriptions.types import (
     UpdateDeliveryRecordInputs,
 )
 
-NO_EXPORTABLE_INSIGHTS_MESSAGE = (
-    "This subscription has no available insights to export. Add insights to the dashboard or update the subscription's "
-    "insight selection."
-)
-
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
     return [
@@ -278,7 +273,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             "No-exportable-insights result missing failure context", non_retryable=True
                         )
                     delivery_error = NoExportableInsightsErrorDetails(
-                        message=NO_EXPORTABLE_INSIGHTS_MESSAGE,
+                        message="This subscription has no available insights to export. Add insights to the dashboard or update the subscription's insight selection.",
                         type=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
                         reason=failure_context["reason"],
                         resource_type=failure_context["resource_type"],

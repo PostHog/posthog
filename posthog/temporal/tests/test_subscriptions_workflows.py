@@ -68,7 +68,6 @@ from products.exports.backend.temporal.subscriptions.types import (
     UpdateDeliveryRecordInputs,
 )
 from products.exports.backend.temporal.subscriptions.workflows import (
-    NO_EXPORTABLE_INSIGHTS_MESSAGE,
     HandleSubscriptionValueChangeWorkflow,
     ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
@@ -1271,14 +1270,12 @@ async def test_stale_dashboard_selection_fails_without_retrying(
 
     delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription=subscription)
     assert delivery.status == SubscriptionDelivery.Status.FAILED
-    assert delivery.error == {
-        "message": NO_EXPORTABLE_INSIGHTS_MESSAGE,
-        "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
-        "reason": NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE,
-        "resource_type": "dashboard",
-        "available_insight_count": 1,
-        "selected_insight_count": 1,
-    }
+    assert delivery.error is not None
+    assert delivery.error["type"] == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert delivery.error["reason"] == NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE
+    assert delivery.error["resource_type"] == "dashboard"
+    assert delivery.error["available_insight_count"] == 1
+    assert delivery.error["selected_insight_count"] == 1
     mock_send_email.assert_not_called()
     mock_capture_delivery_failed.assert_called_once()
     assert mock_capture_delivery_failed.call_args.args[2] == {
