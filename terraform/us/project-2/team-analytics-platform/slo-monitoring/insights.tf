@@ -35,6 +35,11 @@ locals {
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }
+    alert_delivery = {
+      name    = "Alert notification delivery"
+      slo     = 99.95 # error budget = 0.05%
+      regions = ["US", "EU"]
+    }
     dashboard_widget_delivery = {
       name    = "Dashboard widget delivery"
       slo     = 99.95 # error budget = 0.05%
@@ -516,4 +521,55 @@ resource "posthog_insight" "slo_volume" {
 
   dashboard_ids = [posthog_dashboard.slo_monitoring.id]
   tags          = ["managed-by:terraform", "slo"]
+}
+
+resource "posthog_insight" "alert_delivery_failure_rate" {
+  for_each = toset(["US", "EU"])
+
+  name        = "SLO: Alert notification delivery failure rate (${each.value})"
+  description = "Daily failed or incomplete insight alert notification deliveries."
+  query_json = jsonencode({
+    kind = "InsightVizNode"
+    source = {
+      kind     = "TrendsQuery"
+      interval = "day"
+      dateRange = {
+        date_from = "-7d"
+      }
+      series = [
+        {
+          kind        = "EventsNode"
+          event       = "slo_operation_started"
+          math        = "total"
+          custom_name = "Started"
+          properties = [
+            { key = "operation", type = "event", value = "alert_delivery", operator = "exact" },
+            { key = "region", type = "event", value = each.value, operator = "exact" },
+          ]
+        },
+        {
+          kind        = "EventsNode"
+          event       = "slo_operation_completed"
+          math        = "total"
+          custom_name = "Successful"
+          properties = [
+            { key = "operation", type = "event", value = "alert_delivery", operator = "exact" },
+            { key = "region", type = "event", value = each.value, operator = "exact" },
+            { key = "outcome", type = "event", value = "success", operator = "exact" },
+          ]
+        },
+      ]
+      trendsFilter = {
+        display = "ActionsLineGraph"
+        formulaNodes = [
+          { formula = "(A-B)/A", custom_name = "Failure rate" },
+        ]
+        aggregationAxisFormat   = "percentage_scaled"
+        decimalPlaces           = 4
+        showAlertThresholdLines = true
+      }
+    }
+  })
+
+  tags = ["managed-by:terraform", "slo"]
 }

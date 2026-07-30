@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import AlertCalculationInterval
 
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import calculation_interval_to_order, next_check_time, trigger_alert_hog_functions
 
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -89,3 +91,34 @@ class TestAlertUtils:
         alert.detector_config = None
 
         trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
+
+    @patch("posthog.tasks.alerts.utils.produce_alert_internal_event", return_value=None)
+    def test_destination_enqueue_failure_fails_delivery_slo(self, _mock_produce: MagicMock) -> None:
+        alert = MagicMock(spec=AlertConfiguration)
+        alert.id = "00000000-0000-0000-0000-000000000001"
+        alert.name = "test alert"
+        alert.insight.name = "test insight"
+        alert.insight.short_id = "abcd1234"
+        alert.state = "firing"
+        alert.last_checked_at = None
+        alert.team_id = 2
+        alert.team.name = "test project"
+        alert.detector_config = None
+        capture = MagicMock()
+
+        with slo_operation(
+            spec=SloSpec(
+                distinct_id=str(alert.id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.ALERT_DELIVERY,
+                team_id=alert.team_id,
+                resource_id=str(alert.id),
+            ),
+            capture=capture,
+        ):
+            trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
+
+        completed = [call for call in capture.call_args_list if call.kwargs["event"] == "slo_operation_completed"]
+        assert len(completed) == 1
+        assert completed[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
+        assert completed[0].kwargs["properties"]["failure_phase"] == "destination_enqueue"
