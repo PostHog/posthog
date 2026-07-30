@@ -286,6 +286,9 @@ class SummarizerStatsSerializer(serializers.Serializer):
     total_with_facets = serializers.IntegerField(
         help_text="Succeeded observations that emitted at least one friction point or keyword."
     )
+    total_with_friction = serializers.IntegerField(
+        help_text="Succeeded observations that reported at least one friction point."
+    )
 
 
 class ScorerSummarySerializer(serializers.Serializer):
