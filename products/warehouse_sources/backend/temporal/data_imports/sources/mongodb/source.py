@@ -88,6 +88,8 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
+    has_opaque_document_schema = True  # each document lands whole in a single `data` column
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB

@@ -73,13 +73,15 @@ def source_supports_column_selection(source_type: str) -> bool:
     Delta write. Unknown source types stay False so the UI fails closed.
 
     Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
-    fixed canonical schema, so dropping a referenced column breaks the query."""
+    fixed canonical schema, so dropping a referenced column breaks the query. Also excludes
+    opaque-document sources (MongoDB): they write the whole record into one payload column, so
+    the picker would only ever list `_id` and `data`."""
     try:
         source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception as e:
         capture_exception(e)
         return False
-    return not source.has_managed_hogql_schema
+    return not source.has_managed_hogql_schema and not source.has_opaque_document_schema
 
 
 def source_supports_row_filters(source_type: str) -> bool:

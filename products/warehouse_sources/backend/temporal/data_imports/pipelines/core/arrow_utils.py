@@ -469,9 +469,9 @@ def source_uses_delta_write_column_selection(source_type: str) -> bool:
     False for:
     - SQL sources — they project `enabled_columns` into their SELECT and own
       `schema_metadata["columns"]` via schema introspection;
-    - managed-schema sources (Stripe/Paddle/Zendesk) — column selection is disabled for them
-      (their canonical HogQL schema needs the full physical column set), so the pipeline must
-      never drop their columns even if a stale `enabled_columns` is still persisted.
+    - managed-schema sources (Stripe/Paddle/Zendesk) and opaque-document sources (MongoDB) —
+      column selection is disabled for them, so the pipeline must never drop their columns even
+      if a stale `enabled_columns` is still persisted.
     """
     # Imported lazily: the registry pulls in every source's (often heavy) dependencies on first use.
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
@@ -483,7 +483,11 @@ def source_uses_delta_write_column_selection(source_type: str) -> bool:
         source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception:
         return False
-    return not source.supports_column_selection and not source.has_managed_hogql_schema
+    return (
+        not source.supports_column_selection
+        and not source.has_managed_hogql_schema
+        and not source.has_opaque_document_schema
+    )
 
 
 def observed_schema_metadata_columns(schema: pa.Schema) -> list[dict[str, Any]]:

@@ -133,6 +133,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # generated s3() structure miss it and the query fails to resolve the field.
     has_managed_hogql_schema: bool = False
 
+    # `True` for sources that collapse each record into a single opaque payload column — MongoDB
+    # writes `_id` plus a `data` column holding the whole document. There's nothing meaningful to
+    # pick from (the physical column list is two or three entries, and deselecting the payload
+    # column would drop the entire record), so column selection is disabled for these.
+    has_opaque_document_schema: bool = False
+
     # Opt-in: set `True` only on sources whose `get_schemas` iterates a static endpoint
     # catalog with NO I/O — no network, no DB, no credentials. Those sources surface their
     # table list in public docs (see `get_documented_tables`). Left `False` for SQL / file /

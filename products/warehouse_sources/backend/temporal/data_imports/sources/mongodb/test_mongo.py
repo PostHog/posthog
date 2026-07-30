@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _adaptive_chunk_size,
     _build_query,
     _get_rows_to_sync,
+    _get_schema_from_query,
     _list_importable_collection_names,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
@@ -331,6 +332,48 @@ class TestGetLeadingIndexKeys(SimpleTestCase):
     def test_returns_empty_set_for_collection_with_no_indexes(self):
         coll = self._collection_with_indexes([])
         assert get_leading_index_keys(coll) == set()
+
+
+class TestGetSchemaFromQuery(SimpleTestCase):
+    """Field discovery has to reach recently inserted documents: sampling only the oldest
+    documents made a newly added field permanently invisible as an incremental candidate."""
+
+    @staticmethod
+    def _collection_with_slices(oldest, newest):
+        coll = MagicMock()
+
+        def aggregate(pipeline, **kwargs):
+            descending = pipeline[0].get("$sort", {}).get("_id") == -1
+            return iter(newest if descending else oldest)
+
+        coll.aggregate.side_effect = aggregate
+        return coll
+
+    def test_discovers_fields_present_only_in_newest_documents(self):
+        coll = self._collection_with_slices(
+            oldest=[{"_id": "_id", "types": ["objectId"]}],
+            newest=[{"_id": "_id", "types": ["objectId"]}, {"_id": "updated_at", "types": ["date"]}],
+        )
+        assert dict(_get_schema_from_query(coll)) == {"_id": "string", "updated_at": "timestamp"}
+
+    def test_keeps_fields_present_only_in_oldest_documents(self):
+        coll = self._collection_with_slices(
+            oldest=[{"_id": "legacy_field", "types": ["string"]}],
+            newest=[{"_id": "_id", "types": ["objectId"]}],
+        )
+        assert dict(_get_schema_from_query(coll)) == {"_id": "string", "legacy_field": "string"}
+
+    def test_merges_types_seen_across_both_slices(self):
+        coll = self._collection_with_slices(
+            oldest=[{"_id": "seen_at", "types": ["string"]}],
+            newest=[{"_id": "seen_at", "types": ["date"]}],
+        )
+        assert dict(_get_schema_from_query(coll)) == {"seen_at": "timestamp"}
+
+    def test_falls_back_to_id_when_aggregation_fails(self):
+        coll = MagicMock()
+        coll.aggregate.side_effect = RuntimeError("network down")
+        assert _get_schema_from_query(coll) == [("_id", "string")]
 
 
 class TestBuildQuery(SimpleTestCase):

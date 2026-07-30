@@ -3407,13 +3407,15 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         [
             # source_type, expected — column selection is available for every registered source
             # (SQL projects in its SELECT, others drop before the Delta write) EXCEPT managed-schema
-            # sources (Stripe/Paddle/Zendesk), whose canonical HogQL schema needs the full column set.
+            # sources (Stripe/Paddle/Zendesk), whose canonical HogQL schema needs the full column
+            # set, and MongoDB, which writes every document into a single `data` column.
             (ExternalDataSourceType.POSTGRES, True),
             (ExternalDataSourceType.SNOWFLAKE, True),
             (ExternalDataSourceType.CLICKHOUSE, True),
             (ExternalDataSourceType.HUBSPOT, True),
             (ExternalDataSourceType.STRIPE, False),
             (ExternalDataSourceType.ZENDESK, False),
+            (ExternalDataSourceType.MONGODB, False),
         ]
     )
     def test_source_supports_column_selection_flag(self, source_type: ExternalDataSourceType, expected: bool):

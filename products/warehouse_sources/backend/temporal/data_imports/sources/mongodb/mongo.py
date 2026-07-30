@@ -41,7 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # Schema inference settings
-SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
+SCHEMA_INFERENCE_LIMIT = 10_000  # Documents sampled per collection, split between oldest and newest
 SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
 
 # Mongo yields whole documents (the full doc rides along under `data`), so a collection of large
@@ -384,42 +384,56 @@ def _parse_connection_string(connection_string: str, database_override: str | No
     }
 
 
+def _sample_field_bson_types(collection: Collection, limit: int, newest_first: bool) -> dict[str, set[str]]:
+    """BSON types seen per field across one sampled slice of a collection."""
+    pipeline: list[dict[str, Any]] = []
+    if newest_first:
+        # Descending `_id` walks the always-present `_id` index backwards, so this stays as cheap
+        # as the natural-order scan while reaching the most recently inserted documents.
+        pipeline.append({"$sort": {"_id": -1}})
+    pipeline += [
+        # Limit documents to avoid scanning entire collection
+        {"$limit": limit},
+        # Convert each document to an array of key-value pairs
+        {"$project": {"arrayofkeyvalue": {"$objectToArray": "$$ROOT"}}},
+        # Unwind the array to get individual key-value pairs
+        {"$unwind": "$arrayofkeyvalue"},
+        # Group by key name and collect unique types
+        {
+            "$group": {
+                "_id": "$arrayofkeyvalue.k",
+                "types": {"$addToSet": {"$type": "$arrayofkeyvalue.v"}},
+            }
+        },
+    ]
+
+    return {
+        field_info["_id"]: set(field_info["types"])
+        for field_info in collection.aggregate(pipeline, maxTimeMS=SCHEMA_INFERENCE_TIMEOUT_MS)
+    }
+
+
 def _get_schema_from_query(collection: Collection) -> list[tuple[str, str]]:
-    """Infer schema from MongoDB collection using aggregation to get document keys and types."""
+    """Infer schema from MongoDB collection using aggregation to get document keys and types.
+
+    Samples both ends of the collection: oldest-first alone would never see a field that was
+    only added to recent documents, which made it impossible to pick that field as an
+    incremental field. Each slice takes half the budget, so the documents scanned is unchanged.
+    """
     try:
-        # Use aggregation pipeline with limit to avoid full collection scan
-        pipeline: list[dict[str, Any]] = [
-            # Limit documents to avoid scanning entire collection (uses _id index)
-            {"$limit": SCHEMA_INFERENCE_LIMIT},
-            # Convert each document to an array of key-value pairs
-            {"$project": {"arrayofkeyvalue": {"$objectToArray": "$$ROOT"}}},
-            # Unwind the array to get individual key-value pairs
-            {"$unwind": "$arrayofkeyvalue"},
-            # Group by key name and collect unique types
-            {
-                "$group": {
-                    "_id": "$arrayofkeyvalue.k",
-                    "types": {"$addToSet": {"$type": "$arrayofkeyvalue.v"}},
-                }
-            },
-        ]
+        slice_limit = SCHEMA_INFERENCE_LIMIT // 2
+        types_by_field = _sample_field_bson_types(collection, slice_limit, newest_first=False)
+        for field_name, bson_types in _sample_field_bson_types(collection, slice_limit, newest_first=True).items():
+            types_by_field.setdefault(field_name, set()).update(bson_types)
 
-        result = list(collection.aggregate(pipeline, maxTimeMS=SCHEMA_INFERENCE_TIMEOUT_MS))
-
-        if not result:
+        if not types_by_field:
             return [("_id", "string")]
 
-        schema_info = []
-        for field_info in result:
-            field_name = field_info["_id"]
-            types = field_info["types"]
-
-            # Determine the most appropriate type
-            # MongoDB $type returns BSON type names, map them to our type system
-            field_type = _determine_field_type_from_bson_types(types)
-            schema_info.append((field_name, field_type))
-
-        return schema_info
+        # MongoDB $type returns BSON type names, map them to our type system
+        return [
+            (field_name, _determine_field_type_from_bson_types(list(bson_types)))
+            for field_name, bson_types in types_by_field.items()
+        ]
 
     except Exception:
         # Fallback to basic schema if aggregation fails
