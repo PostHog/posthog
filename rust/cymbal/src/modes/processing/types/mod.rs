@@ -86,7 +86,6 @@ impl ExceptionList {
         unique_by(self.get_in_app_frames(), |f| f.resolved_name.clone())
     }
 
-
     pub fn get_is_handled(&self) -> bool {
         self.first()
             .and_then(|e| e.mechanism.as_ref())
