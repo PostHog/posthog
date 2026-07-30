@@ -14,7 +14,9 @@ class TeamFeatureFlagGuidelinesConfig(models.Model):
     the MCP environment context so agents creating flags follow the same guidelines.
     """
 
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
+    # db_constraint=False: no FK constraint on the hot posthog_team table, so creating this
+    # table takes no lock on it (the migration analyzer blocks a real FK to posthog_team).
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False)
 
     enabled = models.BooleanField(default=False)
 
