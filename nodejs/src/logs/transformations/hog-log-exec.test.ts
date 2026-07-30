@@ -283,6 +283,27 @@ describe('hog-log-exec', () => {
             expect(record.body).toContain('***REDACTED***')
         })
 
+        it('redacts sensitive values written into attribute keys, not just values', async () => {
+            // Hog can assign a dynamic key, so redacting only values leaves the same
+            // exfiltration path open one level up: the secret becomes the key itself.
+            const record = createRecord()
+            const outcome = await run(
+                `
+                let rec := record
+                rec.attributes[inputs.apiKey] := 'anything'
+                return rec
+                `,
+                record,
+                { apiKey: 'super-secret-key' },
+                { sensitiveValues: ['super-secret-key'] }
+            )
+
+            expect(outcome.status).toBe('mutated')
+            const serialized = JSON.stringify(record.attributes)
+            expect(serialized).not.toContain('super-secret-key')
+            expect(serialized).toContain('***REDACTED***')
+        })
+
         it('rejects transformed fields that exceed the size cap without mutating', async () => {
             // Capture bounds ingest at 2MB per request; a transformation must not be
             // able to inflate a stored record past that boundary.

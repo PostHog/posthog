@@ -178,6 +178,14 @@ function coerceStringMap(value: unknown): Record<string, string> | null {
  * Returns 'invalid' (record untouched) when the result is not record-shaped — the
  * caller treats that as a failure and fails open.
  */
+function redactString(value: string, sensitiveValues: string[]): string {
+    let out = value
+    for (const sensitive of sensitiveValues) {
+        out = out.replaceAll(sensitive, '***REDACTED***')
+    }
+    return out
+}
+
 function redactSensitiveStrings(
     value: unknown,
     sensitiveValues: string[] | undefined,
@@ -189,11 +197,7 @@ function redactSensitiveStrings(
         return value
     }
     if (typeof value === 'string') {
-        let out = value
-        for (const sensitive of sensitiveValues) {
-            out = out.replaceAll(sensitive, '***REDACTED***')
-        }
-        return out
+        return redactString(value, sensitiveValues)
     }
     if (Array.isArray(value)) {
         const existing = seen.get(value)
@@ -215,7 +219,11 @@ function redactSensitiveStrings(
         const out: Record<string, unknown> = {}
         seen.set(value, out)
         for (const [key, item] of Object.entries(value)) {
-            out[key] = redactSensitiveStrings(item, sensitiveValues, seen)
+            // Keys need redacting as much as values do: Hog can assign a dynamic key
+            // (`rec.attributes[inputs.apiKey] := …`), so redacting only values leaves the
+            // same exfiltration path open one level up. Two keys collapsing onto the same
+            // redacted name is fine — both sides of that collision hold the secret.
+            out[redactString(key, sensitiveValues)] = redactSensitiveStrings(item, sensitiveValues, seen)
         }
         return out
     }
