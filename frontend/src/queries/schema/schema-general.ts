@@ -8146,6 +8146,13 @@ export const externalDataSources = [
     'BCMS',
     'Convonite',
     'Hookdeck',
+    'Billit',
+    'Moxie',
+    'TripleWhale',
+    'Directus',
+    'Clay',
+    'TradableBits',
+    'Swan',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
