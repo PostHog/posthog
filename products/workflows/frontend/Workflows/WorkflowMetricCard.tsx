@@ -1,4 +1,5 @@
-import { type ReactNode, useCallback, useMemo } from 'react'
+import posthog from 'posthog-js'
+import { type ErrorInfo, type ReactNode, useCallback, useMemo } from 'react'
 
 import { IconArrowRight, IconInfo } from '@posthog/icons'
 import {
@@ -35,6 +36,15 @@ const CARD_CHROME = 'flex min-w-[16rem] flex-1 flex-col rounded border bg-surfac
 // coloring would mislead. The chevron still shows direction.
 function neutralChange(): ChangeColor {
     return { background: 'transparent', foreground: getColorVar('muted') }
+}
+
+// `Metric` contains a render throw to this tile instead of letting it take the scene down, which also
+// keeps it out of error tracking — report it so a silently broken tile is still visible.
+function captureRenderError(error: Error, info: ErrorInfo): void {
+    posthog.captureException(error, {
+        feature: 'workflow-metric-card',
+        componentStack: info.componentStack ?? undefined,
+    })
 }
 
 function DrillArrow({ tooltip }: { tooltip?: string }): JSX.Element {
@@ -111,9 +121,11 @@ export function WorkflowMetricCard({
             key: s.name,
             label: s.name,
             data: s.values,
-            color: seriesColors?.[s.name],
+            // The zero-state color has to be set per series — the sparkline ignores the tile-level
+            // `color` whenever `series` is set, so an empty combined tile would keep its channel colors.
+            color: total === 0 ? colorIfZero : seriesColors?.[s.name],
         }))
-    }, [timeSeries, seriesColors])
+    }, [timeSeries, seriesColors, colorIfZero, total])
 
     // Only surface a comparison when there's a non-zero baseline — formatPercentageDiff returns null on
     // a zero/absent previous period, so the pill is hidden rather than showing a bogus ∞%.
@@ -176,6 +188,7 @@ export function WorkflowMetricCard({
             >
                 <Metric
                     className="px-3"
+                    onError={captureRenderError}
                     value={total}
                     data={data}
                     series={sparklineSeries}
