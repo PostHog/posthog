@@ -2,8 +2,9 @@
 //!
 //! No module here reaches into PostgreSQL, ClickHouse, or Kafka. The internal
 //! dependency order is strictly downward:
-//! `ids` ← {`condition`, `window`} ← `chunk` ← {`plan`, `pinned`, `aggregate`}.
-//! The seed wire contract (`SeedTile` and the ids that ride it) lives in
+//! `ids` ← {`condition`, `window`} ← `chunk` ← {`plan`, `pinned`, `aggregate`} ← `person`,
+//! except that `chunk` reaches back into `person` for the `PersonRange` vocabulary its spec
+//! carries. The seed wire contract (`SeedTile`/`PersonSeed` and the ids that ride them) lives in
 //! `cohort_core::seed` — shared with the processor — and is re-exported here.
 
 pub mod aggregate;
@@ -13,6 +14,7 @@ pub mod condition;
 pub mod ids;
 pub mod ledger;
 pub mod partition;
+pub mod person;
 pub mod pinned;
 pub mod plan;
 pub mod window;
@@ -23,10 +25,11 @@ pub use aggregate::{
 pub use chunk::{
     BandSpec, BandSpecError, CancelCause, ChunkDomainError, ChunkLease, ChunkSpec, ChunkStatus,
     ClaimKind, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProduceHwms, ProducedChunk,
-    ScannedChunk, UnknownChunkStatus,
+    ScannedChunk, StreamedChunk, UnknownChunkStatus,
 };
 pub use cohort_core::seed::{
-    BehavioralShapeHash, BehavioralShapeHashError, ReconcileCompleteMarker, ReconcileTile, SeedTile,
+    BehavioralShapeHash, BehavioralShapeHashError, PersonSeed, ReconcileCompleteMarker,
+    ReconcileTile, SeedTile,
 };
 pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
@@ -39,10 +42,16 @@ pub use completion::{
 pub use condition::{EventNameSet, Lookback, PinnedCondition};
 pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,
-    UtcMillis, UtcMsRange, UtcRangeError,
+    ScannedAtMs, UtcMillis, UtcMsRange, UtcRangeError,
 };
 pub use ledger::{MarkerFold, MarkerLedger, SettledVerdict};
 pub use partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
+pub use person::{
+    person_chunk_sentinel_day, tile_ranges, EvaluatedConditions, PersonChunkSpec,
+    PersonChunkSpecError, PersonEvaluator, PersonPinnedSnapshot, PersonPlanError, PersonRange,
+    PersonRangeError, PersonRowOutcome, PersonRowSkip, PersonRunValidation, PersonSeedContext,
+    PinnedPersonRun, ValidatedPinnedPersonRun, MAX_PERSON_CHUNKS,
+};
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,
     PinnedRunSnapshot, PinnedWarning, TriggerKind, UnknownTriggerKind, ValidatedPinnedRun,

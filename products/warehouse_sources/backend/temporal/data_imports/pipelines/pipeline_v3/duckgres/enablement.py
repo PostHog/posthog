@@ -21,6 +21,7 @@ import posthoganalytics
 
 from posthog.ducklake import cp_teams
 from posthog.ducklake.common import _get_org_id_for_team, is_dev_mode
+from posthog.ducklake.team_state import CPUnavailableError
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -36,7 +37,7 @@ def is_duckgres_sink_team_member(team_id: int) -> bool:
     control plane can't answer — the caller decides how to degrade.
     """
     organization_id = _get_org_id_for_team(team_id)
-    teams = cp_teams.list_org_teams(organization_id)
+    teams = cp_teams.list_org_teams(organization_id, use_cache=False)
     if teams is None:
         raise RuntimeError(f"duckgres control plane unreachable resolving sink membership for team {team_id}")
     return any(team.team_id == team_id for team in teams)
@@ -76,9 +77,9 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     from posthog.ducklake.models import DuckgresServer
     from posthog.models.team.team import Team
 
-    rows = cp_teams.list_member_teams()
+    rows = cp_teams.list_member_teams(use_cache=False)
     if rows is None:
-        raise RuntimeError("duckgres control plane unreachable; keeping the previous sink enablement")
+        raise CPUnavailableError("duckgres control plane unreachable; keeping the previous sink enablement")
 
     team_info = {
         team_id: (str(team_uuid), str(org_id))
@@ -132,9 +133,3 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
             logger.exception("duckgres_sink_flag_evaluation_failed", team_id=row.team_id)
             capture_exception(e)
     return SinkEnablement(team_ids=enabled, team_org_budgets=team_org_budgets)
-
-
-def duckgres_sink_team_ids() -> list[int] | None:
-    """Back-compat view of duckgres_sink_enablement: just the enabled team ids."""
-    enablement = duckgres_sink_enablement()
-    return None if enablement is None else enablement.team_ids

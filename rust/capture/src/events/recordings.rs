@@ -625,6 +625,7 @@ mod tests {
             user_agent: None,
             path: "/s/".to_string(),
             capture_mode: crate::config::CaptureMode::Recordings,
+            sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
 
