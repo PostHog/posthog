@@ -1,6 +1,7 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import (
     APIBaseTest,
@@ -15,6 +16,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.db import transaction
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -34,6 +36,7 @@ from products.conversations.backend.api.tickets import TicketReplyRequestSeriali
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
+from products.conversations.backend.ticket_groups import _resolve_date_value
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from ee.models.rbac.access_control import AccessControl
@@ -43,6 +46,10 @@ from ee.models.rbac.role import Role
 # Patch on_commit to execute immediately in tests
 def immediate_on_commit(func):
     func()
+
+
+def _tag_filter(*tags):
+    return {"type": "ticket_tags", "operator": "any_of", "value": list(tags)}
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -87,18 +94,19 @@ class TestTicketAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def _ticket_with_tags(self, *tag_names):
-        ticket = Ticket.objects.create_with_number(
-            team=self.team,
-            channel_source=Channel.WIDGET,
-            widget_session_id="-".join(tag_names) or "untagged",
-            distinct_id="user-123",
-            status=Status.NEW,
-        )
-        for name in tag_names:
+    def _ticket(self, *, tags=(), **fields):
+        fields.setdefault("channel_source", Channel.WIDGET)
+        fields.setdefault("widget_session_id", "-".join(tags) or "untagged")
+        fields.setdefault("distinct_id", "user-123")
+        fields.setdefault("status", Status.NEW)
+        ticket = Ticket.objects.create_with_number(team=self.team, **fields)
+        for name in tags:
             tag, _ = Tag.objects.get_or_create(name=name, team_id=self.team.id)
             ticket.tagged_items.create(tag=tag)
         return ticket
+
+    def _ticket_with_tags(self, *tag_names):
+        return self._ticket(tags=tag_names)
 
     def _list_ids(self, **params):
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data=params)
@@ -592,11 +600,11 @@ class TestTicketAPI(APIBaseTest):
         Free plan(4)."""
         self.team.conversations_settings = {
             "ticket_groups": [
-                {"label": "Triage", "tags": ["needs_triage"]},
-                {"label": "Churn risk", "tags": ["churn_risk"]},
-                {"label": "Top 20", "tags": ["plan_top20"]},
-                {"label": "Enterprise", "tags": ["plan_enterprise"]},
-                {"label": "Free plan", "tags": ["plan_free"]},
+                {"label": "Triage", "filters": [_tag_filter("needs_triage")]},
+                {"label": "Churn risk", "filters": [_tag_filter("churn_risk")]},
+                {"label": "Top 20", "filters": [_tag_filter("plan_top20")]},
+                {"label": "Enterprise", "filters": [_tag_filter("plan_enterprise")]},
+                {"label": "Free plan", "filters": [_tag_filter("plan_free")]},
             ]
         }
         self.team.save()
@@ -734,9 +742,9 @@ class TestTicketAPI(APIBaseTest):
         ordering and the rank keys in ticket_group_counts."""
         self.team.conversations_settings = {
             "ticket_groups": [
-                {"label": "VIPs", "tags": ["vip"]},
-                {"label": "Free", "tags": ["plan_free"]},
-                {"label": "Enterprise", "tags": ["plan_enterprise"]},
+                {"label": "VIPs", "filters": [_tag_filter("vip")]},
+                {"label": "Free", "filters": [_tag_filter("plan_free")]},
+                {"label": "Enterprise", "filters": [_tag_filter("plan_enterprise")]},
             ]
         }
         self.team.save()
@@ -754,12 +762,245 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(ids, [str(vip.id), str(self.ticket.id), str(free.id), str(enterprise.id)])
         self.assertEqual(response.json()["ticket_group_counts"], {"0": 2, "1": 1, "2": 1})
 
+    def test_order_by_ticket_group_channel_source_filter(self, mock_on_commit):
+        """A ticket_property in-filter on channel_source ranks matching tickets with its group."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {
+                    "label": "Slack",
+                    "filters": [
+                        {"type": "ticket_property", "key": "channel_source", "operator": "in", "value": ["slack"]}
+                    ],
+                },
+            ]
+        }
+        self.team.save()
+        slack = self._ticket(channel_source=Channel.SLACK)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [r["id"] for r in response.json()["results"]]
+        # setUp's widget ticket matches nothing → rank 0; the slack ticket ranks 1
+        self.assertEqual(ids, [str(self.ticket.id), str(slack.id)])
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 1, "1": 1})
+
+    def test_order_by_ticket_group_email_icontains_filter(self, mock_on_commit):
+        """An email_from icontains filter matches case-insensitively on a substring."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {
+                    "label": "BigCorp",
+                    "filters": [
+                        {
+                            "type": "ticket_property",
+                            "key": "email_from",
+                            "operator": "icontains",
+                            "value": "@bigcorp.com",
+                        }
+                    ],
+                },
+            ]
+        }
+        self.team.save()
+        bigcorp = self._ticket(channel_source=Channel.EMAIL, email_from="ceo@BigCorp.com")
+        self._ticket(channel_source=Channel.EMAIL, email_from="fan@example.com", distinct_id="other")
+
+        ids = self._list_ordered_ids("ticket_group")
+        # The BigCorp ticket ranks 1; setUp's widget ticket and the other-domain email rank 0
+        self.assertEqual(ids[-1], str(bigcorp.id))
+        self.assertEqual(len(ids), 3)
+
+    def test_order_by_ticket_group_sla_is_not_set_filter(self, mock_on_commit):
+        """is_set / is_not_set filters on sla_due_at split tickets by SLA presence."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {
+                    "label": "Has SLA",
+                    "filters": [{"type": "ticket_property", "key": "sla_due_at", "operator": "is_set"}],
+                },
+                {
+                    "label": "No SLA",
+                    "filters": [{"type": "ticket_property", "key": "sla_due_at", "operator": "is_not_set"}],
+                },
+            ]
+        }
+        self.team.save()
+        with_sla = self._ticket(sla_due_at=timezone.now() + timedelta(hours=1))
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [r["id"] for r in response.json()["results"]]
+        # setUp's ticket has no SLA → rank 1 via is_not_set; the SLA'd ticket ranks 0
+        self.assertEqual(ids, [str(with_sla.id), str(self.ticket.id)])
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 1, "1": 1})
+
+    def test_order_by_ticket_group_created_at_date_before_relative(self, mock_on_commit):
+        """A created_at date_before filter with a relative value ("-3d") catches stale tickets."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Recent", "filters": []},
+                {
+                    "label": "Stale",
+                    "filters": [
+                        {"type": "ticket_property", "key": "created_at", "operator": "date_before", "value": "-3d"}
+                    ],
+                },
+            ]
+        }
+        self.team.save()
+        stale = self._ticket()
+        # created_at is auto_now_add — backdate via queryset update
+        Ticket.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=5))
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [r["id"] for r in response.json()["results"]]
+        # setUp's just-created ticket matches nothing → rank 0; the backdated one ranks 1
+        self.assertEqual(ids, [str(self.ticket.id), str(stale.id)])
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 1, "1": 1})
+
+    def test_order_by_ticket_group_relative_date_is_rolling_not_midnight_anchored(self, mock_on_commit):
+        """Bare relative values are ROLLING windows: "-3d" means now − 72h with
+        time-of-day preserved, not midnight three days ago. A 60h-old ticket is
+        inside the window; an 84h-old one is out (the midnight-anchored reading
+        would let it back in for most of the day)."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Other", "filters": []},
+                {
+                    "label": "Recent",
+                    "filters": [
+                        {"type": "ticket_property", "key": "created_at", "operator": "date_after", "value": "-3d"}
+                    ],
+                },
+            ]
+        }
+        self.team.save()
+        inside = self._ticket(distinct_id="inside")
+        Ticket.objects.filter(pk=inside.pk).update(created_at=timezone.now() - timedelta(hours=60))
+        outside = self._ticket(distinct_id="outside")
+        Ticket.objects.filter(pk=outside.pk).update(created_at=timezone.now() - timedelta(hours=84))
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [r["id"] for r in response.json()["results"]]
+        # outside ranks 0 (unmatched); setUp's fresh ticket and the 60h one rank 1
+        self.assertEqual(ids[0], str(outside.id))
+        self.assertEqual(set(ids[1:]), {str(self.ticket.id), str(inside.id)})
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 1, "1": 2})
+
+    def test_order_by_ticket_group_multi_filter_group_requires_all(self, mock_on_commit):
+        """A group's filters AND together — only tickets matching every filter rank with it."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {
+                    "label": "Urgent Slack",
+                    "filters": [
+                        _tag_filter("urgent"),
+                        {"type": "ticket_property", "key": "channel_source", "operator": "in", "value": ["slack"]},
+                    ],
+                },
+            ]
+        }
+        self.team.save()
+        urgent_slack = self._ticket(tags=("urgent",), channel_source=Channel.SLACK)
+        calm_slack = self._ticket(channel_source=Channel.SLACK, distinct_id="calm")
+        urgent_widget = self._ticket(tags=("urgent",), widget_session_id="urgent-widget")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [r["id"] for r in response.json()["results"]]
+        # Only urgent_slack matches BOTH filters → rank 1; calm_slack and
+        # urgent_widget each match just one filter → rank 0 with setUp's ticket
+        self.assertEqual(ids[-1], str(urgent_slack.id))
+        self.assertEqual(set(ids[:3]), {str(self.ticket.id), str(calm_slack.id), str(urgent_widget.id)})
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 3, "1": 1})
+
+    def test_order_by_ticket_group_first_matching_group_wins(self, mock_on_commit):
+        """A ticket matching two groups (via different filter types) ranks with the FIRST."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {
+                    "label": "Slack",
+                    "filters": [
+                        {"type": "ticket_property", "key": "channel_source", "operator": "in", "value": ["slack"]}
+                    ],
+                },
+                {"label": "Urgent", "filters": [_tag_filter("urgent")]},
+            ]
+        }
+        self.team.save()
+        both = self._ticket(tags=("urgent",), channel_source=Channel.SLACK)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Matches Slack (rank 1) AND Urgent (rank 2) → ranks with the first, Slack
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 1, "1": 1})
+        ids = [r["id"] for r in response.json()["results"]]
+        self.assertEqual(ids, [str(self.ticket.id), str(both.id)])
+
+    def test_order_by_ticket_group_empty_filters_group_emits_no_rank(self, mock_on_commit):
+        """A group with filters: [] matches nothing — no ticket takes its rank
+        (unmatched tickets still fall back to rank 0)."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "A", "filters": [_tag_filter("a")]},
+                {"label": "Placeholder", "filters": []},
+                {"label": "B", "filters": [_tag_filter("b")]},
+            ]
+        }
+        self.team.save()
+        b = self._ticket_with_tags("b")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # setUp's untagged ticket falls to rank 0 (the first group), not the placeholder's rank 1
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 1, "2": 1})
+        ids = [r["id"] for r in response.json()["results"]]
+        self.assertEqual(ids, [str(self.ticket.id), str(b.id)])
+
+    def test_order_by_ticket_group_all_groups_empty_ranks_everything_zero(self, mock_on_commit):
+        """When every group has no filters there are no WHENs at all — every ticket ranks 0."""
+        self.team.conversations_settings = {
+            "ticket_groups": [{"label": "A", "filters": []}, {"label": "B", "filters": []}]
+        }
+        self.team.save()
+        self._ticket_with_tags("whatever")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 2})
+
     @parameterized.expand(
         [
             ("structural_garbage", [{"nope": True}, "what"]),
-            # A tag in two groups would sort by its first group but label by its
-            # last — the read side treats that as malformed as well.
-            ("tag_in_two_groups", [{"label": "A", "tags": ["urgent"]}, {"label": "B", "tags": ["urgent"]}]),
+            ("filters_not_a_list", [{"label": "A", "filters": "vip"}]),
+            ("filter_not_a_dict", [{"label": "A", "filters": ["vip"]}]),
+            ("unknown_filter_type", [{"label": "A", "filters": [{"type": "person_property", "value": ["x"]}]}]),
+            (
+                "duplicate_labels",
+                [{"label": "A", "filters": [_tag_filter("urgent")]}, {"label": "A", "filters": []}],
+            ),
         ]
     )
     def test_order_by_ticket_group_ignores_malformed_team_config(self, _name, groups, mock_on_commit):
@@ -2827,3 +3068,76 @@ class TestTicketAccessControl(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, expected_status, response.json())
+
+
+class TestResolveTicketGroupDateValue(SimpleTestCase):
+    """_resolve_date_value — the backend half of the shared created_at date
+    grammar. Must stay in lockstep with resolveDateValue in
+    products/conversations/frontend/scenes/tickets/ticketGroups.ts (the same
+    matrix lives in ticketGroups.test.ts)."""
+
+    # Mid-day, mid-week anchor with non-zero minutes so truncation-vs-rolling
+    # differences show. 2026-07-20 is a Monday.
+    NOW = datetime(2026, 7, 20, 12, 34, 56, 789000, tzinfo=ZoneInfo("UTC"))
+
+    def resolve(self, value: str, tz: str = "UTC"):
+        return _resolve_date_value(value, ZoneInfo(tz), now=self.NOW)
+
+    def test_bare_relative_is_rolling(self):
+        utc = ZoneInfo("UTC")
+        assert self.resolve("-3d") == datetime(2026, 7, 17, 12, 34, 56, 789000, tzinfo=utc)
+        assert self.resolve("-12h") == datetime(2026, 7, 20, 0, 34, 56, 789000, tzinfo=utc)
+        assert self.resolve("-2w") == datetime(2026, 7, 6, 12, 34, 56, 789000, tzinfo=utc)
+        assert self.resolve("-1m") == datetime(2026, 6, 20, 12, 34, 56, 789000, tzinfo=utc)
+        assert self.resolve("-1y") == datetime(2025, 7, 20, 12, 34, 56, 789000, tzinfo=utc)
+
+    def test_start_suffix_subtracts_then_truncates(self):
+        utc = ZoneInfo("UTC")
+        assert self.resolve("-3dStart") == datetime(2026, 7, 17, 0, 0, 0, 0, tzinfo=utc)
+        assert self.resolve("-12hStart") == datetime(2026, 7, 20, 0, 0, 0, 0, tzinfo=utc)
+        assert self.resolve("-1mStart") == datetime(2026, 6, 1, 0, 0, 0, 0, tzinfo=utc)
+        assert self.resolve("-1yStart") == datetime(2025, 1, 1, 0, 0, 0, 0, tzinfo=utc)
+        # Weeks start on Sunday, matching dayjs's default en locale.
+        assert self.resolve("-1wStart") == datetime(2026, 7, 12, 0, 0, 0, 0, tzinfo=utc)
+
+    def test_end_suffix_subtracts_then_snaps_to_end(self):
+        utc = ZoneInfo("UTC")
+        assert self.resolve("-3dEnd") == datetime(2026, 7, 17, 23, 59, 59, 999999, tzinfo=utc)
+        assert self.resolve("-12hEnd") == datetime(2026, 7, 20, 0, 59, 59, 999999, tzinfo=utc)
+        assert self.resolve("-1mEnd") == datetime(2026, 6, 30, 23, 59, 59, 999999, tzinfo=utc)
+        assert self.resolve("-1yEnd") == datetime(2025, 12, 31, 23, 59, 59, 999999, tzinfo=utc)
+        assert self.resolve("-1wEnd") == datetime(2026, 7, 18, 23, 59, 59, 999999, tzinfo=utc)
+
+    def test_relative_resolves_in_the_given_timezone(self):
+        # Truncation happens on the team-timezone wall clock: start of "3 days
+        # ago" in US/Pacific is 07:00 UTC that day (PDT = UTC−7).
+        assert self.resolve("-3dStart", tz="US/Pacific") == datetime(2026, 7, 17, 7, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_iso_values(self):
+        utc = ZoneInfo("UTC")
+        # Naive values take the given timezone; offset-aware ones keep their instant.
+        assert self.resolve("2026-07-01") == datetime(2026, 7, 1, 0, 0, tzinfo=utc)
+        assert self.resolve("2026-07-01T09:30:00Z") == datetime(2026, 7, 1, 9, 30, tzinfo=utc)
+        assert self.resolve("2026-07-01 09:30:00") == datetime(2026, 7, 1, 9, 30, tzinfo=utc)
+        assert self.resolve("2026-07-01", tz="US/Pacific") == datetime(2026, 7, 1, 7, 0, tzinfo=utc)
+        assert self.resolve("2026-07-01T09:30:00+02:00") == datetime(2026, 7, 1, 7, 30, tzinfo=utc)
+
+    def test_unparseable_values_resolve_to_none(self):
+        # The write validator rejects all of these; configs written by other
+        # code paths resolve to None → the filter matches nothing (frontend
+        # parity: resolveDateValue returns null).
+        for value in [
+            "-3days",
+            "3d ago",
+            "3d",
+            "+3d",
+            "-3dstart",
+            "-3DStart",
+            "-0d",
+            "-1001d",
+            "2026-1-1",
+            "20260716",  # fromisoformat would take this basic form; the shared regex doesn't
+            "garbage?!",
+            "",
+        ]:
+            assert self.resolve(value) is None, value

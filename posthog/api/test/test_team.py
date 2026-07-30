@@ -1615,23 +1615,146 @@ def team_api_test_factory():
                 {
                     "conversations_settings": {
                         "ticket_groups": [
-                            {"label": "  VIPs  ", "tags": [" vip ", "vip", "top_20"]},
-                            {"label": "Everyone else", "tags": []},
+                            {
+                                "label": "  VIPs  ",
+                                "filters": [
+                                    {"type": "ticket_tags", "operator": "any_of", "value": [" vip ", "vip", "top_20"]},
+                                    {
+                                        "type": "ticket_property",
+                                        "key": "channel_source",
+                                        "operator": "in",
+                                        "value": ["slack", "email"],
+                                    },
+                                ],
+                            },
+                            {"label": "Everyone else", "filters": []},
                         ]
                     }
                 },
             )
-            assert response.status_code == status.HTTP_200_OK
-            # Labels/tags are stripped, tags deduped within a group; empty tag lists are allowed.
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            # Labels/tags are stripped, tags deduped within a filter; empty filter lists are allowed.
             assert response.json()["conversations_settings"]["ticket_groups"] == [
-                {"label": "VIPs", "tags": ["vip", "top_20"]},
-                {"label": "Everyone else", "tags": []},
+                {
+                    "label": "VIPs",
+                    "filters": [
+                        {"type": "ticket_tags", "operator": "any_of", "value": ["vip", "top_20"]},
+                        {
+                            "type": "ticket_property",
+                            "key": "channel_source",
+                            "operator": "in",
+                            "value": ["slack", "email"],
+                        },
+                    ],
+                },
+                {"label": "Everyone else", "filters": []},
             ]
+
+        def test_conversations_settings_accepts_every_filter_operator(self):
+            groups = [
+                {
+                    "label": "Kitchen sink",
+                    "filters": [
+                        {
+                            "type": "ticket_property",
+                            "key": "email_from",
+                            "operator": "icontains",
+                            "value": "@bigcorp.com",
+                        },
+                        {"type": "ticket_property", "key": "sla_due_at", "operator": "is_set"},
+                        {"type": "ticket_property", "key": "sla_due_at", "operator": "is_not_set"},
+                        {"type": "ticket_property", "key": "created_at", "operator": "date_before", "value": "-3d"},
+                        {
+                            "type": "ticket_property",
+                            "key": "created_at",
+                            "operator": "date_after",
+                            "value": "2026-01-01",
+                        },
+                        {"type": "ticket_property", "key": "status", "operator": "in", "value": ["new", "open"]},
+                        {"type": "ticket_property", "key": "priority", "operator": "in", "value": ["critical"]},
+                    ],
+                },
+            ]
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ticket_groups": groups}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["conversations_settings"]["ticket_groups"] == groups
+
+        def test_conversations_settings_accepts_strict_date_grammar(self):
+            # The full shared grammar: -N<h|d|w|m|y> with an optional Start/End
+            # suffix, or an ISO datetime (zero-padded date, optional time with
+            # T or space separator, optional Z/±HH:MM offset). Must stay in
+            # lockstep with the frontend matrix in ticketGroups.test.ts.
+            for value in [
+                "-3d",
+                "-12h",
+                "-2w",
+                "-1mStart",
+                "-1yEnd",
+                "2026-07-01",
+                "2026-07-01T09:30:00Z",
+                "2026-07-01 09:30:00",
+                "2026-07-01T09:30:00+02:00",
+            ]:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {
+                        "conversations_settings": {
+                            "ticket_groups": [
+                                {
+                                    "label": "Recent",
+                                    "filters": [
+                                        {
+                                            "type": "ticket_property",
+                                            "key": "created_at",
+                                            "operator": "date_after",
+                                            "value": value,
+                                        }
+                                    ],
+                                }
+                            ]
+                        }
+                    },
+                )
+                assert response.status_code == status.HTTP_200_OK, (value, response.json())
+
+        def test_conversations_settings_allows_same_tag_in_two_groups(self):
+            # With first-match-wins semantics an overlapping tag is well-defined:
+            # a matching ticket simply ranks with the earlier group.
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "ticket_groups": [
+                            {
+                                "label": "A",
+                                "filters": [{"type": "ticket_tags", "operator": "any_of", "value": ["vip"]}],
+                            },
+                            {
+                                "label": "B",
+                                "filters": [{"type": "ticket_tags", "operator": "any_of", "value": ["vip"]}],
+                            },
+                        ]
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
 
         def test_conversations_settings_null_ticket_groups_resets_to_default(self):
             self.client.patch(
                 "/api/environments/@current/",
-                {"conversations_settings": {"ticket_groups": [{"label": "VIPs", "tags": ["vip"]}]}},
+                {
+                    "conversations_settings": {
+                        "ticket_groups": [
+                            {
+                                "label": "VIPs",
+                                "filters": [{"type": "ticket_tags", "operator": "any_of", "value": ["vip"]}],
+                            }
+                        ]
+                    }
+                },
             )
             response = self.client.patch(
                 "/api/environments/@current/",
@@ -1645,23 +1768,357 @@ def team_api_test_factory():
                 ("not_a_list", {"label": "x"}),
                 ("empty_list", []),
                 ("item_not_a_dict", ["vip"]),
-                ("missing_label", [{"tags": ["vip"]}]),
-                ("blank_label", [{"label": "   ", "tags": ["vip"]}]),
-                ("label_not_a_string", [{"label": 7, "tags": ["vip"]}]),
-                ("label_too_long", [{"label": "x" * 101, "tags": ["vip"]}]),
-                ("tags_not_a_list", [{"label": "VIPs", "tags": "vip"}]),
-                ("tag_not_a_string", [{"label": "VIPs", "tags": [1]}]),
-                ("blank_tag", [{"label": "VIPs", "tags": ["  "]}]),
+                ("missing_label", [{"filters": []}]),
+                ("blank_label", [{"label": "   ", "filters": []}]),
+                ("label_not_a_string", [{"label": 7, "filters": []}]),
+                ("label_too_long", [{"label": "x" * 101, "filters": []}]),
+                ("missing_filters", [{"label": "VIPs"}]),
+                ("filters_not_a_list", [{"label": "VIPs", "filters": "vip"}]),
+                ("filter_not_a_dict", [{"label": "VIPs", "filters": ["vip"]}]),
                 (
-                    "tag_in_two_groups",
-                    [{"label": "A", "tags": ["vip"]}, {"label": "B", "tags": ["vip"]}],
+                    "unknown_filter_type",
+                    [{"label": "A", "filters": [{"type": "person_property", "operator": "in", "value": ["x"]}]}],
+                ),
+                ("missing_filter_type", [{"label": "A", "filters": [{"operator": "any_of", "value": ["vip"]}]}]),
+                (
+                    "unknown_property_key",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "widget_session_id",
+                                    "operator": "in",
+                                    "value": ["x"],
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "unknown_operator_for_tags",
+                    [{"label": "A", "filters": [{"type": "ticket_tags", "operator": "in", "value": ["vip"]}]}],
+                ),
+                (
+                    "operator_invalid_for_key",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {"type": "ticket_property", "key": "status", "operator": "icontains", "value": "new"}
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "tags_value_not_a_list",
+                    [{"label": "A", "filters": [{"type": "ticket_tags", "operator": "any_of", "value": "vip"}]}],
+                ),
+                (
+                    "tags_value_empty",
+                    [{"label": "A", "filters": [{"type": "ticket_tags", "operator": "any_of", "value": []}]}],
+                ),
+                (
+                    "tag_not_a_string",
+                    [{"label": "A", "filters": [{"type": "ticket_tags", "operator": "any_of", "value": [1]}]}],
+                ),
+                (
+                    "blank_tag",
+                    [{"label": "A", "filters": [{"type": "ticket_tags", "operator": "any_of", "value": ["  "]}]}],
+                ),
+                (
+                    "tag_too_long",
+                    [{"label": "A", "filters": [{"type": "ticket_tags", "operator": "any_of", "value": ["x" * 201]}]}],
+                ),
+                (
+                    "too_many_tags_in_filter",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {"type": "ticket_tags", "operator": "any_of", "value": [f"t{i}" for i in range(101)]}
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "in_value_not_a_list",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [{"type": "ticket_property", "key": "status", "operator": "in", "value": "new"}],
+                        }
+                    ],
+                ),
+                (
+                    "in_value_empty",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [{"type": "ticket_property", "key": "status", "operator": "in", "value": []}],
+                        }
+                    ],
+                ),
+                (
+                    "in_value_unknown",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "channel_source",
+                                    "operator": "in",
+                                    "value": ["phone"],
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "icontains_value_not_a_string",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "email_from",
+                                    "operator": "icontains",
+                                    "value": ["x"],
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "icontains_value_blank",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "email_from",
+                                    "operator": "icontains",
+                                    "value": "   ",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "icontains_value_too_long",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "email_from",
+                                    "operator": "icontains",
+                                    "value": "x" * 201,
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "is_set_with_value",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {"type": "ticket_property", "key": "sla_due_at", "operator": "is_set", "value": True}
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_missing",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [{"type": "ticket_property", "key": "created_at", "operator": "date_before"}],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_not_a_string",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {"type": "ticket_property", "key": "created_at", "operator": "date_before", "value": 3}
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_unparseable",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "garbage?!",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                # The relative grammar is a strict fullmatch: -N<h|d|w|m|y> with
+                # an optional case-sensitive Start/End suffix. The old
+                # re.search-based check accepted all of these, but the frontend
+                # read them differently (or not at all) — see ticketGroups.ts.
+                (
+                    "date_value_spelled_out_unit",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "-3days",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_with_ago",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "3d ago",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_missing_leading_minus",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "3d",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_plus_prefix",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "+3d",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_lowercase_suffix",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "-3dstart",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_zero_units",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "-0d",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_too_far_back",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "-1001d",
+                                }
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "date_value_iso_not_zero_padded",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {
+                                    "type": "ticket_property",
+                                    "key": "created_at",
+                                    "operator": "date_before",
+                                    "value": "2026-1-1",
+                                }
+                            ],
+                        }
+                    ],
                 ),
                 (
                     "duplicate_label",
-                    [{"label": "A", "tags": ["vip"]}, {"label": "A", "tags": ["beta"]}],
+                    [{"label": "A", "filters": []}, {"label": "A", "filters": []}],
                 ),
-                ("too_many_groups", [{"label": f"g{i}", "tags": []} for i in range(51)]),
-                ("too_many_tags_in_group", [{"label": "A", "tags": [f"t{i}" for i in range(101)]}]),
+                ("too_many_groups", [{"label": f"g{i}", "filters": []} for i in range(51)]),
+                (
+                    "too_many_filters_in_group",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {"type": "ticket_tags", "operator": "any_of", "value": [f"t{i}"]} for i in range(11)
+                            ],
+                        }
+                    ],
+                ),
             ]
         )
         def test_conversations_settings_rejects_invalid_ticket_groups(self, _name, groups):

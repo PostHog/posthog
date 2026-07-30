@@ -36,9 +36,9 @@ describe('buildTicketColumns', () => {
     })
 
     it('labels the ticket group cell against the configured groups', () => {
-        const groups = [
-            { label: 'VIPs', tags: ['vip'] },
-            { label: 'Everyone else', tags: ['plan_free'] },
+        const groups: { label: string; filters: any[] }[] = [
+            { label: 'VIPs', filters: [{ type: 'ticket_tags', operator: 'any_of', value: ['vip'] }] },
+            { label: 'Everyone else', filters: [{ type: 'ticket_tags', operator: 'any_of', value: ['plan_free'] }] },
         ]
         const column = buildTicketColumns(['ticket_group'], { ...context, ticketGroups: groups }).find(
             (c): c is LemonTableColumn<Ticket, keyof Ticket | undefined> => 'key' in c && c.key === 'ticket_group'

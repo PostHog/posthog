@@ -1,5 +1,7 @@
 import { LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+
 import { Ticket } from '../../types'
 import { TicketGroup, ticketGroupLabel } from './ticketGroups'
 
@@ -67,6 +69,9 @@ export function buildTicketGroupedRows(tickets: Ticket[], context: TicketGroupin
     const rows: TicketListRow[] = []
     let ladderIndex = 0
     let currentGroup: string | null = null
+    // One anchor for the whole walk, so a relative date filter can't flip
+    // between tickets mid-walk.
+    const now = dayjs()
 
     const emitEmptiesUpTo = (group: string, provable: boolean): void => {
         while (ladderIndex < ladder.length && ladder[ladderIndex] !== group) {
@@ -78,7 +83,7 @@ export function buildTicketGroupedRows(tickets: Ticket[], context: TicketGroupin
     }
 
     for (const ticket of tickets) {
-        const group = ticketGroupLabel(ticket.tags, groups)
+        const group = ticketGroupLabel(ticket, groups, now)
         if (group !== currentGroup) {
             // Gaps before the page's first group are provable only on page 1;
             // gaps between groups adjacent on this page are always provable.

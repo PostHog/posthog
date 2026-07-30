@@ -795,8 +795,13 @@ export interface ConversationsSettings {
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
     /** Ordered ticket groups for the tickets list's ticket_group
-     * sort/grouping; null/absent means the built-in default groups. */
-    ticket_groups?: { label: string; tags: string[] }[] | null
+     * sort/grouping; null/absent means the built-in default groups. Each
+     * filter follows the vocabulary in
+     * products/conversations/frontend/scenes/tickets/ticketGroups.ts
+     * (typed loosely here because the settings blob has other writers). */
+    ticket_groups?:
+        | { label: string; filters: { type: string; key?: string; operator: string; value?: string | string[] }[] }[]
+        | null
 }
 
 export interface LogsSettings {

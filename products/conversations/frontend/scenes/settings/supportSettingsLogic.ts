@@ -12,7 +12,12 @@ import { SlackChannelType, UserBasicType } from '~/types'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { TicketChannel } from '../../types'
-import { DEFAULT_TICKET_GROUPS, TicketGroup, teamTicketGroups } from '../tickets/ticketGroups'
+import {
+    DEFAULT_TICKET_GROUPS,
+    TicketGroup,
+    isValidTicketGroupDateValue,
+    teamTicketGroups,
+} from '../tickets/ticketGroups'
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 
@@ -1039,21 +1044,44 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 if (draft.some((group) => group.label.trim().length > 100)) {
                     return 'Group labels can be at most 100 characters.'
                 }
-                if (draft.some((group) => group.tags.length > 100)) {
-                    return 'At most 100 tags per group.'
-                }
-                if (draft.some((group) => group.tags.some((tag) => tag.trim().length > 200))) {
-                    return 'Tags can be at most 200 characters.'
-                }
                 const labels = draft.map((group) => group.label.trim())
                 if (new Set(labels).size !== labels.length) {
                     return 'Group labels must be unique.'
                 }
-                // Compare trimmed, like the server does — " vip" and "vip" are the same tag.
-                const allTags = draft.flatMap((group) => [...new Set(group.tags.map((tag) => tag.trim()))])
-                const duplicate = allTags.find((tag, index) => allTags.indexOf(tag) !== index)
-                if (duplicate) {
-                    return `The tag "${duplicate}" is in more than one group — a tag can only rank one way.`
+                if (draft.some((group) => group.filters.length > 10)) {
+                    return 'At most 10 filters per group.'
+                }
+                for (const group of draft) {
+                    const label = group.label.trim() || 'this group'
+                    for (const filter of group.filters) {
+                        if (filter.type === 'ticket_tags' || filter.operator === 'in') {
+                            const values = (filter.value as string[]).map((item) => item.trim()).filter(Boolean)
+                            if (values.length === 0) {
+                                return `A filter in “${label}” needs at least one value.`
+                            }
+                            if (values.length > 100) {
+                                return `At most 100 values per filter (in “${label}”).`
+                            }
+                            if (values.some((item) => item.length > 200)) {
+                                return `Filter values can be at most 200 characters (in “${label}”).`
+                            }
+                        } else if (filter.operator === 'icontains') {
+                            if (!filter.value.trim()) {
+                                return `The email filter in “${label}” needs text to match.`
+                            }
+                            if (filter.value.trim().length > 200) {
+                                return `Filter values can be at most 200 characters (in “${label}”).`
+                            }
+                        } else if (filter.operator === 'date_before' || filter.operator === 'date_after') {
+                            if (!filter.value.trim()) {
+                                return `The created date filter in “${label}” needs a value (e.g. "-3d").`
+                            }
+                            if (!isValidTicketGroupDateValue(filter.value.trim())) {
+                                return `The created date filter in “${label}” must be a relative date like "-3d" (units h/d/w/m/y, optional Start/End) or an ISO date like "2026-07-01".`
+                            }
+                        }
+                        // is_set / is_not_set carry no value.
+                    }
                 }
                 return null
             },

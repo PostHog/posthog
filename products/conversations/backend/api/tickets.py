@@ -604,7 +604,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         # them across pages.
         if order_by in ("ticket_group", "-ticket_group"):
             groups = team_ticket_groups(self.team)
-            return queryset.annotate(ticket_group_rank=ticket_group_rank_annotation(groups)).order_by(
+            return queryset.annotate(
+                ticket_group_rank=ticket_group_rank_annotation(groups, self.team.timezone_info)
+            ).order_by(
                 "-ticket_group_rank" if order_by.startswith("-") else "ticket_group_rank",
                 F("sla_due_at").asc(nulls_last=True),
                 "-ticket_number",

@@ -10,6 +10,11 @@ import {
 
 const ticket = (id: string, tags: string[]): Ticket => ({ id, tags }) as unknown as Ticket
 
+const tagGroup = (label: string, ...tags: string[]): { label: string; filters: any[] } => ({
+    label,
+    filters: [{ type: 'ticket_tags', operator: 'any_of', value: tags }],
+})
+
 const triage = ticket('t', [])
 const churn = ticket('ch', ['churn_risk'])
 const top20 = ticket('t20', ['top_20'])
@@ -20,12 +25,12 @@ const community = ticket('co', ['community'])
 // A six-tier fixture ladder — enough groups to exercise leading/inner/trailing
 // gaps, independent of the example default ladder.
 const GROUPS = [
-    { label: 'Triage', tags: ['needs_triage'] },
-    { label: 'Churn risk', tags: ['churn_risk'] },
-    { label: 'Top 20', tags: ['top_20'] },
-    { label: 'Enterprise', tags: ['plan_enterprise'] },
-    { label: 'Free plan', tags: ['plan_free'] },
-    { label: 'Community', tags: ['community'] },
+    tagGroup('Triage', 'needs_triage'),
+    tagGroup('Churn risk', 'churn_risk'),
+    tagGroup('Top 20', 'top_20'),
+    tagGroup('Enterprise', 'plan_enterprise'),
+    tagGroup('Free plan', 'plan_free'),
+    tagGroup('Community', 'community'),
 ]
 
 const SINGLE_PAGE = {
@@ -124,20 +129,14 @@ describe('buildTicketGroupedRows', () => {
     })
 
     it('groups against a custom ladder', () => {
-        const groups = [
-            { label: 'VIPs', tags: ['vip'] },
-            { label: 'Everyone else', tags: ['plan_free'] },
-        ]
+        const groups = [tagGroup('VIPs', 'vip'), tagGroup('Everyone else', 'plan_free')]
         const vip = ticket('v', ['vip'])
         const rows = buildTicketGroupedRows([vip, free], { ...SINGLE_PAGE, groups })
         expect(rows).toEqual([{ ticketGroupHeader: 'VIPs' }, vip, { ticketGroupHeader: 'Everyone else' }, free])
     })
 
     it('does not mutate the caller-owned groups array when descending', () => {
-        const groups = [
-            { label: 'VIPs', tags: ['vip'] },
-            { label: 'Everyone else', tags: ['plan_free'] },
-        ]
+        const groups = [tagGroup('VIPs', 'vip'), tagGroup('Everyone else', 'plan_free')]
         buildTicketGroupedRows([free], { ...SINGLE_PAGE, groups, desc: true })
         expect(groups.map((g) => g.label)).toEqual(['VIPs', 'Everyone else'])
     })

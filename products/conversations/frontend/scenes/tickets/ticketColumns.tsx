@@ -51,7 +51,7 @@ interface TicketColumnDefinition {
 const ticketGroupRender =
     (groups: TicketGroup[]) =>
     (_: unknown, ticket: Ticket): JSX.Element => {
-        const label = ticketGroupLabel(ticket.tags, groups)
+        const label = ticketGroupLabel(ticket, groups)
         return (
             // Cap the cell at about the header's width ("Ticket group" +
             // sort arrow) so a long group label can't blow the column out;
