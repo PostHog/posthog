@@ -46,6 +46,10 @@ import { draftsLogic } from '../draftsLogic'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
 
+/** An editor's report of the connection its tree should be scoped to. Wrapped so "no connection
+ * reported yet" stays distinguishable from "reported the PostHog warehouse". */
+export type TreeConnectionScope = { connectionId: string | null }
+
 export interface FuseSearchMatch {
     // kea-typegen has a problem importing Fuse itself, so we have to duplicate this type
     indices: readonly [number, number][]
@@ -227,6 +231,17 @@ const shouldHideFieldName = (fieldName: string): boolean => {
 const shouldUseDirectConnectionTree = (connectionId: string | null): boolean => {
     return !!connectionId && connectionId !== POSTHOG_WAREHOUSE
 }
+
+/**
+ * The schema catalog (`databaseTableListLogic`) is an unkeyed singleton, so its `connectionId` is
+ * whichever editor loaded a schema last — not necessarily the editor this tree is rendered beside.
+ * Editors report their own connection through `setTreeConnectionScope`, and that report wins; the
+ * catalog is only the fallback for surfaces that never report one.
+ */
+const resolveTreeConnectionId = (
+    reportedScope: TreeConnectionScope | null,
+    catalogConnectionId: string | null
+): string | null => (reportedScope ? reportedScope.connectionId : catalogConnectionId)
 
 const createColumnNode = (
     tableName: string,
@@ -1395,6 +1410,8 @@ export interface queryDatabaseLogicValues {
     selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null
     sidebarOverlayTreeItems: TreeItem[]
     syncMoreNoticeDismissed: boolean
+    treeConnectionId: string | null
+    treeConnectionScope: TreeConnectionScope | null
     treeData: TreeDataItem[]
     treeDataContext: TreeDataContext
     treeRef: EditorSidebarTreeRef
@@ -1605,6 +1622,9 @@ export interface queryDatabaseLogicActions {
     setSyncMoreNoticeDismissed: (dismissed: boolean) => {
         dismissed: boolean
     }
+    setTreeConnectionScope: (connectionId: string | null) => {
+        connectionId: string | null
+    }
     setTreeRef: (ref: EditorSidebarTreeRef | null) => {
         ref: EditorSidebarTreeRef
     }
@@ -1663,9 +1683,13 @@ export interface queryDatabaseLogicMeta {
             latestEndpointTables: DatabaseSchemaEndpointTable[],
             searchTerm: string
         ) => [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+        treeConnectionId: (
+            treeConnectionScope: TreeConnectionScope | null,
+            connectionId: string | null
+        ) => string | null
         selectedDirectSource: (
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
-            connectionId: string | null
+            treeConnectionId: string | null
         ) =>
             | {
                   job_inputs?: Record<string, any>
@@ -1794,6 +1818,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         moveDraggedViewToDropTarget: (viewId: string, dropTargetId: string | null) => ({ viewId, dropTargetId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        setTreeConnectionScope: (connectionId: string | null) => ({ connectionId }),
     }),
     connect(() => ({
         values: [
@@ -1859,6 +1884,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
             {
                 selectSchema: (_, { schema }) => schema,
+            },
+        ],
+        treeConnectionScope: [
+            null as TreeConnectionScope | null,
+            {
+                setTreeConnectionScope: (_, { connectionId }) => ({ connectionId }),
             },
         ],
         expandedFoldersByConnection: [
@@ -1947,7 +1978,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 const folderNodeId = `view-folder-${payload.folder_id}`
                 actions.setExpandedFolders(
                     Array.from(new Set([...values.expandedFolders, 'views', folderNodeId])),
-                    values.connectionId
+                    values.treeConnectionId
                 )
             }
         },
@@ -2164,13 +2195,18 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return latestEndpointTables.map((table) => [table, null])
             },
         ],
+        treeConnectionId: [
+            (s) => [s.treeConnectionScope, s.connectionId],
+            (treeConnectionScope: TreeConnectionScope | null, connectionId: string | null): string | null =>
+                resolveTreeConnectionId(treeConnectionScope, connectionId),
+        ],
         selectedDirectSource: [
-            (s) => [s.dataWarehouseSources, s.connectionId],
+            (s) => [s.dataWarehouseSources, s.treeConnectionId],
             (
                 dataWarehouseSources: null | import('lib/api').PaginatedResponse<import('~/types').ExternalDataSource>,
-                connectionId: string | null
+                treeConnectionId: string | null
             ): { job_inputs?: Record<string, any> } | undefined => {
-                return dataWarehouseSources?.results.find((source) => source.id === connectionId)
+                return dataWarehouseSources?.results.find((source) => source.id === treeConnectionId)
             },
         ],
         searchTreeSourceContext: [
@@ -2726,7 +2762,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         displayedTreeData: [
-            (s) => [s.searchTerm, s.searchTreeData, s.treeData, s.connectionId, s.selectedDirectSource],
+            (s) => [s.searchTerm, s.searchTreeData, s.treeData, s.treeConnectionId, s.selectedDirectSource],
             (
                 searchTerm: string,
                 searchTreeData: TreeDataItem[],
@@ -2801,7 +2837,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         expandedFolders: [
-            (s) => [s.connectionId, s.expandedFoldersByConnection],
+            (s) => [s.treeConnectionId, s.expandedFoldersByConnection],
             (connectionId: string | null, expandedFoldersByConnection: Record<string, string[]>): string[] => {
                 const key = getExpandedFoldersConnectionKey(connectionId)
 
@@ -2811,7 +2847,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
         defaultExpandedRootIds: [
-            (s) => [s.connectionId, s.displayedTreeData],
+            (s) => [s.treeConnectionId, s.displayedTreeData],
             (connectionId: string | null, displayedTreeData: TreeDataItem[]): string[] =>
                 getDefaultExpandedRootIds(connectionId, displayedTreeData),
         ],
@@ -2937,14 +2973,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 } else {
                     actions.setExpandedFolders(
                         expandedFolders.filter((f) => f !== folderId),
-                        values.connectionId
+                        values.treeConnectionId
                     )
                 }
             } else {
                 if (values.searchTerm) {
                     actions.setExpandedSearchFolders([...expandedFolders, folderId])
                 } else {
-                    actions.setExpandedFolders([...expandedFolders, folderId], values.connectionId)
+                    actions.setExpandedFolders([...expandedFolders, folderId], values.treeConnectionId)
                 }
             }
         },
@@ -2965,11 +3001,11 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     })),
     subscriptions(({ actions, values }) => ({
         displayedTreeData: (displayedTreeData: TreeDataItem[]) => {
-            if (values.searchTerm || !shouldUseDirectConnectionTree(values.connectionId)) {
+            if (values.searchTerm || !shouldUseDirectConnectionTree(values.treeConnectionId)) {
                 return
             }
 
-            const key = getExpandedFoldersConnectionKey(values.connectionId)
+            const key = getExpandedFoldersConnectionKey(values.treeConnectionId)
             const currentExpandedFolders = values.expandedFoldersByConnection[key]
 
             if (!shouldInitializeDirectConnectionExpandedFolders(displayedTreeData, currentExpandedFolders)) {
@@ -2977,8 +3013,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             }
 
             actions.setExpandedFolders(
-                getInitialExpandedFolders(values.connectionId, displayedTreeData),
-                values.connectionId
+                getInitialExpandedFolders(values.treeConnectionId, displayedTreeData),
+                values.treeConnectionId
             )
         },
         posthogTables: (posthogTables: DatabaseSchemaTable[]) => {

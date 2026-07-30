@@ -109,7 +109,7 @@ export const QueryDatabase = ({
         editingDraftId,
         displayedTreeData,
         expandedItemIds,
-        connectionId,
+        treeConnectionId: connectionId,
         activeDraggedViewId,
         highlightedDropFolderId,
         highlightViewsSectionDrop,
@@ -130,6 +130,7 @@ export const QueryDatabase = ({
         renameDraft,
         openUnsavedQuery,
         deleteUnsavedQuery,
+        setTreeConnectionScope,
     } = useActions(queryDatabaseLogic)
     const {
         createDataWarehouseSavedQueryFolder,
@@ -148,8 +149,14 @@ export const QueryDatabase = ({
         setSourceQuery,
         insertTextAtCursor,
     } = useActions(sqlEditorLogic)
-    const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
+    const { isEmbeddedMode, sourceQuery, selectedConnectionId } = useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
+    // The schema catalog this tree reads is a project-wide singleton, so its connection reflects
+    // whichever editor loaded a schema last. Report the connection of the editor we're actually
+    // rendered beside, so the tree never scopes itself to someone else's connection.
+    useEffect(() => {
+        setTreeConnectionScope(selectedConnectionId ?? null)
+    }, [selectedConnectionId, setTreeConnectionScope])
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
     // Edit view use the view's own user_access_level inline below.

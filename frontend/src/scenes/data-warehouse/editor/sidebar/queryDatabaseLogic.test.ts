@@ -1,7 +1,12 @@
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+
+import { initKeaTests } from '~/test/init'
+
 import {
     getDefaultExpandedRootIds,
     getInitialExpandedFolders,
     groupDirectConnectionTableNodesBySchema,
+    queryDatabaseLogic,
     shouldInitializeDirectConnectionExpandedFolders,
 } from './queryDatabaseLogic'
 
@@ -198,5 +203,37 @@ describe('queryDatabaseLogic', () => {
                 ['views', 'schema-system']
             )
         ).toEqual(false)
+    })
+
+    describe('connection scoping of the tree', () => {
+        let logic: ReturnType<typeof queryDatabaseLogic.build>
+
+        const hasTopLevelViewsSection = (): boolean =>
+            logic.values.displayedTreeData.some((item) => item.record?.type === 'views')
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = queryDatabaseLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('keeps saved views listed when another editor scoped the shared catalog to its connection', () => {
+            databaseTableListLogic.findMounted()?.actions.setConnection('postgres-connection')
+            logic.actions.setTreeConnectionScope(null)
+
+            expect(logic.values.treeConnectionId).toEqual(null)
+            expect(hasTopLevelViewsSection()).toEqual(true)
+        })
+
+        it('hides saved views for the editor that is querying a direct connection', () => {
+            logic.actions.setTreeConnectionScope('postgres-connection')
+
+            expect(logic.values.treeConnectionId).toEqual('postgres-connection')
+            expect(hasTopLevelViewsSection()).toEqual(false)
+        })
     })
 })
