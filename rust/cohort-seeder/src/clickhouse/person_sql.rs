@@ -6,10 +6,12 @@
 //! order. The horizon appears twice on purpose: the `id IN (…)` prefilter keeps the `_timestamp`
 //! minmax skip index usable (a bare `HAVING` would decompress every historical version of every
 //! person), while the `HAVING` clause states the update-recency semantics against the group —
-//! `argMax` still sees all versions of the surviving ids. `optimize_aggregation_in_order = 1`
-//! keeps the streaming aggregation bounded; the client's external-group-by spill guard backstops a
-//! silent optimizer fallback. Only the boundary query orders its output — the range scan's fold is
-//! order-independent, and an unneeded `ORDER BY` would materialize the whole chunk result.
+//! `argMax` still sees all versions of the surviving ids. That prefilter is the one unbounded
+//! structure here: the boundary query's set spans a whole team, so the client caps it with
+//! `max_bytes_in_set`. `optimize_aggregation_in_order = 1` keeps the streaming aggregation
+//! bounded; the client's external-group-by spill guard backstops a silent optimizer fallback. Only
+//! the boundary query orders its output — the range scan's fold is order-independent, and an
+//! unneeded `ORDER BY` would materialize the whole chunk result.
 
 use cohort_core::filters::TeamId;
 

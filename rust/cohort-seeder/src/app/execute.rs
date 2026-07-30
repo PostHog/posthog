@@ -278,6 +278,18 @@ pub(super) fn record_task_result(
 mod tests {
     use super::*;
 
+    /// Which stage a state declares is the other half of the matrix, and the half the matrix test
+    /// cannot see: flipping [`StreamedChunk`] to `PostMark` would fail every person chunk caught by
+    /// a shutdown instead of unclaiming it, with the matrix test still green.
+    #[test]
+    fn chunk_states_declare_their_recovery_stage() {
+        assert_eq!(<ClaimedChunk as ChunkState>::STAGE, FailureStage::PreMark);
+        assert_eq!(<ScannedChunk as ChunkState>::STAGE, FailureStage::PreMark);
+        assert_eq!(<StreamedChunk as ChunkState>::STAGE, FailureStage::PreMark);
+        assert_eq!(<EnqueuedChunk as ChunkState>::STAGE, FailureStage::PostMark);
+        assert_eq!(<ProducedChunk as ChunkState>::STAGE, FailureStage::PostMark);
+    }
+
     #[test]
     fn failure_disposition_encodes_the_recovery_matrix() {
         assert_eq!(

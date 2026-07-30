@@ -28,7 +28,7 @@ use super::completion::CompletionDriver;
 use super::execute::{execute_chunk, record_task_result, ChunkOutcome, ChunkTaskContext};
 use super::person_execute::{execute_person_chunk, PersonChunkTaskContext};
 use super::person_plan::{plan_person_run, PersonPlanAttempt, PersonPlanRequest};
-use super::prepare::{refresh_runs, PreparedRun, RefreshOutcome};
+use super::prepare::{refresh_runs, run_ids_of_kind, PreparedRun, RefreshOutcome};
 use super::settings::OrchestratorSettings;
 
 const PRODUCER_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
@@ -67,11 +67,13 @@ impl PlanningState {
             .is_some_and(|failed_at| failed_at.elapsed() < PERSON_PLANNING_RETRY_BACKOFF)
     }
 
-    /// Forget runs that no longer need planning, bounding the failure map.
-    fn retain_candidates(&mut self, requests: &[PersonPlanRequest]) {
-        let requested: HashSet<RunId> = requests.iter().map(|request| request.run.run_id).collect();
+    /// Drop cool-downs that have run their course, bounding the failure map. Keyed on age, never on
+    /// the pass's request set: `refresh_runs` yields no requests at all when discovery errors, and
+    /// reading that as "nothing needs planning" would refund every cool-down and put a persistently
+    /// failing run straight back into the sole planning slot.
+    fn expire_backoffs(&mut self) {
         self.failed_at
-            .retain(|run_id, _| requested.contains(run_id));
+            .retain(|_, failed_at| failed_at.elapsed() < PERSON_PLANNING_RETRY_BACKOFF);
     }
 }
 
@@ -231,7 +233,7 @@ impl SeederOrchestrator {
         let (Some(person), Some(person_settings)) = (&self.person, self.settings.person) else {
             return;
         };
-        state.retain_candidates(&requests);
+        state.expire_backoffs();
         for request in requests {
             if planning.len() >= MAX_CONCURRENT_PLANNING_SCANS || shutdown.is_cancelled() {
                 return;
@@ -389,16 +391,23 @@ fn record_claim(claim_kind: ClaimKind, run_kind: RunKind) {
     }
 }
 
-fn run_ids_of_kind(eligible_runs: &HashMap<RunId, PreparedRun>, kind: RunKind) -> Vec<RunId> {
-    eligible_runs
-        .iter()
-        .filter(|(_, prepared)| {
-            matches!(
-                (prepared, kind),
-                (PreparedRun::Behavioral(_), RunKind::Behavioral)
-                    | (PreparedRun::Person(_), RunKind::PersonProperty)
-            )
-        })
-        .map(|(run_id, _)| *run_id)
-        .collect()
+#[cfg(test)]
+mod tests {
+    use uuid::Uuid;
+
+    use super::*;
+
+    /// A bookkeeping pass must never refund an unexpired cool-down. Pruning against the pass's
+    /// request set did: a discovery blip yields an empty set, which read as "no run needs
+    /// planning" and handed a persistently failing run the planning slot again on the next tick.
+    #[test]
+    fn expiring_backoffs_keeps_an_unexpired_cooldown() {
+        let mut state = PlanningState::default();
+        let run_id = RunId(Uuid::nil());
+        state.failed_at.insert(run_id, Instant::now());
+
+        state.expire_backoffs();
+
+        assert!(state.in_backoff(run_id));
+    }
 }

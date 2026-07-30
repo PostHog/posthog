@@ -243,6 +243,9 @@ impl PgChunkStore {
                   AND ((c.status IN {retryable} AND c.attempts < $4)
                        OR (c.status = $6 AND c.lease_expires_at < now())
                        OR (c.status = $5 AND c.lease_expires_at < now() AND c.attempts < $4))
+                -- Cross-kind priority rides on this ordering: person chunks are planned under a
+                -- far-future sentinel day, so behavioral work (readiness-gating, fence-sensitive)
+                -- always drains first. Reordering here silently inverts that.
                 ORDER BY c.day, c.band
                 LIMIT 1
                 FOR UPDATE OF c SKIP LOCKED

@@ -453,6 +453,8 @@ mod tests {
     use proptest::prelude::*;
     use serde_json::json;
 
+    use super::super::chunk::BandSpec;
+    use super::super::ids::{ChunkId, SChunkMs};
     use super::*;
 
     fn hash(value: &str) -> ConditionHash {
@@ -744,16 +746,69 @@ mod tests {
         ));
     }
 
-    fn build_evaluator(emit_nonmatchers: bool) -> PersonEvaluator {
-        let validated = seedable(PinnedPersonRun::validate(snapshot(
+    fn seedable_run() -> ValidatedPinnedPersonRun {
+        seedable(PinnedPersonRun::validate(snapshot(
             pinned(&[(1, HASH_A), (1, HASH_B)]),
             vec![participation(
                 1,
                 person_filter_leaves(&[(HASH_A, "email", "a@b.com"), (HASH_B, "plan", "paid")]),
                 false,
             )],
-        )));
-        PersonEvaluator::new(TeamId(2), validated.run.conditions, emit_nonmatchers)
+        )))
+    }
+
+    fn build_evaluator(emit_nonmatchers: bool) -> PersonEvaluator {
+        PersonEvaluator::new(TeamId(2), seedable_run().run.conditions, emit_nonmatchers)
+    }
+
+    const CLAIM_STAMP_MS: i64 = 1_783_470_000_000;
+
+    fn claimed_spec(
+        run_id: RunId,
+        team_id: TeamId,
+        person_range: Option<PersonRange>,
+    ) -> ChunkSpec {
+        ChunkSpec {
+            lease: ChunkLease::new(ChunkId(Uuid::from_u128(11)), run_id, ClaimEpoch(3)),
+            team_id,
+            day: 0,
+            band: BandSpec::new(0, 1).unwrap(),
+            s_chunk: SChunkMs(CLAIM_STAMP_MS),
+            person_range,
+        }
+    }
+
+    /// The narrowing guard fences the scan: a chunk from another run or team must never be scanned
+    /// against this run's conditions, and a chunk with no range is a behavioral chunk — scanning it
+    /// would sweep the entire UUID space. The accepted case pins the one deliberate claim-stamp →
+    /// `scanned_at` bridge.
+    #[test]
+    fn chunk_spec_admits_only_this_runs_ranged_chunks() {
+        let run = seedable_run().run;
+        let range = PersonRange::new(Uuid::nil(), None).unwrap();
+
+        assert!(matches!(
+            run.chunk_spec(&claimed_spec(
+                RunId(Uuid::from_u128(9)),
+                run.team_id,
+                Some(range)
+            )),
+            Err(PersonChunkSpecError::RunMismatch { .. })
+        ));
+        assert!(matches!(
+            run.chunk_spec(&claimed_spec(run.run_id, TeamId(3), Some(range))),
+            Err(PersonChunkSpecError::RunMismatch { .. })
+        ));
+        assert!(matches!(
+            run.chunk_spec(&claimed_spec(run.run_id, run.team_id, None)),
+            Err(PersonChunkSpecError::MissingRange(_))
+        ));
+
+        let spec = run
+            .chunk_spec(&claimed_spec(run.run_id, run.team_id, Some(range)))
+            .unwrap();
+        assert_eq!(spec.range, range);
+        assert_eq!(spec.scanned_at, ScannedAtMs(CLAIM_STAMP_MS));
     }
 
     fn context() -> PersonSeedContext {

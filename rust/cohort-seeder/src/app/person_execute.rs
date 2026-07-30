@@ -7,9 +7,8 @@
 //! confirm runs — the behavioral post-mark machinery reused verbatim.
 
 use std::sync::Arc;
-use std::time::Instant;
 
-use metrics::{counter, histogram};
+use metrics::counter;
 use tokio_util::sync::CancellationToken;
 
 use cohort_core::hogvm::VmErrorClass;
@@ -23,7 +22,7 @@ use crate::domain::{
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
 use crate::observability::metrics::{
-    PERSONS_SCANNED, PERSON_CHUNK_SCAN_DURATION_SECONDS, PERSON_HOGVM_ERRORS,
+    MetricTimer, PERSONS_SCANNED, PERSON_CHUNK_SCAN_DURATION_SECONDS, PERSON_HOGVM_ERRORS,
     PERSON_NONMATCHERS_SKIPPED, PERSON_ROWS_SKIPPED, PERSON_SEEDS_PRODUCED,
 };
 use crate::store::chunks::PgChunkStore;
@@ -133,7 +132,7 @@ async fn stream_chunk(
     let mut seeds_produced: u64 = 0;
     // Started after setup so the spec/cursor early returns don't seed the histogram with
     // near-zero samples.
-    let _timer = ScanTimer::start();
+    let _timer = MetricTimer::start(PERSON_CHUNK_SCAN_DURATION_SECONDS);
 
     loop {
         let row = tokio::select! {
@@ -200,20 +199,6 @@ fn record_row_stats(stats: RecordStats) {
     }
     for (class, count) in stats.vm_failures.iter().filter(|(_, count)| *count > 0) {
         counter!(PERSON_HOGVM_ERRORS, "class" => class.as_str()).increment(u64::from(count));
-    }
-}
-
-struct ScanTimer(Instant);
-
-impl ScanTimer {
-    fn start() -> Self {
-        Self(Instant::now())
-    }
-}
-
-impl Drop for ScanTimer {
-    fn drop(&mut self) {
-        histogram!(PERSON_CHUNK_SCAN_DURATION_SECONDS).record(self.0.elapsed().as_secs_f64());
     }
 }
 

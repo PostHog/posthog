@@ -213,6 +213,13 @@ pub struct Config {
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_before_external_sort: u64,
 
+    /// Runaway guard on sets built from `IN (SELECT …)` subqueries, which nothing else bounds — the
+    /// person boundary scan's horizon prefilter builds one id set covering a whole team, unchunked.
+    /// Exceeding it throws a set-size error naming the limit rather than pushing the server toward
+    /// an OOM that takes unrelated queries down with it.
+    #[envconfig(default = "20000000000")]
+    pub seeder_ch_max_bytes_in_set: u64,
+
     #[envconfig(default = "grace_hash")]
     pub seeder_ch_join_algorithm: String,
 

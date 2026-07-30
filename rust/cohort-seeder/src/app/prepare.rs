@@ -109,11 +109,19 @@ pub(super) async fn refresh_runs(
     for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
         let count = without_chunks.get(&kind).copied().unwrap_or(0);
         gauge!(RUNS_WITHOUT_CHUNKS, "kind" => kind.as_str()).set(count as f64);
-    }
-    let eligible_run_ids = eligible.keys().copied().collect::<Vec<_>>();
-    match store.remaining_chunks(&eligible_run_ids).await {
-        Ok(remaining) => gauge!(RUN_CHUNKS_REMAINING).set(remaining as f64),
-        Err(error) => warn!(error = %error, "counting remaining chunks failed"),
+        // Split by kind too: a person run's chunk count tracks its team's person volume, on a
+        // scale unrelated to behavioral day-bands, so one series would bury the other's burn-down.
+        match store
+            .remaining_chunks(&run_ids_of_kind(&eligible, kind))
+            .await
+        {
+            Ok(remaining) => {
+                gauge!(RUN_CHUNKS_REMAINING, "kind" => kind.as_str()).set(remaining as f64);
+            }
+            Err(error) => {
+                warn!(error = %error, kind = kind.as_str(), "counting remaining chunks failed");
+            }
+        }
     }
     reported_runs.retain(|run_id| seen_runs.contains(run_id));
     RefreshOutcome { eligible, planning }
@@ -324,6 +332,25 @@ async fn prepare_person(
             PrepareOutcome::Skipped
         }
     }
+}
+
+/// The eligible run ids of one kind — the per-kind label on every shared chunk metric resolves
+/// through here, so the mapping lives in one place.
+pub(super) fn run_ids_of_kind(
+    eligible_runs: &HashMap<RunId, PreparedRun>,
+    kind: RunKind,
+) -> Vec<RunId> {
+    eligible_runs
+        .iter()
+        .filter(|(_, prepared)| {
+            matches!(
+                (prepared, kind),
+                (PreparedRun::Behavioral(_), RunKind::Behavioral)
+                    | (PreparedRun::Person(_), RunKind::PersonProperty)
+            )
+        })
+        .map(|(run_id, _)| *run_id)
+        .collect()
 }
 
 fn record_coverage(run_id: RunId, kind: RunKind, uncovered_cohorts: &[CohortId]) -> bool {

@@ -8,9 +8,8 @@
 //! scan on the next poll tick.
 
 use std::num::NonZeroU64;
-use std::time::Instant;
 
-use metrics::{counter, histogram};
+use metrics::counter;
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -18,7 +17,7 @@ use tracing::{info, warn};
 use crate::clickhouse::person_scanner::{PersonScanError, PersonScanner};
 use crate::domain::{tile_ranges, PinnedPersonRun, RunId};
 use crate::observability::metrics::{
-    CHUNKS_PLANNED, PERSON_BOUNDARIES_PLANNED, PERSON_PLANNING_DURATION_SECONDS,
+    MetricTimer, CHUNKS_PLANNED, PERSON_BOUNDARIES_PLANNED, PERSON_PLANNING_DURATION_SECONDS,
     RUNS_PLANNING_STAMPED,
 };
 use crate::store::chunks::{PgChunkStore, PlanOutcome};
@@ -89,7 +88,7 @@ async fn plan_claimed_run(
     let run = request.run;
     let run_id = run.run_id;
     // Failed attempts are exactly the durations worth watching, so the timer records every exit.
-    let timer = PlanTimer::start();
+    let timer = MetricTimer::start(PERSON_PLANNING_DURATION_SECONDS);
 
     let boundaries = match scanner
         .boundaries(run.team_id, run.scan_since, persons_per_chunk, shutdown)
@@ -122,7 +121,7 @@ async fn plan_claimed_run(
                 ?run_id,
                 chunks = inserted,
                 horizon_days = run.horizon_days,
-                elapsed_secs = timer.0.elapsed().as_secs_f64(),
+                elapsed_secs = timer.elapsed().as_secs_f64(),
                 "person chunks planned"
             );
         }
@@ -150,18 +149,4 @@ async fn plan_claimed_run(
         }
     }
     PersonPlanAttempt::Done
-}
-
-struct PlanTimer(Instant);
-
-impl PlanTimer {
-    fn start() -> Self {
-        Self(Instant::now())
-    }
-}
-
-impl Drop for PlanTimer {
-    fn drop(&mut self) {
-        histogram!(PERSON_PLANNING_DURATION_SECONDS).record(self.0.elapsed().as_secs_f64());
-    }
 }
