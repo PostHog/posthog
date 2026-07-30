@@ -12774,6 +12774,31 @@ export namespace Schemas {
       Warning: 'warning',
     } as const;
 
+    /**
+     * * `not_linked` - not_linked
+     * * `name_collision` - name_collision
+     * * `no_tagged_events` - no_tagged_events
+     * * `unknown_source` - unknown_source
+     * * `missing_source` - missing_source
+     */
+    export type UtmIssueKindEnum = typeof UtmIssueKindEnum[keyof typeof UtmIssueKindEnum];
+
+
+    export const UtmIssueKindEnum = {
+      NotLinked: 'not_linked',
+      NameCollision: 'name_collision',
+      NoTaggedEvents: 'no_tagged_events',
+      UnknownSource: 'unknown_source',
+      MissingSource: 'missing_source',
+    } as const;
+
+    export interface UtmAlternativeSource {
+      /** A utm_source value found on this campaign's pageviews */
+      utm_source: string;
+      /** Number of pageview events with this utm_source */
+      event_count: number;
+    }
+
     export interface UtmIssue {
       /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
       field: string;
@@ -12782,8 +12807,22 @@ export namespace Schemas {
        * * `error` - error
        * * `warning` - warning */
       severity: UtmIssueSeverityEnum;
-      /** Human-readable description of the issue */
+      /** Which kind of UTM problem this campaign has
+       *
+       * * `not_linked` - not_linked
+       * * `name_collision` - name_collision
+       * * `no_tagged_events` - no_tagged_events
+       * * `unknown_source` - unknown_source
+       * * `missing_source` - missing_source */
+      kind: UtmIssueKindEnum;
+      /** Human-readable headline; the frontend composes richer text from the fields below */
       message: string;
+      /** utm_source values actually found on this campaign's pageviews, ordered by event count */
+      alternative_sources: UtmAlternativeSource[];
+      /** Other integrations whose campaigns share this campaign's name (name_collision only) */
+      shared_with_integrations: string[];
+      /** Pageviews that matched this campaign but carried no utm_source, on any issue kind */
+      missing_source_count: number;
     }
 
     export interface CampaignAuditResult {
