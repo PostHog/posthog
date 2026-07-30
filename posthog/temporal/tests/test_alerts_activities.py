@@ -494,7 +494,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("posthog.tasks.alerts.utils.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=["alice@posthog.com"],
@@ -628,7 +628,7 @@ class TestNotifyAlert:
 
         with (
             patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
-            patch("posthog.tasks.alerts.utils.get_instance_region", return_value="US"),
+            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 side_effect=RuntimeError("SMTP unavailable"),

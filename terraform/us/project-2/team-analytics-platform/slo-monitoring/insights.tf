@@ -523,6 +523,61 @@ resource "posthog_insight" "slo_volume" {
   tags          = ["managed-by:terraform", "slo"]
 }
 
+resource "posthog_insight" "alert_delivery_by_type" {
+  name        = "SLO: Alert notification delivery by alert type"
+  description = "Daily delivery success for each alert type and region. New alert types appear automatically."
+  query_json = jsonencode({
+    kind = "DataVisualizationNode"
+    source = {
+      kind = "HogQLQuery"
+      query = <<-SQL
+        SELECT
+            day,
+            concat(region, ' / ', alert_type) AS series,
+            round(if(started > 0, successes / started * 100, 0), 4) AS success_rate,
+            started,
+            successes,
+            greatest(started - successes, 0) AS failures
+        FROM (
+            SELECT
+                toDate(timestamp) AS day,
+                coalesce(nullIf(properties.region, ''), 'unknown') AS region,
+                coalesce(nullIf(properties.alert_type, ''), 'unknown') AS alert_type,
+                countIf(event = 'slo_operation_started') AS started,
+                countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes
+            FROM events
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+              AND properties.operation = 'alert_delivery'
+              AND timestamp >= now() - INTERVAL 28 DAY
+            GROUP BY day, region, alert_type
+        )
+        ORDER BY day ASC, series ASC
+        LIMIT 500
+      SQL
+    }
+    display = "ActionsLineGraph"
+    chartSettings = {
+      xAxis                 = { column = "day" }
+      yAxis                 = [{ column = "success_rate", settings = { formatting = { suffix = "%" } } }]
+      seriesBreakdownColumn = "series"
+      showLegend            = true
+    }
+    tableSettings = {
+      columns = [
+        { column = "day" },
+        { column = "series" },
+        { column = "success_rate", settings = { formatting = { suffix = "%" } } },
+        { column = "started" },
+        { column = "successes" },
+        { column = "failures" },
+      ]
+    }
+  })
+
+  dashboard_ids = [posthog_dashboard.slo_monitoring.id]
+  tags          = ["managed-by:terraform", "slo"]
+}
+
 resource "posthog_insight" "alert_delivery_failure_rate" {
   for_each = toset(["US", "EU"])
 

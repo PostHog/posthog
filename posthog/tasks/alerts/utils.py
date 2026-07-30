@@ -10,11 +10,11 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
-from posthog.slo.context import SloSpec, get_current_slo, slo_operation
-from posthog.slo.types import SloArea, SloOperation
+from posthog.slo.context import get_current_slo
+from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
-from posthog.utils import get_instance_region
 
+from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import produce_alert_internal_event
 from products.alerts.backend.facade.api import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
@@ -279,21 +279,17 @@ def dispatch_alert_notification(
     with ExitStack() as stack:
         if alert_check.state == AlertState.FIRING:
             stack.enter_context(
-                slo_operation(
-                    spec=SloSpec(
-                        distinct_id=str(alert.id),
-                        area=SloArea.ANALYTIC_PLATFORM,
-                        operation=SloOperation.ALERT_DELIVERY,
-                        team_id=alert.team_id,
-                        resource_id=str(alert.id),
-                    ),
+                alert_delivery_slo(
+                    alert_type="insight",
+                    notification_action="fire",
+                    distinct_id=str(alert.id),
+                    team_id=alert.team_id,
+                    resource_id=str(alert.id),
                     properties={
                         "alert_check_id": str(alert_check.id),
                         "alert_state": alert_check.state,
-                        "alert_type": "insight",
                         "calculation_interval": alert.calculation_interval,
                         "insight_id": alert.insight_id,
-                        "region": (get_instance_region() or "HOBBY").upper(),
                     },
                 )
             )
