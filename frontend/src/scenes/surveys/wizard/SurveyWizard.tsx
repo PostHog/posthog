@@ -290,7 +290,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }
 
     const handleLaunchClick = (): void => {
-        if (!currentTeam?.surveys_opt_in) {
+        if (currentTeam?.surveys_opt_in === false) {
             LemonDialog.open({
                 title: 'Enable surveys?',
                 content: (

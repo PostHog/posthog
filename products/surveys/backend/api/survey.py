@@ -3454,9 +3454,12 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
 
 def get_surveys_opt_in(team: Team) -> bool:
-    # return False if the team has not set a value for surveys_opt_in
+    # Surveys are on by default: a team that has never set a value counts as opted in.
+    # Only an explicit False opts out. Delivery is still gated on the team having at
+    # least one active survey (see RemoteConfig.build_config), so this is a no-op for
+    # teams without surveys.
     if team.surveys_opt_in is None:
-        return False
+        return True
     return team.surveys_opt_in
 
 

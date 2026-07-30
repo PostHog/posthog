@@ -34,6 +34,7 @@ from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     get_survey_api_translations,
+    get_surveys_opt_in,
     get_surveys_response,
     nh3_clean_with_allow_list,
 )
@@ -43,6 +44,18 @@ from ee.models.rbac.access_control import AccessControl
 
 
 class TestSurvey(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("never_set_defaults_on", None, True),
+            ("explicit_opt_out", False, False),
+            ("explicit_opt_in", True, True),
+        ]
+    )
+    def test_get_surveys_opt_in_treats_none_as_opted_in(self, _name, stored_value, expected):
+        self.team.surveys_opt_in = stored_value
+        self.team.save()
+        self.assertEqual(get_surveys_opt_in(self.team), expected)
+
     def test_can_create_basic_survey(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",

@@ -768,7 +768,8 @@ export const surveysLogic = kea<surveysLogicType>([
         showSurveysDisabledBanner: [
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType) => {
-                return !currentTeam?.surveys_opt_in
+                // Surveys are on by default; only warn when a team has explicitly opted out.
+                return currentTeam?.surveys_opt_in === false
             },
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [

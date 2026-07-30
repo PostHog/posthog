@@ -36,7 +36,7 @@ export function SurveyEnableToggle(): JSX.Element {
             }}
             label="Enable surveys"
             bordered
-            checked={!!currentTeam?.surveys_opt_in}
+            checked={currentTeam?.surveys_opt_in !== false}
             disabled={currentTeamLoading}
             disabledReason={currentTeamLoading ? 'Loading...' : restrictedReason}
         />

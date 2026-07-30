@@ -21,7 +21,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
-    const needsOptIn = !currentTeam?.surveys_opt_in
+    const needsOptIn = currentTeam?.surveys_opt_in === false
     const isHostedSurvey = survey.type === SurveyType.ExternalSurvey
     const conditionsSummary = isHostedSurvey ? [] : getSurveyDisplayConditionsSummary(survey)
 

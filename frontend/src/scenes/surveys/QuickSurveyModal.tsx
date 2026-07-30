@@ -53,7 +53,7 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
 
     const { currentTeam } = useValues(teamLogic)
     const { teamSdkVersions } = useValues(surveysSdkLogic)
-    const shouldShowSurveyToggle = useRef(!currentTeam?.surveys_opt_in).current
+    const shouldShowSurveyToggle = useRef(currentTeam?.surveys_opt_in === false).current
 
     const warnings = useMemo(
         () => getSurveyWarnings(previewSurvey as Survey, teamSdkVersions),
