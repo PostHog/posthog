@@ -173,6 +173,10 @@ pub fn upload_with_retry_and_concurrency(
     let res = match res {
         Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
             warn!("Release ID mismatch detected. Retrying upload without release IDs...");
+            // Batches finalized before the mismatch are on the server by the time
+            // the retry runs, so upload_inner recounts them as already present.
+            // Remember them and reclassify below, because this run did upload them.
+            let uploaded_before_retry = summary.uploaded;
             let sets_without_release: Vec<_> = input_sets
                 .into_iter()
                 .map(|s| SymbolSetUpload {
@@ -181,7 +185,7 @@ pub fn upload_with_retry_and_concurrency(
                     data: s.data,
                 })
                 .collect();
-            upload_inner(
+            let res = upload_inner(
                 &sets_without_release,
                 batch_size,
                 force,
@@ -189,7 +193,12 @@ pub fn upload_with_retry_and_concurrency(
                 &thread_pool,
                 &s3_client,
                 &mut summary,
-            )
+            );
+            summary.uploaded += uploaded_before_retry;
+            summary.skipped_already_present = summary
+                .skipped_already_present
+                .saturating_sub(uploaded_before_retry);
+            res
         }
         res => res,
     };
