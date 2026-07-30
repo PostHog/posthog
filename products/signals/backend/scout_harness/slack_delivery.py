@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 
+import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_subscription_explore import build_explore_hint
@@ -19,6 +20,8 @@ from products.signals.backend.slack_formatting import (
     strip_chart_references,
     truncate_slack_section,
 )
+
+logger = structlog.get_logger(__name__)
 
 _PERMANENT_SLACK_ERROR_CODES = frozenset(
     {
@@ -75,13 +78,27 @@ def slack_api_error_code(exc: SlackApiError) -> str | None:
     return error_code if isinstance(error_code, str) else None
 
 
-def _append_explore_hint(blocks: list[dict], integration: Integration | None) -> None:
-    """Nudge the channel to @PostHog this scout output, mirroring the subscriptions delivery."""
-    if integration is None:
-        return
+def _post_explore_hint_reply(client: object, *, channel_id: str, thread_ts: object, integration: Integration) -> None:
+    """Reply in-thread nudging the channel to @PostHog this scout output.
+
+    Best-effort and non-blocking: the scout message itself has already been delivered, so a failed
+    or missing follow-up never fails the delivery (and so never re-posts the parent on retry).
+    """
     ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
-    if explore_hint := build_explore_hint(integration, utm_tags=_EXPLORE_HINT_UTM_TAGS, ai_enabled=ai_enabled):
-        blocks.append(explore_hint)
+    hint = build_explore_hint(integration, utm_tags=_EXPLORE_HINT_UTM_TAGS, ai_enabled=ai_enabled)
+    if not hint or not isinstance(thread_ts, str) or not thread_ts:
+        return
+    try:
+        client.chat_postMessage(  # type: ignore[attr-defined]
+            channel=channel_id,
+            thread_ts=thread_ts,
+            blocks=[hint],
+            text=hint["elements"][0]["text"],
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    except SlackApiError:
+        logger.warning("scout_slack_explore_hint_reply_failed", channel=channel_id, exc_info=True)
 
 
 def _prettify_scout_name(skill_name: str) -> str:
@@ -113,9 +130,7 @@ def _slack_channel_id(channel: str) -> str:
     return channel_id
 
 
-def build_scout_slack_message(
-    emission: SignalScoutEmission, *, integration: Integration | None = None
-) -> tuple[list[dict], str]:
+def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict], str]:
     """Render a direct scout finding with the same safe Markdown conversion as inbox signals."""
     scout_name = _prettify_scout_name(emission.scout_run.skill_name)
     blocks: list[dict] = [
@@ -156,8 +171,6 @@ def build_scout_slack_message(
         }
     )
 
-    _append_explore_hint(blocks, integration)
-
     first_line = emission.description.strip().splitlines()[0] if emission.description.strip() else "New finding"
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(first_line[:200])}"
     return blocks, fallback
@@ -175,9 +188,10 @@ def post_scout_emission_to_slack(
     )
     channel_id = _slack_channel_id(channel)
 
-    blocks, fallback = build_scout_slack_message(emission, integration=integration)
+    blocks, fallback = build_scout_slack_message(emission)
+    client = SlackIntegration(integration).client
     try:
-        SlackIntegration(integration).client.chat_postMessage(
+        response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
@@ -194,10 +208,10 @@ def post_scout_emission_to_slack(
             ) from exc
         raise
 
+    _post_explore_hint_reply(client, channel_id=channel_id, thread_ts=response.get("ts"), integration=integration)
 
-def build_scout_report_slack_message(
-    report: SignalReport, run: SignalScoutRun, *, integration: Integration | None = None
-) -> tuple[list[dict], str]:
+
+def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
     scout_name = _prettify_scout_name(run.skill_name)
     title = " ".join((report.title or "").split()) or "New scout report"
     header = title if len(title) <= 150 else title[:147].rstrip() + "..."
@@ -227,8 +241,6 @@ def build_scout_report_slack_message(
             ],
         }
     )
-    _append_explore_hint(blocks, integration)
-
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(title[:200])}"
     return blocks, fallback
 
@@ -252,9 +264,10 @@ def post_scout_report_to_slack(
         project_id=report.team.project_id,
     )
     channel_id = _slack_channel_id(channel)
-    blocks, fallback = build_scout_report_slack_message(report, run, integration=integration)
+    blocks, fallback = build_scout_report_slack_message(report, run)
+    client = SlackIntegration(integration).client
     try:
-        SlackIntegration(integration).client.chat_postMessage(
+        response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
@@ -270,3 +283,5 @@ def post_scout_report_to_slack(
                 error_code=error_code,
             ) from exc
         raise
+
+    _post_explore_hint_reply(client, channel_id=channel_id, thread_ts=response.get("ts"), integration=integration)

@@ -14,7 +14,6 @@ from posthog.models.integration import Integration
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
-    build_scout_report_slack_message,
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -68,6 +67,7 @@ class TestScoutSlackDelivery(BaseTest):
         )
         integration = Integration.objects.create(team=child_team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000100"}
 
         with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
             slack_integration.return_value.client = fake_client
@@ -77,22 +77,25 @@ class TestScoutSlackDelivery(BaseTest):
                 channel="CSCOUTS|#scout-findings",
             )
 
-        call = fake_client.chat_postMessage.call_args.kwargs
+        call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["channel"] == "CSCOUTS"
         assert call["client_msg_id"] == str(emission.id)
+        assert "thread_ts" not in call
         section = call["blocks"][1]["text"]["text"]
         assert "*Checkout*" in section
         assert "<https://example.com/trace|trace>" in section
         assert "<!channel>" not in section
         assert "<!here>" not in section
         assert "&lt;!channel&gt;" in section
-        actions_block = next(block for block in call["blocks"] if block["type"] == "actions")
-        assert actions_block["elements"][0]["url"] == (
+        assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
-        # The @PostHog follow-up nudge trails the message, mirroring the subscriptions delivery.
-        assert call["blocks"][-1]["type"] == "context"
-        assert "@PostHog" in call["blocks"][-1]["elements"][0]["text"]
+        # The @PostHog follow-up nudge lands as a reply in the message's thread.
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
+        assert reply["thread_ts"] == "1785418710.000100"
+        assert reply["channel"] == "CSCOUTS"
+        assert reply["blocks"][0]["type"] == "context"
+        assert "@PostHog" in reply["blocks"][0]["elements"][0]["text"]
 
     def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
         emission = self._make_emission()
@@ -104,6 +107,7 @@ class TestScoutSlackDelivery(BaseTest):
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200"}
         delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
 
         with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
@@ -118,20 +122,23 @@ class TestScoutSlackDelivery(BaseTest):
                 "CSCOUTS|#scout-findings",
             )
 
-        call = fake_client.chat_postMessage.call_args.kwargs
+        call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["channel"] == "CSCOUTS"
         assert call["client_msg_id"] == delivery_id
+        assert "thread_ts" not in call
         section = call["blocks"][2]["text"]["text"]
         assert "*Checkout*" in section
         assert "<!channel>" not in section
         assert "&lt;!channel&gt;" in section
         assert "<https://example.com/trace|trace>" in section
-        actions_block = next(block for block in call["blocks"] if block["type"] == "actions")
-        assert actions_block["elements"][0]["url"] == (
+        assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
         )
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
+        assert reply["thread_ts"] == "1785418710.000200"
+        assert reply["blocks"][0]["type"] == "context"
 
-    def test_report_message_ends_with_ask_posthog_nudge_when_bot_is_ready(self) -> None:
+    def test_reply_uses_the_exact_ask_posthog_copy_when_bot_is_ready(self) -> None:
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
@@ -140,18 +147,31 @@ class TestScoutSlackDelivery(BaseTest):
             summary="Checkout failed",
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000300"}
 
-        with patch("posthog.helpers.slack_subscription_explore.bot_is_ready", return_value=True):
-            blocks, _ = build_scout_report_slack_message(report, emission.scout_run, integration=integration)
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("posthog.helpers.slack_subscription_explore.bot_is_ready", return_value=True),
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
 
-        hint = blocks[-1]
-        assert hint["type"] == "context"
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
         assert (
-            hint["elements"][0]["text"]
+            reply["blocks"][0]["elements"][0]["text"]
             == "💬 Reply in this thread and mention *@PostHog* with a question to dig into this report."
         )
 
-    def test_report_message_omits_nudge_when_ai_not_approved(self) -> None:
+    def test_no_reply_when_ai_not_approved(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
         emission = self._make_emission()
@@ -162,10 +182,22 @@ class TestScoutSlackDelivery(BaseTest):
             summary="Checkout failed",
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000400"}
 
-        blocks, _ = build_scout_report_slack_message(report, emission.scout_run, integration=integration)
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
 
-        assert not any(block["type"] == "context" and "@PostHog" in block["elements"][0]["text"] for block in blocks)
+        assert fake_client.chat_postMessage.call_count == 1
 
     def test_task_skips_report_suppressed_before_delivery(self) -> None:
         emission = self._make_emission()
