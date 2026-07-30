@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Collection
 from datetime import datetime
 from typing import Any
@@ -24,6 +25,10 @@ from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
+
+ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS = float(
+    os.environ.get("ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS", "10")
+)
 
 ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "posthog_alert_internal_event_delivery_failures_total",

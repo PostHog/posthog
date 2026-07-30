@@ -531,28 +531,67 @@ resource "posthog_insight" "alert_delivery_by_type" {
     source = {
       kind = "HogQLQuery"
       query = <<-SQL
+        WITH delivery_events AS (
+            SELECT
+                event,
+                timestamp,
+                coalesce(nullIf(properties.correlation_id, ''), '') AS correlation_id,
+                coalesce(nullIf(properties.region, ''), 'unknown') AS region,
+                coalesce(nullIf(properties.alert_type, ''), 'unknown') AS alert_type,
+                properties.outcome AS outcome
+            FROM events
+            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
+              AND properties.operation = 'alert_delivery'
+              AND timestamp >= now() - INTERVAL 28 DAY
+        ),
+        per_delivery_day AS (
+            SELECT
+                correlation_id,
+                region,
+                alert_type,
+                toDate(timestamp) AS event_day,
+                countIf(event = 'slo_operation_started') AS starts,
+                countIf(event = 'slo_operation_completed' AND outcome = 'success') AS successes,
+                min(if(event = 'slo_operation_started', timestamp, NULL)) AS first_start
+            FROM delivery_events
+            GROUP BY correlation_id, region, alert_type, event_day
+        ),
+        daily AS (
+            SELECT day, region, alert_type, sum(started) AS started, sum(successes) AS successes
+            FROM (
+                SELECT
+                    event_day AS day,
+                    region,
+                    alert_type,
+                    starts AS started,
+                    least(starts, successes) AS successes
+                FROM per_delivery_day
+                WHERE correlation_id = ''
+
+                UNION ALL
+
+                SELECT
+                    toDate(min(first_start)) AS day,
+                    region,
+                    alert_type,
+                    1 AS started,
+                    if(max(successes) > 0, 1, 0) AS successes
+                FROM per_delivery_day
+                WHERE correlation_id != ''
+                GROUP BY correlation_id, region, alert_type
+                HAVING day IS NOT NULL
+            )
+            GROUP BY day, region, alert_type
+        )
         SELECT
             day,
             concat(region, ' / ', alert_type) AS series,
             round(if(started > 0, successes / started * 100, 0), 4) AS success_rate,
             started,
             successes,
-            greatest(started - successes, 0) AS failures
-        FROM (
-            SELECT
-                toDate(timestamp) AS day,
-                coalesce(nullIf(properties.region, ''), 'unknown') AS region,
-                coalesce(nullIf(properties.alert_type, ''), 'unknown') AS alert_type,
-                countIf(event = 'slo_operation_started') AS started,
-                countIf(event = 'slo_operation_completed' AND properties.outcome = 'success') AS successes
-            FROM events
-            WHERE event IN ('slo_operation_started', 'slo_operation_completed')
-              AND properties.operation = 'alert_delivery'
-              AND timestamp >= now() - INTERVAL 28 DAY
-            GROUP BY day, region, alert_type
-        )
+            started - successes AS failures
+        FROM daily
         ORDER BY day ASC, series ASC
-        LIMIT 500
       SQL
     }
     display = "ActionsLineGraph"
@@ -582,7 +621,7 @@ resource "posthog_insight" "alert_delivery_failure_rate" {
   for_each = toset(["US", "EU"])
 
   name        = "SLO: Alert notification delivery failure rate (${each.value})"
-  description = "Daily failed or incomplete insight alert notification deliveries."
+  description = "Daily failed alert notification deliveries among completed attempts."
   query_json = jsonencode({
     kind = "InsightVizNode"
     source = {
@@ -594,30 +633,30 @@ resource "posthog_insight" "alert_delivery_failure_rate" {
       series = [
         {
           kind        = "EventsNode"
-          event       = "slo_operation_started"
+          event       = "slo_operation_completed"
           math        = "total"
-          custom_name = "Started"
+          custom_name = "Failed"
           properties = [
             { key = "operation", type = "event", value = "alert_delivery", operator = "exact" },
             { key = "region", type = "event", value = each.value, operator = "exact" },
+            { key = "outcome", type = "event", value = "failure", operator = "exact" },
           ]
         },
         {
           kind        = "EventsNode"
           event       = "slo_operation_completed"
           math        = "total"
-          custom_name = "Successful"
+          custom_name = "Completed"
           properties = [
             { key = "operation", type = "event", value = "alert_delivery", operator = "exact" },
             { key = "region", type = "event", value = each.value, operator = "exact" },
-            { key = "outcome", type = "event", value = "success", operator = "exact" },
           ]
         },
       ]
       trendsFilter = {
         display = "ActionsLineGraph"
         formulaNodes = [
-          { formula = "(A-B)/A", custom_name = "Failure rate" },
+          { formula = "A/B", custom_name = "Failure rate" },
         ]
         aggregationAxisFormat   = "percentage_scaled"
         decimalPlaces           = 4

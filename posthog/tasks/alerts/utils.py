@@ -15,7 +15,12 @@ from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
 from products.alerts.backend.delivery_slo import alert_delivery_slo
-from products.alerts.backend.destinations import produce_alert_internal_event
+from products.alerts.backend.destinations import (
+    ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
+    alert_internal_event_delivered,
+    flush_alert_internal_events,
+    produce_alert_internal_event,
+)
 from products.alerts.backend.facade.api import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
     apply_invalid_configuration,
@@ -158,13 +163,22 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         event_name=INSIGHT_ALERT_FIRING_EVENT,
         properties=props,
     )
-    if (
-        produce_result is None
-        and (slo := get_current_slo()) is not None
-        and slo.operation == SloOperation.ALERT_DELIVERY
-    ):
+    slo = get_current_slo()
+    if slo is None or slo.operation != SloOperation.ALERT_DELIVERY:
+        return produce_result is not None
+    if produce_result is None:
         slo.fail(failure_phase="destination_enqueue")
-    return produce_result is not None
+        return False
+
+    flush_alert_internal_events(ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
+    if not alert_internal_event_delivered(
+        produce_result,
+        team_id=alert.team_id,
+        alert_id=str(alert.id),
+        event_name=INSIGHT_ALERT_FIRING_EVENT,
+    ):
+        slo.fail(failure_phase="notification_delivery")
+    return True
 
 
 def send_notifications_for_breaches(
