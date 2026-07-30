@@ -2,12 +2,17 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from unittest.mock import Mock, patch
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.temporal.ai_observability.run_session_evaluation import (
+    _MIN_TRACE_CHARS_IN_SESSION,
+    _SESSION_EVENT_COUNT_SQL,
     JUDGE_SESSION_MAX_CHARS,
+    _count_session_events,
     build_session_hog_globals,
+    fetch_session_for_evaluation,
     format_session_for_judge,
     session_fetch_lookback,
 )
@@ -101,6 +106,11 @@ class TestFormatSessionForJudge:
         # per-trace floor split, because each trace's own rendered text already exceeds the
         # floor; only the final [:JUDGE_SESSION_MAX_CHARS] slice keeps the total in budget.
         traces = [_trace(f"t{i}", cost=0, latency=0, event_count=100) for i in range(260)]
+        # Fails loudly if a constant change makes the floor fit inside the budget again, which
+        # would leave this test passing without the final slice.
+        assert max(JUDGE_SESSION_MAX_CHARS // len(traces), _MIN_TRACE_CHARS_IN_SESSION) * len(traces) > (
+            JUDGE_SESSION_MAX_CHARS
+        )
         assert len(format_session_for_judge(traces)) <= JUDGE_SESSION_MAX_CHARS
 
     def test_every_trace_appears(self):
@@ -108,3 +118,48 @@ class TestFormatSessionForJudge:
         rendered = format_session_for_judge(traces)
         assert "t-alpha" in rendered
         assert "t-beta" in rendered
+
+
+class TestCountSessionEvents:
+    def test_the_count_stays_an_ungrouped_aggregate(self):
+        """An ungrouped aggregate always returns exactly one row, so `query_ai_events`'s
+        empty-result probe never fires and the stripped events-table fallback stays structurally
+        unreachable. A GROUP BY or HAVING would let the result come back empty for a session that
+        aged out of ai_events, which is what turns "expired" into a judge grading empty content.
+        """
+        normalized = " ".join(_SESSION_EVENT_COUNT_SQL.split()).upper()
+        assert "GROUP BY" not in normalized
+        assert "HAVING" not in normalized
+
+    def test_never_falls_back_to_the_stripped_events_table(self):
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
+            return_value=Mock(results=[[7]]),
+        ) as mock_query_ai_events:
+            count = _count_session_events(Mock(), "s-1", datetime.now(UTC), datetime.now(UTC))
+
+        assert count == 7
+        assert mock_query_ai_events.call_args.kwargs["fall_back_to_events"] is False
+
+
+class TestFetchSessionForEvaluation:
+    def test_queries_in_evaluation_mode_with_both_date_bounds(self):
+        with (
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
+                return_value=3,
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
+            ) as mock_session_query_runner,
+        ):
+            mock_session_query_runner.return_value.calculate.return_value = Mock(
+                results=[_trace("t1", cost=0, latency=0)]
+            )
+            fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), 3600)
+
+        kwargs = mock_session_query_runner.call_args.kwargs
+        assert kwargs["for_evaluation"] is True
+        assert kwargs["query"].dateRange.date_from is not None
+        assert kwargs["query"].dateRange.date_to is not None
