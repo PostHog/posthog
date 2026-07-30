@@ -147,6 +147,10 @@ def set_account_custom_properties_by_id(
 # it is at least this far behind the new message.
 LAST_SLACK_MESSAGE_MIN_INTERVAL = timedelta(hours=1)
 
+# Matches _WRITE_CONFLICT_RETRIES in custom_property_sync: enough for a rival write or two, and
+# bounded so a persistent conflict can't spin.
+_LAST_SLACK_MESSAGE_WRITE_ATTEMPTS = 3
+
 
 def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
     """Record when a customer last messaged in the Slack channel bound to `account_id`.
@@ -164,27 +168,29 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
         name=CANONICAL_LAST_SLACK_MESSAGE_AT,
         defaults={"display_type": DisplayType.DATETIME},
     )
-    current = (
-        CustomPropertyValue.objects.for_team(team_id)
-        .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
-        .values_list("value_datetime", flat=True)
-        .first()
-    )
-    if current is not None and timestamp - current < LAST_SLACK_MESSAGE_MIN_INTERVAL:
-        return False
-    try:
-        _set_value(
-            team_id=team_id,
-            account_id=account_id,
-            definition=definition,
-            value=timestamp,
-            created_by_id=None,
+    for _attempt in range(_LAST_SLACK_MESSAGE_WRITE_ATTEMPTS):
+        current = (
+            CustomPropertyValue.objects.for_team(team_id)
+            .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+            .values_list("value_datetime", flat=True)
+            .first()
         )
-    except CustomPropertyValueConflict:
-        # A concurrent message for the same account already moved the value to within the
-        # interval, which is what this write was for — nothing to retry.
-        return False
-    return True
+        # Doubles as the monotonicity guard: a stored value newer than `timestamp` makes the
+        # difference negative, so an out-of-order event never moves the value backwards.
+        if current is not None and timestamp - current < LAST_SLACK_MESSAGE_MIN_INTERVAL:
+            return False
+        try:
+            _set_value(
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                value=timestamp,
+                created_by_id=None,
+            )
+        except CustomPropertyValueConflict:
+            continue  # a concurrent write took the active row — re-read and re-decide against it
+        return True
+    return False
 
 
 def _set_value(

@@ -33,6 +33,7 @@ MODULE = "products.conversations.backend.slack"
 TASKS_MODULE = "products.conversations.backend.tasks"
 # The "1700000000.000100" message ts used across the last-customer-message tests.
 MESSAGE_SENT_AT = datetime(2023, 11, 14, 22, 13, 20, 100, tzinfo=UTC)
+TEAMMATE_EMAIL = "<the org member's own address>"
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -498,16 +499,20 @@ class TestSlackLastCustomerMessage(BaseTest):
 
         assert self._recorded_values(other) == [MESSAGE_SENT_AT]
 
+    # TEAMMATE_EMAIL stands in for the org member's address, which isn't reachable when
+    # parameterized builds these arguments. None is an author Slack couldn't resolve.
     @parameterized.expand(
         [
             ("bot", {"bot_id": "B1"}, "customer@acme.com"),
             ("system subtype", {"subtype": "channel_join"}, "customer@acme.com"),
             ("unbound channel", {"channel": "C_UNBOUND"}, "customer@acme.com"),
-            ("posthog teammate", {}, None),
+            ("posthog teammate", {}, TEAMMATE_EMAIL),
+            ("unresolved author", {}, None),
         ]
     )
     def test_non_customer_messages_are_not_recorded(self, _name, overrides, email):
-        with patch(f"{MODULE}.resolve_slack_user", return_value={"name": "X", "email": email or self.user.email}):
+        resolved = self.user.email if email == TEAMMATE_EMAIL else email
+        with patch(f"{MODULE}.resolve_slack_user", return_value={"name": "X", "email": resolved}):
             self._handle(**overrides)
 
         assert self._recorded_values() == []

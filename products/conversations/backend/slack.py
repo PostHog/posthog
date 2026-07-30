@@ -722,7 +722,11 @@ def _record_last_slack_message(
         if account is None:
             return
         slack_user = resolve_slack_user(get_slack_client(team), slack_user_id)
-        if resolve_posthog_user_for_slack(slack_user.get("email"), team):
+        # resolve_slack_user reports a null email for any lookup failure, so an unresolved author
+        # may be a teammate. Skipping self-corrects on their next message, while crediting it to
+        # the customer also opens the throttle window and suppresses the real one behind it.
+        email = slack_user.get("email")
+        if not email or resolve_posthog_user_for_slack(email, team):
             return
         customer_analytics.record_last_slack_message_at(
             team_id=team_id,
