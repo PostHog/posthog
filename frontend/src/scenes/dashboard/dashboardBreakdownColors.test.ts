@@ -366,18 +366,45 @@ describe('dashboardBreakdownColors', () => {
             ])
         })
 
-        it('fills free slots in sorted order and appends after existing configs', () => {
+        it('fills free slots in chart order when re-use ties, appending after existing configs', () => {
             const existing: BreakdownColorConfig[] = [
                 { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-3', source: 'manual' },
             ]
 
             const result = applyAutoBreakdownColors(sharedTiles('Google', 'Alibaba', 'Chrome'), existing)
 
+            // both tiles list Google before Alibaba, so Google leads despite sorting later
             expect(result).toEqual([
                 { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-3', source: 'manual' },
-                { breakdownValue: 'Alibaba', breakdownType: 'event', colorToken: 'preset-1', source: 'auto' },
-                { breakdownValue: 'Google', breakdownType: 'event', colorToken: 'preset-2', source: 'auto' },
+                { breakdownValue: 'Google', breakdownType: 'event', colorToken: 'preset-1', source: 'auto' },
+                { breakdownValue: 'Alibaba', breakdownType: 'event', colorToken: 'preset-2', source: 'auto' },
             ])
+        })
+
+        it('gives the first slots to the values re-used across the most charts', () => {
+            const result = applyAutoBreakdownColors(
+                [[value('Apple'), value('Zebra')], [value('Apple'), value('Zebra')], [value('Zebra')]],
+                []
+            )
+
+            // Zebra is on three charts vs Apple's two, which outranks Apple leading the
+            // shared charts and sorting first as a value
+            expect(result).toEqual([autoConfig('Zebra', 'preset-1'), autoConfig('Apple', 'preset-2')])
+        })
+
+        it("breaks re-use ties by the values' ranking across their own charts", () => {
+            const result = applyAutoBreakdownColors(
+                [
+                    [value('Apple'), value('Zebra')],
+                    [value('Zebra'), value('Apple')],
+                    [value('Zebra'), value('Apple')],
+                ],
+                []
+            )
+
+            // Zebra leads two of the three charts, so summed across charts it ranks ahead
+            // of Apple despite trailing on one chart and sorting first as a value
+            expect(result).toEqual([autoConfig('Zebra', 'preset-1'), autoConfig('Apple', 'preset-2')])
         })
 
         it('returns non-colliding configs unchanged, by reference, in their original order', () => {
@@ -459,22 +486,36 @@ describe('dashboardBreakdownColors', () => {
 
             const result = applyAutoBreakdownColors(tiles, [], 2)
 
-            // the palette is exhausted by A and B, but Z's tiles show neither slot,
-            // so Z reuses a color rather than duplicating one on its own charts
+            // A and Z both lead their charts, so they take the two slots and exhaust the
+            // palette; B's own tiles don't show Z's slot, so B reuses it rather than
+            // duplicating a color on its own charts
             expect(result).toEqual([
                 autoConfig('A', 'preset-1'),
+                autoConfig('Z', 'preset-2'),
                 autoConfig('B', 'preset-2'),
-                autoConfig('Z', 'preset-1'),
             ])
         })
 
-        it('re-slots the later-sorted persisted auto entry of a within-tile collision, in place', () => {
+        it('re-slots the lower-ranked persisted auto entry of a within-tile collision, in place', () => {
             const existing: BreakdownColorConfig[] = [autoConfig('Bravo', 'preset-1'), autoConfig('Alpha', 'preset-1')]
 
             const result = applyAutoBreakdownColors(sharedTiles('Alpha', 'Bravo'), existing)
 
-            // both entries came out of the pre-collision-aware wrap; Alpha sorts first and keeps the slot
+            // both entries came out of the pre-collision-aware wrap; Alpha leads the charts and keeps the slot
             expect(result).toEqual([autoConfig('Bravo', 'preset-2'), autoConfig('Alpha', 'preset-1')])
+        })
+
+        it('keeps the entry re-used across more charts when two persisted auto entries collide', () => {
+            const existing: BreakdownColorConfig[] = [autoConfig('Alpha', 'preset-1'), autoConfig('Zulu', 'preset-1')]
+
+            const result = applyAutoBreakdownColors(
+                [[value('Alpha'), value('Zulu')], [value('Alpha'), value('Zulu')], [value('Zulu')]],
+                existing
+            )
+
+            // Zulu is shared across more charts, so it keeps its color even though Alpha
+            // leads the shared charts and sorts first
+            expect(result).toEqual([autoConfig('Alpha', 'preset-2'), autoConfig('Zulu', 'preset-1')])
         })
 
         it('re-slots a persisted auto entry that collides with a manual pin', () => {
