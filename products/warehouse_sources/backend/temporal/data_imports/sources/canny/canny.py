@@ -5,7 +5,6 @@ from typing import Any, Optional
 import requests
 from requests import PreparedRequest, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.canny.settings import CANNY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -17,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OffsetPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CANNY_BASE_URL = "https://canny.io/api"
 # Airbyte's community connector pages every Canny list endpoint at 100 records.

@@ -657,40 +657,6 @@ export const PersonsDeletionStatusListStatus = {
     Pending: 'pending',
 } as const
 
-export type PersonsFunnelRetrieveParams = {
-    format?: PersonsFunnelRetrieveFormat
-}
-
-export type PersonsFunnelRetrieveFormat = (typeof PersonsFunnelRetrieveFormat)[keyof typeof PersonsFunnelRetrieveFormat]
-
-export const PersonsFunnelRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsFunnelCreateParams = {
-    format?: PersonsFunnelCreateFormat
-}
-
-export type PersonsFunnelCreateFormat = (typeof PersonsFunnelCreateFormat)[keyof typeof PersonsFunnelCreateFormat]
-
-export const PersonsFunnelCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsLifecycleRetrieveParams = {
-    format?: PersonsLifecycleRetrieveFormat
-}
-
-export type PersonsLifecycleRetrieveFormat =
-    (typeof PersonsLifecycleRetrieveFormat)[keyof typeof PersonsLifecycleRetrieveFormat]
-
-export const PersonsLifecycleRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
 export type PersonsPropertiesAtTimeRetrieveParams = {
     /**
      * The distinct_id of the person (mutually exclusive with person_id)
@@ -727,17 +693,6 @@ export type PersonsResetPersonDistinctIdCreateFormat =
     (typeof PersonsResetPersonDistinctIdCreateFormat)[keyof typeof PersonsResetPersonDistinctIdCreateFormat]
 
 export const PersonsResetPersonDistinctIdCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsTrendsRetrieveParams = {
-    format?: PersonsTrendsRetrieveFormat
-}
-
-export type PersonsTrendsRetrieveFormat = (typeof PersonsTrendsRetrieveFormat)[keyof typeof PersonsTrendsRetrieveFormat]
-
-export const PersonsTrendsRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

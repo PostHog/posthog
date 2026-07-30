@@ -45,6 +45,12 @@ jobs:
                         - 'products/posthog_ai/**'
                         - '.github/workflows/ci-agent-skills.yml'
                         - 'services/mcp/schema/**'
+                        # check-skills zips products/*/skills/* via `hogli build:skills`
+                        # (see build.py's affected-path map), so posthog_ai's frontend
+                        # can't affect it. Scoped to posthog_ai, not
+                        # 'products/*/frontend/**', so a future deliberate frontend
+                        # include here isn't silently vetoed.
+                        - '!products/posthog_ai/frontend/**'
 
     check-skills:
         name: Check agent skills

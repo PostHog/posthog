@@ -647,6 +647,72 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True
 
+    def test_context_window_mismatch_does_not_activate_warm_run(self):
+        task, run = self._warm_run()
+        with (
+            patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
+            patch(f"{FACADE}._trigger_task_processing_workflow") as mock_trigger,
+        ):
+            facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "branch": "main",
+                    "pending_user_message": "do it",
+                    "context_window": "1m",
+                },
+            )
+
+        mock_signal.assert_not_called()
+        mock_trigger.assert_called_once()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+
+    def test_fast_mode_mismatch_does_not_activate_warm_run(self):
+        task, run = self._warm_run()
+        with (
+            patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
+            patch(f"{FACADE}._trigger_task_processing_workflow") as mock_trigger,
+        ):
+            facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "branch": "main",
+                    "pending_user_message": "do it",
+                    "fast_mode": True,
+                },
+            )
+
+        mock_signal.assert_not_called()
+        mock_trigger.assert_called_once()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+
+    def test_matching_context_window_and_fast_mode_activates_warm_run(self):
+        task, run = self._warm_run(extra_state={"context_window": "1m", "fast_mode": True})
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal:
+            facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "mode": "interactive",
+                    "branch": "main",
+                    "pending_user_message": "do it",
+                    "context_window": "1m",
+                    "fast_mode": True,
+                },
+            )
+
+        m_signal.assert_called_once()
+        run.refresh_from_db()
+        assert "await_user_message" not in run.state
+
     def test_unready_custom_image_does_not_activate_warm_run(self):
         custom_image = SandboxCustomImage.objects.for_team(self.team.id).create(
             team_id=self.team.id,

@@ -5,9 +5,9 @@ import logging
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, IntegerField, Q, Value, When
 
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
 from posthog.models.organization import OrganizationMembership
@@ -77,6 +77,7 @@ def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration |
             user_id__in=user_ids,
         )
         .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
         .annotate(
             _is_org_account=Case(
                 When(config__account__type="User", then=Value(0)),
@@ -115,6 +116,7 @@ def resolve_team_github_integration(
         # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
         # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
         .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
         # Prioritize orgs vs users (alphabetically), then oldest first
         .order_by("config__account__type", "created_at", "id")
         .first()
@@ -141,6 +143,29 @@ def resolve_team_github_integration(
     if owner_integration is not None:
         return UserGitHubIntegration(owner_integration)
     return None
+
+
+async def _github_reconnect_required(team_id: int) -> bool:
+    if (
+        await Integration.objects.filter(team_id=team_id, kind="github")
+        .filter(Q(errors=ERROR_TOKEN_REFRESH_FAILED) | Q(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY))
+        .aexists()
+    ):
+        return True
+
+    organization_id = await Team.objects.filter(id=team_id).values_list("organization_id", flat=True).afirst()
+    if organization_id is None:
+        return False
+    owner_user_ids = OrganizationMembership.objects.filter(
+        organization_id=organization_id,
+        level=OrganizationMembership.Level.OWNER,
+        user__is_active=True,
+    ).values_list("user_id", flat=True)
+    return await UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        user_id__in=owner_user_ids,
+        config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY,
+    ).aexists()
 
 
 def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int) -> list[str]:
@@ -373,9 +398,14 @@ async def select_repository(
     if github is None:
         github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
     if github is None:
+        reconnect_required = await _github_reconnect_required(team_id)
         return RepoSelectionResult(
             repository=None,
-            reason="No GitHub repositories connected to this team.",
+            reason=(
+                "The connected GitHub App is unavailable. Reconnect GitHub to continue."
+                if reconnect_required
+                else "No GitHub repositories connected to this team."
+            ),
         )
     if candidate_repos is None:
         candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)

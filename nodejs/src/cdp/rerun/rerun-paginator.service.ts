@@ -4,6 +4,7 @@ import { Counter } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
+import { HogFunctionInvocationGlobalsSchema } from '../schema/cyclotron'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -21,13 +22,10 @@ import {
     CyclotronJobInvocationHogFunction,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobalsWithInputs,
+    RERUNNABLE_HOG_FUNCTION_TYPES,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { RERUN_PAGE_SIZE, RerunFunctionKind, RerunJobProgress, RerunJobState } from './rerun-job.types'
-
-// Function types whose stored globals carry inbound `request.headers`
-// (sender credentials) that must be stripped before a rerun rehydrates them.
-const WEBHOOK_SOURCE_TYPES = new Set(['source_webhook', 'warehouse_source_webhook'])
 
 const counterRerunPageProcessed = new Counter({
     name: 'cdp_hog_invocation_rerun_pages_processed_total',
@@ -589,25 +587,43 @@ export class RerunPaginatorService {
             if (!hogFunction || hogFunction.team_id !== teamId) {
                 return null
             }
+
+            // Only re-enqueue types a cyclotron worker executes. Others (source webhooks,
+            // transformations, site_*) run elsewhere and would never drain from the hog
+            // queue, so a re-enqueued invocation wedges the partition. The API rejects these
+            // up front; this is the backstop for any rerun job that reaches the worker anyway.
+            if (!RERUNNABLE_HOG_FUNCTION_TYPES.has(hogFunction.type)) {
+                logger.warn('⚠️', 'Skipping rerun of invocation with non-rerunnable function type', {
+                    functionId,
+                    teamId,
+                    type: hogFunction.type,
+                    invocation_id: row.invocation_id,
+                })
+                return null
+            }
+
             // The persisted globals are minimal — `inputs`, `groups` and
             // `person` are all stripped. Re-enqueue as-is: the cyclotron worker
             // rehydrates `groups`/`person` and the executor rebuilds `inputs`
             // from the current hog function config, so the rerun runs against
             // the latest config/secrets rather than a stored snapshot.
+            //
+            // Validate the shape before trusting it: a snapshot written by an
+            // older serializer (or otherwise drifted) can be missing
+            // project/event, which the worker dereferences unguarded — skip the
+            // row rather than re-enqueue a poison pill.
+            const parsed = HogFunctionInvocationGlobalsSchema.safeParse(parsedGlobals)
+            if (!parsed.success) {
+                logger.warn('⚠️', 'Skipping rerun of invocation with malformed persisted globals', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                    issues: parsed.error.issues.map((issue) => issue.path.join('.')),
+                })
+                return null
+            }
             const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobalsWithInputs
 
-            // For source-webhook functions the stored `request.headers` AND
-            // `request.query` carry the inbound sender's credentials
-            // (Authorization / x-api-key / signing secrets in headers; URL
-            // tokens like `?token=` in query). Rerunning feeds those back into
-            // the live function, so a write-access user could reconfigure the
-            // function to forward them to an attacker endpoint and replay
-            // history to exfiltrate past senders' secrets. Drop both on
-            // rehydration; non-webhook globals never carry `request` so they're
-            // untouched.
-            if (WEBHOOK_SOURCE_TYPES.has(hogFunction.type) && persistedGlobals.request) {
-                persistedGlobals.request = { ...persistedGlobals.request, headers: {}, query: {} }
-            }
             const invocation: CyclotronJobInvocationHogFunction = {
                 // Preserve invocation_id so lifecycle rows collapse under the
                 // ReplacingMergeTree on the same key.

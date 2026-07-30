@@ -25,6 +25,7 @@ from posthog.models.user import User
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
+from products.marketing_analytics.backend.hogql_queries.constants import CONVERSION_GOAL_KIND_CHOICES
 from products.marketing_analytics.backend.hogql_queries.utils import map_url_to_provider
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
@@ -109,10 +110,12 @@ class UtmAuditResponseSerializer(serializers.Serializer):
 class ConversionGoalSummarySerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Unique id of the goal (event name, action id, or DW goal id)")
     name = serializers.CharField(help_text="Display name of the conversion goal")
-    # `kind` is a collision-prone enum name in drf-spectacular, so we expose it as a
-    # documented string rather than a ChoiceField to avoid a CI --fail-on-warn break.
-    kind = serializers.CharField(
-        help_text="Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table)"
+    # `kind` collides with other enums in drf-spectacular, so it carries a stable name via
+    # ENUM_NAME_OVERRIDES ("ConversionGoalKindEnum") — a plain CharField would leave consumers
+    # reading the valid values out of this help text.
+    kind = serializers.ChoiceField(
+        choices=CONVERSION_GOAL_KIND_CHOICES,
+        help_text="Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)",
     )
     target_label = serializers.CharField(
         help_text="Human-readable target the goal matches (event/action name or table)"
@@ -248,7 +251,10 @@ class GoalExplanationPeriodSerializer(serializers.Serializer):
 class GoalExplanationSerializer(serializers.Serializer):
     goal_id = serializers.CharField(help_text="Id of the explained conversion goal")
     goal_name = serializers.CharField(help_text="Display name of the conversion goal")
-    kind = serializers.CharField(help_text="EventsNode/ActionsNode/DataWarehouseNode")
+    kind = serializers.ChoiceField(
+        choices=CONVERSION_GOAL_KIND_CHOICES,
+        help_text="Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)",
+    )
     period = GoalExplanationPeriodSerializer(help_text="The period the breakdown was computed over")
     total_count = serializers.IntegerField(help_text="Total matching conversion events in the period")
     integrated_count = serializers.IntegerField(

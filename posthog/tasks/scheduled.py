@@ -11,6 +11,7 @@ from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
+from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 from posthog.tasks.email import (
     EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC,
     send_error_tracking_weekly_digest,
@@ -96,7 +97,7 @@ from products.feature_flags.backend.tasks import (
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
-from products.signals.backend.tasks import sync_pending_signals_refund_credits
+from products.signals.backend.tasks import refresh_signal_repository_activity, sync_pending_signals_refund_credits
 from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
@@ -111,7 +112,10 @@ from products.tasks.backend.facade.tasks import (
     sweep_loop_task_retention_task,
 )
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
-from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
+from products.web_analytics.backend.tasks.heatmap_screenshot import (
+    reap_stale_prewarm_heatmaps,
+    report_stuck_heatmap_screenshots,
+)
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -285,6 +289,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="sync pending signals refund credits",
     )
 
+    # Keep the signals repository area-activity cache warm - weekly, Monday early morning
+    sender.add_periodic_task(
+        crontab(day_of_week="mon", hour="5", minute="35"),
+        refresh_signal_repository_activity.s(),
+        name="refresh signals repository activity",
+    )
+
     # Loop task retention sweep - daily at 4:30 AM
     add_periodic_task_with_expiry(
         sender,
@@ -420,6 +431,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         report_stuck_heatmap_screenshots.s(),
         name="report stuck heatmap screenshots",
         expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        reap_stale_prewarm_heatmaps.s(),
+        name="reap stale prewarm heatmap screenshots",
+        expires_seconds=10 * 60,
     )
 
     # Auth token cache verification - every 6 hours at minute 40
@@ -604,6 +623,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="recalculate cohorts night",
         expires=60 * 1.5,
         args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT,),
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        finalize_cohort_backfill_runs.s(),
+        name="finalize cohort backfill runs",
     )
 
     add_periodic_task_with_expiry(

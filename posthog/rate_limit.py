@@ -3,14 +3,23 @@ import json
 import time
 import hashlib
 from contextlib import suppress
+from datetime import timedelta
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.urls import resolve
+from django.utils import timezone
 
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
+
+if TYPE_CHECKING:
+    # This module is imported by DRF's DEFAULT_THROTTLE_CLASSES setting while rest_framework.views
+    # is still initializing, so importing it (or anything that pulls it in) at runtime is circular.
+    from rest_framework.request import Request
+    from rest_framework.views import APIView
 
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
@@ -471,6 +480,40 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "300/hour"
 
 
+# The batch session-context endpoint computes experiment context for up to 20 recordings per
+# call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
+# — and its primary caller is the session-authenticated replay/experiment UI, which the
+# ClickHouse*RateThrottle pair deliberately does not cover. PersonalApiKeyOrUserRateThrottle
+# applies regardless of auth method. The UI fires at most one prefetch per user action (page
+# load, filter change — debounced client-side — or recording open), and repeats hit the
+# server-side cache, so these rates clear a whole project's worth of concurrent viewers while
+# capping a scripted loop of cold batches.
+class _SessionContextsRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        # One bucket per project regardless of auth method. The parent idents personal-API-key
+        # requests by key hash, so each minted key would get its own budget of this expensive
+        # compute — the sum must be capped project-wide instead, the same reasoning as
+        # ProjectSecretApiKeyTeamRateThrottle's team-wide bucket.
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id is not None:
+            ident = team_id
+        elif request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class SessionContextsBurstRateThrottle(_SessionContextsRateThrottleBase):
+    scope = "session_contexts_burst"
+    rate = "60/minute"
+
+
+class SessionContextsSustainedRateThrottle(_SessionContextsRateThrottleBase):
+    scope = "session_contexts_sustained"
+    rate = "600/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
@@ -653,21 +696,21 @@ class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_burst"
     rate = "50/minute"
 
 
-class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_sustained"
     rate = "200/hour"
 
 
-class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     # Daily cap for LLM-powered summarization endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
@@ -870,14 +913,61 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_query_{sha_hash}"
 
 
-class SetupWizardCloudRunBurstRateThrottle(UserRateThrottle):
-    # "Run the setup wizard in the cloud" provisions a Modal sandbox and runs an LLM agent per call,
-    # so cap it hard per user — a couple per hour only, with an absolute daily ceiling (sustained throttle below).
+class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):
+    """Counts a user's recent wizard cloud RUNS (not requests), excluding failed and cancelled ones.
+
+    Each cloud run provisions a Modal sandbox and runs an LLM agent, so the cap must stay hard — but
+    counting raw requests locks users out after a run fails or gets cancelled, exactly when they need
+    to retry. Run outcomes change after the request, so this counts run rows in the DB at request
+    time instead of DRF's cache-side request history. Requests that boot no sandbox (validation
+    errors, missing GitHub integration, 429s from a sibling throttle) consume no quota — DRF
+    evaluates every throttle on every request, so a cache-side counter would silently charge
+    rejected requests.
+
+    These DB counts are read-then-create and can be raced by parallel requests, so they are the
+    user-facing soft limits; the hard ceiling on sandbox boots is the atomic per-request attempt
+    reservation inside the cloud_run view itself.
+    """
+
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate; the stubs don't declare them.
+    num_requests: int
+    duration: int
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            # cloud_run requires IsAuthenticated; anything else is rejected by permissions.
+            return True
+        # DRF evaluates both sibling throttles on every request; memoizing on the request keeps
+        # that at one DB read per distinct window instead of one per throttle.
+        memo = getattr(request, "_wizard_run_times_memo", None)
+        if memo is None:
+            memo = {}
+            setattr(request, "_wizard_run_times_memo", memo)  # noqa: B010 — dynamic attr the stubs don't know
+        if self.duration not in memo:
+            # Deferred: rate_limit is core and imports at module scope would pull the tasks
+            # product into every process's import path.
+            from products.tasks.backend.facade.api import recent_wizard_cloud_run_times  # noqa: PLC0415
+
+            memo[self.duration] = recent_wizard_cloud_run_times(
+                user.pk, timezone.now() - timedelta(seconds=self.duration)
+            )
+        self._recent_run_times = memo[self.duration]
+        return len(self._recent_run_times) < self.num_requests
+
+    def wait(self) -> float | None:
+        run_times = getattr(self, "_recent_run_times", None)
+        if not run_times:
+            return None
+        return max((run_times[0] + timedelta(seconds=self.duration) - timezone.now()).total_seconds(), 0)
+
+
+class SetupWizardCloudRunBurstRateThrottle(SetupWizardCloudRunOutcomeAwareThrottle):
     scope = "wizard_cloud_run_burst"
     rate = "2/hour"
 
 
-class SetupWizardCloudRunSustainedRateThrottle(UserRateThrottle):
+class SetupWizardCloudRunSustainedRateThrottle(SetupWizardCloudRunOutcomeAwareThrottle):
     scope = "wizard_cloud_run_day"
     rate = "5/day"
 
@@ -1061,6 +1151,16 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "alert_test_delivery"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
 class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
     # Cap how often a team can fire the user-interview send_invites action.
     #
@@ -1153,7 +1253,7 @@ class OrganizationInviteBurstThrottle(_OrganizationInviteRateThrottleBase):
 
 class OrganizationInviteSustainedThrottle(_OrganizationInviteRateThrottleBase):
     scope = "organization_invite_sustained"
-    rate = "100/day"
+    rate = "200/day"
 
 
 class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):

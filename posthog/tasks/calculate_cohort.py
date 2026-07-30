@@ -15,20 +15,14 @@ from prometheus_client import Counter, Gauge, Histogram
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
-from posthog.errors import (
-    CHQueryErrorCannotScheduleTask,
-    CHQueryErrorS3Error,
-    CHQueryErrorS3FileChangedDuringRead,
-    CHQueryErrorTableIsReadOnly,
-    CHQueryErrorTooManySimultaneousQueries,
-)
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
+from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
 from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -457,14 +451,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     # Auto-retry for transient ClickHouse errors with exponential backoff
-    autoretry_for=(
-        CHQueryErrorTooManySimultaneousQueries,
-        CHQueryErrorCannotScheduleTask,
-        ClickHouseAtCapacity,
-        CHQueryErrorS3Error,
-        CHQueryErrorS3FileChangedDuringRead,
-        CHQueryErrorTableIsReadOnly,
-    ),
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=60,
     retry_backoff_max=1800,
     max_retries=6,
@@ -927,3 +914,11 @@ def trigger_cohort_events_backfill_task(team_id: int, cohort_id: int, trigger_ki
             error=str(error),
         )
         raise
+
+
+@shared_task(ignore_result=True)
+def finalize_cohort_backfill_runs() -> None:
+    """Terminalize behavioral backfill runs the Rust seeder has fully observed. Gated off by
+    ``BEHAVIORAL_BACKFILL_FINALIZER_ENABLED`` (checked inside ``finalize_backfill_runs``, which
+    returns before touching the DB when disabled)."""
+    finalize_backfill_runs()

@@ -9,6 +9,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import type { DataWarehouseSavedQuery, DataWarehouseTable, PropertyDefinition } from '~/types'
 import { PropertyDefinitionType } from '~/types'
 
@@ -17,27 +19,46 @@ import {
     customPropertyDefinitionsDestroy,
     customPropertyDefinitionsList,
     customPropertyDefinitionsPartialUpdate,
+    customPropertySourcesBackfill,
     customPropertySourcesCreate,
     customPropertySourcesDestroy,
     customPropertySourcesPartialUpdate,
+    customPropertySourcesRunsList,
+    customPropertySourcesSync,
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     CustomPropertyDefinitionApi,
     CustomPropertyDisplayTypeEnumApi,
     CustomPropertyOptionApi,
     CustomPropertyReferenceApi,
+    CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './customPropertyTypes'
 
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
-export type CustomPropertyTargetType = 'account' | 'person'
+export type CustomPropertyTargetType = 'account' | 'person' | 'group'
+
+// After triggering a sync/backfill, poll until the source's run settles so the UI reflects
+// completion without a manual refresh. Bounded so a stuck run can't poll forever.
+const RUNS_POLL_INTERVAL_MS = 3000
+const RUNS_POLL_MAX_ATTEMPTS = 20
 
 // One warehouse-column → person-property pair in the person-target editor. Serialized to the
-// backend's `column_property_map` object ({column: property}) on save.
+// backend's `column_property_map` object ({column: property}) on save; the optional per-mapping
+// description is serialized to `column_descriptions` ({column: description}).
 export interface ColumnPropertyMapping {
     column: string
     property: string
+    description: string
+}
+
+// A warehouse table column as offered in the pickers: its name, HogQL type (shown as a tag), and
+// canonical description (seeded into a mapping's description when the column is picked).
+export interface WarehouseColumn {
+    name: string
+    type: string
+    description: string | null
 }
 
 export interface CustomPropertyFormValues {
@@ -49,11 +70,13 @@ export interface CustomPropertyFormValues {
     // 'account' feeds an account (group) property from a saved query; 'person' upserts warehouse
     // columns onto person properties (usable in flags/cohorts/insights) from a raw synced table.
     targetType: CustomPropertyTargetType
+    // Group target only: which group type (0-4) the property attaches to.
+    groupTypeIndex: number | null
     sourceMode: CustomPropertySourceMode
     savedQuery: string | null
     sourceColumn: string | null
     keyColumn: string | null
-    // Person target: the warehouse table (its schema id backs the source) + the column mappings.
+    // Person/group target: the warehouse table (its schema id backs the source) + the column mappings.
     warehouseTable: string | null
     columnMappings: ColumnPropertyMapping[]
     isEnabled: boolean
@@ -66,12 +89,13 @@ const DEFAULT_FORM_VALUES: CustomPropertyFormValues = {
     isBigNumber: false,
     options: [],
     targetType: 'account',
+    groupTypeIndex: null,
     sourceMode: 'manual',
     savedQuery: null,
     sourceColumn: null,
     keyColumn: null,
     warehouseTable: null,
-    columnMappings: [{ column: '', property: '' }],
+    columnMappings: [{ column: '', property: '', description: '' }],
     isEnabled: true,
 }
 
@@ -82,27 +106,31 @@ const serializeDefinition = ({
     isBigNumber,
     options,
     targetType,
+    groupTypeIndex,
 }: CustomPropertyFormValues): {
     name: string
     description: string | null
     display_type: CustomPropertyDisplayTypeEnumApi
     target_type: CustomPropertyTargetType
+    group_type_index?: number | null
     is_big_number: boolean
     options?: CustomPropertyOptionApi[]
 } => {
-    // display_type/is_big_number/options only drive how an account property renders — a person
-    // property is written as a raw $set value, so those fields are hidden and forced to defaults.
-    const isPerson = targetType === 'person'
+    // display_type/is_big_number/options only drive how an account property renders — person and
+    // group properties are written as raw $set / $group_set values, so those are hidden and defaulted.
+    const isProfile = targetType === 'person' || targetType === 'group'
     return {
         name: name.trim(),
         description: description?.trim() || null,
-        display_type: isPerson ? 'text' : displayType,
+        display_type: isProfile ? 'text' : displayType,
         // Create-only on the backend; a definition's target doesn't change after creation.
         target_type: targetType,
+        // The group type is create-only too; sent only for group targets, omitted otherwise.
+        ...(targetType === 'group' ? { group_type_index: groupTypeIndex } : {}),
         // The switch is hidden for non-numeric types, so never send a stale flag for them.
-        is_big_number: !isPerson && isNumericDisplayType(displayType) ? isBigNumber : false,
+        is_big_number: !isProfile && isNumericDisplayType(displayType) ? isBigNumber : false,
         // Options only apply to select; the backend clears them for other types.
-        ...(!isPerson && displayType === 'select'
+        ...(!isProfile && displayType === 'select'
             ? {
                   options: options.map(({ id, label, color }) => ({
                       ...(id && !id.startsWith(NEW_OPTION_ID_PREFIX) ? { id } : {}),
@@ -119,15 +147,19 @@ const serializeDefinition = ({
 const RESERVED_PERSON_PROPERTY_NAMES = new Set(['email', 'name', 'username'])
 
 // The backend stores column_property_map as a JSON object; the form edits it as an ordered list.
-const parseColumnPropertyMap = (value: unknown): ColumnPropertyMapping[] => {
+// Descriptions are stored in a parallel {column: description} object and folded back in per column.
+const parseColumnPropertyMap = (value: unknown, descriptions: unknown): ColumnPropertyMapping[] => {
+    const descriptionsByColumn =
+        descriptions && typeof descriptions === 'object' ? (descriptions as Record<string, unknown>) : {}
     if (!value || typeof value !== 'object') {
-        return [{ column: '', property: '' }]
+        return [{ column: '', property: '', description: '' }]
     }
     const entries = Object.entries(value as Record<string, unknown>).map(([column, property]) => ({
         column,
         property: String(property),
+        description: descriptionsByColumn[column] != null ? String(descriptionsByColumn[column]) : '',
     }))
-    return entries.length ? entries : [{ column: '', property: '' }]
+    return entries.length ? entries : [{ column: '', property: '', description: '' }]
 }
 
 const handleNameConflict = (error: unknown, setManualErrors: (errors: { name: string }) => void): boolean => {
@@ -165,20 +197,28 @@ export interface customPropertyDefinitionsLogicValues {
     newWorkflowUrlLoading: boolean
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    runsBySourceId: Record<string, CustomPropertySyncRunApi[]>
+    runsLoadingBySourceId: Record<string, boolean>
     savedQueries: DataWarehouseSavedQuery[]
     savedQueriesLoading: boolean
     selectedSourceColumns: string[]
-    selectedTableColumns: string[]
+    selectedTableColumns: WarehouseColumn[]
     selectedTableColumnsLoading: boolean
     selectedWarehouseSchemaId: string | null
+    serializedColumnDescriptions: Record<string, string>
     serializedColumnPropertyMap: Record<string, string>
     showCustomPropertyFormErrors: boolean
+    targetTypeLocked: boolean
+    triggeringSourceIds: string[]
     warehouseTables: DataWarehouseTable[]
     warehouseTablesLoading: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface customPropertyDefinitionsLogicActions {
+    addTriggeringSource: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
     closeModal: () => {
         value: true
     }
@@ -248,6 +288,9 @@ export interface customPropertyDefinitionsLogicActions {
         personPropertyDefinitions: PropertyDefinition[]
         payload?: any
     }
+    loadRuns: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
     loadSavedQueries: () => any
     loadSavedQueriesFailure: (
         error: string,
@@ -274,17 +317,19 @@ export interface customPropertyDefinitionsLogicActions {
         errorObject?: any
     }
     loadSelectedTableColumnsSuccess: (
-        selectedTableColumns: string[],
+        selectedTableColumns: WarehouseColumn[],
         payload?: {
             tableId: string | null
         }
     ) => {
-        selectedTableColumns: string[]
+        selectedTableColumns: WarehouseColumn[]
         payload?: {
             tableId: string | null
         }
     }
-    loadWarehouseTables: () => any
+    loadWarehouseTables: ({ search }?: { search?: string }) => {
+        search?: string
+    }
     loadWarehouseTablesFailure: (
         error: string,
         errorObject?: any
@@ -294,19 +339,40 @@ export interface customPropertyDefinitionsLogicActions {
     }
     loadWarehouseTablesSuccess: (
         warehouseTables: DataWarehouseTable[],
-        payload?: any
+        payload?: {
+            search?: string
+        }
     ) => {
         warehouseTables: DataWarehouseTable[]
-        payload?: any
+        payload?: {
+            search?: string
+        }
     }
-    openCreateModal: (targetType?: CustomPropertyTargetType) => {
+    openCreateModal: (
+        targetType?: CustomPropertyTargetType,
+        lockTargetType?: boolean
+    ) => {
+        lockTargetType: boolean
         targetType: CustomPropertyTargetType | undefined
     }
     openEditModal: (definition: CustomPropertyDefinitionApi) => {
         definition: CustomPropertyDefinitionApi
     }
+    pollRunsStatus: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
+    removeTriggeringSource: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
     resetCustomPropertyForm: (values?: CustomPropertyFormValues) => {
         values?: CustomPropertyFormValues
+    }
+    runsLoadFailed: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
+    runsLoaded: ({ sourceId, runs }: { runs: CustomPropertySyncRunApi[]; sourceId: string }) => {
+        runs: CustomPropertySyncRunApi[]
+        sourceId: string
     }
     setCustomPropertyFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -343,6 +409,12 @@ export interface customPropertyDefinitionsLogicActions {
     touchCustomPropertyFormField: (key: string) => {
         key: string
     }
+    triggerBackfill: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
+    triggerSync: ({ sourceId }: { sourceId: string }) => {
+        sourceId: string
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -358,6 +430,7 @@ export interface customPropertyDefinitionsLogicMeta {
             customPropertyForm: CustomPropertyFormValues
         ) => string | null
         serializedColumnPropertyMap: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
+        serializedColumnDescriptions: (customPropertyForm: CustomPropertyFormValues) => Record<string, string>
         columnMappingWarnings: (
             customPropertyForm: CustomPropertyFormValues,
             personPropertyDefinitions: PropertyDefinition[]
@@ -390,12 +463,35 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         values: [projectLogic, ['currentProjectId']],
     })),
     actions({
-        // An optional target pre-selects Account/Person (the person-properties settings entry opens
-        // straight into 'person'); omitted, it falls back to the account default.
-        openCreateModal: (targetType?: CustomPropertyTargetType) => ({ targetType }),
+        // An optional target pre-selects Account/Person/Group (the person- and group-properties
+        // settings entries open straight into their target); omitted, it falls back to the account
+        // default. lockTargetType hides the "Attach to" switch when the target is implied by where
+        // the modal was opened (the person/group settings pages).
+        openCreateModal: (targetType?: CustomPropertyTargetType, lockTargetType: boolean = false) => ({
+            targetType,
+            lockTargetType,
+        }),
         openEditModal: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         closeModal: true,
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
+        // Person sources only. triggerSync re-runs the underlying warehouse sync; triggerBackfill
+        // starts a full-table backfill. add/removeTriggeringSource drive the per-row double-submit
+        // guard, keyed by source so triggering one row never re-enables another's in-flight button.
+        triggerSync: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        triggerBackfill: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        addTriggeringSource: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        removeTriggeringSource: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        // Run history per source (lazy on row-expand), driven by explicit actions so loading state is
+        // tracked per source rather than one shared loader boolean.
+        loadRuns: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        runsLoaded: ({ sourceId, runs }: { sourceId: string; runs: CustomPropertySyncRunApi[] }) => ({
+            sourceId,
+            runs,
+        }),
+        runsLoadFailed: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
+        // Poll definitions/runs after a trigger until the source's run settles, so the buttons and
+        // status stop reflecting a stale 'running' state without a manual page refresh.
+        pollRunsStatus: ({ sourceId }: { sourceId: string }) => ({ sourceId }),
     }),
     reducers({
         modalVisible: [
@@ -413,6 +509,42 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 openEditModal: (_, { definition }) => definition,
                 setEditingDefinition: (_, { definition }) => definition,
                 closeModal: () => null,
+            },
+        ],
+        // Whether the "Attach to" switch is hidden because the target is fixed by where the modal was
+        // opened (the person/group settings pages). Editing never shows the switch as a control anyway.
+        targetTypeLocked: [
+            false,
+            {
+                openCreateModal: (_, { lockTargetType }) => lockTargetType,
+                openEditModal: () => false,
+                closeModal: () => false,
+            },
+        ],
+        // The sources whose sync/backfill trigger is in flight, for the per-row loading/disabled guard.
+        // Keyed per source (not a single scalar) so a second row's trigger can't unblock the first's
+        // still-in-flight button.
+        triggeringSourceIds: [
+            [] as string[],
+            {
+                addTriggeringSource: (state, { sourceId }) => (state.includes(sourceId) ? state : [...state, sourceId]),
+                removeTriggeringSource: (state, { sourceId }) => state.filter((id) => id !== sourceId),
+            },
+        ],
+        // Sync/backfill run history per person source, loaded lazily when a row is expanded.
+        runsBySourceId: [
+            {} as Record<string, CustomPropertySyncRunApi[]>,
+            {
+                runsLoaded: (state, { sourceId, runs }) => ({ ...state, [sourceId]: runs }),
+            },
+        ],
+        // Per-source loading flag so expanding one row's history doesn't spin every expanded row.
+        runsLoadingBySourceId: [
+            {} as Record<string, boolean>,
+            {
+                loadRuns: (state, { sourceId }) => ({ ...state, [sourceId]: true }),
+                runsLoaded: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
+                runsLoadFailed: (state, { sourceId }) => ({ ...state, [sourceId]: false }),
             },
         ],
     }),
@@ -442,24 +574,93 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         warehouseTables: [
             [] as DataWarehouseTable[],
             {
-                loadWarehouseTables: async (): Promise<DataWarehouseTable[]> => {
-                    // Skip column serialization (expensive per-table HogQL work) and raise the limit off the
-                    // default 100 — the picker only needs names, and columns load per-table on selection.
-                    const response = await api.dataWarehouseTables.list({ include_columns: false, limit: 1000 })
+                loadWarehouseTables: async (
+                    { search }: { search?: string } = {},
+                    breakpoint
+                ): Promise<DataWarehouseTable[]> => {
+                    // Debounce keystrokes from the picker's server-side search so typing doesn't fire a
+                    // request per character.
+                    await breakpoint(300)
+                    // Skip column serialization (expensive per-table HogQL work) — the picker only needs
+                    // names, and columns load per-table on selection. Search runs on the backend, and we
+                    // follow pagination so more than one page of synced tables is reachable (bounded, so a
+                    // broad, unsearched catalog can't pull forever).
+                    const PAGE_SIZE = 100
+                    const MAX_PAGES = 20
+                    const collected: DataWarehouseTable[] = []
+                    for (let offset = 0, page = 0; page < MAX_PAGES; page += 1, offset += PAGE_SIZE) {
+                        const response = await api.dataWarehouseTables.list({
+                            include_columns: false,
+                            limit: PAGE_SIZE,
+                            offset,
+                            ...(search ? { search } : {}),
+                        })
+                        breakpoint()
+                        collected.push(...response.results)
+                        if (!response.next || response.results.length < PAGE_SIZE) {
+                            break
+                        }
+                    }
                     // Only synced tables carry an external_schema, which is what a person source binds to.
-                    return response.results.filter((table) => !!table.external_schema)
+                    const synced = collected.filter((table) => !!table.external_schema)
+                    // Keep the currently-selected table in the list even if the active search filters it
+                    // out, so the picker can still render its label rather than a bare id.
+                    const selectedId = values.customPropertyForm.warehouseTable
+                    if (selectedId && !synced.some((table) => table.id === selectedId)) {
+                        const selected = values.warehouseTables.find((table) => table.id === selectedId)
+                        if (selected) {
+                            return [selected, ...synced]
+                        }
+                    }
+                    return synced
                 },
             },
         ],
         selectedTableColumns: [
-            [] as string[],
+            [] as WarehouseColumn[],
             {
-                loadSelectedTableColumns: async ({ tableId }: { tableId: string | null }): Promise<string[]> => {
+                loadSelectedTableColumns: async ({
+                    tableId,
+                }: {
+                    tableId: string | null
+                }): Promise<WarehouseColumn[]> => {
                     if (!tableId) {
                         return []
                     }
                     const table = await api.dataWarehouseTables.get(tableId)
-                    return (table.columns ?? []).map((column) => column.name)
+                    const columns: WarehouseColumn[] = (table.columns ?? []).map((column) => ({
+                        name: column.name,
+                        type: String(column.type),
+                        description: null,
+                    }))
+                    // Seed each column's canonical description from the warehouse catalog. Best-effort:
+                    // descriptions are often unset for warehouse columns, and the catalog query mustn't
+                    // block picking columns, so any failure leaves descriptions null.
+                    try {
+                        const tableName = table.hogql_name || table.name
+                        const response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: hogql`
+                                select column_name, description
+                                from information_schema.columns
+                                where table_name = ${tableName}
+                            `,
+                        })) as HogQLQueryResponse
+                        const descriptionByColumn = new Map<string, string>()
+                        for (const row of (response.results ?? []) as unknown[][]) {
+                            const name = row[0] as string | null
+                            const description = row[1] as string | null
+                            if (name && description) {
+                                descriptionByColumn.set(name, description)
+                            }
+                        }
+                        return columns.map((column) => ({
+                            ...column,
+                            description: descriptionByColumn.get(column.name) ?? null,
+                        }))
+                    } catch {
+                        return columns
+                    }
                 },
             },
         ],
@@ -507,28 +708,32 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 displayType,
                 options,
                 targetType,
+                groupTypeIndex,
                 sourceMode,
                 savedQuery,
                 sourceColumn,
                 keyColumn,
                 warehouseTable,
             }: CustomPropertyFormValues) => {
-                const isPerson = targetType === 'person'
-                const isAccountWarehouse = !isPerson && sourceMode === 'data_warehouse'
+                // Person and group both feed from a warehouse table; account can also via a view.
+                const isProfile = targetType === 'person' || targetType === 'group'
+                const isAccountWarehouse = !isProfile && sourceMode === 'data_warehouse'
                 // The table + column map are create-only, so only require them when creating a new
-                // person source — an existing source keeps only key_column and enabled editable.
-                const isNewPersonSource = isPerson && !values.editingDefinition?.source
+                // profile source — an existing source keeps only key_column and enabled editable.
+                const isNewProfileSource = isProfile && !values.editingDefinition?.source
                 return {
                     name: !name?.trim() ? 'Name is required' : undefined,
+                    groupTypeIndex:
+                        targetType === 'group' && groupTypeIndex == null ? 'Select a group type' : undefined,
                     options:
-                        !isPerson && displayType === 'select'
+                        !isProfile && displayType === 'select'
                             ? options.map((_, index) => ({ label: optionLabelError(options, index) }))
                             : undefined,
                     savedQuery: isAccountWarehouse && !savedQuery ? 'Select a view' : undefined,
                     sourceColumn: isAccountWarehouse && !sourceColumn ? 'Select the value column' : undefined,
                     keyColumn:
-                        (isAccountWarehouse || isPerson) && !keyColumn?.trim() ? 'Enter the key column' : undefined,
-                    warehouseTable: isNewPersonSource && !warehouseTable ? 'Select a warehouse table' : undefined,
+                        (isAccountWarehouse || isProfile) && !keyColumn?.trim() ? 'Enter the key column' : undefined,
+                    warehouseTable: isNewProfileSource && !warehouseTable ? 'Select a warehouse table' : undefined,
                 }
             },
             submit: async (formValues: CustomPropertyFormValues) => {
@@ -547,7 +752,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 try {
                     const { targetType, sourceMode, savedQuery, sourceColumn, keyColumn, isEnabled } = formValues
                     const existingSource = editing?.source ?? null
-                    if (targetType === 'person') {
+                    // Person and group sources share the same warehouse binding (schema + column map).
+                    if (targetType === 'person' || targetType === 'group') {
                         const schemaId = values.selectedWarehouseSchemaId
                         if (existingSource) {
                             // The binding + column map are create-only on the backend; only key_column
@@ -568,6 +774,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                                 definition: definition.id,
                                 external_data_schema: schemaId,
                                 column_property_map: values.serializedColumnPropertyMap,
+                                column_descriptions: values.serializedColumnDescriptions,
                                 key_column: keyColumn.trim(),
                                 is_enabled: isEnabled,
                             })
@@ -627,6 +834,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                         .map((mapping) => [mapping.column.trim(), mapping.property.trim()])
                 ),
         ],
+        // The per-mapping descriptions as the backend's `column_descriptions` object ({column:
+        // description}), only for complete mappings that carry a non-empty description.
+        serializedColumnDescriptions: [
+            (s) => [s.customPropertyForm],
+            (form: CustomPropertyFormValues): Record<string, string> =>
+                Object.fromEntries(
+                    form.columnMappings
+                        .filter(
+                            (mapping) => mapping.column.trim() && mapping.property.trim() && mapping.description.trim()
+                        )
+                        .map((mapping) => [mapping.column.trim(), mapping.description.trim()])
+                ),
+        ],
         // Warn-only collision check per mapping: a chosen person-property name that is `$`-prefixed,
         // an identity property, or already defined on persons could overwrite existing values.
         columnMappingWarnings: [
@@ -662,7 +882,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         openCreateModal: ({ targetType }) => {
             actions.resetCustomPropertyForm()
             if (targetType) {
@@ -678,14 +898,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             actions.loadSavedQueries()
             actions.loadWarehouseTables()
             actions.loadPersonPropertyDefinitions()
-            const isPerson = definition.target_type === 'person'
+            const targetType: CustomPropertyTargetType =
+                definition.target_type === 'person' || definition.target_type === 'group'
+                    ? definition.target_type
+                    : 'account'
+            const isProfile = targetType === 'person' || targetType === 'group'
             actions.setCustomPropertyFormValues({
                 name: definition.name,
                 description: definition.description ?? '',
                 displayType: definition.display_type,
                 isBigNumber: definition.is_big_number ?? false,
                 options: definition.options ?? [],
-                targetType: isPerson ? 'person' : 'account',
+                targetType,
+                groupTypeIndex: definition.group_type_index ?? null,
                 sourceMode: definition.source
                     ? 'data_warehouse'
                     : definition.references?.length
@@ -697,9 +922,12 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 // The warehouse-table binding is create-only, so on edit we surface the existing map
                 // (read-only in the modal) rather than resolving the table back for the picker.
                 warehouseTable: null,
-                columnMappings: isPerson
-                    ? parseColumnPropertyMap(definition.source?.column_property_map)
-                    : [{ column: '', property: '' }],
+                columnMappings: isProfile
+                    ? parseColumnPropertyMap(
+                          definition.source?.column_property_map,
+                          definition.source?.column_descriptions
+                      )
+                    : [{ column: '', property: '', description: '' }],
                 isEnabled: definition.source?.is_enabled ?? true,
             })
         },
@@ -781,6 +1009,89 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         loadWarehouseTablesFailure: ({ error }) => {
             posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadWarehouseTables' })
             lemonToast.error('Failed to load data warehouse tables')
+        },
+        triggerSync: async ({ sourceId }) => {
+            actions.addTriggeringSource({ sourceId })
+            try {
+                await customPropertySourcesSync(String(values.currentProjectId), sourceId)
+                lemonToast.success('Sync triggered — it may take a few minutes to run')
+                actions.loadDefinitions()
+                actions.pollRunsStatus({ sourceId })
+            } catch (error) {
+                posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.triggerSync' })
+                lemonToast.error('Could not trigger a sync for this property')
+            } finally {
+                actions.removeTriggeringSource({ sourceId })
+            }
+        },
+        triggerBackfill: async ({ sourceId }) => {
+            actions.addTriggeringSource({ sourceId })
+            try {
+                const response = await customPropertySourcesBackfill(String(values.currentProjectId), sourceId)
+                const alreadyRunning = (response as { already_running?: boolean } | undefined)?.already_running
+                lemonToast.success(
+                    alreadyRunning
+                        ? 'A backfill is already running for this table'
+                        : 'Backfill started — it may take a few minutes to run'
+                )
+                actions.loadRuns({ sourceId })
+                actions.loadDefinitions()
+                actions.pollRunsStatus({ sourceId })
+            } catch (error) {
+                posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.triggerBackfill' })
+                lemonToast.error('Could not start a backfill for this property')
+            } finally {
+                actions.removeTriggeringSource({ sourceId })
+            }
+        },
+        loadRuns: async ({ sourceId }) => {
+            try {
+                const response = await customPropertySourcesRunsList(String(values.currentProjectId), sourceId)
+                actions.runsLoaded({ sourceId, runs: response.results })
+            } catch (error) {
+                posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadRuns' })
+                actions.runsLoadFailed({ sourceId })
+                lemonToast.error('Failed to load run history')
+            }
+        },
+        pollRunsStatus: ({ sourceId }) => {
+            cache.pollSourceIds = cache.pollSourceIds ?? new Set<string>()
+            cache.pollAttempts = cache.pollAttempts ?? {}
+            cache.pollSourceIds.add(sourceId)
+            cache.pollAttempts[sourceId] = 0
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => actions.loadDefinitions(), RUNS_POLL_INTERVAL_MS)
+                return () => clearTimeout(timeoutId)
+            }, 'runsPoll')
+        },
+        loadDefinitionsSuccess: () => {
+            // Reschedule the trigger poll until each polled source's run settles (or attempts run out),
+            // so the buttons/status reflect completion without a manual refresh (see pollRunsStatus).
+            const pollSourceIds: Set<string> | undefined = cache.pollSourceIds
+            if (!pollSourceIds || pollSourceIds.size === 0) {
+                return
+            }
+            // Build the next round rather than mutating the set while iterating it.
+            const stillPolling = new Set<string>()
+            pollSourceIds.forEach((sourceId) => {
+                const definition = values.definitions.find((d) => d.source?.id === sourceId)
+                const stillRunning = definition?.source?.latest_run?.status === 'running'
+                const attempts = (cache.pollAttempts[sourceId] ?? 0) + 1
+                cache.pollAttempts[sourceId] = attempts
+                actions.loadRuns({ sourceId })
+                if (stillRunning && attempts < RUNS_POLL_MAX_ATTEMPTS) {
+                    stillPolling.add(sourceId)
+                }
+            })
+            cache.pollSourceIds = stillPolling
+            if (stillPolling.size === 0) {
+                cache.disposables.dispose('runsPoll')
+                return
+            }
+            cache.disposables.add(() => {
+                const timeoutId = setTimeout(() => actions.loadDefinitions(), RUNS_POLL_INTERVAL_MS)
+                return () => clearTimeout(timeoutId)
+            }, 'runsPoll')
         },
     })),
     afterMount(({ actions }) => {

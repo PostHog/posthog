@@ -16,7 +16,7 @@ Both warnings are the same bug class: **something that isn't a user identifier r
 
 ## Diagnose
 
-1. `posthog:ingestion-warnings-list` with either `type`. The samples do most of the work: `illegalDistinctId` shows the placeholder (plus `otherDistinctId`, the real user it tried to link); the oversized variant shows the truncated `distinctId` and its length. The value's shape names the bug.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('cannot_merge_with_illegal_distinct_id', 'skipping_event_invalid_distinct_id') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). The `details` JSON does most of the work: `illegalDistinctId` shows the placeholder (plus `otherDistinctId`, the real user it tried to link); the oversized variant shows the truncated `distinctId` and its length. The value's shape names the bug.
 2. Find the callsite: grep the app for `identify(`, `alias(`, and `capture(` with an explicit `distinctId` — and trace where the argument can be undefined (typically a race with auth state) or receive a token/object.
 
 ## Fix
@@ -35,7 +35,7 @@ if (user?.id) {
 
 ## Verify
 
-Re-run the login/affected flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences of either type — and confirm events arrive under the correct persons.
+Re-run the login/affected flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('cannot_merge_with_illegal_distinct_id', 'skipping_event_invalid_distinct_id')`, `timestamp` after your fix) — no new occurrences of either type — and confirm events arrive under the correct persons.
 
 ## Related
 

@@ -14,10 +14,6 @@ from posthog.schema import (
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -37,11 +33,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
+    SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsRateLimitError,
     MetaAdsResumeConfig,
@@ -132,7 +130,22 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
             # fallbacks are exhausted, retrying the whole job won't help.
             "Please reduce the amount of data you're asking for": None,
+            # Raised by `meta_ads._raise_shrink_exhausted_error` once both ladders
+            # have bottomed out. The next attempt would re-issue the identical
+            # single-day, smallest-page request that just failed, so the only thing
+            # left is for the user to narrow the sync window.
+            SHRINK_EXHAUSTED_ERROR_MESSAGE: (
+                "Meta couldn't return this data even at the smallest request size. Lower the sync "
+                "history for insights in your Meta Ads source settings, then run the sync again."
+            ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Meta error codes 1 ("API Unknown") and 2 ("API Service") are momentary backend blips
+        # Meta's own docs recommend simply retrying. `meta_ads._raise_meta_api_error` tags them
+        # with this marker once `_get_with_transient_retry`'s in-process retries are exhausted, so
+        # the eventual Temporal-level retry doesn't page us as a bug.
+        return {"Meta API request failed (retryable)"}
 
     def get_schemas(
         self,

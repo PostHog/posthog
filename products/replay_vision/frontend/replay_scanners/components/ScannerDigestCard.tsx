@@ -1,3 +1,5 @@
+import './ScannerSummary.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
@@ -5,11 +7,21 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from 'lib/ui/quill'
 import { urls } from 'scenes/urls'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerDigestLogic } from '../scannerDigestLogic'
+import { resolveObservationCitations } from '../visionActionRunSceneLogic'
 
 function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
     return (
@@ -22,7 +34,7 @@ function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
 function CardHeader({ meta }: { meta?: React.ReactNode }): JSX.Element {
     return (
         <div className="flex items-baseline justify-between gap-2">
-            <span className="text-sm font-medium">Daily digest</span>
+            <span className="text-sm font-medium">Featured digest</span>
             {meta && <span className="text-xs text-muted">{meta}</span>}
         </div>
     )
@@ -38,10 +50,24 @@ export function ScannerDigestCard({
     scannerName: string
 }): JSX.Element | null {
     const logic = scannerDigestLogic({ scannerId, scannerName })
-    const { digest, latestRun, latestRunLoading, digestCreating, expanded, visionActionsLoading } = useValues(logic)
-    const { createDigest, toggleExpanded, toggleActionEnabled } = useActions(logic)
+    const {
+        digest,
+        latestRun,
+        latestRunLoading,
+        digestCreating,
+        promotableSummaries,
+        promoting,
+        expanded,
+        visionActionsLoading,
+        runningNow,
+        runInProgress,
+    } = useValues(logic)
+    const { createDigest, promoteDigest, toggleExpanded, toggleActionEnabled, runNow } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
+    // Disable Run now while a run is actually processing (not just during the trigger request). A
+    // second run coalesces server-side anyway, but disabling makes that obvious and stops spam clicks.
+    const runNowDisabledReason = editDisabledReason ?? (runInProgress ? 'A run is already in progress' : undefined)
 
     if (visionActionsLoading && !digest) {
         return null
@@ -55,17 +81,54 @@ export function ScannerDigestCard({
                     <span className="text-sm text-muted">
                         Get a daily AI summary of what this scanner finds, right here.
                     </span>
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconPlus />}
-                        onClick={createDigest}
-                        loading={digestCreating}
-                        disabledReason={editDisabledReason}
-                        data-attr="vision-scanner-digest-create"
-                    >
-                        Turn on daily digest
-                    </LemonButton>
+                    {promotableSummaries.length > 0 ? (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger
+                                render={
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={<IconPlus />}
+                                        loading={digestCreating || promoting}
+                                        disabledReason={editDisabledReason}
+                                        data-attr="vision-scanner-digest-setup"
+                                    />
+                                }
+                            >
+                                Set up digest
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-[220px]">
+                                <DropdownMenuItem onClick={createDigest} data-attr="vision-scanner-digest-create">
+                                    Create a new daily digest
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuGroup>
+                                    <DropdownMenuLabel>Or feature an existing digest</DropdownMenuLabel>
+                                    {promotableSummaries.map((summary) => (
+                                        <DropdownMenuItem
+                                            key={summary.id}
+                                            onClick={() => promoteDigest(summary.id)}
+                                            data-attr="vision-scanner-digest-promote"
+                                        >
+                                            {summary.name}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuGroup>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            icon={<IconPlus />}
+                            onClick={createDigest}
+                            loading={digestCreating}
+                            disabledReason={editDisabledReason}
+                            data-attr="vision-scanner-digest-create"
+                        >
+                            Turn on daily digest
+                        </LemonButton>
+                    )}
                 </div>
             </CardShell>
         )
@@ -76,7 +139,7 @@ export function ScannerDigestCard({
             <CardShell>
                 <CardHeader />
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm text-muted">The daily digest is paused.</span>
+                    <span className="text-sm text-muted">The featured digest is paused.</span>
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -109,14 +172,26 @@ export function ScannerDigestCard({
                             </>
                         )}
                     </span>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        to={urls.replayVisionActionEdit(digest.id)}
-                        data-attr="vision-scanner-digest-edit"
-                    >
-                        Edit schedule
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={runNow}
+                            loading={runningNow}
+                            disabledReason={runNowDisabledReason}
+                            data-attr="vision-scanner-digest-run-now-empty"
+                        >
+                            {runInProgress ? 'Running…' : 'Run now'}
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={urls.replayVisionActionEdit(digest.id)}
+                            data-attr="vision-scanner-digest-edit"
+                        >
+                            Edit schedule
+                        </LemonButton>
+                    </div>
                 </div>
             </CardShell>
         )
@@ -148,9 +223,10 @@ export function ScannerDigestCard({
                         : 'max-h-60 overflow-hidden [mask-image:linear-gradient(to_bottom,black_12rem,transparent_15rem)]'
                 }
             >
-                {/* LLM/replay-derived content: render non-PostHog images as links, not auto-fetched <img>s. */}
-                <LemonMarkdown className="text-sm" disableImages>
-                    {latestRun.synthesized_markdown}
+                {/* LLM/replay-derived content: render non-PostHog images as links, not auto-fetched <img>s.
+                    Resolve the summarizer's [obs N] markers into links to each cited observation. */}
+                <LemonMarkdown className="ScannerSummaryMarkdown text-sm" disableImages>
+                    {resolveObservationCitations(latestRun.synthesized_markdown, latestRun.observations)}
                 </LemonMarkdown>
             </div>
             <div className="flex flex-wrap items-center gap-2 border-t pt-2">
@@ -163,6 +239,16 @@ export function ScannerDigestCard({
                     {expanded ? 'Show less' : 'Show more'}
                 </LemonButton>
                 <div className="flex-1" />
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={runNow}
+                    loading={runningNow}
+                    disabledReason={runNowDisabledReason}
+                    data-attr="vision-scanner-digest-run-now"
+                >
+                    {runInProgress ? 'Running…' : 'Run now'}
+                </LemonButton>
                 {!delivers && (
                     <LemonButton
                         size="xsmall"

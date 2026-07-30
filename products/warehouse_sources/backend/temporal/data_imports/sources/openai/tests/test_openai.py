@@ -640,3 +640,19 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = OpenAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
+
+
+class TestToolCallUsageGroupBy:
+    # Each tool-usage endpoint advertises a distinct group_by set; requesting a dimension the endpoint
+    # does not support (e.g. `model` on file_search) makes the live API 400, so guard the composition.
+    @parameterized.expand(
+        [
+            ("usage_web_search_calls", ["project_id", "user_id", "api_key_id", "model", "context_level"]),
+            ("usage_file_search_calls", ["project_id", "user_id", "api_key_id", "vector_store_id"]),
+        ]
+    )
+    def test_group_by_matches_supported_dimensions(self, endpoint: str, expected: list[str]) -> None:
+        assert OPENAI_ENDPOINTS[endpoint].group_by == expected
+
+    def test_file_search_does_not_group_by_model(self) -> None:
+        assert "model" not in OPENAI_ENDPOINTS["usage_file_search_calls"].group_by

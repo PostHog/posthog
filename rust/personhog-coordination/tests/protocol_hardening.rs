@@ -10,6 +10,8 @@
 mod common;
 
 use std::collections::HashMap;
+use std::future::pending;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,9 +21,10 @@ use tokio_util::sync::CancellationToken;
 use assignment_coordination::store::parse_watch_value;
 use async_trait::async_trait;
 use common::{
-    revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod,
+    revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod, start_pod_gated,
     start_pod_with_lease_ttl, start_router_with_lease_ttl, test_store, test_store_with_prefix,
-    wait_for_condition, HandoffEvent, POLL_INTERVAL, WAIT_TIMEOUT,
+    wait_for_condition, CutoverEvent, HandoffEvent, MockCutoverHandler, POLL_INTERVAL,
+    WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -48,6 +51,10 @@ async fn put_handoff(
         phase,
         started_at: 0,
         handoff_id: format!("test-handoff-{partition}"),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
+        new_owner_address: None,
     };
     // Raw put on purpose: fixtures force arbitrary handoff states,
     // including overwriting an existing one, which the guarded
@@ -211,10 +218,10 @@ async fn coordinator_abdicates_and_recampaigns_when_election_lease_revoked() {
 // ============================================================
 //
 // Draining fences the partition against writes on the old owner. When a
-// handoff is cancelled (`cleanup_stale_handoffs` deletes the record — e.g.
-// the new owner died mid-warm), the pod re-derives its state from what
-// etcd still says: if the assignment names it, it resumes serving (routers
-// drain their stashes back to it); if nothing assigns it the partition, it
+// handoff is cancelled (the coordinator replaces the record — e.g. the
+// new owner died mid-warm and a reaffirm resolves it), the pod re-derives
+// its state from what etcd now says: if the record names it, it resumes
+// serving (routers drain their stashes back to it); if nothing assigns it, it
 // releases whatever half-acquired state it holds.
 
 /// A handoff deleted mid-flight (after this pod drained as old owner)
@@ -384,11 +391,13 @@ async fn restarted_pod_rewarms_assigned_partitions() {
                 partition: 0,
                 owner: "phoenix-pod".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             },
             PartitionAssignment {
                 partition: 1,
                 owner: "phoenix-pod".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             },
         ])
         .await
@@ -427,6 +436,7 @@ async fn restarted_old_owner_serves_again_after_handoff_cancelled() {
             partition: 0,
             owner: "victim-pod".to_string(),
             status: AssignmentStatus::Active,
+            advertise_address: None,
         }])
         .await
         .expect("write assignment");
@@ -476,6 +486,7 @@ async fn restarted_old_owner_refences_when_handoff_in_warming() {
             partition: 0,
             owner: "frozen-pod".to_string(),
             status: AssignmentStatus::Active,
+            advertise_address: None,
         }])
         .await
         .expect("write assignment");
@@ -767,10 +778,10 @@ async fn legacy_ack_without_handoff_id_does_not_satisfy_quorum() {
 //
 // A handoff whose OLD owner is dead progresses on its own: Freezing waits
 // on routers (not the old owner), and Draining treats an absent old owner
-// as vacuously drained. `cleanup_stale_handoffs` deleting such handoffs
-// was a second, competing mechanism for the same state — racing the
-// advance path and tearing down a healthy in-flight warm so rebalance
-// could recreate it from scratch. Cleanup's job is only the handoff that
+// as vacuously drained. Cancelling such handoffs would be a second,
+// competing mechanism for the same state — racing the advance path and
+// tearing down a healthy in-flight warm so the plan could recreate it
+// from scratch. The planner's cancellation trigger is only the handoff that
 // truly cannot proceed: a dead NEW owner, whose WarmedAck will never
 // arrive.
 
@@ -797,6 +808,7 @@ async fn dead_old_owner_handoff_advances_in_place_not_cleaned_up() {
                 registered_at: 0,
                 last_heartbeat: 0,
                 controller: None,
+                advertise_address: None,
             },
             lease,
         )
@@ -848,6 +860,7 @@ async fn dead_old_owner_handoff_advances_in_place_not_cleaned_up() {
                 registered_at: 0,
                 last_heartbeat: 0,
                 controller: None,
+                advertise_address: None,
             },
             bystander_lease,
         )
@@ -1099,7 +1112,7 @@ async fn freezing_handoff_advances_when_unacked_router_departs() {
 // ============================================================
 //
 // A pod that crash-restarts quickly (within its lease TTL) keeps its etcd
-// registration, so `cleanup_stale_handoffs` never fires and no new Put
+// registration, so no dead-new-owner cancellation fires and no new Put
 // arrives for a handoff created before the restart. Without a startup
 // scan the restarted pod never learns its part — the handoff stalls in
 // Draining/Warming forever.
@@ -1298,7 +1311,12 @@ impl StashHandler for StashOrderProbe {
         Ok(())
     }
 
-    async fn drain_stash(&self, _partition: u32, _target: &str) -> Result<()> {
+    async fn drain_stash(
+        &self,
+        _partition: u32,
+        _target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
         Ok(())
     }
 }
@@ -1320,6 +1338,7 @@ async fn late_joining_router_stashes_before_populating_table() {
                 partition: 0,
                 owner: "pod-old".to_string(),
                 status: AssignmentStatus::Active,
+                advertise_address: None,
             }],
             &[],
             &[],
@@ -1343,6 +1362,8 @@ async fn late_joining_router_stashes_before_populating_table() {
             router_name: "late-router".to_string(),
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..RoutingTableConfig::default()
         },
     );
     let observed = Arc::new(Mutex::new(Vec::new()));
@@ -1363,6 +1384,972 @@ async fn late_joining_router_stashes_before_populating_table() {
     assert!(
         calls.contains(&(0, false)),
         "begin_stash must fire before the table exposes the partition; observed: {calls:?}"
+    );
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Cancellation disposal: drain back only to a live owner
+// ============================================================
+
+/// Shared fixture for the cancellation-disposal tests: an assignment for
+/// partition 0 owned by `pod-old`, an in-flight Freezing handoff toward
+/// `pod-new`, and a running routing table with a recording stash handler.
+/// Returns the recorded events and the shutdown token.
+async fn start_router_with_frozen_handoff(
+    store: &Arc<PersonhogStore>,
+    router_name: &str,
+) -> (Arc<Mutex<Vec<CutoverEvent>>>, CancellationToken) {
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(store, 0, Some("pod-old"), "pod-new", HandoffPhase::Freezing).await;
+
+    let router = RoutingTable::new(
+        Arc::clone(store),
+        RoutingTableConfig {
+            router_name: router_name.to_string(),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let (handler, events) = MockCutoverHandler::new();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { !events.lock().await.is_empty() }
+    })
+    .await;
+
+    (events, cancel)
+}
+
+/// A raw deletion of a non-terminal handoff is out-of-protocol under
+/// cancellation-by-replacement, and the router treats it as inert: no
+/// drain fires toward anyone. The stash stays parked until the record
+/// that resolves it arrives — here the successor's Complete, which
+/// drains it to the pod that actually won ownership.
+#[tokio::test]
+async fn a_raw_deletion_is_inert_and_the_successor_resolves_the_stash() {
+    let store = test_store("cancel-dead-owner").await;
+
+    // `pod-old` is never registered: it is dead.
+    let (events, cancel) = start_router_with_frozen_handoff(&store, "cdo-router").await;
+
+    store.delete_handoff(0).await.expect("cancel handoff");
+
+    // The successor handoff completes toward a different pod; its drain
+    // is the next stash event. Waiting for it (rather than a negative
+    // wait) also proves no drain-back squeezed in before it: events are
+    // recorded in order and asserted exactly below.
+    put_handoff(
+        &store,
+        0,
+        Some("pod-old"),
+        "pod-new-2",
+        HandoffPhase::Complete,
+    )
+    .await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events.lock().await.contains(&CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-new-2".to_string(),
+            })
+        }
+    })
+    .await;
+
+    let recorded = events.lock().await.clone();
+    assert_eq!(
+        recorded,
+        vec![
+            CutoverEvent::StashBegan {
+                partition: 0,
+                new_owner: "pod-new".to_string(),
+            },
+            CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-new-2".to_string(),
+            },
+        ],
+        "stash must not drain toward the dead owner"
+    );
+
+    cancel.cancel();
+}
+
+/// Records drain starts like `MockCutoverHandler`, then parks forever —
+/// ignoring even its cancellation token. The worst-case drain.
+struct BlockedDrainHandler {
+    events: Arc<Mutex<Vec<CutoverEvent>>>,
+}
+
+#[async_trait]
+impl StashHandler for BlockedDrainHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashBegan {
+            partition,
+            new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
+        });
+        pending::<Result<()>>().await
+    }
+}
+
+/// A drain's duration is data-plane work — queue depth, arrival rate,
+/// target health — so even a drain that never finishes must not stall
+/// the watch loop: freeze acks are on the critical path of every handoff
+/// in the cluster, and a router that stops acking wedges them all.
+#[tokio::test]
+async fn a_blocked_drain_does_not_stall_freeze_acks_for_other_partitions() {
+    let store = test_store("blocked-drain").await;
+
+    // Partition 0's owner is live and registered, so the cancellation
+    // below drains back to it — and parks forever in this handler.
+    let lease = store.grant_lease(60).await.expect("lease");
+    store
+        .register_pod(
+            &RegisteredPod {
+                pod_name: "pod-old".to_string(),
+                generation: String::new(),
+                status: PodStatus::Ready,
+                registered_at: 0,
+                last_heartbeat: 0,
+                controller: None,
+                advertise_address: None,
+            },
+            lease,
+        )
+        .await
+        .expect("register pod-old");
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(
+        &store,
+        0,
+        Some("pod-old"),
+        "pod-new",
+        HandoffPhase::Freezing,
+    )
+    .await;
+
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "bd-router".to_string(),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = BlockedDrainHandler {
+        events: Arc::clone(&events),
+    };
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { !events.lock().await.is_empty() }
+    })
+    .await;
+
+    // Replace the handoff with a reaffirm toward the live owner and
+    // wait until the resulting drain has started (and parked).
+    put_handoff(&store, 0, None, "pod-old", HandoffPhase::Complete).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events.lock().await.contains(&CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-old".to_string(),
+            })
+        }
+    })
+    .await;
+
+    // A Freezing handoff for another partition must still get this
+    // router's freeze ack.
+    put_handoff(&store, 1, None, "pod-new", HandoffPhase::Freezing).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            store
+                .list_freeze_acks(1)
+                .await
+                .expect("list acks")
+                .iter()
+                .any(|ack| ack.router_name == "bd-router")
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// Passes partition 0 through and parks forever on any other partition —
+/// pins the block inside the watch loop (partition 1 only ever arrives
+/// through it, never through startup catch-up, once partition 0's ack
+/// proves the initial snapshot has been taken).
+struct PartitionOneParker;
+
+#[async_trait]
+impl StashHandler for PartitionOneParker {
+    async fn begin_stash(&self, partition: u32, _new_owner: &str) -> Result<()> {
+        if partition == 0 {
+            return Ok(());
+        }
+        pending::<Result<()>>().await
+    }
+
+    async fn drain_stash(
+        &self,
+        _partition: u32,
+        _target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// A router whose watch loop stalls stays registered — its lease
+/// keepalive is a separate, healthy task — and is counted in every
+/// freeze quorum while never acking. The watchdog must notice the
+/// missing progress stamps, fail the run, and deregister the router so
+/// quorums stop counting it.
+#[tokio::test]
+async fn a_stalled_watch_loop_trips_the_watchdog_and_deregisters() {
+    let store = test_store("stall-watchdog").await;
+
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "wd-router".to_string(),
+            participant_stall_threshold: Some(Duration::from_secs(1)),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    let run = tokio::spawn(async move { router.run(token, Arc::new(PartitionOneParker)).await });
+
+    // Partition 0's ack proves the router is up and past its startup
+    // catch-up; partition 1's handoff then arrives via the watch loop
+    // and parks it.
+    put_handoff(&store, 0, None, "pod-new", HandoffPhase::Freezing).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            store
+                .list_freeze_acks(0)
+                .await
+                .expect("list acks")
+                .iter()
+                .any(|ack| ack.router_name == "wd-router")
+        }
+    })
+    .await;
+    put_handoff(&store, 1, None, "pod-new", HandoffPhase::Freezing).await;
+
+    let result = tokio::time::timeout(WAIT_TIMEOUT, run)
+        .await
+        .expect("watchdog should fail the run before the timeout")
+        .expect("run task must not panic");
+    assert!(
+        result.is_err(),
+        "a stalled watch loop must fail the run, not linger as a zombie participant"
+    );
+
+    // Deregistered on the way down: freeze quorums stop counting it.
+    let routers = store.list_routers().await.expect("list routers");
+    assert!(
+        !routers.iter().any(|r| r.router_name == "wd-router"),
+        "the failed router must deregister"
+    );
+
+    cancel.cancel();
+}
+
+/// The reaffirm shape: cancelling a handoff whose current owner is
+/// alive replaces the record with a Complete toward that owner
+/// (`old_owner: None` — naming the owner on both sides would derive
+/// Released at the pod). The router resolves it through its ordinary
+/// Complete handling: parked requests drain straight home.
+#[tokio::test]
+async fn a_reaffirm_resolves_the_stash_back_to_the_owner() {
+    let store = test_store("cancel-live-owner").await;
+
+    let lease = store.grant_lease(60).await.expect("lease");
+    store
+        .register_pod(
+            &RegisteredPod {
+                pod_name: "pod-old".to_string(),
+                generation: String::new(),
+                status: PodStatus::Ready,
+                registered_at: 0,
+                last_heartbeat: 0,
+                controller: None,
+                advertise_address: None,
+            },
+            lease,
+        )
+        .await
+        .expect("register pod-old");
+
+    let (events, cancel) = start_router_with_frozen_handoff(&store, "clo-router").await;
+
+    // The coordinator's replacement, written directly: a reaffirm
+    // Complete toward the live current owner.
+    put_handoff(&store, 0, None, "pod-old", HandoffPhase::Complete).await;
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events.lock().await.contains(&CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-old".to_string(),
+            })
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// Build a router with a fast reconcile pass, over an assignment for
+/// partition 0 owned by `pod-old` and an in-flight Freezing handoff.
+async fn start_reconciling_router(
+    store: &Arc<PersonhogStore>,
+    router_name: &str,
+) -> (Arc<Mutex<Vec<CutoverEvent>>>, CancellationToken) {
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(store, 0, Some("pod-old"), "pod-new", HandoffPhase::Freezing).await;
+
+    let router = RoutingTable::new(
+        Arc::clone(store),
+        RoutingTableConfig {
+            router_name: router_name.to_string(),
+            reconcile_interval: Duration::from_millis(200),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let (handler, events) = MockCutoverHandler::new();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move { !events.lock().await.is_empty() }
+    })
+    .await;
+
+    (events, cancel)
+}
+
+/// The reconcile pass derives stash disposal from durable state: after
+/// an out-of-protocol raw deletion leaves a stash parked (the Delete
+/// event itself is inert), the next pass observes a partition with an
+/// assignment and no handoff and drains the stash to the assignment
+/// owner. This is the healing no event-driven path can provide.
+#[tokio::test]
+async fn the_reconcile_pass_heals_an_out_of_protocol_deletion() {
+    let store = test_store("reconcile-heals-deletion").await;
+    let (events, cancel) = start_reconciling_router(&store, "rhd-router").await;
+
+    store.delete_handoff(0).await.expect("raw delete");
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events.lock().await.contains(&CutoverEvent::StashDrained {
+                partition: 0,
+                target: "pod-old".to_string(),
+            })
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// The reconcile pass re-derives freeze acks from the snapshot, so an
+/// ack lost out-of-protocol — or a Freezing event lost to a dead watch
+/// stream — is repaired on the next pass instead of wedging the quorum
+/// until the deadline.
+#[tokio::test]
+async fn the_reconcile_pass_reasserts_freeze_acks() {
+    let (store, prefix) = test_store_with_prefix("reconcile-reasserts-acks").await;
+    let (_events, cancel) = start_reconciling_router(&store, "rra-router").await;
+
+    let ack_present = |store: Arc<PersonhogStore>| async move {
+        store
+            .list_freeze_acks(0)
+            .await
+            .expect("list acks")
+            .iter()
+            .any(|a| a.router_name == "rra-router")
+    };
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        ack_present(Arc::clone(&store))
+    })
+    .await;
+
+    let mut raw = etcd_client::Client::connect(["http://localhost:2379"], None)
+        .await
+        .expect("raw client");
+    raw.delete(format!("{prefix}freeze_acks/0/rra-router"), None)
+        .await
+        .expect("delete ack");
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        ack_present(Arc::clone(&store))
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// A cutover handler whose `begin_stash` fails while the flag is set —
+/// the injection point for reconcile-pass failures, since the pass calls
+/// it for every non-terminal handoff before writing the freeze ack.
+struct FlakyCutoverHandler {
+    events: Arc<Mutex<Vec<CutoverEvent>>>,
+    fail: Arc<AtomicBool>,
+}
+
+#[async_trait]
+impl StashHandler for FlakyCutoverHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(personhog_coordination::error::Error::invalid_state(
+                "injected begin_stash failure".to_string(),
+            ));
+        }
+        self.events.lock().await.push(CutoverEvent::StashBegan {
+            partition,
+            new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
+        });
+        Ok(())
+    }
+}
+
+/// Start a router over the standard fixture (assignment for partition 0,
+/// Freezing handoff) with a failure-injectable handler and the given
+/// reconcile failure budget.
+async fn start_flaky_router(
+    store: &Arc<PersonhogStore>,
+    router_name: &str,
+    budget: u32,
+) -> (Arc<AtomicBool>, CancellationToken) {
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(store, 0, Some("pod-old"), "pod-new", HandoffPhase::Freezing).await;
+
+    let router = RoutingTable::new(
+        Arc::clone(store),
+        RoutingTableConfig {
+            router_name: router_name.to_string(),
+            reconcile_interval: Duration::from_millis(200),
+            reconcile_failure_budget: budget,
+            ..RoutingTableConfig::default()
+        },
+    );
+    let fail = Arc::new(AtomicBool::new(false));
+    let handler = FlakyCutoverHandler {
+        events: Arc::new(Mutex::new(Vec::new())),
+        fail: Arc::clone(&fail),
+    };
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+    (fail, cancel)
+}
+
+/// Reconcile-pass failures within the budget must not kill the run: the
+/// router stays registered while passes fail, and the first successful
+/// pass afterward heals what went unrepaired in the meantime (here, a
+/// freeze ack deleted out-of-protocol). Without tolerance, a brief etcd
+/// blip observed by the 5-second tick would restart every router in the
+/// fleet simultaneously.
+#[tokio::test]
+async fn reconcile_failures_within_budget_are_tolerated_and_heal() {
+    let (store, prefix) = test_store_with_prefix("reconcile-tolerates-failures").await;
+    let (fail, cancel) = start_flaky_router(&store, "rtf-router", 12).await;
+
+    let ack_present = |store: Arc<PersonhogStore>| async move {
+        store
+            .list_freeze_acks(0)
+            .await
+            .expect("list acks")
+            .iter()
+            .any(|a| a.router_name == "rtf-router")
+    };
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        ack_present(Arc::clone(&store))
+    })
+    .await;
+
+    // Break the handler and delete the ack out-of-protocol. Reconcile is
+    // the only healer (no new events arrive), and its passes now fail
+    // before reaching the ack write, so the ack must stay absent while
+    // the run survives the failures.
+    fail.store(true, Ordering::SeqCst);
+    let mut raw = etcd_client::Client::connect(["http://localhost:2379"], None)
+        .await
+        .expect("raw client");
+    raw.delete(format!("{prefix}freeze_acks/0/rtf-router"), None)
+        .await
+        .expect("delete ack");
+
+    // Observe at least four failed ticks' worth of time.
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert!(
+        !ack_present(Arc::clone(&store)).await,
+        "failing passes must not have healed the ack"
+    );
+    let registered = store
+        .list_routers()
+        .await
+        .expect("list routers")
+        .iter()
+        .any(|r| r.router_name == "rtf-router");
+    assert!(
+        registered,
+        "the run must survive reconcile failures within the budget"
+    );
+
+    // Recovery: the next successful pass re-asserts the ack.
+    fail.store(false, Ordering::SeqCst);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        ack_present(Arc::clone(&store))
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// Past the consecutive-failure budget the run must fail — the escape
+/// hatch for the partial mode where snapshot reads fail while the lease
+/// stays healthy, which unbounded tolerance would hide forever. Failing
+/// the run deregisters the router so it restarts as a healthy
+/// participant.
+#[tokio::test]
+async fn reconcile_failures_past_the_budget_fail_the_run() {
+    let store = test_store("reconcile-budget-exhaustion").await;
+    let (fail, cancel) = start_flaky_router(&store, "rbe-router", 3).await;
+
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            store
+                .list_routers()
+                .await
+                .expect("list routers")
+                .iter()
+                .any(|r| r.router_name == "rbe-router")
+        }
+    })
+    .await;
+
+    fail.store(true, Ordering::SeqCst);
+
+    // Three failed passes exhaust the budget; the run's teardown
+    // deregisters the router.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&store);
+        async move {
+            !store
+                .list_routers()
+                .await
+                .expect("list routers")
+                .iter()
+                .any(|r| r.router_name == "rbe-router")
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// A cutover handler whose stash has fully settled: `stash_pending`
+/// reports no entry, the way the router does once a drain has evicted
+/// the partition from its stash table.
+struct SettledCutoverHandler {
+    events: Arc<Mutex<Vec<CutoverEvent>>>,
+}
+
+#[async_trait]
+impl StashHandler for SettledCutoverHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashBegan {
+            partition,
+            new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
+        });
+        Ok(())
+    }
+
+    fn stash_pending(&self, _partition: u32) -> bool {
+        false
+    }
+}
+
+/// A settled partition must not have drains respawned by every reconcile
+/// tick: its finished lane can never absorb (a finished drain may have
+/// yielded with backlog), so without the `stash_pending` gate the pass
+/// would spawn a fresh no-op drain for every quiet assigned partition,
+/// every tick. The Freezing handoff on partition 1 acts as the pass
+/// counter — `begin_stash` is re-asserted unconditionally each pass — so
+/// the assertion is provably non-vacuous across multiple passes.
+#[tokio::test]
+async fn the_reconcile_pass_skips_drains_for_settled_partitions() {
+    let store = test_store("reconcile-skips-settled").await;
+    assert!(store
+        .create_assignments_and_handoffs(
+            &[PartitionAssignment {
+                partition: 0,
+                owner: "pod-old".to_string(),
+                status: AssignmentStatus::Active,
+                advertise_address: None,
+            }],
+            &[],
+            &[],
+        )
+        .await
+        .expect("write assignment"));
+    put_handoff(&store, 1, None, "keeper-pod", HandoffPhase::Freezing).await;
+
+    let router = RoutingTable::new(
+        Arc::clone(&store),
+        RoutingTableConfig {
+            router_name: "rss-router".to_string(),
+            reconcile_interval: Duration::from_millis(200),
+            ..RoutingTableConfig::default()
+        },
+    );
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = SettledCutoverHandler {
+        events: Arc::clone(&events),
+    };
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
+
+    // Wait until partition 1's begin_stash has been asserted at least
+    // three times — proof that multiple reconcile passes have evaluated
+    // partition 0's bare assignment.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .filter(|e| matches!(e, CutoverEvent::StashBegan { partition: 1, .. }))
+                .count()
+                >= 3
+        }
+    })
+    .await;
+
+    let drained = events
+        .lock()
+        .await
+        .iter()
+        .filter(|e| matches!(e, CutoverEvent::StashDrained { partition: 0, .. }))
+        .count();
+    assert_eq!(
+        drained, 0,
+        "a settled partition must not have drains respawned by reconcile ticks"
+    );
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Convergence lanes: partitions converge concurrently,
+// single-flight per partition
+// ============================================================
+//
+// The pod's watch loop runs convergence single-flight per partition but
+// concurrently across partitions. A deploy moving several partitions
+// onto one pod must warm them in parallel — serialized warming is what
+// made stash waits scale with the number of simultaneous inbound
+// handoffs — while two convergences for the same partition must never
+// interleave (concurrent warms for one partition could install a stale
+// cache over a fresh one).
+
+/// Variant of `put_handoff` with an explicit handoff id, for forcing a
+/// re-warm: a warm installed for one handoff id does not satisfy a later
+/// handoff with a different id.
+async fn put_handoff_with_id(
+    store: &PersonhogStore,
+    partition: u32,
+    new_owner: &str,
+    phase: HandoffPhase,
+    handoff_id: &str,
+) {
+    let handoff = HandoffState {
+        partition,
+        old_owner: None,
+        new_owner: new_owner.to_string(),
+        phase,
+        started_at: 0,
+        handoff_id: handoff_id.to_string(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
+        new_owner_address: None,
+    };
+    store.put_handoff(&handoff).await.expect("write handoff");
+}
+
+/// Wait until the pod has a warmed ack for the partition in etcd.
+async fn wait_for_warmed_ack(store: &Arc<PersonhogStore>, partition: u32, pod: &str) {
+    let check_store = Arc::clone(store);
+    let pod = pod.to_string();
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let store = Arc::clone(&check_store);
+        let pod = pod.clone();
+        async move {
+            store
+                .list_warmed_acks(partition)
+                .await
+                .map(|acks| acks.iter().any(|a| a.pod_name == pod))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+}
+
+/// With one partition's warm parked, another partition's handoff must
+/// still warm and ack. Serialized convergence would queue the second
+/// warm behind the parked one and its ack would never arrive.
+#[tokio::test]
+async fn concurrent_inbound_handoffs_warm_in_parallel() {
+    let store = test_store("pod-parallel-warm").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod_gated(Arc::clone(&store), "parallel-warm-pod", 4, cancel.clone());
+
+    put_handoff(&store, 0, None, "parallel-warm-pod", HandoffPhase::Warming).await;
+    put_handoff(&store, 1, None, "parallel-warm-pod", HandoffPhase::Warming).await;
+
+    // Partition 0 stays parked; partition 1 must complete regardless.
+    pod.gates.open(1);
+    wait_for_warmed_ack(&store, 1, "parallel-warm-pod").await;
+
+    // The parked warm really is still parked — nothing acked for it.
+    let acks = store.list_warmed_acks(0).await.expect("list acks");
+    assert!(
+        acks.is_empty(),
+        "partition 0's warm is parked; its ack must not exist yet"
+    );
+
+    pod.gates.open(0);
+    wait_for_warmed_ack(&store, 0, "parallel-warm-pod").await;
+
+    cancel.cancel();
+}
+
+/// Two convergences for the same partition must never run concurrently,
+/// even when a new handoff arrives while the partition's warm is parked.
+/// The second handoff (a different id, so it demands its own warm) must
+/// wait for the first convergence to finish, then re-warm.
+#[tokio::test]
+async fn convergences_for_one_partition_never_interleave() {
+    let store = test_store("pod-single-flight").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod_gated(Arc::clone(&store), "single-flight-pod", 4, cancel.clone());
+
+    put_handoff_with_id(
+        &store,
+        0,
+        "single-flight-pod",
+        HandoffPhase::Warming,
+        "era-a",
+    )
+    .await;
+
+    // Wait until the first warm is parked inside the handler.
+    let in_flight = Arc::clone(&pod.warms_in_flight);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let in_flight = Arc::clone(&in_flight);
+        async move { in_flight.lock().unwrap().get(&0).copied() == Some(1) }
+    })
+    .await;
+
+    // A new era for the same partition while the warm is parked. The
+    // convergence for it must coalesce behind the in-flight one, not
+    // start a second concurrent warm.
+    put_handoff_with_id(
+        &store,
+        0,
+        "single-flight-pod",
+        HandoffPhase::Warming,
+        "era-b",
+    )
+    .await;
+
+    pod.gates.open(0);
+
+    // The era-b convergence releases the era-a warm and re-warms; two
+    // Warmed events mark both warms having completed.
+    let events = Arc::clone(&pod.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .filter(|e| **e == HandoffEvent::Warmed(0))
+                .count()
+                == 2
+        }
+    })
+    .await;
+
+    assert_eq!(
+        pod.max_concurrent_same_partition.load(Ordering::SeqCst),
+        1,
+        "convergences for one partition must never overlap"
+    );
+
+    cancel.cancel();
+}
+
+/// Concurrent warms are bounded by `warm_concurrency`: with the bound at
+/// 2 and four inbound handoffs parked, exactly two warms enter the
+/// handler; the rest queue on the semaphore until a slot frees.
+#[tokio::test]
+async fn concurrent_warms_are_bounded_by_warm_concurrency() {
+    let store = test_store("pod-warm-bound").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod_gated(Arc::clone(&store), "warm-bound-pod", 2, cancel.clone());
+
+    for partition in 0..4 {
+        put_handoff(
+            &store,
+            partition,
+            None,
+            "warm-bound-pod",
+            HandoffPhase::Warming,
+        )
+        .await;
+    }
+
+    // Both slots fill and park; the other two handoffs wait on the bound.
+    let in_flight = Arc::clone(&pod.warms_in_flight);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let in_flight = Arc::clone(&in_flight);
+        async move { in_flight.lock().unwrap().values().sum::<usize>() == 2 }
+    })
+    .await;
+
+    for partition in 0..4 {
+        pod.gates.open(partition);
+    }
+    for partition in 0..4 {
+        wait_for_warmed_ack(&store, partition, "warm-bound-pod").await;
+    }
+
+    assert_eq!(
+        pod.max_concurrent_warms.load(Ordering::SeqCst),
+        2,
+        "warms in the handler at once must equal the configured bound"
     );
 
     cancel.cancel();

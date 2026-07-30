@@ -14,6 +14,8 @@ from llm_gateway.api.handler import (
 from llm_gateway.cloudflare import is_cloudflare_model
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.glm_routing import send_glm_chat_completions, send_glm_responses
+from llm_gateway.modal import is_modal_served_model
+from llm_gateway.modal_routing import send_modal_chat_completions, send_modal_responses
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import apply_posthog_context_from_headers
@@ -38,6 +40,9 @@ async def _handle_chat_completions(
 
     if is_cloudflare_model(body.model):
         return await send_glm_chat_completions(data, user, body.stream or False, product)
+
+    if is_modal_served_model(body.model):
+        return await send_modal_chat_completions(data, user, body.stream or False, product)
 
     return await handle_llm_request(
         request_data=data,
@@ -83,6 +88,13 @@ async def _handle_responses(
             # request that will fail once tools are advertised.
             raise _invalid_request_error("tools are not yet supported for Cloudflare models on the Responses API")
         return await send_glm_responses(data, user, body.stream or False, product)
+
+    if is_modal_served_model(body.model):
+        if body.previous_response_id is not None:
+            raise _invalid_request_error("previous_response_id is not supported for Modal models on the Responses API")
+        if data.get("tools"):
+            raise _invalid_request_error("tools are not yet supported for Modal models on the Responses API")
+        return await send_modal_responses(data, user, body.stream or False, product)
 
     original_model = body.model
     normalized_model = normalize_litellm_model_name(original_model, OPENAI_RESPONSES_CONFIG.name)

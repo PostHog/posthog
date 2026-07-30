@@ -230,11 +230,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # usually signals — so match only the stable SSL token, never the generic 2013 text.
             "[SSL: WRONG_VERSION_NUMBER]": "We couldn't establish an SSL connection to your MySQL server — it responded as if SSL is not enabled. If your server (or a proxy in front of it) doesn't support SSL, set 'Use SSL?' to No; otherwise check that you're connecting to an SSL-enabled host and port.",
             # Raised from the shared `_decimal_array_from_values` fallback in
-            # `pipelines/pipeline/utils.py` when a numeric/decimal value exceeds Delta Lake's
+            # `pipelines/core/arrow_utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
             # won't help.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
             # destination table was created with the narrower type. Delta Lake can't widen an
             # existing column in place, so retrying won't help — the table must be reset and
@@ -280,6 +280,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # (the formatted "codec can't encode character" text is reconstructed in neither).
             "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_connect_with_transient_retry` already retries this exact drop in-process (see
+        # `_is_transient_connect_drop` in mysql.py) before re-raising once its attempt budget is
+        # exhausted; the streaming path's FORCE INDEX fallback does the same for a mid-query drop
+        # (see `_is_bad_plan_error`). Either way, Temporal retries the whole activity next and the
+        # failure is transient and self-recovering, so don't surface it as tracked exception noise.
+        return {"Lost connection to MySQL server during query"}
 
     def reconcile_schema_metadata(
         self,

@@ -338,6 +338,17 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertNotIn("▼", html)
         self.assertNotIn("pp vs previous", html)
 
+    def test_unavailable_metrics_render_notice_not_zero_table(self):
+        html = _render_metrics_block_html(
+            None,
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+        )
+
+        self.assertIn("could not be calculated", html)
+        self.assertNotIn("Total runs", html)
+        self.assertIn("Apr 08, 2026 14:00 UTC", html)  # period still shown
+
     def test_renders_sentiment_distribution_without_boolean_labels(self):
         metrics = EvalReportMetrics(
             output_type="sentiment",

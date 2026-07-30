@@ -1,9 +1,6 @@
-from datetime import timedelta
-
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -20,7 +17,10 @@ def _account_request(email: str, **overrides) -> dict:
         "id": "acctreq_test",
         "email": email,
         "scopes": ["query:read"],
-        "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
+        # Static, not now()+delta: @parameterized.expand builds the invalid-request cases at
+        # collection time, so a relative expiry can lapse before a slow shard reaches them and
+        # trip the "expired" check ahead of the field validation each case actually asserts.
+        "expires_at": "2999-01-01T00:00:00+00:00",
         "orchestrator": {"type": "stripe", "stripe": {"account": "acct_test"}},
     }
     body.update(overrides)

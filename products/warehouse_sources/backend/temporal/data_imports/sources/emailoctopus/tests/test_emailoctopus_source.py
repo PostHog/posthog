@@ -11,8 +11,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.emailoctopus import (
     EmailOctopusResumeConfig,
@@ -157,3 +157,12 @@ class TestEmailOctopusSourceVersions:
         source = EmailOctopusSource()
         assert version in source.supported_versions
         assert source.resolve_api_version(version) == version
+
+    def test_v1_is_deprecated_without_sunset(self) -> None:
+        # Guards the in-product deprecation banner: v1 must stay flagged (no announced sunset)
+        # and the current default must not be, or the warning silently stops firing.
+        source = EmailOctopusSource()
+        deprecation = source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert source.get_version_deprecation("v2") is None

@@ -9,13 +9,29 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
+from products.engineering_analytics.backend.logic.ci_signals_config import (
+    AUTHORIZED_SOURCES_CONFIG_KEY,
+    CI_SIGNAL_SOURCE_TYPES,
+)
+from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT
 from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
-from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    connect_github_source_without_data,
+    create_github_source,
+)
+from products.signals.backend.models import SignalSourceConfig
 
 
 class TestScopeEnrollment(SimpleTestCase):
     def test_every_action_is_enrolled_in_a_scope_list(self) -> None:
-        actions = {a.__name__ for a in EngineeringAnalyticsViewSet.get_extra_actions()}
+        # An action's extra HTTP methods (`@action.mapping.<verb>`) dispatch under the mapped
+        # handler's name, so each mapped name needs its own scope enrollment too.
+        actions = {
+            name
+            for a in EngineeringAnalyticsViewSet.get_extra_actions()
+            # DRF's @action attaches `mapping` at runtime; its type stubs don't declare it.
+            for name in a.mapping.values()  # type: ignore[attr-defined]
+        }
         enrolled = set(EngineeringAnalyticsViewSet.scope_object_read_actions) | set(
             EngineeringAnalyticsViewSet.scope_object_write_actions
         )
@@ -85,12 +101,16 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
         repo=contracts.RepoRef(provider="github", owner="PostHog", name="posthog"),
         workflow_name="CI",
         run_count=10,
+        successful_run_count=9,
+        conclusive_run_count=9,
         success_rate=0.9,
         p50_seconds=120.0,
         p95_seconds=600.0,
         last_failure_at=datetime(2026, 1, 20, tzinfo=UTC),
         latest_run_failed=False,
         latest_run_conclusion="success",
+        latest_run_id=123,
+        latest_run_attempt=1,
         granularity="day",
         buckets=[
             contracts.WorkflowHealthBucket(
@@ -191,6 +211,29 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older", "synced": True}
         # synced defaults to False when the repo isn't fully synced yet.
         assert body[1]["synced"] is False
+
+    def test_ci_signals_config_updates_the_detector_bundle(self) -> None:
+        source = create_github_source(self.team)
+
+        response = self.client.put(self._url("ci-signals-config"), {"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["enabled"] is True
+        rows = SignalSourceConfig.objects.filter(team=self.team, source_product=SOURCE_PRODUCT, enabled=True)
+        assert set(rows.values_list("source_type", flat=True)) == set(CI_SIGNAL_SOURCE_TYPES)
+        # Wiring guard: exact snapshot semantics are covered in test_ci_signals.py.
+        for row in rows:
+            assert str(source.id) in row.config[AUTHORIZED_SOURCES_CONFIG_KEY]
+
+        response = self.client.put(self._url("ci-signals-config"), {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["enabled"] is False
+        assert not SignalSourceConfig.objects.filter(
+            team=self.team,
+            source_product=SOURCE_PRODUCT,
+            enabled=True,
+        ).exists()
 
     def test_ci_cards_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_ci_cards", return_value=_cards()):
@@ -525,7 +568,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "run_scope must be one of" in response.json()["detail"]
 
-    @parameterized.expand(["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"])
+    @parameterized.expand(
+        ["sources", "ci-signals-config", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle", "quarantine"]
+    )
     def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
         response = self.client.get(self._url(action))

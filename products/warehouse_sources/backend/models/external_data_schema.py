@@ -1,3 +1,4 @@
+import re
 import sys
 import uuid
 import fnmatch
@@ -18,7 +19,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
@@ -119,6 +120,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
             # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
             # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            #
+            # These calls always target an already-persisted row. Without force_update, Django's
+            # UUID-pk-with-default fallback would silently retry a no-op UPDATE as an INSERT if the
+            # row was deleted concurrently (e.g. the source/schema deleted mid-sync) — either
+            # resurrecting deleted data, or failing with a misleading FK IntegrityError on source_id
+            # instead of a clear "no such row" error.
+            kwargs.setdefault("force_update", True)
             super(ModelActivityMixin, self).save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
@@ -129,6 +137,16 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def normalized_name(self):
         return NamingConvention.normalize_identifier(self.name)
+
+    @property
+    def normalized_s3_folder_name(self) -> str:
+        """Normalized Delta folder leaf the loader actually wrote the table under.
+
+        Diverges from ``normalized_name`` for folder-pinned rows (e.g. Postgres ``public.users``
+        → folder ``users``); readers that resolve ``normalized_name`` point at a prefix with no
+        ``_delta_log`` and surface "No files in log segment".
+        """
+        return NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
 
     @property
     def is_incremental(self):
@@ -577,6 +595,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         ):
             if isinstance(value, datetime):
                 return value.isoformat()
+            elif isinstance(value, int | float) and not isinstance(value, bool):
+                return value
             else:
                 return str(value)
         return str(value)
@@ -640,6 +660,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         ):
             if isinstance(last_value_py, datetime):
                 last_value_json = last_value_py.isoformat()
+            elif isinstance(last_value_py, int | float) and not isinstance(last_value_py, bool):
+                last_value_json = last_value_py
             else:
                 last_value_json = str(last_value_py)
         else:
@@ -692,6 +714,42 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.update_sync_type_config_for_reset_pipeline()
 
 
+# JS `Date.prototype.toString()` output (e.g. "Sun Mar 15 2026 16:59:47 GMT+0000 (Coordinated
+# Universal Time)") appends a human-readable timezone name in parentheses that dateutil can't
+# parse, even though the preceding GMT offset already fully specifies the instant.
+JS_DATE_TOSTRING_TZ_NAME_RE = re.compile(r"\([^()]*\)\s*\Z")
+
+
+def _parse_datetime_string(value: str) -> datetime:
+    try:
+        return parser.parse(value)
+    except parser.ParserError:
+        stripped = JS_DATE_TOSTRING_TZ_NAME_RE.sub("", value)
+        if stripped == value:
+            raise
+        return parser.parse(stripped)
+
+
+def _coerce_incremental_datetime(value: str) -> datetime | int:
+    """Parse a DateTime/Timestamp/Date cursor string, falling back to a raw integer.
+
+    Some drivers surface a numeric cursor as a bare digit string even though the field is
+    typed as a date/time type (e.g. a ClickHouse column Arrow can't emit natively, cast to
+    String, whose current type no longer matches the incremental field's stored type).
+    dateutil's heuristics then misread the digits as a calendar year and overflow past
+    datetime's year-9999 ceiling (`ParserError`), or raise a bare `OverflowError` for longer
+    digit runs. Legitimate compact date strings like "20240115" (YYYYMMDD) parse correctly
+    above and never reach this fallback.
+    """
+    try:
+        return _parse_datetime_string(value)
+    except (parser.ParserError, OverflowError):
+        stripped = value.strip()
+        if stripped.lstrip("-").isdigit():
+            return int(stripped)
+        raise
+
+
 def process_incremental_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any:
     if value is None or value == "None" or field_type is None:
         return None
@@ -707,7 +765,12 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, datetime):
             return value
 
-        return parser.parse(value)
+        # Some sources (e.g. Stripe `created`) expose datetime cursors as Unix-epoch numbers.
+        # dateutil can't parse a non-string, so pass epochs through unchanged for the source query.
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value
+
+        return _coerce_incremental_datetime(value)
 
     if field_type == IncrementalFieldType.Date:
         if isinstance(value, datetime):
@@ -716,7 +779,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
         if isinstance(value, date):
             return value
 
-        return parser.parse(value).date()
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value
+
+        parsed = _coerce_incremental_datetime(value)
+        return parsed if isinstance(parsed, int) else parsed.date()
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)
@@ -736,6 +803,10 @@ def apply_incremental_lookback(
         return value
 
     if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date):
+        # Epoch-number cursors (e.g. Stripe `created`) are in seconds, so shift them directly since
+        # timedelta subtraction only supports datetime/date operands.
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return value - lookback_seconds
         return value - timedelta(seconds=lookback_seconds)
 
     return value
