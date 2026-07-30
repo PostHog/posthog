@@ -56,19 +56,6 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
-SERVER_CREATED_TASK_ORIGINS = frozenset(
-    {
-        tasks_facade.TaskOriginProduct.EXPERIMENTS,
-        tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
-        tasks_facade.TaskOriginProduct.ONBOARDING,
-        tasks_facade.TaskOriginProduct.POSTHOG_AI,
-        tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
-        tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-        tasks_facade.TaskOriginProduct.SLACK,
-        tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-    }
-)
-
 
 def _capture_rejected_reasoning_effort(
     context: dict[str, Any],
@@ -608,8 +595,32 @@ class TaskWriteSerializer(serializers.Serializer):
         return value
 
     def validate_origin_product(self, value):
-        if value in SERVER_CREATED_TASK_ORIGINS:
-            raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
+        """Reject internal-only origins that are set by server-side flows, never by API callers."""
+        if value == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
+            raise serializers.ValidationError("origin_product 'signal_report' is reserved for signal report tasks")
+        if value == tasks_facade.TaskOriginProduct.POSTHOG_AI:
+            raise serializers.ValidationError("origin_product 'posthog_ai' is reserved for PostHog AI tasks")
+        if value == tasks_facade.TaskOriginProduct.SLACK:
+            raise serializers.ValidationError("origin_product 'slack' is reserved for Slack tasks")
+        if value == tasks_facade.TaskOriginProduct.SUPPORT_REPLY:
+            raise serializers.ValidationError("origin_product 'support_reply' is reserved for support reply tasks")
+        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
+            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
+        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
+            # Experiments tasks are team-readable, so letting API callers pick this origin
+            # would let them expose an arbitrary task to the whole team. The experiments
+            # flow creates its tasks server-side through the facade, never through here.
+            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
+        if value == tasks_facade.TaskOriginProduct.SIGNALS_SCOUT:
+            # Scout tasks are created only by the signals scout harness. A forged scout origin
+            # would route the task's run logs into PostHog's internal Logs project
+            # (run_log_mirror) and inherit scout visibility semantics.
+            raise serializers.ValidationError("origin_product 'signals_scout' is reserved for signals scout runs")
+        if value == tasks_facade.TaskOriginProduct.ONBOARDING:
+            # This origin routes the run's LLM traffic to the unbilled `onboarding` gateway
+            # product, so a forged one would be free model access. Only create_wizard_cloud_run
+            # sets it, behind its own rate limits and daily cap.
+            raise serializers.ValidationError("origin_product 'onboarding' is reserved for setup wizard cloud runs")
         return value
 
     def validate_repository(self, value):
