@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import (
@@ -413,6 +414,16 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
         )
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
         assert restricted == set()
+
+    def test_special_principal_and_user_id_are_mutually_exclusive(self) -> None:
+        synthetic_user = SyntheticUser(self.team, "test-principal")
+
+        with self.assertRaisesRegex(ValueError, "pass either user or user_id, not both"):
+            get_restricted_properties_for_team(
+                team_id=self.team.pk,
+                user=synthetic_user,
+                user_id=self.user.id,
+            )
 
 
 class TestRestrictionCacheScope(BaseTest):

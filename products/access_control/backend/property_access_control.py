@@ -192,6 +192,7 @@ def get_restricted_property_names(
     *,
     team_id: int,
     user: User | None,
+    user_id: int | None = None,
     property_type: int,
 ) -> set[str]:
     """
@@ -199,11 +200,13 @@ def get_restricted_property_names(
     restricted for a specific PropertyDefinition.Type (EVENT or PERSON).
 
     :param team_id: The team whose restrictions to check.
-    :param user: The user making the request.
+    :param user: The user making the request. Preferred when the instance is already loaded.
+    :param user_id: The requesting user's identifier for callers that should not depend on the model instance.
+        Pass at most one of ``user`` and ``user_id``.
     :param property_type: PropertyDefinition.Type value (e.g., PropertyDefinition.Type.EVENT).
     :returns: Set of restricted property name strings.
     """
-    restricted = get_restricted_properties_for_team(team_id=team_id, user=user)
+    restricted = get_restricted_properties_for_team(team_id=team_id, user=user, user_id=user_id)
     return {name for name, ptype in restricted if ptype == property_type}
 
 
@@ -279,6 +282,7 @@ def get_non_writable_property_names(
 def get_restricted_properties_for_team(
     *,
     user: User | SyntheticUser | SharedLinkUser | None,
+    user_id: int | None = None,
     team: Team | None = None,
     team_id: int | None = None,
 ) -> set[tuple[str, int]]:
@@ -292,7 +296,9 @@ def get_restricted_properties_for_team(
     with many insights doesn't trigger one ``PropertyAccessControl`` lookup per insight. Outside of an
     active scope (e.g. ad-hoc scripts) the lookup runs uncached so we never serve stale authorization data.
 
-    :param user: (optional) The user making the query. When not provided, only the default (property-level) rules apply.
+    :param user: The user making the query. Preferred when the instance is already loaded.
+    :param user_id: The user's id for callers that should not depend on the model instance. Pass at most one of
+        ``user`` and ``user_id``. When neither is provided, only the default property-level rules apply.
     :param team: The team whose property restrictions we are checking. Preferred over ``team_id`` when the
         instance is already loaded, as it lets the feature-availability check skip its per-call Team lookup.
     :param team_id: The team's id, for callers that don't have the instance loaded. Pass exactly one of
@@ -302,8 +308,13 @@ def get_restricted_properties_for_team(
     """
     # Shared-link user and synthetic user have no membership to resolve restrictions against;
     # treat them as userless so only the default rules apply.
+    if user is not None and user_id is not None:
+        raise ValueError("pass either user or user_id, not both")
+
     if isinstance(user, SyntheticUser | SharedLinkUser):
         user = None
+    elif user is not None:
+        user_id = user.pk
 
     if team is not None:
         if team_id is not None:
@@ -313,7 +324,7 @@ def get_restricted_properties_for_team(
         raise ValueError("one of team or team_id is required")
 
     cache = _restriction_cache_var.get()
-    cache_key = (team_id, user.pk if user is not None else None)
+    cache_key = (team_id, user_id)
     if cache is not None:
         cached = cache.get(cache_key)
         if cached is not None:
@@ -352,10 +363,10 @@ def get_restricted_properties_for_team(
     # resolve the user's membership and roles once
     membership = None
     user_role_ids: set[int] = set()
-    if user is not None:
+    if user_id is not None:
         org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
         membership_qs = OrganizationMembership.objects.filter(
-            user=user,
+            user_id=user_id,
             organization_id=org_id,
         ).only("id", "level")
         membership = membership_qs.first()

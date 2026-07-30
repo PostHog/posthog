@@ -28,7 +28,8 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.models import PropertyDefinition, Team, User
 
-from products.access_control.backend.property_access_control import get_restricted_property_names
+from products.access_control.backend.facade.api import get_restricted_property_names
+from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
@@ -524,7 +525,7 @@ class ConversionGoalProcessor:
         """
         restricted = get_restricted_property_names(
             team_id=self.team.pk,
-            user=self.user,
+            user_id=self.user.id if self.user is not None else None,
             property_type=PropertyDefinition.Type.EVENT,
         )
         return bool(restricted) and not restricted.isdisjoint(self._precompute_materialized_event_properties())

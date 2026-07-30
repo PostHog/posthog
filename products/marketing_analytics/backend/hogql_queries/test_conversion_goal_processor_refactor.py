@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from posthog.test.base import BaseTest
@@ -20,6 +20,9 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
+
+from posthog.models import PropertyDefinition, User
+from posthog.synthetic_user import SyntheticUser
 
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
@@ -136,11 +139,34 @@ class TestConversionGoalProcessorRefactor(BaseTest):
             "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.get_restricted_property_names"
         )
 
-        with patch(target, return_value=set()):
+        with patch(target, return_value=frozenset()):
             assert processor._should_use_precompute(date_from, date_to) is True
 
-        with patch(target, return_value={restricted_property}):
+        with patch(target, return_value=frozenset({restricted_property})):
             assert processor._should_use_precompute(date_from, date_to) is False
+
+    @parameterized.expand(
+        [
+            ("real_user", False),
+            ("synthetic_user", True),
+        ]
+    )
+    def test_property_restriction_user_id(self, _name: str, use_synthetic_user: bool) -> None:
+        processor = self._processor()
+        processor.user = cast(User, SyntheticUser(self.team, "test-principal")) if use_synthetic_user else self.user
+        expected_user_id = None if use_synthetic_user else self.user.id
+        target = (
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.get_restricted_property_names"
+        )
+
+        with patch(target, return_value=frozenset()) as get_restricted_property_names_mock:
+            processor._precompute_properties_restricted_for_user()
+
+        get_restricted_property_names_mock.assert_called_once_with(
+            team_id=self.team.pk,
+            user_id=expected_user_id,
+            property_type=PropertyDefinition.Type.EVENT,
+        )
 
     def test_tracked_fields_match_touchpoints_table_schema(self):
         from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import (

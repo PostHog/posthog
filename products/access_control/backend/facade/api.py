@@ -27,7 +27,10 @@ from posthog.models import OrganizationMembership, PropertyDefinition, Team
 from ee.models.rbac.role import Role
 
 from ..models.property_access_control import PropertyAccessControl
-from ..property_access_control import is_property_access_control_enabled
+from ..property_access_control import (
+    get_restricted_property_names as _get_restricted_property_names,
+    is_property_access_control_enabled,
+)
 from . import contracts
 from .contracts import PropertyAccessLevel
 
@@ -114,6 +117,22 @@ def team_has_property_access_rules(*, team_id: int) -> bool:
     if not is_property_access_control_enabled(team_id=team_id):
         return False
     return PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).exists()
+
+
+def get_restricted_property_names(
+    *,
+    team_id: int,
+    user_id: int | None,
+    property_type: int,
+) -> frozenset[str]:
+    return frozenset(
+        _get_restricted_property_names(
+            team_id=team_id,
+            user=None,
+            user_id=user_id,
+            property_type=property_type,
+        )
+    )
 
 
 # --- Write API ---
@@ -226,5 +245,6 @@ __all__ = [
     "available_access_levels",
     "delete_property_access_control",
     "get_property_access_state",
+    "get_restricted_property_names",
     "upsert_property_access_control",
 ]
