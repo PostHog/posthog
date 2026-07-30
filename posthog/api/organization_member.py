@@ -1,6 +1,7 @@
 from typing import Any, cast
+from uuid import UUID
 
-from django.db.models import F, Model, Prefetch, QuerySet
+from django.db.models import F, Model, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -142,10 +143,43 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
     )
 
 
+MEMBER_LOOKUP_PARAMETER = OpenApiParameter(
+    name="user__uuid",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description=(
+        "The member's user UUID (the `user.uuid` field of a member in the list response), or the membership `id`. "
+        "Pass `@me` to target the member making the request."
+    ),
+)
+
+EMAIL_PARAMETER = OpenApiParameter(
+    name="email",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Return only the member with this exact email address.",
+)
+
+UPDATED_AFTER_PARAMETER = OpenApiParameter(
+    name="updated_after",
+    type=OpenApiTypes.DATETIME,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Return only members whose membership was updated after this timestamp (ISO 8601).",
+)
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 @extend_schema_view(
+    destroy=extend_schema(parameters=[MEMBER_LOOKUP_PARAMETER]),
+    update=extend_schema(parameters=[MEMBER_LOOKUP_PARAMETER]),
+    partial_update=extend_schema(parameters=[MEMBER_LOOKUP_PARAMETER]),
     list=extend_schema(
         parameters=[
+            EMAIL_PARAMETER,
+            UPDATED_AFTER_PARAMETER,
             OpenApiParameter(
                 name="order",
                 type=OpenApiTypes.STR,
@@ -193,8 +227,13 @@ class OrganizationMemberViewSet(
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@me":
             return queryset.get(user=self.request.user)
-        filter_kwargs = {self.lookup_field: lookup_value}
-        return get_object_or_404(queryset, **filter_kwargs)
+        try:
+            uuid_value = UUID(lookup_value)
+        except ValueError:
+            raise exceptions.NotFound()
+        # The path is documented as the member's user UUID, but the list response also exposes the
+        # membership `id` — accept either, so the intuitive list-then-act flow doesn't 404.
+        return get_object_or_404(queryset, Q(user__uuid=uuid_value) | Q(id=uuid_value))
 
     @tracer.start_as_current_span("OrganizationMemberViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -291,7 +330,7 @@ class OrganizationMemberViewSet(
 
         instance.user.leave(organization=instance.organization)
 
-    @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
+    @extend_schema(responses=OrganizationMemberGithubLoginSerializer, parameters=[MEMBER_LOOKUP_PARAMETER])
     @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])
     def github_login(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = cast(OrganizationMembership, self.get_object())

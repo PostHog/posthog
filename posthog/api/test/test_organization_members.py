@@ -186,6 +186,28 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         )
         mock_sync_delay.assert_called_once_with(str(self.organization.id))
 
+    @parameterized.expand(
+        [
+            ("user_uuid", lambda membership: str(membership.user.uuid), status.HTTP_204_NO_CONTENT),
+            ("membership_id", lambda membership: str(membership.id), status.HTTP_204_NO_CONTENT),
+            ("not_a_uuid", lambda membership: "not-a-uuid", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_delete_organization_member_accepts_either_uuid(self, _name, get_lookup_value, expected_status):
+        user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
+        membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(f"/api/organizations/@current/members/{get_lookup_value(membership)}/")
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(
+            OrganizationMembership.objects.filter(id=membership.id).exists(),
+            expected_status != status.HTTP_204_NO_CONTENT,
+        )
+
     def test_github_login_endpoint(self):
         # A different member than the requester — proves the lookup is org-scoped, not self-only
         member = User.objects.create_and_join(self.organization, "gh@x.com", None, "X")
