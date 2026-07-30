@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientNonRetryableError,
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    PostHogInternalDatabaseError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
@@ -218,6 +221,43 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
         with pytest.raises(RESTClientRetryableError):
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cause",
+    [
+        Exception("server closed the connection unexpectedly"),
+        Exception("could not translate host name to address: Name or service not known"),
+        Exception("query_wait_timeout"),
+        Exception("pooler is shutting down"),
+    ],
+)
+async def test_posthog_internal_database_error_logged_as_warning_and_backed_off(cause):
+    # Reaching PostHog's own database can fail transiently through PgBouncer in several ways. The
+    # wrapper message is constant but the underlying cause varies, so reporting it mints a new
+    # error-tracking issue per failure mode. Every variant must warn, back off (two of them are
+    # pool exhaustion) and re-raise as NonReportableError so the interceptor doesn't capture it.
+    error = PostHogInternalDatabaseError("Failed to check hog function/workflow triggers in PostHog's database")
+    error.__cause__ = cause
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with mock.patch.object(module.asyncio, "sleep", mock.AsyncMock()) as sleep_mock:
+            with pytest.raises(NonReportableError) as exc_info:
+                await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    assert sleep_mock.await_args.args[0] > 0
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 

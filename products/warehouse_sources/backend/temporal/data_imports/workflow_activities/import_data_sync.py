@@ -1,4 +1,5 @@
 import uuid
+import random
 import asyncio
 import datetime as dt
 import dataclasses
@@ -54,9 +55,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+
+# Exponential backoff applied before re-raising a PostHog-database failure, so concurrent table
+# checks don't retry straight back into an exhausted PgBouncer pool. Jittered to spread out the
+# retries of the many activities that fail together when the pooler saturates.
+_POSTHOG_DATABASE_RETRY_BACKOFF_BASE_SECONDS = 5.0
+_POSTHOG_DATABASE_RETRY_BACKOFF_MAX_SECONDS = 60.0
+
+
+def _posthog_database_retry_backoff_seconds(attempt: int) -> float:
+    ceiling = min(
+        _POSTHOG_DATABASE_RETRY_BACKOFF_BASE_SECONDS * 2 ** max(attempt - 1, 0),
+        _POSTHOG_DATABASE_RETRY_BACKOFF_MAX_SECONDS,
+    )
+    return ceiling / 2 + random.uniform(0, ceiling / 2)
 
 
 @dataclasses.dataclass
@@ -377,6 +394,22 @@ async def _handle_import_error(
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
+
+    # Reaching PostHog's own database can fail transiently through PgBouncer (dropped connection, DNS
+    # hiccup, `query_wait_timeout`, pooler shutting down). The sync recovers on the next Temporal
+    # attempt, but the wrapper's message is constant while the underlying cause varies, so reporting
+    # it mints a fresh error-tracking issue - and a fresh alert - for every new pooler failure mode.
+    # Two of those modes are pool exhaustion, so back off before re-raising rather than retrying
+    # straight back into a saturated pooler.
+    if isinstance(error, PostHogInternalDatabaseError):
+        backoff_seconds = _posthog_database_retry_backoff_seconds(current_activity_attempt())
+        await logger.awarning(
+            error_msg,
+            cause=str(error.__cause__) if error.__cause__ is not None else None,
+            backoff_seconds=backoff_seconds,
+        )
+        await asyncio.sleep(backoff_seconds)
+        raise NonReportableError(error_msg) from error
 
     # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
     # auth, a widened column type) are raised from shared pipeline code, not any one source. The
