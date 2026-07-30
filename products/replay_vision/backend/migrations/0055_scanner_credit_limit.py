@@ -4,7 +4,7 @@ import django.core.validators
 from django.conf import settings
 from django.db import migrations, models
 
-from posthog.migration_helpers import AddConstraintNotValid, ValidateConstraint
+from posthog.migration_helpers import AddConstraintNotValid
 
 
 class Migration(migrations.Migration):
@@ -33,8 +33,9 @@ class Migration(migrations.Migration):
                 validators=[django.core.validators.MinValueValidator(1)],
             ),
         ),
-        # NOT VALID skips the ACCESS EXCLUSIVE table scan; VALIDATE runs under a non-blocking lock.
-        # The column is brand new (every row NULL), so the validation is effectively instant.
+        # NOT VALID adds the constraint with only a brief metadata lock, skipping the row scan.
+        # VALIDATE runs in the follow-up migration so the ACCESS EXCLUSIVE lock is not held
+        # across the scan and scanner reads/writes are never blocked during deploy.
         AddConstraintNotValid(
             model_name="replayscanner",
             constraint=models.CheckConstraint(
@@ -45,9 +46,5 @@ class Migration(migrations.Migration):
                 ),
                 name="replay_scanner_credit_limit_positive",
             ),
-        ),
-        ValidateConstraint(
-            model_name="replayscanner",
-            name="replay_scanner_credit_limit_positive",
         ),
     ]
