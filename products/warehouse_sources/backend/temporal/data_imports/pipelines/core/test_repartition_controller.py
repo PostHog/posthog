@@ -4,7 +4,7 @@ import datetime
 import tempfile
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError
 
@@ -229,6 +229,25 @@ class TestRepartitionDetection:
         assert schema.repartition_pending["partition_keys"] == ["id"]
 
 
+class TestIsAutoRepartitionEnabled:
+    def test_retries_once_on_transient_db_connection_drop(self, team):
+        # The Team lookup runs on a long-lived Temporal worker thread; a pooler-dropped connection
+        # raises OperationalError on first use. Without a retry this propagates out of
+        # is_auto_repartition_enabled uncaught (it's outside the function's Team.DoesNotExist/
+        # feature_enabled try blocks) instead of resolving the flag.
+        schema = _make_schema(team, {})
+        mock_queryset = MagicMock()
+        mock_queryset.get.side_effect = [OperationalError("server closed the connection unexpectedly"), team]
+
+        with (
+            patch("posthog.models.Team.objects.only", return_value=mock_queryset),
+            patch.object(ctrl.posthoganalytics, "feature_enabled", return_value=True),
+        ):
+            assert ctrl.is_auto_repartition_enabled(schema) is True
+
+        assert mock_queryset.get.call_count == 2
+
+
 class TestRepartitionOOMHistoryTrigger:
     def _detect(self, team, schema: ExternalDataSchema, delta: deltalake.DeltaTable) -> None:
         async_to_sync(ctrl.maybe_flag_for_repartition)(schema, schema.source, _make_job(team, schema), delta, logger)
@@ -248,7 +267,9 @@ class TestRepartitionOOMHistoryTrigger:
         with tempfile.TemporaryDirectory() as d:
             delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
             with (
-                patch.object(ctrl, "target_partition_bytes", return_value=10**12),  # well within the size budget
+                # Within the size budget, but close enough that the amplified working set exceeds it —
+                # a bigger budget would (correctly) hit the tiny-partition guard instead.
+                patch.object(ctrl, "target_partition_bytes", return_value=10_000),
                 patch.object(ctrl, "repartition_oom_threshold", return_value=3),
                 patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
                 patch.object(ctrl, "capture_repartition_event"),
@@ -284,7 +305,8 @@ class TestRepartitionOOMHistoryTrigger:
         with tempfile.TemporaryDirectory() as d:
             delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
             with (
-                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                # Small enough that the tiny-partition guard doesn't mask the revive guard under test.
+                patch.object(ctrl, "target_partition_bytes", return_value=10_000),
                 patch.object(ctrl, "repartition_oom_threshold", return_value=3),
                 patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
                 patch.object(ctrl, "capture_repartition_event"),
@@ -293,6 +315,35 @@ class TestRepartitionOOMHistoryTrigger:
 
         schema.refresh_from_db()
         assert schema.repartition_pending is None
+
+    def test_tiny_partitions_do_not_flag_on_oom_history(self, team):
+        # deals/contacts loop from prod: heartbeat timeouts recorded as OOMs on a table whose largest
+        # partition is KBs against a 500 MB budget. Without the amplification guard the trigger steps
+        # the scheme finer until it bottoms out at hour, then emits skipped + capture_exception daily
+        # forever. The guard must be a quiet no-op: nothing pending, no events at all.
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        for _ in range(3):
+            ExternalDataSchemaOOMEvent.objects.for_team(schema.team_id).create(team_id=schema.team_id, schema=schema)
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
+            with (
+                patch.object(
+                    ctrl, "target_partition_bytes", return_value=10**12
+                ),  # partitions orders of magnitude under
+                patch.object(ctrl, "repartition_oom_threshold", return_value=3),
+                patch.object(ctrl, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event") as capture,
+            ):
+                self._detect(team, schema, delta)
+
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+        assert schema.max_partition_bytes is not None  # observability measurement still recorded
+        assert capture.call_args_list == []
 
 
 # An Exception-derived cancellation, named exactly `CancelledError`: models how `async_to_sync` can

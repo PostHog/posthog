@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from django.conf import settings
 from django.test import override_settings
 
+import deltalake
 import temporalio.worker
 import temporalio.converter
 from temporalio import activity as temporal_activity
@@ -1411,3 +1412,92 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
     assert call_counts["copy"] == 1
     assert call_counts["verify"] == 1
     assert call_counts["cleanup"] == 1
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@pytest.mark.parametrize(
+    "absent_error",
+    [
+        deltalake.exceptions.DeltaError("Generic delta kernel error: No files in log segment"),
+        deltalake.exceptions.TableNotFoundError("no log files"),
+    ],
+)
+def test_stage_waits_out_delta_rebuild_window(monkeypatch, absent_error):
+    # A v3 full-refresh sync purges the source Delta table and the loader rebuilds it
+    # asynchronously; the first stage attempts land in that window and must be retried,
+    # not treated as fatal.
+    clock = _FakeClock()
+    monkeypatch.setattr(ducklake_module, "time", clock)
+    attempts = {"count": 0}
+
+    def stage(**kwargs):
+        attempts["count"] += 1
+        if attempts["count"] <= 2:
+            raise absent_error
+
+    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+
+    ducklake_module._stage_delta_table_waiting_for_rebuild(
+        source_uri="s3://bucket/folder/table",
+        catalog_bucket="catalog",
+        organization_id="org",
+        logger=MagicMock(),
+    )
+
+    assert attempts["count"] == 3
+    assert clock.sleeps == [ducklake_module.DELTA_REBUILD_POLL_SECONDS] * 2
+
+
+def test_stage_raises_immediately_on_non_absent_errors(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(ducklake_module, "time", clock)
+    attempts = {"count": 0}
+
+    def stage(**kwargs):
+        attempts["count"] += 1
+        raise deltalake.exceptions.DeltaError("Generic error: something else broke")
+
+    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+
+    with pytest.raises(deltalake.exceptions.DeltaError):
+        ducklake_module._stage_delta_table_waiting_for_rebuild(
+            source_uri="s3://bucket/folder/table",
+            catalog_bucket="catalog",
+            organization_id="org",
+            logger=MagicMock(),
+        )
+
+    assert attempts["count"] == 1
+    assert clock.sleeps == []
+
+
+def test_stage_gives_up_after_rebuild_wait_budget(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(ducklake_module, "time", clock)
+
+    def stage(**kwargs):
+        raise deltalake.exceptions.DeltaError("Generic delta kernel error: No files in log segment")
+
+    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+
+    with pytest.raises(deltalake.exceptions.DeltaError):
+        ducklake_module._stage_delta_table_waiting_for_rebuild(
+            source_uri="s3://bucket/folder/table",
+            catalog_bucket="catalog",
+            organization_id="org",
+            logger=MagicMock(),
+        )
+
+    assert clock.now <= ducklake_module.DELTA_REBUILD_WAIT_SECONDS + ducklake_module.DELTA_REBUILD_POLL_SECONDS
