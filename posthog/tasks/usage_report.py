@@ -1539,7 +1539,7 @@ def get_teams_with_ai_event_count_in_period(
                             FROM {events_read_table(use_new)}
                             WHERE team_id IN %(relayed_team_ids)s
                               AND event IN %(ai_events)s
-                              AND timestamp >= %(sponsor_begin)s AND timestamp < %(sponsor_end)s
+                              AND timestamp >= %(relay_begin)s AND timestamp < %(sponsor_end)s
                               AND {verified_expr} IN ('true', '1')
                               AND {relay_expr} IN ('true', '1')
                             GROUP BY team_id, event, verified, relay, trace_id, span_id
@@ -1559,6 +1559,7 @@ def get_teams_with_ai_event_count_in_period(
                 "begin": begin,
                 "end": end,
                 "sponsor_begin": begin - GATEWAY_SPONSORSHIP_LOOKAROUND,
+                "relay_begin": begin - GATEWAY_SPONSORSHIP_LOOKAROUND - GATEWAY_SPONSORSHIP_BACKDATE,
                 "sponsor_end": end + GATEWAY_SPONSORSHIP_LOOKAROUND,
             },
             workload=Workload.OFFLINE,
