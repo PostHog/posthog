@@ -245,6 +245,20 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
     return r
 
 
+def _person_test_account_properties(team: Team) -> list[Property]:
+    """Person-property filters from team.test_account_filters.
+
+    Event/element/hogql-scoped test filters can't be standalone cohort conditions, and
+    cohort-typed ones are excluded here to avoid self-referential cohorts (a team test
+    filter can point at the very cohort being calculated).
+    """
+    return [
+        Property(**prop)
+        for prop in (team.test_account_filters or [])
+        if isinstance(prop, dict) and prop.get("type") == "person"
+    ]
+
+
 class HogQLCohortQuery:
     def __init__(
         self,
@@ -265,7 +279,18 @@ class HogQLCohortQuery:
                 self.team,
                 cohort,
             )
-            self.property_groups = unwrapped.property_groups
+            property_groups = unwrapped.property_groups
+            if (cohort.filters or {}).get("filterTestAccounts"):
+                test_props = _person_test_account_properties(self.team)
+                if test_props:
+                    property_groups = PropertyGroup(
+                        type=PropertyOperatorType.AND,
+                        values=[
+                            property_groups,
+                            PropertyGroup(type=PropertyOperatorType.AND, values=test_props),
+                        ],
+                    )
+            self.property_groups = property_groups
         elif filter is not None:
             if team is None:
                 raise ValueError("HogQLCohortQuery requires a team when constructed from a filter")
