@@ -145,6 +145,10 @@ function AddUsageMetricButton(): JSX.Element {
 
 function UsageMetricsEmptyState(): JSX.Element {
     const { openModal } = useActions(usageMetricsConfigLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     return (
         <ProductIntroduction
             productName="Customer analytics"
@@ -154,6 +158,7 @@ function UsageMetricsEmptyState(): JSX.Element {
             productKey={ProductKey.CUSTOMER_ANALYTICS}
             className="border-none"
             action={() => openModal()}
+            disabledReason={restrictedReason ?? undefined}
         />
     )
 }
