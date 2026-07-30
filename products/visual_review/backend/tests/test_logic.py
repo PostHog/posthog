@@ -1976,6 +1976,8 @@ class TestMergeBaseBaselineHealing:
         merge_base_sha="abc123",
         default_branch="master",
         commit_sha_baselines=None,
+        pr_head_sha=None,
+        pr_head_is_ancestor=True,
     ):
         mock_github = mocker.MagicMock()
         mock_github.integration.sensitive_config = {"access_token": "fake"}
@@ -1994,8 +1996,22 @@ class TestMergeBaseBaselineHealing:
                 return {k: {"hash": v} for k, v in baselines.items()}, "sha2"
             return {}, None
 
+        pr_response = mocker.MagicMock()
+        if pr_head_sha is None:
+            pr_response.status_code = 404
+            pr_response.json.return_value = {"message": "Not Found"}
+        else:
+            pr_response.status_code = 200
+            pr_response.json.return_value = {"head": {"sha": pr_head_sha}}
+        mock_github.api_request.return_value = pr_response
+
+        def fake_merge_base(github, repo_full_name, base, head):
+            if pr_head_sha is not None and base == pr_head_sha:
+                return pr_head_sha if pr_head_is_ancestor else "unrelated-sha"
+            return merge_base_sha
+
         mocker.patch("products.visual_review.backend.logic._fetch_baseline_file", side_effect=fake_fetch)
-        mocker.patch("products.visual_review.backend.logic._get_merge_base_sha", return_value=merge_base_sha)
+        mocker.patch("products.visual_review.backend.logic._get_merge_base_sha", side_effect=fake_merge_base)
         mocker.patch("products.visual_review.backend.logic._get_default_branch", return_value=default_branch)
         mocker.patch(
             "products.visual_review.backend.logic._verify_baseline_hashes", side_effect=lambda repo, hashes: hashes
@@ -2256,15 +2272,57 @@ class TestMergeBaseBaselineHealing:
         assert snapshot.baseline_hash == "master_hash"
 
     @pytest.mark.parametrize(
-        "run_branch, prior_branch, prior_pr_number, prior_run_type, prior_approved, prior_review_state, expect_tombstoned",
+        "run_branch, prior_branch, prior_pr_number, prior_run_type, prior_approved, prior_review_state, pr_head_sha, pr_head_is_ancestor, expect_tombstoned",
         [
-            ("my-branch", "my-branch", None, RunType.STORYBOOK, True, ReviewState.APPROVED, True),
-            ("my-branch", "someone-else", None, RunType.STORYBOOK, True, ReviewState.APPROVED, False),
-            ("my-branch", "my-branch", None, "playwright", True, ReviewState.APPROVED, False),
-            ("my-branch", "my-branch", None, RunType.STORYBOOK, False, ReviewState.PENDING, False),
-            ("trunk-merge/pr-42/0c0ffee", "source-pr-branch", 42, RunType.STORYBOOK, True, ReviewState.APPROVED, True),
-            ("trunk-merge/pr-42/0c0ffee", "source-pr-branch", 43, RunType.STORYBOOK, True, ReviewState.APPROVED, False),
-            ("my-branch", "someone-else", 42, RunType.STORYBOOK, True, ReviewState.APPROVED, False),
+            ("my-branch", "my-branch", None, RunType.STORYBOOK, True, ReviewState.APPROVED, None, True, True),
+            ("my-branch", "someone-else", None, RunType.STORYBOOK, True, ReviewState.APPROVED, None, True, False),
+            ("my-branch", "my-branch", None, "playwright", True, ReviewState.APPROVED, None, True, False),
+            ("my-branch", "my-branch", None, RunType.STORYBOOK, False, ReviewState.PENDING, None, True, False),
+            (
+                "trunk-merge/pr-42/0c0ffee",
+                "source-pr-branch",
+                42,
+                RunType.STORYBOOK,
+                True,
+                ReviewState.APPROVED,
+                "pr42-head",
+                True,
+                True,
+            ),
+            (
+                "trunk-merge/pr-42/0c0ffee",
+                "source-pr-branch",
+                43,
+                RunType.STORYBOOK,
+                True,
+                ReviewState.APPROVED,
+                "pr42-head",
+                True,
+                False,
+            ),
+            (
+                "trunk-merge/pr-42/0c0ffee",
+                "source-pr-branch",
+                42,
+                RunType.STORYBOOK,
+                True,
+                ReviewState.APPROVED,
+                "pr42-head",
+                False,
+                False,
+            ),
+            (
+                "trunk-merge/pr-42/0c0ffee",
+                "source-pr-branch",
+                42,
+                RunType.STORYBOOK,
+                True,
+                ReviewState.APPROVED,
+                None,
+                True,
+                False,
+            ),
+            ("my-branch", "someone-else", 42, RunType.STORYBOOK, True, ReviewState.APPROVED, None, True, False),
         ],
         ids=[
             "approved_on_branch",
@@ -2273,6 +2331,8 @@ class TestMergeBaseBaselineHealing:
             "not_approved",
             "merge_queue_source_pr",
             "merge_queue_other_pr",
+            "merge_queue_spoofed_branch_not_ancestor",
+            "merge_queue_source_pr_not_found",
             "pr_number_ignored_off_queue",
         ],
     )
@@ -2287,11 +2347,19 @@ class TestMergeBaseBaselineHealing:
         prior_run_type,
         prior_approved,
         prior_review_state,
+        pr_head_sha,
+        pr_head_is_ancestor,
         expect_tombstoned,
     ):
         branch_baseline: dict[str, str] = {}
         merge_base_baseline = {"candidate": "h1"}
-        self._mock_github(mocker, branch_baseline=branch_baseline, merge_base_baseline=merge_base_baseline)
+        self._mock_github(
+            mocker,
+            branch_baseline=branch_baseline,
+            merge_base_baseline=merge_base_baseline,
+            pr_head_sha=pr_head_sha,
+            pr_head_is_ancestor=pr_head_is_ancestor,
+        )
 
         prior_run = Run.objects.create(
             team_id=team.id,
