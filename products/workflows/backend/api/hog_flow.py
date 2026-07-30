@@ -1139,9 +1139,14 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
 
 
 def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, float | int]:
+    # Sends are counted at send time but bounces/complaints at webhook time, so feedback arriving
+    # just inside the window for sends just outside it can push the ratio past 1 (worst case: a
+    # workflow that recently stopped sending, with trailing feedback from a prior blast). Clamp to
+    # 100% — the counter metrics can't attribute feedback to its send date, and past 100% the
+    # number stops meaning anything.
     return {
-        "bounce_rate": bounced / sent if sent else 0.0,
-        "complaint_rate": complained / sent if sent else 0.0,
+        "bounce_rate": min(1.0, bounced / sent) if sent else 0.0,
+        "complaint_rate": min(1.0, complained / sent) if sent else 0.0,
         "emails_sent": sent,
     }
 
@@ -1153,11 +1158,18 @@ class EmailSendingRatesSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS "
-            "counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded."
+            "counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. "
+            "Bounces are counted when the feedback arrives, so the ratio is approximate at the "
+            "window boundary and capped at 1."
         ),
     )
     complaint_rate = serializers.FloatField(
-        read_only=True, help_text="Spam complaints / emails sent over the last 30 days (0-1)."
+        read_only=True,
+        help_text=(
+            "Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted "
+            "when the feedback arrives, so the ratio is approximate at the window boundary and "
+            "capped at 1."
+        ),
     )
     emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent in the last 30 days.")
 

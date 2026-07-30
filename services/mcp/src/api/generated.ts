@@ -23340,9 +23340,9 @@ export namespace Schemas {
      * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
     export interface EmailSendingRates {
-      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. */
+      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly bounce_rate: number;
-      /** Spam complaints / emails sent over the last 30 days (0-1). */
+      /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly complaint_rate: number;
       /** Emails sent in the last 30 days. */
       readonly emails_sent: number;
@@ -69793,9 +69793,9 @@ export namespace Schemas {
      * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
     export interface WorkflowEmailSendingRates {
-      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. */
+      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly bounce_rate: number;
-      /** Spam complaints / emails sent over the last 30 days (0-1). */
+      /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly complaint_rate: number;
       /** Emails sent in the last 30 days. */
       readonly emails_sent: number;

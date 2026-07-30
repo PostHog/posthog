@@ -81,6 +81,19 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["workflows"][0]["complaint_rate"] == 1 / 1000
         assert data["workflows"][0]["hog_flow_id"] == str(flow.id)
 
+    def test_reputation_endpoint_clamps_rates_when_trailing_feedback_exceeds_window_sends(self):
+        # Bounces/complaints are recorded at webhook time: a workflow that mostly stopped sending
+        # can have more feedback in the window than sends. The rate clamps at 100%.
+        flow = self._create_flow("Dormant blast")
+
+        data = self._get_reputation(
+            {str(flow.id): {"email_sent": 100, "email_bounced_hard": 500, "email_blocked": 150}}
+        )
+
+        assert data["workflows"][0]["bounce_rate"] == 1.0
+        assert data["workflows"][0]["complaint_rate"] == 1.0
+        assert data["reputation"]["bounce_rate"] == 1.0
+
     def test_reputation_endpoint_serializes_unnamed_workflows_with_empty_name(self):
         unnamed = HogFlow.objects.create(
             team=self.team,
