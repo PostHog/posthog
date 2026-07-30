@@ -12,27 +12,75 @@ alongside it and is the only part that touches the schedule API.
 import dataclasses
 from collections import defaultdict
 from datetime import timedelta
+from typing import NamedTuple
+
+from products.data_modeling.backend.logic.freshness import format_cadence
+
+# An anchor is minutes past Monday 00:00 UTC. Every sub-weekly bucket divides the day,
+# so for those only `anchor % MINUTES_PER_DAY` (the time-of-day part) matters; a weekly
+# cadence reads the full value and gets day-of-week pinning from the same mod rule.
+MINUTES_PER_DAY = 24 * 60
+MINUTES_PER_WEEK = 7 * MINUTES_PER_DAY
 
 
-def bucket_into_cadence_tiers(effective: dict[str, timedelta | None]) -> dict[timedelta, set[str]]:
-    """Group schedulable nodes by effective cadence.
+class Tier(NamedTuple):
+    """One schedule cohort: a cadence, plus an optional pinned phase.
+
+    `anchor_minutes=None` is the default hash-spread cohort; an anchored cohort fires at
+    times t ≡ anchor (mod interval), with t counted from the start of the UTC week.
+    """
+
+    interval: timedelta
+    anchor_minutes: int | None = None
+
+
+def tier_sort_key(tier: Tier) -> tuple[timedelta, int]:
+    """Display order: by cadence, the hash-spread cohort before anchored ones.
+
+    Sorting raw Tier tuples raises when a cadence has both an anchored and an unanchored
+    cohort, because `None` and `int` anchors don't compare.
+    """
+    return (tier.interval, -1 if tier.anchor_minutes is None else tier.anchor_minutes)
+
+
+def format_tier(tier: Tier) -> str:
+    """Human label for a tier: the cadence, plus the anchor when one is pinned."""
+    if tier.anchor_minutes is None:
+        return format_cadence(tier.interval)
+    days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+    day, time_of_day = divmod(tier.anchor_minutes, MINUTES_PER_DAY)
+    return f"{format_cadence(tier.interval)}@{days[day]} {time_of_day // 60:02d}:{time_of_day % 60:02d}"
+
+
+def bucket_into_cadence_tiers(
+    effective: dict[str, timedelta | None],
+    anchors: dict[str, int] | None = None,
+) -> dict[Tier, set[str]]:
+    """Group schedulable nodes into cohorts by (effective cadence, anchor).
 
     Nodes with no effective cadence (`None` — unscheduled, ride-downstream) are omitted so
-    they never get a schedule of their own.
+    they never get a schedule of their own; an anchor on such a node is stored but inert.
+    Nodes sharing a cadence but not an anchor land in separate cohorts, because a cohort
+    is one Temporal schedule with one fire phase.
     """
-    tiers: dict[timedelta, set[str]] = defaultdict(set)
+    tiers: dict[Tier, set[str]] = defaultdict(set)
     for node_id, interval in effective.items():
         if interval is not None:
-            tiers[interval].add(node_id)
+            anchor = anchors.get(node_id) if anchors else None
+            tiers[Tier(interval, anchor)].add(node_id)
     return dict(tiers)
 
 
-def tier_schedule_id(dag_id: str, interval: timedelta) -> str:
-    """Temporal schedule id for one cadence tier of a DAG: "{dag_id}:{interval_seconds}".
+def tier_schedule_id(dag_id: str, interval: timedelta, anchor_minutes: int | None = None) -> str:
+    """Temporal schedule id for one cohort of a DAG: "{dag_id}:{interval_seconds}", with
+    ":{anchor_minutes}" appended for an anchored cohort.
 
-    A DAG UUID never contains a colon, so the dag id parses back off the prefix.
+    A DAG UUID never contains a colon, so the dag id parses back off the first segment.
     """
-    return f"{dag_id}:{int(interval.total_seconds())}"
+    schedule_id = f"{dag_id}:{int(interval.total_seconds())}"
+    if anchor_minutes is not None:
+        schedule_id += f":{anchor_minutes}"
+    return schedule_id
 
 
 def dag_id_from_schedule_id(schedule_id: str) -> str:
@@ -41,7 +89,7 @@ def dag_id_from_schedule_id(schedule_id: str) -> str:
     A migration-era single schedule (id == dag_id, no colon) parses to itself, keeping the
     read side backward-compatible through the transition.
     """
-    return schedule_id.rsplit(":", 1)[0]
+    return schedule_id.split(":", 1)[0]
 
 
 def is_tier_schedule_id(schedule_id: str) -> bool:
@@ -49,22 +97,30 @@ def is_tier_schedule_id(schedule_id: str) -> bool:
     return ":" in schedule_id
 
 
+def interval_seconds_from_schedule_id(schedule_id: str) -> int | None:
+    """Recover the tier's cadence (seconds) from its schedule id, or None for the legacy
+    single schedule. An anchored id's trailing anchor segment is ignored."""
+    if is_tier_schedule_id(schedule_id):
+        return int(schedule_id.split(":")[1])
+    return None
+
+
 @dataclasses.dataclass
 class ScheduleReconcilePlan:
     """What to do to Temporal to make a DAG's schedules match its desired cadence tiers.
 
     Keyed by schedule id. `to_create`/`to_update` map a tier's schedule id to its
-    (interval, node_ids); `to_delete` is the set of schedule ids to remove.
+    (tier, node_ids); `to_delete` is the set of schedule ids to remove.
     """
 
-    to_create: dict[str, tuple[timedelta, set[str]]]
-    to_update: dict[str, tuple[timedelta, set[str]]]
+    to_create: dict[str, tuple[Tier, set[str]]]
+    to_update: dict[str, tuple[Tier, set[str]]]
     to_delete: set[str]
 
 
 def plan_schedule_reconciliation(
     dag_id: str,
-    desired_tiers: dict[timedelta, set[str]],
+    desired_tiers: dict[Tier, set[str]],
     existing_schedule_ids: set[str],
 ) -> ScheduleReconcilePlan:
     """Diff desired cadence tiers against a DAG's existing execute-dag schedules.
@@ -73,7 +129,10 @@ def plan_schedule_reconciliation(
     node_ids. `to_delete` is every existing schedule not backing a desired tier — which
     sweeps both removed tiers and the migration-era single `dag_id` schedule.
     """
-    desired = {tier_schedule_id(dag_id, interval): (interval, node_ids) for interval, node_ids in desired_tiers.items()}
+    desired = {
+        tier_schedule_id(dag_id, tier.interval, tier.anchor_minutes): (tier, node_ids)
+        for tier, node_ids in desired_tiers.items()
+    }
     return ScheduleReconcilePlan(
         to_create={sid: value for sid, value in desired.items() if sid not in existing_schedule_ids},
         to_update={sid: value for sid, value in desired.items() if sid in existing_schedule_ids},

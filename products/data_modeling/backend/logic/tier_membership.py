@@ -18,7 +18,11 @@ from temporalio.client import Client, ScheduleActionStartWorkflow, ScheduleListA
 
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
-from products.data_modeling.backend.logic.cohort_scheduling import bucket_into_cadence_tiers, is_tier_schedule_id
+from products.data_modeling.backend.logic.cohort_scheduling import (
+    Tier,
+    bucket_into_cadence_tiers,
+    interval_seconds_from_schedule_id,
+)
 from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     clamp_to_source_floor,
@@ -68,13 +72,6 @@ UNSUPPORTED_TARGET = "unsupported_target"
 EPHEMERAL_SKIPPED = "ephemeral_skipped"
 
 
-def _interval_from_schedule_id(schedule_id: str) -> int | None:
-    """Recover the tier's cadence (seconds) from its schedule id, or None for the legacy single schedule."""
-    if is_tier_schedule_id(schedule_id):
-        return int(schedule_id.rsplit(":", 1)[1])
-    return None
-
-
 async def _decode_node_ids(temporal: Client, action: object) -> list[str] | None:
     """Read `node_ids` from a schedule's start-workflow args, decoding the encrypted payload.
 
@@ -112,7 +109,7 @@ async def read_live_tiers(temporal: Client, dag_id: str) -> list[LiveTier]:
         tiers.append(
             LiveTier(
                 schedule_id=listing.id,
-                interval_seconds=_interval_from_schedule_id(listing.id),
+                interval_seconds=interval_seconds_from_schedule_id(listing.id),
                 covers_whole_dag=node_ids is None,
                 node_ids=frozenset(node_ids) if node_ids is not None else None,
             )
@@ -120,14 +117,14 @@ async def read_live_tiers(temporal: Client, dag_id: str) -> list[LiveTier]:
     return tiers
 
 
-def _desired_tiers(dag: DAG) -> dict[timedelta, set[str]]:
+def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
     """The tiers reconcile would want for this DAG: effective cadences → clamp to floor → buckets."""
     graph = build_frequency_graph(dag)
     effective = compute_effective_cadences(
         nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
     )
     effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
-    return bucket_into_cadence_tiers(effective)
+    return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 
 def expected_tier_by_node(dag: DAG) -> dict[str, int]:
@@ -135,11 +132,12 @@ def expected_tier_by_node(dag: DAG) -> dict[str, int]:
 
     Mirrors `reconcile_dag_schedules` exactly (effective cadences → clamp to source floor → buckets)
     so a node absent from this map is one reconcile would leave unscheduled (the ride-downstream
-    opt-out), not a bug.
+    opt-out), not a bug. Verdicts compare cadence only, so an anchored cohort flattens to its
+    interval here.
     """
     return {
-        node_id: int(interval.total_seconds())
-        for interval, node_ids in _desired_tiers(dag).items()
+        node_id: int(tier.interval.total_seconds())
+        for tier, node_ids in _desired_tiers(dag).items()
         for node_id in node_ids
     }
 
@@ -151,7 +149,7 @@ def dag_reconcile_would_refuse(dag: DAG) -> bool:
     desired tier falls outside `SCHEDULABLE_BUCKETS`, leaving every schedule untouched. Without
     this, such a node reads as `stale_needs_reconcile` — advice that would raise rather than fix.
     """
-    return any(interval not in SCHEDULABLE_BUCKETS for interval in _desired_tiers(dag))
+    return any(tier.interval not in SCHEDULABLE_BUCKETS for tier in _desired_tiers(dag))
 
 
 def classify_node(
