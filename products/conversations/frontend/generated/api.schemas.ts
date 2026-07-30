@@ -1064,9 +1064,9 @@ export interface TicketErrorApi {
  * * `github` - github
  * * `all` - all
  */
-export type ChannelEnumApi = (typeof ChannelEnumApi)[keyof typeof ChannelEnumApi]
+export type TicketChannelFilterEnumApi = (typeof TicketChannelFilterEnumApi)[keyof typeof TicketChannelFilterEnumApi]
 
-export const ChannelEnumApi = {
+export const TicketChannelFilterEnumApi = {
     Widget: 'widget',
     Email: 'email',
     Slack: 'slack',
@@ -1081,9 +1081,9 @@ export const ChannelEnumApi = {
  * * `on-track` - on-track
  * * `all` - all
  */
-export type SlaEnumApi = (typeof SlaEnumApi)[keyof typeof SlaEnumApi]
+export type TicketSlaFilterEnumApi = (typeof TicketSlaFilterEnumApi)[keyof typeof TicketSlaFilterEnumApi]
 
-export const SlaEnumApi = {
+export const TicketSlaFilterEnumApi = {
     Breached: 'breached',
     AtRisk: 'at-risk',
     OnTrack: 'on-track',
@@ -1115,9 +1115,9 @@ export const AiTriageResultEnumApi = {
  * * `any` - any
  * * `all` - all
  */
-export type TagsMatchEnumApi = (typeof TagsMatchEnumApi)[keyof typeof TagsMatchEnumApi]
+export type TicketTagsMatchEnumApi = (typeof TicketTagsMatchEnumApi)[keyof typeof TicketTagsMatchEnumApi]
 
-export const TagsMatchEnumApi = {
+export const TicketTagsMatchEnumApi = {
     Any: 'any',
     All: 'all',
 } as const
@@ -1126,9 +1126,9 @@ export const TagsMatchEnumApi = {
  * * `1` - 1
  * * `-1` - -1
  */
-export type OrderEnumApi = (typeof OrderEnumApi)[keyof typeof OrderEnumApi]
+export type TicketSortOrderEnumApi = (typeof TicketSortOrderEnumApi)[keyof typeof TicketSortOrderEnumApi]
 
-export const OrderEnumApi = {
+export const TicketSortOrderEnumApi = {
     Number1: 1,
     NumberMinus1: -1,
 } as const
@@ -1140,7 +1140,7 @@ export interface TicketViewSortingApi {
      *
      * * `1` - 1
      * * `-1` - -1 */
-    order: OrderEnumApi
+    order: TicketSortOrderEnumApi
 }
 
 export type TicketViewFiltersApiAssigneeItem =
@@ -1168,14 +1168,14 @@ export interface TicketViewFiltersApi {
      * * `teams` - teams
      * * `github` - github
      * * `all` - all */
-    channel?: ChannelEnumApi
+    channel?: TicketChannelFilterEnumApi
     /** SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.
      *
      * * `breached` - breached
      * * `at-risk` - at-risk
      * * `on-track` - on-track
      * * `all` - all */
-    sla?: SlaEnumApi
+    sla?: TicketSlaFilterEnumApi
     /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
     aiTriageResult?: AiTriageResultEnumApi[]
     /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
@@ -1186,7 +1186,9 @@ export interface TicketViewFiltersApi {
      *
      * * `any` - any
      * * `all` - all */
-    tagsMatch?: TagsMatchEnumApi
+    tagsMatch?: TicketTagsMatchEnumApi
+    /** Tag names the ticket must all carry (AND). Applied on top of tags/tagsMatch, so both an any-of and an all-of constraint can be active at once. */
+    tagsAll?: string[]
     /** Tickets carrying any of these tags are excluded. */
     tagsExclude?: string[]
     /**

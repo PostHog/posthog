@@ -13580,26 +13580,6 @@ export namespace Schemas {
       GithubIssue: 'github_issue',
     } as const;
 
-    /**
-     * * `widget` - widget
-     * * `email` - email
-     * * `slack` - slack
-     * * `teams` - teams
-     * * `github` - github
-     * * `all` - all
-     */
-    export type ChannelEnum = typeof ChannelEnum[keyof typeof ChannelEnum];
-
-
-    export const ChannelEnum = {
-      Widget: 'widget',
-      Email: 'email',
-      Slack: 'slack',
-      Teams: 'teams',
-      Github: 'github',
-      All: 'all',
-    } as const;
-
     export type ChannelFeedMessageDTOPayload = { [key: string]: unknown };
 
     /**
@@ -42685,18 +42665,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `1` - 1
-     * * `-1` - -1
-     */
-    export type OrderEnum = typeof OrderEnum[keyof typeof OrderEnum];
-
-
-    export const OrderEnum = {
-      Number1: 1,
-      NumberMinus1: -1,
-    } as const;
-
-    /**
      * * `log_count` - log_count
      * * `error_count` - error_count
      * * `last_seen` - last_seen
@@ -47977,15 +47945,35 @@ export namespace Schemas {
     }
 
     /**
+     * * `widget` - widget
+     * * `email` - email
+     * * `slack` - slack
+     * * `teams` - teams
+     * * `github` - github
+     * * `all` - all
+     */
+    export type TicketChannelFilterEnum = typeof TicketChannelFilterEnum[keyof typeof TicketChannelFilterEnum];
+
+
+    export const TicketChannelFilterEnum = {
+      Widget: 'widget',
+      Email: 'email',
+      Slack: 'slack',
+      Teams: 'teams',
+      Github: 'github',
+      All: 'all',
+    } as const;
+
+    /**
      * * `breached` - breached
      * * `at-risk` - at-risk
      * * `on-track` - on-track
      * * `all` - all
      */
-    export type SlaEnum = typeof SlaEnum[keyof typeof SlaEnum];
+    export type TicketSlaFilterEnum = typeof TicketSlaFilterEnum[keyof typeof TicketSlaFilterEnum];
 
 
-    export const SlaEnum = {
+    export const TicketSlaFilterEnum = {
       Breached: 'breached',
       AtRisk: 'at-risk',
       OnTrack: 'on-track',
@@ -47996,12 +47984,24 @@ export namespace Schemas {
      * * `any` - any
      * * `all` - all
      */
-    export type TagsMatchEnum = typeof TagsMatchEnum[keyof typeof TagsMatchEnum];
+    export type TicketTagsMatchEnum = typeof TicketTagsMatchEnum[keyof typeof TicketTagsMatchEnum];
 
 
-    export const TagsMatchEnum = {
+    export const TicketTagsMatchEnum = {
       Any: 'any',
       All: 'all',
+    } as const;
+
+    /**
+     * * `1` - 1
+     * * `-1` - -1
+     */
+    export type TicketSortOrderEnum = typeof TicketSortOrderEnum[keyof typeof TicketSortOrderEnum];
+
+
+    export const TicketSortOrderEnum = {
+      Number1: 1,
+      NumberMinus1: -1,
     } as const;
 
     export interface TicketViewSorting {
@@ -48011,7 +48011,7 @@ export namespace Schemas {
        *
        * * `1` - 1
        * * `-1` - -1 */
-      order: OrderEnum;
+      order: TicketSortOrderEnum;
     }
 
     export type TicketViewFiltersAssigneeItem = 'me' | 'unassigned' | {
@@ -48036,14 +48036,14 @@ export namespace Schemas {
        * * `teams` - teams
        * * `github` - github
        * * `all` - all */
-      channel?: ChannelEnum;
+      channel?: TicketChannelFilterEnum;
       /** SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.
        *
        * * `breached` - breached
        * * `at-risk` - at-risk
        * * `on-track` - on-track
        * * `all` - all */
-      sla?: SlaEnum;
+      sla?: TicketSlaFilterEnum;
       /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. */
       aiTriageResult?: AiTriageResultEnum[];
       /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list. */
@@ -48054,7 +48054,9 @@ export namespace Schemas {
        *
        * * `any` - any
        * * `all` - all */
-      tagsMatch?: TagsMatchEnum;
+      tagsMatch?: TicketTagsMatchEnum;
+      /** Tag names the ticket must all carry (AND). Applied on top of tags/tagsMatch, so both an any-of and an all-of constraint can be active at once. */
+      tagsAll?: string[];
       /** Tickets carrying any of these tags are excluded. */
       tagsExclude?: string[];
       /**
