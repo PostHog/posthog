@@ -50,6 +50,8 @@ const SNAPSHOT: MCPIntentClusterSnapshotApi = {
         // only enters the visible set under the errors sort.
         cluster(i, i === HIGH_ERROR_ID ? { error_rate_pct: 50, error_count: 10 } : {})
     ),
+    long_tail: null,
+    recurring: [],
     computed_with: {
         distance_threshold: 0.2,
         embedding_model: 'test',
