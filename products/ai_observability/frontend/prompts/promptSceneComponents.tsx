@@ -26,6 +26,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -39,7 +40,7 @@ import { useTracesQueryContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
-import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, formatPromptConfig, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
 import { PromptLabelChip } from './PromptLabelChip'
 import { PromptLabelPicker } from './PromptLabelPicker'
@@ -78,11 +79,15 @@ export function PromptViewDetails(): JSX.Element {
     const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions } =
         useValues(llmPromptLogic)
     const { toggleMarkdownRendering, setCompareVersion } = useActions(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const markdownContainerRef = useRef<HTMLDivElement>(null)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
     }
+
+    const configEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG]
+    const configJson = configEnabled && prompt.config != null ? formatPromptConfig(prompt.config) : null
 
     const promptText = prompt.prompt
     const variableMatches = promptText.match(/\{\{([^}]+)\}\}/g)
@@ -156,6 +161,13 @@ export function PromptViewDetails(): JSX.Element {
                     ))}
                 </div>
             )}
+
+            {configJson !== null && !isDiffVisible ? (
+                <div data-attr="llma-prompt-config-view">
+                    <h3 className="mb-2 font-semibold">Configuration</h3>
+                    <CodeSnippet language={Language.JSON}>{configJson}</CodeSnippet>
+                </div>
+            ) : null}
         </div>
     )
 }
@@ -215,12 +227,20 @@ export function PromptHeaderMeta(): JSX.Element | null {
 }
 
 export function PublishReviewModal(): JSX.Element | null {
-    const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting, versionDescription } =
-        useValues(llmPromptLogic)
+    const {
+        isPublishReviewOpen,
+        prompt,
+        promptForm,
+        nextVersion,
+        isPromptFormSubmitting,
+        versionDescription,
+        isConfigChanged,
+    } = useValues(llmPromptLogic)
     const { promptLabels } = useValues(llmPromptLogic)
     const { closePublishReview, submitPromptForm, setVersionDescription } = useActions(llmPromptLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
+    const showConfigChange = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG] && isConfigChanged
 
     if (!isPrompt(prompt)) {
         return null
@@ -293,6 +313,42 @@ export function PublishReviewModal(): JSX.Element | null {
                         />
                     </Suspense>
                 </div>
+                {showConfigChange ? (
+                    <div data-attr="llma-prompt-publish-review-config-diff">
+                        <div className="mb-1 flex items-center gap-2">
+                            <span className="text-sm font-semibold">Configuration</span>
+                            <LemonTag type="warning" size="small">
+                                Changed
+                            </LemonTag>
+                        </div>
+                        <div className="overflow-hidden rounded border">
+                            <Suspense
+                                fallback={
+                                    <div className="space-y-2 p-4">
+                                        <LemonSkeleton active className="h-4 w-full" />
+                                    </div>
+                                }
+                            >
+                                <MonacoDiffEditor
+                                    original={formatPromptConfig(prompt.config)}
+                                    value={promptForm.config}
+                                    modified={promptForm.config}
+                                    language="json"
+                                    options={{
+                                        readOnly: true,
+                                        renderSideBySide: true,
+                                        minimap: { enabled: false },
+                                        scrollBeyondLastLine: false,
+                                        wordWrap: 'on',
+                                        lineNumbers: 'off',
+                                        folding: false,
+                                        hideUnchangedRegions: { enabled: true },
+                                    }}
+                                />
+                            </Suspense>
+                        </div>
+                    </div>
+                ) : null}
                 <LemonField.Pure label="What changed?" help="Optional — shown in the version history.">
                     <LemonInput
                         value={versionDescription}
@@ -311,6 +367,7 @@ function PromptDiffView(): JSX.Element {
     const { prompt, comparePrompt, comparePromptLoading, compareVersion, compareVersionOptions } =
         useValues(llmPromptLogic)
     const { setCompareVersion } = useActions(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -319,6 +376,9 @@ function PromptDiffView(): JSX.Element {
     const currentVersion = prompt.version
     const original = comparePrompt?.prompt ?? ''
     const modified = prompt.prompt
+    const originalConfig = formatPromptConfig(comparePrompt?.config)
+    const modifiedConfig = formatPromptConfig(prompt.config)
+    const showConfigDiff = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG] && !!(originalConfig || modifiedConfig)
 
     return (
         <div className="mt-2 space-y-3" data-attr="llma-prompt-diff-view">
@@ -344,33 +404,66 @@ function PromptDiffView(): JSX.Element {
                     Failed to load version for comparison. Try selecting a different version.
                 </LemonBanner>
             ) : (
-                <div className="overflow-hidden rounded border">
-                    <Suspense
-                        fallback={
-                            <div className="space-y-2 p-4">
-                                <LemonSkeleton active className="h-4 w-full" />
-                                <LemonSkeleton active className="h-4 w-3/4" />
+                <>
+                    <div className="overflow-hidden rounded border">
+                        <Suspense
+                            fallback={
+                                <div className="space-y-2 p-4">
+                                    <LemonSkeleton active className="h-4 w-full" />
+                                    <LemonSkeleton active className="h-4 w-3/4" />
+                                </div>
+                            }
+                        >
+                            <MonacoDiffEditor
+                                original={original}
+                                value={modified}
+                                modified={modified}
+                                language="markdown"
+                                options={{
+                                    readOnly: true,
+                                    renderSideBySide: true,
+                                    minimap: { enabled: false },
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: 'on',
+                                    lineNumbers: 'off',
+                                    folding: false,
+                                    hideUnchangedRegions: { enabled: true },
+                                }}
+                            />
+                        </Suspense>
+                    </div>
+                    {showConfigDiff ? (
+                        <div data-attr="llma-prompt-config-diff">
+                            <div className="mb-1 text-sm font-semibold">Configuration</div>
+                            <div className="overflow-hidden rounded border">
+                                <Suspense
+                                    fallback={
+                                        <div className="space-y-2 p-4">
+                                            <LemonSkeleton active className="h-4 w-full" />
+                                        </div>
+                                    }
+                                >
+                                    <MonacoDiffEditor
+                                        original={originalConfig}
+                                        value={modifiedConfig}
+                                        modified={modifiedConfig}
+                                        language="json"
+                                        options={{
+                                            readOnly: true,
+                                            renderSideBySide: true,
+                                            minimap: { enabled: false },
+                                            scrollBeyondLastLine: false,
+                                            wordWrap: 'on',
+                                            lineNumbers: 'off',
+                                            folding: false,
+                                            hideUnchangedRegions: { enabled: true },
+                                        }}
+                                    />
+                                </Suspense>
                             </div>
-                        }
-                    >
-                        <MonacoDiffEditor
-                            original={original}
-                            value={modified}
-                            modified={modified}
-                            language="markdown"
-                            options={{
-                                readOnly: true,
-                                renderSideBySide: true,
-                                minimap: { enabled: false },
-                                scrollBeyondLastLine: false,
-                                wordWrap: 'on',
-                                lineNumbers: 'off',
-                                folding: false,
-                                hideUnchangedRegions: { enabled: true },
-                            }}
-                        />
-                    </Suspense>
-                </div>
+                        </div>
+                    ) : null}
+                </>
             )}
         </div>
     )
@@ -729,6 +822,81 @@ export function PromptExperiments({ prompt }: { prompt: LLMPrompt }): JSX.Elemen
     )
 }
 
+function PromptConfigEditField(): JSX.Element | null {
+    const { promptForm, isConfigEditorVisible } = useValues(llmPromptLogic)
+    const { showConfigEditor, removeConfig } = useActions(llmPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG]) {
+        return null
+    }
+
+    if (!isConfigEditorVisible && !promptForm.config.trim()) {
+        return (
+            <div>
+                <LemonButton
+                    icon={<IconPlusSmall />}
+                    size="small"
+                    type="secondary"
+                    onClick={showConfigEditor}
+                    tooltip="Store model parameters or other settings with this prompt"
+                    data-attr="llma-prompt-add-config-button"
+                >
+                    Add configuration
+                </LemonButton>
+            </div>
+        )
+    }
+
+    return (
+        <div className="pb-4">
+            <LemonField
+                name="config"
+                label={
+                    <div className="flex items-center gap-2">
+                        <span>Configuration</span>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            status="danger"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                removeConfig()
+                            }}
+                            tooltip="Removed from the prompt when you publish"
+                            data-attr="llma-prompt-remove-config-button"
+                        >
+                            Remove
+                        </LemonButton>
+                    </div>
+                }
+                help={
+                    'Optional JSON object with model parameters or other settings for your app, for example {"model": "your-model-name", "temperature": 0}. ' +
+                    "Stored with this version and returned when you fetch the prompt. Don't store secrets here."
+                }
+            >
+                {({ value, onChange }) => (
+                    <div className="overflow-hidden rounded border" data-attr="llma-prompt-config-editor">
+                        <CodeEditor
+                            language="json"
+                            value={value ?? ''}
+                            onChange={(newValue) => onChange(newValue ?? '')}
+                            height={200}
+                            options={{
+                                minimap: { enabled: false },
+                                lineNumbers: 'off',
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                folding: false,
+                            }}
+                        />
+                    </div>
+                )}
+            </LemonField>
+        </div>
+    )
+}
+
 export function PromptEditForm({
     isHistoricalVersion,
     selectedVersion,
@@ -816,6 +984,8 @@ export function PromptEditForm({
                     ))}
                 </div>
             )}
+
+            <PromptConfigEditField />
         </div>
     )
 }
