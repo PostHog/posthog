@@ -804,6 +804,7 @@ doesn't conflict with concurrent PRs.
 - backblaze
 - basecamp
 - beehiiv
+- bexio
 - bigcommerce
 - bigeye
 - billomat
@@ -927,6 +928,7 @@ doesn't conflict with concurrent PRs.
 - fintoc
 - firebase
 - firebolt
+- first_promoter
 - five9
 - flagsmith
 - flexera_cloud_cost
@@ -1038,6 +1040,7 @@ doesn't conflict with concurrent PRs.
 - insightful
 - instagram
 - interzoid
+- inth
 - iyzico
 - jobber
 - jobtread
@@ -1052,6 +1055,7 @@ doesn't conflict with concurrent PRs.
 - kestra
 - kick
 - kickscale
+- kickstarter
 - kinde
 - kion
 - kisi
@@ -1082,6 +1086,7 @@ doesn't conflict with concurrent PRs.
 - m3ter
 - mailtrap
 - mantle
+- manychat
 - mastodon
 - meetup
 - memberful
@@ -1357,8 +1362,10 @@ doesn't conflict with concurrent PRs.
 - twitter_ads
 - two_c2p
 - tyntec_sms
+- typesense
 - uk_companies_house
 - uk_ons
+- umami
 - un_comtrade
 - uppromote
 - uptick
@@ -1410,6 +1417,7 @@ doesn't conflict with concurrent PRs.
 - zellify
 - zenefits
 - zenloop
+- zero
 - zluri
 - zoho_analytics
 - zoho_bigin
