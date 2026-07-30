@@ -93,6 +93,7 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
@@ -117,6 +118,7 @@ describe('EmailService', () => {
                     sesEndpoint: '',
                     sesTrackedConfigurationSet: 'posthog-messaging',
                     sesUntrackedConfigurationSet: '',
+                    sesTenantAttributionEnabled: false,
                 },
                 hub.integrationManager,
                 new TeamWorkflowsConfigService(hub.postgres),
@@ -501,6 +503,40 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
+            })
+        })
+
+        describe('SES tenant attribution', () => {
+            it('attributes the send to the team tenant when enabled', async () => {
+                service['sesConfig'].sesTenantAttributionEnabled = true
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
+            })
+
+            it('omits TenantName by default (flag off)', async () => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.TenantName).toBeUndefined()
+            })
+
+            it('attributes test-panel sends too — they are real SES sends', async () => {
+                service['sesConfig'].sesTenantAttributionEnabled = true
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation, true)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
             })
         })
 
