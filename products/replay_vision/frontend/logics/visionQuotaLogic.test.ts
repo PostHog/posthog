@@ -1,9 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { billingLogic } from 'scenes/billing/billingLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { BillingType, StartupProgramLabel } from '~/types'
 
 import { makeQuota } from '../utils/quotaTestUtils'
+import { STARTUP_CAP_CREDITS } from '../utils/startupCap'
 import { visionQuotaLogic } from './visionQuotaLogic'
 
 const quota = makeQuota({
@@ -44,6 +48,20 @@ describe('visionQuotaLogic', () => {
     it('adjustProjectedMonthly is a no-op before the quota has loaded', () => {
         logic.actions.adjustProjectedMonthly(250)
         expect(logic.values.quota).toBeNull()
+    })
+
+    it('displayQuota shows the startup cap once billing reports the org is enrolled', async () => {
+        await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
+        logic.actions.loadQuotaSuccess(makeQuota({ credit_limit: null, remaining: null }))
+
+        expect(logic.values.startupCapCredits).toBeNull()
+        expect(logic.values.displayQuota?.credit_limit).toBeNull()
+
+        billingLogic.actions.loadBillingSuccess({ startup_program_label: StartupProgramLabel.YC } as BillingType)
+
+        expect(logic.values.displayQuota?.credit_limit).toBe(STARTUP_CAP_CREDITS)
+        // The guards read `quota`, so the display clamp must not reach it.
+        expect(logic.values.quota?.credit_limit).toBeNull()
     })
 
     it('loadQuota overwrites any optimistic adjustment with the server value', async () => {

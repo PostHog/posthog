@@ -25,7 +25,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const { scanner, scannerEstimate, scannerEstimateLoading, scannerEstimateError } = useValues(
         replayScannerLogic({ id: scannerId })
     )
-    const { quota } = useValues(visionQuotaLogic)
+    const { displayQuota: quota, startupCapCredits } = useValues(visionQuotaLogic)
 
     if (!scanner) {
         return null
@@ -68,6 +68,11 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             {hasCap && (
                 <div>
                     Monthly limit: <strong>{formatCreditCount(cap)}</strong>
+                </div>
+            )}
+            {startupCapCredits !== null && (
+                <div>
+                    Startup program cap: <strong>{formatCreditCount(startupCapCredits)}/month</strong>
                 </div>
             )}
             {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
