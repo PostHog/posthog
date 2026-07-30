@@ -407,6 +407,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     observation={observation}
                                     showPrompt={false}
                                     onSeek={seekEmbeddedPlayer}
+                                    copyable
                                 />
                             </LabeledRow>
                             {observation.completed_at && (
