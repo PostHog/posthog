@@ -10,6 +10,7 @@ use crate::{
     api::CaptureError,
     config::CaptureMode,
     event_restrictions::Pipeline,
+    ingestion_warnings::SdkAttribution,
     payload::{decompress_payload, Compression},
 };
 
@@ -148,6 +149,12 @@ pub struct ProcessingContext {
     /// analytics path: skip the global rate limiter and drop any batch not
     /// flagged `historical_migration: true`.
     pub capture_mode: CaptureMode,
+    /// SDK identity snapshotted from the batch's first event, for ingestion
+    /// warning attribution. Captured at batch construction because the events
+    /// are typed there; downstream stages hold serialized payloads and would
+    /// have to re-parse JSON on the hot path to recover it. Display only —
+    /// nothing routes on it. See [`crate::ingestion_warnings`].
+    pub sdk_attribution: SdkAttribution,
 }
 
 // these are the legacy endpoints capture maintains. Can eliminate this
