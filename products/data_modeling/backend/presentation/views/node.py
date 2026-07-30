@@ -26,7 +26,8 @@ from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selec
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
-from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_warehouse.backend.facade.api import assert_can_materialize
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -320,6 +321,14 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             node_ids = _get_downstream_nodes(node)
 
         node_ids.add(str(node.id))
+
+        # A run materializes every node it touches (the workflow sets is_materialized), and the
+        # resulting rows then resolve under each view's own access rules. So this is the same
+        # declassification as enabling materialization directly, and needs the same check.
+        for saved_query in DataWarehouseSavedQuery.objects.filter(
+            team_id=self.team_id, node__id__in=node_ids
+        ).distinct():
+            assert_can_materialize(saved_query.query, self.team_id, cast(User, req.user))
 
         # ExecuteDAGWorkflow skips suspended nodes, so without this the request is a silent no-op
         # for exactly the nodes that need it most.

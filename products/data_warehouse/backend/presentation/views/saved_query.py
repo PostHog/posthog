@@ -54,6 +54,7 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
+    assert_can_materialize,
     pause_saved_query_schedule,
     saved_query_workflow_exists,
     sync_saved_query_workflow,
@@ -75,6 +76,7 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
 
 # A DataWarehouseSavedQuery's activity log also records materialization syncs and status
 # transitions (activity="sync_triggered", status changes) that advance the log without the query
@@ -592,6 +594,10 @@ class DataWarehouseSavedQuerySerializer(
             before_update = None
 
         sync_frequency = validated_data.pop("sync_frequency", None)
+
+        if sync_frequency and sync_frequency != "never":
+            # Scheduling a view is the same grant as materializing it directly.
+            assert_can_materialize(instance.query, self.context["team_id"], cast(User, self.context["request"].user))
 
         dag_managed_frequency = False
         if sync_frequency and posthoganalytics.feature_enabled(
@@ -1204,6 +1210,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
 
         if saved_query.managed_viewset is not None:
             raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
+
+        assert_can_materialize(saved_query.query, self.team_id, cast(User, request.user))
 
         sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
 
