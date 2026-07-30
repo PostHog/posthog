@@ -60209,6 +60209,14 @@ export namespace Schemas {
       layout?: LayoutEnum;
     }
 
+    /**
+     * The shape every Replay Vision error response uses, so generated clients read one key.
+     */
+    export interface ReplayVisionError {
+      /** Human-readable explanation of why the request was refused. */
+      detail: string;
+    }
+
     export interface ReplayVisionScannerFindingSignalExtra {
       scanner_id: string;
       scanner_name: string;
