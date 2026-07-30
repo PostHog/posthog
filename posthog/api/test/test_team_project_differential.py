@@ -111,6 +111,12 @@ class TestReadParity(DifferentialParityBase):
         self.assertEqual(env.status_code, proj.status_code, (env.json(), proj.json()))
         self.assert_bodies_equal(env.json(), proj.json())
 
+    def test_feature_flag_guidelines_get_parity(self):
+        env = self.client.get(self.env_url("feature_flag_guidelines/"))
+        proj = self.client.get(self.project_url("feature_flag_guidelines/"))
+        self.assertEqual(env.status_code, proj.status_code, (env.json(), proj.json()))
+        self.assert_bodies_equal(env.json(), proj.json())
+
     def test_experiments_config_get_parity(self):
         env = self.client.get(self.env_url("experiments_config/"))
         proj = self.client.get(self.project_url("experiments_config/"))
@@ -359,6 +365,14 @@ WRITE_ACTION_CASES = [
         "patch",
         "experiments_config/",
         {"default_experiment_stats_method": "bayesian"},
+        status.HTTP_200_OK,
+        "full_body",
+    ),
+    (
+        "feature_flag_guidelines",
+        "put",
+        "feature_flag_guidelines/",
+        {"enabled": True, "url": "https://example.com/docs"},
         status.HTTP_200_OK,
         "full_body",
     ),

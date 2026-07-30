@@ -88,6 +88,7 @@ import {
     DefaultEvaluationContexts,
     DefaultReleaseConditions,
     EvaluationContextSuggestions,
+    FeatureFlagGuidelinesSettings,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
@@ -691,6 +692,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Show a confirmation modal before saving changes to existing feature flags, helping prevent accidental changes to release conditions.',
                 component: <FlagChangeConfirmationSettings />,
                 keywords: ['confirmation', 'safety', 'change', 'release'],
+            },
+            {
+                id: 'feature-flag-guidelines',
+                title: 'Feature flag guidelines',
+                description:
+                    'Link to your internal best practices or SOP doc. When enabled, the link shows up under the description when creating or editing a flag, and is shared with AI agents that create flags.',
+                component: <FeatureFlagGuidelinesSettings />,
+                keywords: ['guidelines', 'best practices', 'sop', 'docs', 'link'],
             },
             {
                 id: 'feature-flag-require-evaluation-contexts',

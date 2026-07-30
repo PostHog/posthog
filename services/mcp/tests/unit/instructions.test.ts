@@ -315,4 +315,19 @@ describe('buildActiveEnvironmentContextPrompt', () => {
             'You are currently in project "Unknown" (id: unknown, token: unknown) within organization "Acme" (id: org_1).'
         )
     })
+
+    it.each([
+        ['enabled with a url', { enabled: true, url: 'https://notion.so/sop' }, true],
+        ['enabled without a url', { enabled: true, url: '' }, false],
+        ['disabled with a url', { enabled: false, url: 'https://notion.so/sop' }, false],
+        ['absent', undefined, false],
+    ])('surfaces the feature flag guidelines line only when %s', (_name, feature_flag_guidelines, expected) => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, {
+            ...project,
+            feature_flag_guidelines,
+        } as unknown as CachedProject)
+        expect((result ?? '').includes('Feature flag guidelines for this project: https://notion.so/sop')).toBe(
+            expected
+        )
+    })
 })

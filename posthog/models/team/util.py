@@ -43,6 +43,7 @@ actions_that_require_current_team = [
     "reset_token",
     "generate_conversations_public_token",
     "default_release_conditions",
+    "feature_flag_guidelines",
     "experiments_config",
     "default_evaluation_contexts",
     "evaluation_context_suggestions",

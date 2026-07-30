@@ -103,7 +103,7 @@ from posthog.session_recordings.data_retention import (
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
-from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
+from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig, TeamFeatureFlagGuidelinesConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
     TeamDefaultEvaluationContext,
@@ -314,6 +314,45 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
     )
 
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+
+class FeatureFlagGuidelinesSerializer(serializers.Serializer):
+    """Project-level link to an internal feature-flag best-practices / SOP doc."""
+
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether the feature flag guidelines link is shown on the flag creation form and surfaced to AI agents.",
+    )
+    url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        max_length=800,
+        help_text="Link to your internal feature-flag best-practices or SOP doc (e.g. a Notion page).",
+    )
+
+
+def team_feature_flag_guidelines_view(team: Team, request: request.Request) -> response.Response:
+    """Manage the feature-flag guidelines link for new feature flags in this project."""
+    config = get_or_create_team_extension(team, TeamFeatureFlagGuidelinesConfig)
+
+    if request.method == "GET":
+        return response.Response({"enabled": config.enabled, "url": config.url})
+
+    serializer = FeatureFlagGuidelinesSerializer(data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    validated = serializer.validated_data
+
+    config.enabled = validated.get("enabled", config.enabled)
+    config.url = validated.get("url", config.url)
+    config.save()
+
+    report_user_action(
+        request.user,
+        "feature flag guidelines updated",
+        {"team_id": team.id, "enabled": config.enabled, "has_url": bool(config.url)},
+    )
+
+    return response.Response({"enabled": config.enabled, "url": config.url})
 
 
 def team_experiments_config_view(team: Team, request: request.Request) -> response.Response:
@@ -576,6 +615,9 @@ class ProjectBackwardCompatSerializer(
     events_retention_enforced = serializers.SerializerMethodField(
         help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
     )  # Compat with TeamSerializer
+    feature_flag_guidelines = serializers.SerializerMethodField(
+        help_text="Project-level link to an internal feature-flag best-practices doc, surfaced on flag creation and to AI agents."
+    )
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
@@ -703,6 +745,7 @@ class ProjectBackwardCompatSerializer(
             "web_analytics_pre_aggregated_tables_enabled",  # Compat with TeamSerializer
             "event_retention_months",  # Compat with TeamSerializer
             "events_retention_enforced",  # Compat with TeamSerializer
+            "feature_flag_guidelines",
         )
         read_only_fields = (
             "id",
@@ -727,6 +770,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",
             "managed_viewsets",
             "event_retention_months",
+            "feature_flag_guidelines",
         )
 
         team_passthrough_fields = {
@@ -914,6 +958,14 @@ class ProjectBackwardCompatSerializer(
     @extend_schema_field(serializers.BooleanField())
     def get_events_retention_enforced(self, obj: Project) -> bool:
         return should_enforce_events_retention(obj.passthrough_team.id)
+
+    @extend_schema_field(FeatureFlagGuidelinesSerializer)
+    def get_feature_flag_guidelines(self, obj: Project) -> dict:
+        # Read-only; never create the extension row during serialization.
+        config = TeamFeatureFlagGuidelinesConfig.objects.filter(team_id=obj.passthrough_team.id).first()
+        if config is None:
+            return {"enabled": False, "url": ""}
+        return {"enabled": config.enabled, "url": config.url}
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1660,6 +1712,28 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         """Manage default release conditions for new feature flags in this project. Members can read;
         writing requires project admin, matching the admin-only settings UI."""
         return team_default_release_conditions_view(self.get_object().passthrough_team, request)
+
+    @extend_schema(
+        methods=["GET"],
+        responses={200: FeatureFlagGuidelinesSerializer},
+        extensions={"x-product": "feature_flags"},
+    )
+    @extend_schema(
+        methods=["PUT"],
+        request=FeatureFlagGuidelinesSerializer,
+        responses={200: FeatureFlagGuidelinesSerializer},
+        extensions={"x-product": "feature_flags"},
+    )
+    @action(
+        methods=["GET", "PUT"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
+        url_path="feature_flag_guidelines",
+    )
+    def feature_flag_guidelines(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage the feature-flag guidelines link for this project. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
+        return team_feature_flag_guidelines_view(self.get_object().passthrough_team, request)
 
     @action(
         methods=["GET", "PATCH"],

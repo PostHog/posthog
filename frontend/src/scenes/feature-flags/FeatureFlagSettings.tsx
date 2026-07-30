@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonSwitch, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -15,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
+import { featureFlagGuidelinesLogic } from './featureFlagGuidelinesLogic'
 
 export function FlagPersistenceSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -89,6 +90,72 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
                             Save message
                         </LemonButton>
                     </Form>
+                </div>
+            )}
+        </div>
+    )
+}
+
+export function FeatureFlagGuidelinesSettings(): JSX.Element {
+    const { isEnabled, url, hasChanges, featureFlagGuidelinesLoading } = useValues(featureFlagGuidelinesLogic)
+    const { setLocalEnabled, setLocalUrl, saveFeatureFlagGuidelines, discardChanges } =
+        useActions(featureFlagGuidelinesLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    const urlIsValid = /^https?:\/\/.+/.test(url.trim())
+    const saveDisabledReason = restrictedReason
+        ? restrictedReason
+        : isEnabled && !urlIsValid
+          ? 'Enter a valid URL starting with http:// or https://'
+          : undefined
+
+    return (
+        <div className="space-y-2">
+            <LemonSwitch
+                data-attr="feature-flag-guidelines-switch"
+                onChange={setLocalEnabled}
+                label="Show a guidelines link when creating flags"
+                bordered
+                checked={isEnabled}
+                disabled={featureFlagGuidelinesLoading}
+                disabledReason={restrictedReason}
+            />
+
+            {isEnabled && (
+                <div className="mt-4 space-y-2">
+                    <p className="text-sm text-secondary">
+                        Add a link to your internal feature flag best practices or SOP doc. It shows up under the
+                        description when creating or editing a flag, and is shared with AI agents that create flags.
+                    </p>
+                    <LemonField.Pure label="Guidelines link">
+                        <LemonInput
+                            type="url"
+                            data-attr="feature-flag-guidelines-url"
+                            value={url}
+                            onChange={setLocalUrl}
+                            placeholder="https://www.notion.so/your-feature-flag-sop"
+                            disabled={!!restrictedReason}
+                        />
+                    </LemonField.Pure>
+                </div>
+            )}
+
+            {hasChanges && (
+                <div className="flex gap-2">
+                    <LemonButton
+                        type="primary"
+                        onClick={saveFeatureFlagGuidelines}
+                        loading={featureFlagGuidelinesLoading}
+                        disabledReason={saveDisabledReason}
+                    >
+                        Save
+                    </LemonButton>
+                    <LemonButton type="secondary" onClick={discardChanges} disabledReason={restrictedReason}>
+                        Discard
+                    </LemonButton>
                 </div>
             )}
         </div>

@@ -172,6 +172,7 @@ Task
 TaskRun
 TeamConversationsTeamsConfig
 TeamFeatureFlagDefaultsConfig
+TeamFeatureFlagGuidelinesConfig
 TeamSessionSummariesConfig
 TeamWorkflowsConfig
 Text

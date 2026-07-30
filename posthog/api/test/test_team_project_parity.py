@@ -19,10 +19,15 @@ from posthog.api.team import TeamSerializer, TeamViewSet
 
 # Fields that legitimately exist only on the project surface (a genuine Project concept, not a Team field).
 # is_pending_deletion was added project-side on master; a project-only field is fine for the rewrite target.
-PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion"}
+PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion", "feature_flag_guidelines"}
 
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
-PROJECT_ONLY_ACTIONS = {"change_organization", "default_release_conditions", "default_evaluation_contexts"}
+PROJECT_ONLY_ACTIONS = {
+    "change_organization",
+    "default_release_conditions",
+    "default_evaluation_contexts",
+    "feature_flag_guidelines",
+}
 
 
 def _serializer_field_names(serializer_class) -> set[str]:

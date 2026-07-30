@@ -1,4 +1,5 @@
 export {
+    FeatureFlagGuidelinesSettings,
     FlagPersistenceSettings,
     FlagChangeConfirmationSettings,
     FlagsSecureApiKeys,

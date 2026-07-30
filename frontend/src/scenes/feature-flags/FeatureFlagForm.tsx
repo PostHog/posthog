@@ -67,6 +67,7 @@ import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, Multivari
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
+import { featureFlagGuidelinesLogic } from './featureFlagGuidelinesLogic'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { PercentageInput } from './PercentageInput'
@@ -180,6 +181,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
+    const { isEnabled: guidelinesEnabled, url: guidelinesUrl } = useValues(featureFlagGuidelinesLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
@@ -471,6 +473,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         placeholder="(Optional) A description of the feature flag for your reference."
                                     />
                                 </LemonField>
+
+                                {guidelinesEnabled && guidelinesUrl && (
+                                    <div className="text-sm" data-attr="feature-flag-guidelines-link">
+                                        <Link to={guidelinesUrl} target="_blank">
+                                            View your team's feature flag guidelines
+                                        </Link>
+                                    </div>
+                                )}
 
                                 <LemonDivider />
 

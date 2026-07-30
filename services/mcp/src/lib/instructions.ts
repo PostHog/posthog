@@ -58,6 +58,18 @@ export function buildActiveEnvironmentContextPrompt(
                 "Person properties are query-time in this project. `person.properties.*` on the events table always returns the person's current (latest) value, regardless of when the event occurred."
             )
         }
+        // `feature_flag_guidelines` is a read-only field on ProjectBackwardCompat; the cast keeps this
+        // compiling until `hogli build:openapi` regenerates the MCP client types with the field.
+        const guidelines = (
+            project as CachedProject & {
+                feature_flag_guidelines?: { enabled?: boolean; url?: string } | null
+            }
+        ).feature_flag_guidelines
+        if (guidelines?.enabled && guidelines.url) {
+            lines.push(
+                `Feature flag guidelines for this project: ${guidelines.url}. Follow these best practices (naming, lifecycle, rollout) when creating or updating feature flags.`
+            )
+        }
     }
     if (user) {
         const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown'
