@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -26,6 +26,12 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     const submit = (): void => {
         const trimmed = question.trim()
         if (!trimmed) {
+            return
+        }
+        // Enter submits straight from the textarea, so it never sees the button's `disabledReason`.
+        // Say why and leave the popover as it is, rather than clearing the draft into a rejected action.
+        if (aiConsentDisabledReason) {
+            lemonToast.error(aiConsentDisabledReason)
             return
         }
         captureInboxReportAction({ report, actionType: 'discuss', surface: 'detail_pane' })
