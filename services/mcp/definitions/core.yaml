@@ -79,6 +79,19 @@ tools:
             canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code
             and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do
             not write a local file.
+
+            Canvas data APIs (inside the React code): the sandbox injects a `ph` global. Use `ph.loadInsight(shortId,
+            { dateRange })` for SAVED PostHog insights (preferred — create the insight first via the MCP insight
+            tools, then reference its short_id) and `ph.query(...)` for ad-hoc queries (HogQL escape hatch). For
+            anything that must update in REAL TIME (a live event feed, a users-online counter), DON'T re-poll an
+            insight: use the live events stream `ph.subscribeLiveEvents(params, onEvent, onEnd)` where `params` is
+            `{ eventType?, distinctId?, columns?, properties? }` and `properties` filters ONLY support the operators
+            `exact | is_not | icontains | not_icontains | regex | not_regex | gt | gte | lt | lte | is_set |
+            is_not_set` (any other operator fails server-side) — close the returned subscription
+            (`sub.close()`) in a useEffect cleanup. `await ph.liveStats()` returns the project's realtime counters
+            `{ users_on_product, active_recordings }` (the "users online" pill from the Activity page) as a one-shot
+            poll. Combine `ph.liveStats()` with a client-side 60s sliding-window count over `distinct_id`s from the
+            event stream for a live "users online" readout that matches PostHog's Live Analytics tab.
         param_overrides:
             id:
                 description: ID of the canvas (desktop "dashboard" item) whose code to publish.
