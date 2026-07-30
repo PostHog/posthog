@@ -5,6 +5,7 @@ import { IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,8 +20,11 @@ export const SyncMoreNotice = (): JSX.Element | null => {
     const { setSyncMoreNoticeDismissed } = useActions(queryDatabaseLogic)
     const { addProductIntent } = useActions(teamLogic)
     const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
+    const { hasQueryInput } = useValues(sqlEditorLogic)
 
-    if (hasNonPosthogSources || syncMoreNoticeDismissed || databaseLoading) {
+    // Alongside a query, warehouse onboarding reads as an explanation for the query's result. It's
+    // only a useful prompt on an empty editor.
+    if (hasNonPosthogSources || syncMoreNoticeDismissed || databaseLoading || hasQueryInput) {
         return null
     }
 

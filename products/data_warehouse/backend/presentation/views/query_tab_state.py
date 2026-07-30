@@ -45,8 +45,9 @@ class QueryTabStateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except User.DoesNotExist:
             return Response({"error": "User not found"}, status=404)
 
-        try:
-            query_tab_state = self.get_queryset().get(created_by=user, team_id=self.team_id)
-            return Response(self.get_serializer(query_tab_state).data)
-        except QueryTabState.DoesNotExist:
-            return Response({"error": "Query tab state not found"}, status=404)
+        query_tab_state = self.get_queryset().filter(created_by=user, team_id=self.team_id).first()
+        if query_tab_state is None:
+            # A user who has never opened the SQL editor just has no saved state. Answering with a 404
+            # would make every first visit to the editor register as a client request failure.
+            return Response(None)
+        return Response(self.get_serializer(query_tab_state).data)

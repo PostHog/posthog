@@ -73,6 +73,18 @@ test.describe('SQL Editor', () => {
             await runQueryAndWaitForResults(page)
         })
 
+        test('Deep-linked query explains it has not run instead of showing warehouse onboarding', async ({ page }) => {
+            await page.goto(`/sql?open_query=${encodeURIComponent('SELECT 1 AS result')}`)
+            await expect(page.getByTestId('editor-scene')).toBeVisible({ timeout: 60000 })
+            await dismissQuickStart(page)
+
+            await expect(page.getByTestId('sql-editor-output-pane-not-run-state')).toBeVisible({ timeout: 60000 })
+            await expect(page.getByTestId('sql-editor-source-empty-state')).toHaveCount(0)
+
+            await page.getByRole('button', { name: 'Run query' }).click()
+            await expect(page.getByRole('gridcell', { name: '1' })).toBeVisible({ timeout: 60000 })
+        })
+
         test('Save view', async ({ page }) => {
             await runQueryAndWaitForResults(page)
             await dismissQuickStart(page)

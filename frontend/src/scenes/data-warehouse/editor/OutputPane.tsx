@@ -15,6 +15,7 @@ import {
     IconGear,
     IconGraph,
     IconMinus,
+    IconPlayFilled,
     IconPlus,
     IconShare,
     IconScreen,
@@ -586,7 +587,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     const { setActiveTab } = useActions(outputPaneLogic)
 
     const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
-    const { setSourceQuery } = useActions(sqlEditorLogic)
+    const { setSourceQuery, runQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -793,6 +794,8 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         isEmbeddedMode,
+        hasQueryInput,
+        onRunQuery: runQuery,
     }
     const sharedActionsProps = {
         response,
@@ -1073,6 +1076,27 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
     )
 }
 
+/**
+ * Shown when a query is loaded but hasn't been executed — most often a deep link that prefills the
+ * editor without running it. Warehouse onboarding is deliberately absent here: with a query on
+ * screen it reads as the reason the query returned nothing.
+ */
+const NotRunYetState = ({ onRunQuery }: { onRunQuery: () => void }): JSX.Element => {
+    return (
+        <div
+            className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-3 text-center"
+            data-attr="sql-editor-output-pane-not-run-state"
+        >
+            <span className="text-secondary max-w-xl">
+                This query hasn't run yet. Run it to see results, or press <KeyboardShortcut command enter />.
+            </span>
+            <LemonButton type="primary" size="small" icon={<IconPlayFilled />} onClick={() => onRunQuery()}>
+                Run query
+            </LemonButton>
+        </div>
+    )
+}
+
 const EmptyResultsState = (): JSX.Element => {
     return (
         <div
@@ -1105,6 +1129,8 @@ const Content = ({
     insightLoading,
     showVisualizationSettings,
     isEmbeddedMode,
+    hasQueryInput,
+    onRunQuery,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1149,6 +1175,9 @@ const Content = ({
 
     if (activeTab === OutputTab.Visualization) {
         if (!response && !responseLoading && !insightLoading) {
+            if (hasQueryInput) {
+                return <NotRunYetState onRunQuery={onRunQuery} />
+            }
             return (
                 <div
                     className="flex flex-1 flex-col justify-center items-center border-t gap-4 p-4"
@@ -1206,6 +1235,9 @@ const Content = ({
     }
 
     if (!response) {
+        if (hasQueryInput) {
+            return <NotRunYetState onRunQuery={onRunQuery} />
+        }
         const msg =
             activeTab === OutputTab.Results
                 ? 'Query results will appear here.'

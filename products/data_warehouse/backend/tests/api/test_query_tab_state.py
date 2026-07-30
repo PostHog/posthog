@@ -135,3 +135,10 @@ class TestQueryTabState(APIBaseTest):
         )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {"error": "User not found"})
+
+    def test_get_by_user_without_saved_state_is_not_an_error(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/query_tab_state/user/?user_id={self.user.uuid}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json())
