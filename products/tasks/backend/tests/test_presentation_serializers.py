@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.tasks.backend.presentation.serializers import (
+    SERVER_CREATED_TASK_ORIGINS,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
@@ -15,15 +16,7 @@ from products.tasks.backend.presentation.serializers import (
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
     @parameterized.expand(
-        [
-            ("image_builder", True),
-            ("signals_scout", True),
-            ("signal_report", True),
-            ("posthog_ai", True),
-            ("slack", True),
-            ("support_reply", True),
-            ("user_created", False),
-        ]
+        [(origin, True) for origin in sorted(SERVER_CREATED_TASK_ORIGINS)] + [("user_created", False)]
     )
     def test_internal_only_origins_are_rejected(self, origin_product: str, expected_rejected: bool) -> None:
         serializer = TaskWriteSerializer(data={"origin_product": origin_product})
