@@ -912,6 +912,7 @@ const createViewNode = (
             type: 'view',
             view: view,
             isSavedQuery: !isManagedView,
+            certification: schemaTable?.certification,
             ...(matches && { searchMatches: matches }),
         },
         children: viewChildren,

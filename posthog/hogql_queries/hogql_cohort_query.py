@@ -83,6 +83,14 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     return parsed_value
 
 
+def _require_select_query(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
+    # A constant `select=["id"]` actors query never yields a set query. Fail loudly rather than
+    # via a strippable assert if that invariant ever breaks.
+    if not isinstance(query, ast.SelectQuery):
+        raise ValueError("Expected a single SELECT query from the actors query, got a set query")
+    return query
+
+
 def _apply_in_order_aggregation(query: ast.SelectQuery) -> ast.SelectQuery:
     """Set optimize_aggregation_in_order on the inner argMax-dedup subquery.
 
@@ -237,6 +245,20 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
     return r
 
 
+def _person_test_account_properties(team: Team) -> list[Property]:
+    """Person-property filters from team.test_account_filters.
+
+    Event/element/hogql-scoped test filters can't be standalone cohort conditions, and
+    cohort-typed ones are excluded here to avoid self-referential cohorts (a team test
+    filter can point at the very cohort being calculated).
+    """
+    return [
+        Property(**prop)
+        for prop in (team.test_account_filters or [])
+        if isinstance(prop, dict) and prop.get("type") == "person"
+    ]
+
+
 class HogQLCohortQuery:
     def __init__(
         self,
@@ -257,7 +279,18 @@ class HogQLCohortQuery:
                 self.team,
                 cohort,
             )
-            self.property_groups = unwrapped.property_groups
+            property_groups = unwrapped.property_groups
+            if (cohort.filters or {}).get("filterTestAccounts"):
+                test_props = _person_test_account_properties(self.team)
+                if test_props:
+                    property_groups = PropertyGroup(
+                        type=PropertyOperatorType.AND,
+                        values=[
+                            property_groups,
+                            PropertyGroup(type=PropertyOperatorType.AND, values=test_props),
+                        ],
+                    )
+            self.property_groups = property_groups
         elif filter is not None:
             if team is None:
                 raise ValueError("HogQLCohortQuery requires a team when constructed from a filter")
@@ -302,7 +335,7 @@ class HogQLCohortQuery:
             source=source,
             select=["id"],
         )
-        return ActorsQueryRunner(team=self.team, query=actors_query).to_query()
+        return _require_select_query(ActorsQueryRunner(team=self.team, query=actors_query).to_query())
 
     def get_performed_event_condition(self, prop: Property, first_time: bool = False) -> ast.SelectQuery:
         math = None
@@ -547,7 +580,7 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        return _require_select_query(query_runner.to_query())
 
     def get_person_metadata_condition(self, prop: Property) -> ast.SelectQuery:
         # type = "person_metadata"
@@ -561,7 +594,7 @@ class HogQLCohortQuery:
             select=["id"],
         )
         query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-        return query_runner.to_query()
+        return _require_select_query(query_runner.to_query())
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
         # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
@@ -713,7 +746,7 @@ class HogQLCohortQuery:
                 select=["id"],
             )
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
-            return query_runner.to_query()
+            return _require_select_query(query_runner.to_query())
 
         def build_conditions(
             prop: Optional[Union[PropertyGroup, Property]],

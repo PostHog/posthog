@@ -22,8 +22,10 @@ from products.tasks.backend.constants import (
     get_vm_sandbox_flag_payload,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
+    vm_sandbox_default_custom_image,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
@@ -65,6 +67,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    task_runtime: str = Task.Runtime.ACP
     environment: str | None = None
     github_user_integration_id: str | None = None
     task_created_by_id: int | None = None
@@ -107,7 +110,6 @@ class TaskProcessingContext:
 
     @property
     def mode(self) -> str:
-        """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
     @property
@@ -131,6 +133,12 @@ class TaskProcessingContext:
     @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
+
+    @property
+    def is_snapshot_resume(self) -> bool:
+        state = self.state or {}
+        has_resume_source = isinstance(state.get("resume_from_run_id"), str) or state.get("handoff_resumed") is True
+        return has_resume_source and isinstance(state.get("snapshot_external_id"), str)
 
     @property
     def loop_id(self) -> str | None:
@@ -410,7 +418,17 @@ def _is_agent_otel_telemetry_enabled(
     return enabled
 
 
-def _is_modal_vm_sandbox_enabled(
+@dataclass(frozen=True)
+class VmSandboxDecision:
+    use_vm_sandbox: bool
+    # Modal image name from the flag payload that VM runs fall back to when no custom
+    # image was picked. None whenever the payload was not consulted (state override,
+    # flag error, restricted egress) or defines no default — image-builder runs must
+    # keep layering on the plain VM base, never on a prebaked default.
+    default_custom_image: str | None = None
+
+
+def _resolve_modal_vm_sandbox(
     *,
     distinct_id: str,
     organization_id: str,
@@ -419,36 +437,40 @@ def _is_modal_vm_sandbox_enabled(
     allowed_domains: list[str] | None,
     custom_image_available: bool = False,
     state: dict | None = None,
-) -> bool:
+) -> VmSandboxDecision:
     if allowed_domains is not None:
         log_with_activity_context(
             "modal_vm_sandbox_skipped_restricted_egress",
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
-        return False
+        return VmSandboxDecision(use_vm_sandbox=False)
 
     # A trusted, server-set per-run override (image builders) forces the runtime
     # decision without consulting the flag; any non-bool value is ignored.
     raw_state_override = (state or {}).get("use_modal_vm_sandbox")
     state_override: bool | None = raw_state_override if isinstance(raw_state_override, bool) else None
 
-    # Resolve the flag payload once and derive both allowlists from it, skipping the
+    # Resolve the flag payload once and derive the routing config from it, skipping the
     # fetch entirely when a bool state override is present (so image-builder runs never
     # depend on the flag service):
     #   - allowed_origins: origins permitted on the VM runtime (custom images are VM-only).
     #   - default_base_origins: origins that may run on the bare VM *base* image even
     #     without a custom image — makes the VM runtime the default for standard runs.
+    #   - default_custom_image: image VM runs default to when the user picked none, so
+    #     org-targeted payload variants decide which default VM image an org gets.
     allowed_origins: set[str] = set()
     default_base_origins: set[str] = set()
+    default_custom_image: str | None = None
     if state_override is None:
         try:
             payload = get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
         except Exception as e:
             log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
-            return False
+            return VmSandboxDecision(use_vm_sandbox=False)
         allowed_origins = vm_sandbox_allowed_origin_products(payload)
         default_base_origins = vm_sandbox_default_base_origin_products(payload)
+        default_custom_image = vm_sandbox_default_custom_image(payload)
 
     origin_allows_default_base = origin_product in default_base_origins
 
@@ -465,7 +487,7 @@ def _is_modal_vm_sandbox_enabled(
             run_id=run_id,
             use_modal_vm_sandbox=False,
         )
-        return False
+        return VmSandboxDecision(use_vm_sandbox=False)
 
     if state_override is not None:
         log_with_activity_context(
@@ -473,7 +495,7 @@ def _is_modal_vm_sandbox_enabled(
             run_id=run_id,
             use_modal_vm_sandbox=state_override,
         )
-        return state_override
+        return VmSandboxDecision(use_vm_sandbox=state_override)
 
     result = origin_product in allowed_origins or origin_allows_default_base
     log_with_activity_context(
@@ -483,10 +505,14 @@ def _is_modal_vm_sandbox_enabled(
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
         default_base_origin_products=sorted(default_base_origins),
+        default_custom_image=default_custom_image,
         custom_image_available=custom_image_available,
         use_modal_vm_sandbox=result,
     )
-    return result
+    return VmSandboxDecision(
+        use_vm_sandbox=result,
+        default_custom_image=default_custom_image if result else None,
+    )
 
 
 def _is_burstable_sandbox_resources_enabled(
@@ -679,6 +705,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(run_id, "debug", "Fetching task details")
 
     task: Task = task_run.task
+    if task.runtime == Task.Runtime.PI:
+        ensure_task_run_session(task_run.id)
+
     team: Team = task.team
     organization_id = str(team.organization_id)
     if not task.created_by:
@@ -797,12 +826,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
-    sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
+    pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
+    sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
+    if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
+        sandbox_event_ingest_enabled = True
+    else:
+        sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            state=state,
+        )
     emit_agent_log(
         run_id,
         "debug",
@@ -814,7 +848,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
-    use_modal_vm_sandbox = _is_modal_vm_sandbox_enabled(
+    vm_sandbox_decision = _resolve_modal_vm_sandbox(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
@@ -823,6 +857,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
+    use_modal_vm_sandbox = vm_sandbox_decision.use_vm_sandbox
     emit_agent_log(
         run_id,
         "debug",
@@ -840,6 +875,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 "This environment's custom image requires the VM runtime, which is not enabled for this run; "
                 "using the default base image",
             )
+    elif vm_sandbox_decision.default_custom_image:
+        # Org-level default from the flag payload, only ever set when the run resolved to
+        # the VM runtime — provisioning falls back to the plain VM base automatically if
+        # this image is missing or unloadable.
+        custom_image_name = vm_sandbox_decision.default_custom_image
+        emit_agent_log(run_id, "debug", f"Using the organization's default custom base image: {custom_image_name}")
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -927,6 +968,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         repository=task.repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
+        task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,

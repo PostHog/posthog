@@ -1267,12 +1267,21 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
-    # Scout-owned per-run context stamped once at run creation — the native home for run
-    # dimensions that matter operationally but don't each warrant a dedicated column. Known keys
-    # today: `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on
-    # when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default;
-    # empty for default-model runs. Write-once at creation, not a mutable grab-bag — new keys
-    # (e.g. a future config-level model) should also be stamped by the runner at run start.
+    # Scout-owned per-run context — the native home for run dimensions that matter operationally
+    # but don't each warrant a dedicated column. Two regions, distinguished by who writes them.
+    # Top-level keys are stamped write-once by the runner at run creation, and split by whether
+    # they are always present. `harness_prompt_version` / `report_channel` / `skill_origin` always
+    # are: they pin down which instructions the run was given, and each is unrecoverable later
+    # (the prompt has no version history, `allowed_tools` can be edited, and a seeded row flips to
+    # `custom` the moment a team edits it), which is what makes them worth stamping rather than
+    # resolving at read time. `model` / `runtime_adapter` / `reasoning_effort` appear only when the
+    # `scouts-model-selection` gate or a runtime pin overrode the agent-server default, so their
+    # absence is meaningful. New runner-known dimensions belong there, stamped by `_create_run_row`.
+    # The nested `derived` object is written once at finalize by
+    # `scout_harness/derived_metadata.py` and holds booleans the harness computes from the run's
+    # own output, so "what kind of run was this?" is a field lookup rather than prose parsing.
+    # Both regions are server-written: nothing here is scout-authored, which is what makes the
+    # column safe to query directly.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1424,20 +1433,26 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
 
-    A second writer derives rows from elsewhere: judging an inbox report with a note also leaves
-    it here as a `REPORT_DISMISSAL` row (dismiss, snooze, or restore; not resolve, see
-    `dismissal_notes.py`). Dismissing needs only `task:write`, so that path re-checks the RBAC leg of this gate itself before
-    writing, against the canonical project whose scouts read the row. It does not re-check the
-    `llm_skill:write` key scope, because a dismissal's text already reaches run context
-    verbatim through the `dismissal_note` field on the inbox reports API that every scout is
-    told to read before emitting, so demanding the scope would drop feedback without closing a
-    path. `origin` keeps the two kinds apart so the run prompt can frame a derived row as one
-    reviewer's verdict on one report rather than as fleet-level steering.
+    Two more writers derive rows from inbox activity, both re-checking the RBAC leg of this gate
+    themselves (the actions behind them need only `task:write`) against the canonical project whose
+    scouts read the row. They differ on the key-scope leg, because they differ on whether this note is
+    the only way the text reaches a scout:
+    - `REPORT_DISMISSAL` — judging a report with a note (dismiss, snooze, or restore; not resolve),
+      see `dismissal_notes.py`. Its text also lands on the `dismissal_note` field of the reports API,
+      which every scout is told to read, so the note opens no channel a `task:write` caller lacks and
+      the key scopes aren't required on top.
+    - `REPORT_DISCUSSION` — opening a discussion on a report with a question, see
+      `discussion_notes.py`. The question otherwise lives only on the ephemeral discussion task, which
+      is in no scout's run context, so this note is its sole carrier and the full gate applies —
+      `llm_skill:write` and `signal_scout:write` included.
+    `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
+    on one report, and a discussion as a question to weigh rather than fleet-level steering.
     """
 
     class Origin(models.TextChoices):
         HUMAN = "human", "Left directly"
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
+        REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

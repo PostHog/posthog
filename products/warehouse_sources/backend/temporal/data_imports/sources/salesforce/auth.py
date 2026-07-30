@@ -85,10 +85,14 @@ _TRANSIENT_TOKEN_REQUEST_ERROR = "token request is already being processed"
 _MAX_TOKEN_REFRESH_ATTEMPTS = 4
 
 
-def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> str:
+def salesforce_refresh_access_token(refresh_token: str, instance_url: str, *, capture: bool = True) -> str:
+    # capture=False lets a caller keep this exchange out of HTTP sample capture: the request body
+    # carries the refresh token and the shared client secret, and the response carries a freshly
+    # minted access token, none of which the name-based scrubbers reliably redact.
+    session = make_tracked_session(redact_values=(refresh_token,), capture=capture)
     attempt = 0
     while True:
-        res = make_tracked_session().post(
+        res = session.post(
             f"{instance_url}/services/oauth2/token",
             data={
                 "grant_type": "refresh_token",

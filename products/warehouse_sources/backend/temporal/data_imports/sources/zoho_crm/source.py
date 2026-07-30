@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -25,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zohocrm import (
     ZohoCRMSourceConfig,
 )
@@ -34,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
     SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+    REFRESH_TOKEN_REJECTED_MESSAGE,
     ZohoCRMResumeConfig,
     validate_credentials as validate_zoho_crm_credentials,
     zoho_crm_source,
@@ -54,7 +52,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Zoho CRM token refresh failed": "Zoho CRM rejected your refresh token. Generate a new one for your self client and reconnect.",
+            "Zoho CRM token refresh failed": REFRESH_TOKEN_REJECTED_MESSAGE,
             "400 Client Error: Bad Request for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
             "401 Client Error: Unauthorized for url": "Your Zoho CRM access token is invalid or expired. Reconnect the source to issue a new one.",
             "403 Client Error: Forbidden for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL and ZohoCRM.settings.fields.READ scopes.",

@@ -27,7 +27,7 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
 
     if (reportTasksLoading && !reportTasks) {
         return (
-            <DetailSection icon={<IconTerminal />} title="Runs">
+            <DetailSection icon={<IconTerminal />} title="Runs" collapsible>
                 <div className="flex items-center gap-2 text-xs text-tertiary py-1">
                     <Spinner className="size-3" />
                     Loading runs…
@@ -41,7 +41,7 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
     }
 
     return (
-        <DetailSection icon={<IconTerminal />} title="Runs">
+        <DetailSection icon={<IconTerminal />} title="Runs" collapsible>
             <div className="flex flex-col gap-0.5">
                 {reportTasks.map((entry: ReportTaskEntry) => (
                     <TaskRow key={entry.task.id} entry={entry} reportId={report.id} report={report} />

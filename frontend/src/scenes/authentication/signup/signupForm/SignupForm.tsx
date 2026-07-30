@@ -12,8 +12,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { userLogic } from '../../../userLogic'
-import { SignupPanel1 } from './panels/SignupPanel1'
-import { SignupPanel2 } from './panels/SignupPanel2'
 import { SignupPanelAuth } from './panels/SignupPanelAuth'
 import { SignupPanelEmail } from './panels/SignupPanelEmail'
 import { SignupPanelOnboarding } from './panels/SignupPanelOnboarding'
@@ -29,11 +27,8 @@ export function SignupForm(): JSX.Element | null {
     const {
         isSignupPanelOnboardingSubmitting,
         signupPanelOnboardingManualErrors,
-        isSignupPanel2Submitting,
-        signupPanel2ManualErrors,
         signupPanelEmail,
         panel,
-        passkeySignupEnabled,
         panelTitle,
     } = useValues(signupLogic)
     const { setPanel } = useActions(signupLogic)
@@ -65,71 +60,36 @@ export function SignupForm(): JSX.Element | null {
         return () => clearTimeout(t)
     }, [panel])
 
-    // Use new 3-panel flow when passkey signup is enabled
-    if (passkeySignupEnabled) {
-        return !user ? (
-            <div className="deprecated-space-y-2">
-                {panelTitle ? <h2>{panelTitle}</h2> : null}
-                {!isSignupPanelOnboardingSubmitting && signupPanelOnboardingManualErrors?.generic && (
-                    <LemonBanner type="error">
-                        {signupPanelOnboardingManualErrors.generic?.detail ||
-                            'Could not complete your signup. Please try again.'}
-                        {supportLink}
-                    </LemonBanner>
-                )}
-                {panel === 0 ? (
-                    <SignupPanelEmail />
-                ) : panel === 1 ? (
-                    <>
-                        <SignupPanelAuth />
-                        <div className="flex justify-center">
-                            <LemonButton
-                                icon={<IconArrowLeft />}
-                                onClick={() => setPanel(0)}
-                                size="small"
-                                center
-                                data-attr="signup-go-back"
-                            >
-                                or go back
-                            </LemonButton>
-                        </div>
-                    </>
-                ) : (
-                    <>
-                        <SignupPanelOnboarding />
-                        <div className="flex justify-center">
-                            <LemonButton
-                                icon={<IconArrowLeft />}
-                                onClick={() => setPanel(panel - 1)}
-                                size="small"
-                                center
-                                data-attr="signup-go-back"
-                            >
-                                or go back
-                            </LemonButton>
-                        </div>
-                    </>
-                )}
-                {showSpinner ? <SpinnerOverlay sceneLevel /> : null}
-            </div>
-        ) : null
-    }
-
-    // Legacy 2-panel flow (when passkey signup is disabled)
     return !user ? (
         <div className="deprecated-space-y-2">
             {panelTitle ? <h2>{panelTitle}</h2> : null}
-            {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
+            {!isSignupPanelOnboardingSubmitting && signupPanelOnboardingManualErrors?.generic && (
                 <LemonBanner type="error">
-                    {signupPanel2ManualErrors.generic?.detail || 'Could not complete your signup. Please try again.'}
+                    {signupPanelOnboardingManualErrors.generic?.detail ||
+                        'Could not complete your signup. Please try again.'}
                     {supportLink}
                 </LemonBanner>
             )}
             {panel === 0 ? (
-                <SignupPanel1 />
+                <SignupPanelEmail />
+            ) : panel === 1 ? (
+                <>
+                    <SignupPanelAuth />
+                    <div className="flex justify-center">
+                        <LemonButton
+                            icon={<IconArrowLeft />}
+                            onClick={() => setPanel(0)}
+                            size="small"
+                            center
+                            data-attr="signup-go-back"
+                        >
+                            or go back
+                        </LemonButton>
+                    </div>
+                </>
             ) : (
                 <>
-                    <SignupPanel2 />
+                    <SignupPanelOnboarding />
                     <div className="flex justify-center">
                         <LemonButton
                             icon={<IconArrowLeft />}

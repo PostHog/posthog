@@ -54,27 +54,15 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod.object({
     sync_frequency: zod
         .union([
             zod
-                .enum([
-                    'never',
-                    '1min',
-                    '5min',
-                    '15min',
-                    '30min',
-                    '1hour',
-                    '6hour',
-                    '12hour',
-                    '24hour',
-                    '7day',
-                    '30day',
-                ])
+                .enum(['never', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                 .describe(
-                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                    '\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+            'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -165,27 +153,15 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
     sync_frequency: zod
         .union([
             zod
-                .enum([
-                    'never',
-                    '1min',
-                    '5min',
-                    '15min',
-                    '30min',
-                    '1hour',
-                    '6hour',
-                    '12hour',
-                    '24hour',
-                    '7day',
-                    '30day',
-                ])
+                .enum(['never', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                 .describe(
-                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                    '\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+            'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -276,27 +252,15 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
     sync_frequency: zod
         .union([
             zod
-                .enum([
-                    'never',
-                    '1min',
-                    '5min',
-                    '15min',
-                    '30min',
-                    '1hour',
-                    '6hour',
-                    '12hour',
-                    '24hour',
-                    '7day',
-                    '30day',
-                ])
+                .enum(['never', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                 .describe(
-                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                    '\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+            'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -387,27 +351,15 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
     sync_frequency: zod
         .union([
             zod
-                .enum([
-                    'never',
-                    '1min',
-                    '5min',
-                    '15min',
-                    '30min',
-                    '1hour',
-                    '6hour',
-                    '12hour',
-                    '24hour',
-                    '7day',
-                    '30day',
-                ])
+                .enum(['never', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                 .describe(
-                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                    '\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+            'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),
@@ -498,27 +450,15 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
     sync_frequency: zod
         .union([
             zod
-                .enum([
-                    'never',
-                    '1min',
-                    '5min',
-                    '15min',
-                    '30min',
-                    '1hour',
-                    '6hour',
-                    '12hour',
-                    '24hour',
-                    '7day',
-                    '30day',
-                ])
+                .enum(['never', '5min', '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day'])
                 .describe(
-                    '\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+                    '\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'How often to sync.\n\n\* `never` - never\n\* `1min` - 1min\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
+            'How often to sync. The fastest sync frequency is 5 minutes.\n\n\* `never` - never\n\* `5min` - 5min\n\* `15min` - 15min\n\* `30min` - 30min\n\* `1hour` - 1hour\n\* `6hour` - 6hour\n\* `12hour` - 12hour\n\* `24hour` - 24hour\n\* `7day` - 7day\n\* `30day` - 30day'
         ),
     sync_time_of_day: zod.iso.time({}).nullish().describe('UTC time of day to run the sync (HH:MM:SS).'),
     primary_key_columns: zod.array(zod.string()).nullish().describe('Column names for primary key deduplication.'),

@@ -31,6 +31,9 @@ RENOTIFY = AlertPolicy(renotify_while_firing=True)
 SNOOZE_UNTIL_CLEAR = AlertPolicy(clear_check_ends_snooze=True)
 DISABLE_ON_BROKEN = AlertPolicy(disable_when_broken=True)
 BREAKS_EARLY = AlertPolicy(max_consecutive_failures=2)
+NO_FAILURE_ESCALATION = AlertPolicy(max_consecutive_failures=None, notify_error_on_every_failure=True)
+NO_RESOLVE_NOTIFICATION = AlertPolicy(notify_resolve=False)
+VISIBLE_ERROR_STATE = AlertPolicy(errors_set_errored_state=True)
 
 
 def snapshot(**overrides) -> AlertSnapshot:
@@ -74,6 +77,14 @@ class TestPolicyDecisionTable:
                 snapshot(state=AlertState.BROKEN),
                 BREACH,
                 AlertState.BROKEN,
+                NotificationAction.NONE,
+            ),
+            (
+                "resolve_without_notification",
+                NO_RESOLVE_NOTIFICATION,
+                snapshot(state=AlertState.FIRING),
+                CLEAR,
+                AlertState.NOT_FIRING,
                 NotificationAction.NONE,
             ),
             # transient_errors_count_toward_broken
@@ -242,6 +253,20 @@ class TestPolicyDecisionTable:
             snapshot(state=AlertState.ERRORED, consecutive_failures=3), INCONCLUSIVE, NOW, policy=LOGS_ALERT_POLICY
         )
         assert outcome.consecutive_failures == 3
+
+    def test_failures_can_skip_broken_escalation(self) -> None:
+        outcome = evaluate_alert_check(
+            snapshot(state=AlertState.ERRORED, consecutive_failures=10),
+            ERROR,
+            NOW,
+            policy=NO_FAILURE_ESCALATION,
+        )
+        assert outcome.new_state == AlertState.ERRORED
+        assert outcome.notification == NotificationAction.ERROR
+
+    def test_failure_can_enter_errored_state(self) -> None:
+        outcome = evaluate_alert_check(snapshot(), ERROR, NOW, policy=VISIBLE_ERROR_STATE)
+        assert outcome.new_state == AlertState.ERRORED
 
     @parameterized.expand(
         [

@@ -24,10 +24,6 @@ from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
@@ -37,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
@@ -645,15 +642,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
-            # Raised by the source Postgres when the incremental query compares an integer column
-            # against a non-integer cursor value, e.g. `WHERE "id" > '1.5'`. `_build_query` renders
-            # the stored `incremental_field_last_value` as a SQL literal, so a fractional/non-integer
-            # cursor produces `InvalidTextRepresentation: invalid input syntax for type integer`.
-            # This is deterministic — every retry re-runs the identical failing query — and signals a
-            # type mismatch between the incremental field and its data. The volatile offending value
-            # (`: "1.5"`) is excluded from the match. Coercing the cursor here would change sync
-            # semantics (risk of skipped/duplicated rows), so stop and ask the user to reset.
+            # Raised by the source Postgres when the incremental query compares an integer/bigint
+            # column against a non-integer cursor value, e.g. `WHERE "id" > '1.5'` or
+            # `WHERE "id" > '2026-04-26T20:58:57.557000'`. `_build_query` renders the stored
+            # `incremental_field_last_value` as a SQL literal, so a fractional/timestamp-shaped
+            # cursor produces `InvalidTextRepresentation: invalid input syntax for type integer` (or
+            # `bigint`, depending on the column's declared width). This is deterministic — every retry
+            # re-runs the identical failing query — and signals a type mismatch between the
+            # incremental field and its data. The volatile offending value is excluded from the match.
+            # Coercing the cursor here would change sync semantics (risk of skipped/duplicated rows),
+            # so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            "invalid input syntax for type bigint": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against a bigint incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
             # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
             # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
@@ -671,6 +671,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation's own definition calls date_trunc()/extract() with a unit
+            # PostgreSQL doesn't support for the interval type (SQLSTATE 0A000) — e.g.
+            # `date_trunc('week', some_interval_column)`, since week truncation is only defined
+            # for timestamp/timestamptz, not interval. We only ever run `SELECT ... FROM
+            # <relation>`; the expression lives in the customer's own generated column or view
+            # definition, so it's deterministic against the schema and retrying re-evaluates the
+            # same relation into the same wall.
+            "not supported for type interval": (
+                "A table or view you're syncing has a computed column or definition that calls "
+                "date_trunc() or extract() with a unit PostgreSQL doesn't support for interval "
+                'values (PostgreSQL reported "not supported for type interval") — for example '
+                "truncating to a week on an interval column, which is only supported on "
+                "timestamps. Update that column's definition to use a supported unit, or remove "
+                "it from the sync, then re-enable the sync."
+            ),
             # A selected relation's own definition writes to the database while we read it — a view or
             # trigger that calls a function which runs REFRESH MATERIALIZED VIEW (or INSERT/UPDATE/DELETE).
             # We read inside a read-only transaction and never write to the source, so Postgres rejects
