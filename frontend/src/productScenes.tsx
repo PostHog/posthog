@@ -37,6 +37,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityCluster: () =>
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClusterScene'),
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
+    PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
@@ -141,7 +142,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotHistoryScene'),
     VisualReviewSnapshotOverview: () =>
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
-    WebAnalyticsPrecomputeDebug: () => import('../../products/web_analytics/frontend/PrecomputeDebugScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),

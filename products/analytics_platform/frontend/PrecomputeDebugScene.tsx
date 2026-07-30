@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconRefresh, IconTrash } from '@posthog/icons'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -95,9 +96,24 @@ function BucketsTable({ group }: { group: PrecomputeDebugGroupApi }): JSX.Elemen
 }
 
 export function PrecomputeDebugScene(): JSX.Element {
-    const { debugState, debugStateLoading } = useValues(precomputeDebugLogic)
-    const { loadDebugState } = useActions(precomputeDebugLogic)
+    const { debugState, debugStateLoading, invalidatingHash } = useValues(precomputeDebugLogic)
+    const { loadDebugState, invalidate } = useActions(precomputeDebugLogic)
     const { user } = useValues(userLogic)
+
+    const confirmInvalidate = (queryHash: string | null): void => {
+        LemonDialog.open({
+            title: queryHash ? 'Mark this hash stale?' : 'Mark all precompute stale?',
+            description: queryHash
+                ? 'Ready jobs for this hash will be marked stale and recomputed on the next read.'
+                : 'Every ready precompute job for this project will be marked stale and recomputed on the next read. Use this after a source resync changed the underlying data.',
+            primaryButton: {
+                children: 'Mark stale',
+                status: 'danger',
+                onClick: () => invalidate(queryHash),
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
 
     const columns: LemonTableColumns<PrecomputeDebugGroupApi> = [
         {
@@ -150,6 +166,25 @@ export function PrecomputeDebugScene(): JSX.Element {
             title: 'Last computed',
             render: (_, group) => (group.last_computed_at ? <TZLabel time={group.last_computed_at} /> : '—'),
         },
+        {
+            width: 0,
+            render: (_, group) => (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    status="danger"
+                    loading={invalidatingHash === group.query_hash}
+                    disabledReason={
+                        invalidatingHash && invalidatingHash !== group.query_hash
+                            ? 'Another invalidation is in progress'
+                            : undefined
+                    }
+                    onClick={() => confirmInvalidate(group.query_hash)}
+                >
+                    Mark stale
+                </LemonButton>
+            ),
+        },
     ]
 
     return (
@@ -162,23 +197,39 @@ export function PrecomputeDebugScene(): JSX.Element {
             )}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-xl font-semibold mb-0">Web analytics precompute debug</h1>
+                    <h1 className="text-xl font-semibold mb-0">Precompute debug</h1>
                     <p className="text-muted mb-0">
                         Stored precompute hashes for this project: the buckets each covers, per-bucket TTL, and the
                         originating query each hash serves.
-                        {debugState
-                            ? ` Showing ${debugState.groups.length} of ${debugState.total_hashes} hashes (last ${debugState.job_lookback_days} days).`
-                            : ''}
+                        {debugState ? ` Showing ${debugState.groups.length} of ${debugState.total_hashes} hashes.` : ''}
                     </p>
                 </div>
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    onClick={loadDebugState}
-                    loading={debugStateLoading}
-                >
-                    Refresh
-                </LemonButton>
+                <div className="flex gap-2">
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        icon={<IconTrash />}
+                        loading={invalidatingHash === 'all'}
+                        disabledReason={
+                            invalidatingHash && invalidatingHash !== 'all'
+                                ? 'Another invalidation is in progress'
+                                : !debugState?.groups.length
+                                  ? 'No precompute jobs to invalidate'
+                                  : undefined
+                        }
+                        onClick={() => confirmInvalidate(null)}
+                    >
+                        Mark all stale
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        onClick={loadDebugState}
+                        loading={debugStateLoading}
+                    >
+                        Refresh
+                    </LemonButton>
+                </div>
             </div>
             <LemonTable
                 dataSource={debugState?.groups ?? []}

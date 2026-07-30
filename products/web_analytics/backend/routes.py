@@ -7,7 +7,6 @@ from products.web_analytics.backend.api.heatmaps_api import (
     LegacyHeatmapViewSet,
     SavedHeatmapViewSet,
 )
-from products.web_analytics.backend.api.precompute_debug import WebAnalyticsPrecomputeDebugViewSet
 from products.web_analytics.backend.api.web_analytics_achievements import WebAnalyticsAchievementsViewSet
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
@@ -30,11 +29,5 @@ def register_routes(routers: RouterRegistry) -> None:
         r"web_analytics_achievements",
         WebAnalyticsAchievementsViewSet,
         "project_web_analytics_achievements",
-        ["team_id"],
-    )
-    routers.projects.register(
-        r"web_analytics_precompute_debug",
-        WebAnalyticsPrecomputeDebugViewSet,
-        "project_web_analytics_precompute_debug",
         ["team_id"],
     )

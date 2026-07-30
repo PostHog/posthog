@@ -1,9 +1,13 @@
 """Staff/dev-only debug surface for the lazy precompute store.
 
-Answers "what precompute do we have for this team?": which query hashes are
-stored, which day buckets each covers, how long until each bucket's TTL
-expires, and — where recoverable — the originating query (with filters) each
-hash serves. Conceptually a sibling of the "Debug ClickHouse queries" page.
+Answers "what precompute do we have for this team?" across every product that
+uses the lazy-computation framework (web analytics, marketing analytics,
+experiments): which query hashes are stored, which buckets each covers, how
+long until each bucket's TTL expires, and — where recoverable — the
+originating query (with filters) each hash serves. Also allows invalidating a
+team's stored precompute (marking READY jobs stale) so the next read
+recomputes, e.g. after a source resync changed the underlying data.
+Conceptually a sibling of the "Debug ClickHouse queries" page.
 
 The `PreaggregationJob` table stores only the SHA-256 of the normalized insert
 AST, not the query itself. The originating query is recovered by correlation:
@@ -18,6 +22,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
+from django.db.models import Q
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -33,9 +38,9 @@ from posthog.cloud_utils import is_cloud
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
-# Jobs created further back than this are not shown. The web-analytics warm
-# window is 31 trailing days, so 35 days comfortably covers every bucket the
-# read path could still serve while bounding the Postgres scan.
+# Dead (expired/failed) jobs older than this are not shown. Unexpired jobs are
+# always shown regardless of age, so long-TTL stores (e.g. the 90-day
+# dimensional buckets) never silently drop out of the view.
 JOB_LOOKBACK_DAYS = 35
 
 # How far back to search `system.query_log` for the insert that produced a
@@ -70,7 +75,7 @@ class PrecomputeDebugBucketSerializer(serializers.Serializer):
 
 class PrecomputeDebugSampleSerializer(serializers.Serializer):
     query_type = serializers.CharField(
-        allow_null=True, help_text="query_type tag of the insert that built this hash (identifies the tile family)."
+        allow_null=True, help_text="query_type tag of the insert that built this hash (identifies the query family)."
     )
     trigger = serializers.CharField(
         allow_null=True,
@@ -110,12 +115,31 @@ class PrecomputeDebugGroupSerializer(serializers.Serializer):
 
 class PrecomputeDebugResponseSerializer(serializers.Serializer):
     generated_at = serializers.DateTimeField(help_text="When this snapshot was generated.")
-    job_lookback_days = serializers.IntegerField(help_text="How many days of jobs were considered.")
+    job_lookback_days = serializers.IntegerField(
+        help_text="Expired/failed jobs older than this many days are omitted; unexpired jobs are always shown."
+    )
     query_log_lookback_days = serializers.IntegerField(
         help_text="How far back query_log was searched to label hashes with their originating query."
     )
     total_hashes = serializers.IntegerField(help_text="Distinct hashes stored for the team within the job lookback.")
     groups = PrecomputeDebugGroupSerializer(many=True, help_text="Per-hash groups, most recently computed first.")
+
+
+class PrecomputeInvalidateRequestSerializer(serializers.Serializer):
+    query_hash = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        max_length=64,
+        help_text="Only invalidate jobs for this query hash. Omit to invalidate every hash stored for the team.",
+    )
+
+
+class PrecomputeInvalidateResponseSerializer(serializers.Serializer):
+    updated_count = serializers.IntegerField(help_text="Number of READY jobs marked stale.")
+    query_hash = serializers.CharField(
+        allow_null=True, help_text="The hash that was invalidated, or null when all hashes were targeted."
+    )
 
 
 def _fetch_samples_from_query_log(team_id: int, job_ids_by_hash: dict[str, str]) -> dict[str, dict[str, Any]]:
@@ -147,7 +171,7 @@ def _fetch_samples_from_query_log(team_id: int, job_ids_by_hash: dict[str, str])
             GROUP BY idx
             """,
             {
-                "cluster": "posthog",
+                "cluster": settings.CLICKHOUSE_CLUSTER,
                 "lookback_days": QUERY_LOG_LOOKBACK_DAYS,
                 "team_id": team_id,
                 "job_ids": job_ids,
@@ -169,16 +193,25 @@ def _fetch_samples_from_query_log(team_id: int, job_ids_by_hash: dict[str, str])
     return samples
 
 
-class WebAnalyticsPrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "web_analytics"
-    scope_object_read_actions = ["state"]
+class PrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    # `scope_object = "INTERNAL"` blocks a staff user's full-access (`*`) PAT via the
+    # wildcard short-circuit in `APIScopePermission.has_permission`. Each action pins a
+    # `query_performance` scope — OAuth-hidden, PAT-grantable (see OAUTH_HIDDEN_SCOPE_OBJECTS)
+    # so staff automation can reach it; the browser uses session auth, which bypasses scope
+    # checks. `_check_debug_access` gates every action in every case.
+    scope_object = "INTERNAL"
+
+    def _check_debug_access(self, request: Request) -> Response | None:
+        if request.user.is_staff or settings.DEBUG or is_impersonated_session(request) or not is_cloud():
+            return None
+        return Response({"detail": "Staff access required."}, status=status.HTTP_403_FORBIDDEN)
 
     @extend_schema(
-        operation_id="web_analytics_precompute_debug",
+        operation_id="precompute_debug_state",
         summary="Inspect stored lazy-precompute state (staff only)",
         description=(
             "Staff/dev-only debug view of the team's lazy precompute store: which query hashes are stored, "
-            "which day buckets each covers, per-bucket TTL, and — where recoverable from query_log — the "
+            "which buckets each covers, per-bucket TTL, and — where recoverable from query_log — the "
             "originating query (with filters) each hash serves."
         ),
         parameters=[
@@ -192,12 +225,12 @@ class WebAnalyticsPrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
             ),
         ],
         responses={200: OpenApiResponse(response=PrecomputeDebugResponseSerializer)},
-        tags=["web_analytics"],
     )
-    @action(detail=False, methods=["get"], url_path="state")
+    @action(detail=False, methods=["get"], url_path="state", required_scopes=["query_performance:read"])
     def state(self, request: Request, **kwargs: Any) -> Response:
-        if not (request.user.is_staff or settings.DEBUG or is_impersonated_session(request) or not is_cloud()):
-            return Response({"detail": "Staff access required."}, status=status.HTTP_403_FORBIDDEN)
+        denied = self._check_debug_access(request)
+        if denied is not None:
+            return denied
 
         try:
             limit = max(1, min(int(request.query_params.get("limit", MAX_GROUPS_DEFAULT)), MAX_GROUPS))
@@ -207,18 +240,18 @@ class WebAnalyticsPrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         now = datetime.now(UTC)
         jobs = (
             PreaggregationJob.objects.filter(
+                Q(expires_at__gte=now) | Q(created_at__gte=now - timedelta(days=JOB_LOOKBACK_DAYS)),
                 team_id=self.team.pk,
-                created_at__gte=now - timedelta(days=JOB_LOOKBACK_DAYS),
             )
             .order_by("-time_range_end")
             .values("query_hash", "time_range_start", "time_range_end", "status", "computed_at", "expires_at")
         )
 
-        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        grouped: dict[str, list[Any]] = defaultdict(list)
         for job in jobs.iterator(chunk_size=2000):
             grouped[job["query_hash"]].append(job)
 
-        def group_sort_key(item: tuple[str, list[dict[str, Any]]]) -> datetime:
+        def group_sort_key(item: tuple[str, list[Any]]) -> datetime:
             computed = [j["computed_at"] for j in item[1] if j["computed_at"] is not None]
             return max(computed) if computed else datetime.min.replace(tzinfo=UTC)
 
@@ -283,3 +316,32 @@ class WebAnalyticsPrecomputeDebugViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
             "groups": groups,
         }
         return Response(PrecomputeDebugResponseSerializer(payload).data)
+
+    @extend_schema(
+        operation_id="precompute_debug_invalidate",
+        summary="Invalidate stored precompute for this team (staff only)",
+        description=(
+            "Marks the team's READY precompute jobs stale so the next read recomputes them, e.g. after a "
+            "source resync changed the underlying data. Optionally scoped to a single query hash. PENDING "
+            "jobs are left alone: anything in flight is already computing against current data."
+        ),
+        request=PrecomputeInvalidateRequestSerializer,
+        responses={200: OpenApiResponse(response=PrecomputeInvalidateResponseSerializer)},
+    )
+    @action(detail=False, methods=["post"], url_path="invalidate", required_scopes=["query_performance:write"])
+    def invalidate(self, request: Request, **kwargs: Any) -> Response:
+        denied = self._check_debug_access(request)
+        if denied is not None:
+            return denied
+
+        request_serializer = PrecomputeInvalidateRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        query_hash = request_serializer.validated_data["query_hash"]
+
+        jobs = PreaggregationJob.objects.filter(team_id=self.team.pk, status=PreaggregationJob.Status.READY)
+        if query_hash:
+            jobs = jobs.filter(query_hash=query_hash)
+        updated_count = jobs.update(status=PreaggregationJob.Status.STALE)
+
+        payload = {"updated_count": updated_count, "query_hash": query_hash}
+        return Response(PrecomputeInvalidateResponseSerializer(payload).data)

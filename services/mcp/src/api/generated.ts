@@ -55442,7 +55442,7 @@ export namespace Schemas {
 
     export interface PrecomputeDebugSample {
       /**
-         * query_type tag of the insert that built this hash (identifies the tile family).
+         * query_type tag of the insert that built this hash (identifies the query family).
          * @nullable
          */
       query_type: string | null;
@@ -55488,7 +55488,7 @@ export namespace Schemas {
     export interface PrecomputeDebugResponse {
       /** When this snapshot was generated. */
       generated_at: string;
-      /** How many days of jobs were considered. */
+      /** Expired/failed jobs older than this many days are omitted; unexpired jobs are always shown. */
       job_lookback_days: number;
       /** How far back query_log was searched to label hashes with their originating query. */
       query_log_lookback_days: number;
@@ -55496,6 +55496,25 @@ export namespace Schemas {
       total_hashes: number;
       /** Per-hash groups, most recently computed first. */
       groups: PrecomputeDebugGroup[];
+    }
+
+    export interface PrecomputeInvalidateRequest {
+      /**
+         * Only invalidate jobs for this query hash. Omit to invalidate every hash stored for the team.
+         * @maxLength 64
+         * @nullable
+         */
+      query_hash?: string | null;
+    }
+
+    export interface PrecomputeInvalidateResponse {
+      /** Number of READY jobs marked stale. */
+      updated_count: number;
+      /**
+         * The hash that was invalidated, or null when all hashes were targeted.
+         * @nullable
+         */
+      query_hash: string | null;
     }
 
     export interface PreviewInviteRequest {
@@ -80165,6 +80184,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type PrecomputeDebugStateParams = {
+    /**
+     * Maximum number of hash groups to return (1–200).
+     */
+    limit?: number;
+    };
+
     export type ProductToursListParams = {
     /**
      * Number of results to return per page.
@@ -82248,13 +82274,6 @@ export namespace Schemas {
      */
     offset?: number;
     short_id?: string;
-    };
-
-    export type WebAnalyticsPrecomputeDebugParams = {
-    /**
-     * Maximum number of hash groups to return (1–200).
-     */
-    limit?: number;
     };
 
     export type WebExperimentsListParams = {
