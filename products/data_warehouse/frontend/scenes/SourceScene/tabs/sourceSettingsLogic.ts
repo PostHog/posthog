@@ -340,13 +340,6 @@ export function buildBulkEnablePayloads(
         )
 }
 
-export function clampFrequencyForSchema(
-    requested: DataWarehouseSyncInterval,
-    schema: ExternalDataSourceSchema
-): DataWarehouseSyncInterval {
-    return clampSyncFrequency(requested, schema.sync_type)
-}
-
 function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
     const succeeded = total - failed
     const parts = [`${verb} ${pluralize(succeeded, 'schema', 'schemas')}`]
@@ -1532,11 +1525,11 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 lemonToast.success(`Disabled ${pluralize(schemas.length, 'schema', 'schemas')}`)
             },
             bulkSetFrequency: ({ schemas, frequency }) => {
-                // Non-CDC schemas can't sync faster than every 5 minutes — clamp so a bulk edit
-                // never pushes them below their allowed floor.
+                // Schemas can't sync faster than every 5 minutes — clamp so a bulk edit never
+                // pushes them below the floor.
                 let clamped = 0
                 schemas.forEach((schema) => {
-                    const effective = clampFrequencyForSchema(frequency, schema)
+                    const effective = clampSyncFrequency(frequency)
                     if (effective !== frequency) {
                         clamped++
                     }
