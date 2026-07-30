@@ -113,6 +113,7 @@ mod tests {
     use crate::config::EnvelopeCompression;
 
     use crate::config::{CaptureMode, Config, KafkaConfig};
+    use crate::token_validation::TokenValidationMode;
     use crate::v1::analytics::types::{Event, Options, RawOptions};
 
     fn test_config() -> Config {
@@ -154,6 +155,14 @@ mod tests {
             historical_rerouting_threshold_days: 1,
             is_mirror_deploy: false,
             log_level: Level::INFO,
+            token_validation_mode: TokenValidationMode::Off,
+            token_validation_database_url: None,
+            token_validation_cache_capacity: 100_000,
+            token_validation_cache_ttl_secs: 300,
+            token_validation_negative_cache_ttl_secs: 30,
+            object_storage_bucket: "posthog".to_string(),
+            object_storage_region: "us-east-1".to_string(),
+            object_storage_endpoint: String::new(),
             verbose_sample_percent: 0.0,
             kafka: KafkaConfig {
                 kafka_producer_linger_ms: 0,
