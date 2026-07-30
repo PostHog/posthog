@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1276_untrack_legacy_provisioning_columns"),
+        ("posthog", "1277_drop_duckgresserverteam_hot_table_fks"),
     ]
 
     operations = [
