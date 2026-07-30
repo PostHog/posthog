@@ -35,6 +35,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
     'loadSimilarIssues', // Gracefully handled in the similar issues list
+    'loadPrChecks', // Background poll on the inbox report detail; failures render in its CI checks section
+    'loadPrComments', // Background fetch on the inbox report detail; failures render in its PR comments section
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
@@ -57,6 +59,13 @@ don't report them to error tracking — otherwise sporadic 5xxs surface as noisy
 issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
 */
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+
+/*
+Background loaders whose 404 is an expected state of the thing being loaded rather than a frontend
+bug. The owning UI renders the failure inline, so capturing an exception per attempt is pure noise.
+Any other failure status on these actions (a 500 in the endpoint itself) still reports.
+*/
+const EXPECTED_NOT_FOUND_ACTIONS = new Set(['loadPrChecks', 'loadPrComments'])
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -177,7 +186,8 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                const isExpectedNotFound = error?.status === 404 && EXPECTED_NOT_FOUND_ACTIONS.has(String(actionKey))
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isExpectedNotFound) {
                     posthog.captureException(error)
                 }
             },

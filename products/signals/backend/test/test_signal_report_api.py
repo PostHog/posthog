@@ -2329,10 +2329,10 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
 
 
 class TestSignalReportPrEndpoints(APIBaseTest):
-    def _create_report(self) -> SignalReport:
+    def _create_report(self, report_status: str = SignalReport.Status.READY) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
-            status=SignalReport.Status.READY,
+            status=report_status,
             title="Test report",
             summary="Test summary",
             signal_count=1,
@@ -2454,3 +2454,26 @@ class TestSignalReportPrEndpoints(APIBaseTest):
             response = self.client.get(self._comments_url(str(report.id)))
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"comments": comments}
+
+    @parameterized.expand(
+        [
+            ("checks", "get_pull_request_checks", "checks", 4001),
+            ("comments", "get_pull_request_comments", "comments", 4002),
+        ]
+    )
+    def test_pr_endpoint_serves_suppressed_report(self, noun, fetch_name, key, pr_number):
+        # The Dismissed tab serves a suppressed report's detail (including its implementation PR url),
+        # so these read actions have to resolve it too — otherwise the detail's 15s checks poll retries
+        # a permanent 404 for as long as the tab stays open.
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        getattr(github.return_value, fetch_name).return_value = {"success": True, key: []}
+        url = self._checks_url(str(report.id)) if noun == "checks" else self._comments_url(str(report.id))
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): f"https://github.com/PostHog/posthog/pull/{pr_number}"},
+        ):
+            response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {key: []}

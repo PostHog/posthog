@@ -96,6 +96,18 @@ const REPORT_TASKS_POLL_INTERVAL_MS = 5000
 // without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
 const PR_CHECKS_POLL_INTERVAL_MS = 15000
 
+const PR_UNRESOLVABLE_MESSAGE =
+    "Couldn't find this report's pull request. It may have been deleted, or PostHog may have lost access to the repository."
+
+/**
+ * Whether a PR checks/comments failure is a permanent 404 rather than something a retry could fix.
+ * The backend 404s when the report has no implementation PR, when no GitHub integration can reach the
+ * repository, or when the report itself isn't resolvable for these actions.
+ */
+function isPrUnresolvable(errorObject: any): boolean {
+    return errorObject?.status === 404
+}
+
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
     const prUrl = task.latest_run?.output?.pr_url
@@ -144,9 +156,11 @@ export interface inboxReportDetailLogicValues {
     prChecks: readonly PullRequestCheckApi[] | null
     prChecksError: string | null
     prChecksLoading: boolean
+    prChecksUnresolvable: boolean
     prComments: readonly PullRequestCommentApi[] | null
     prCommentsError: string | null
     prCommentsLoading: boolean
+    prCommentsUnresolvable: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
     report: SignalReport | null
@@ -640,7 +654,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 loadPrChecks: () => null,
                 loadPrChecksSuccess: () => null,
-                loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+                loadPrChecksFailure: (_, { errorObject }) =>
+                    isPrUnresolvable(errorObject)
+                        ? PR_UNRESOLVABLE_MESSAGE
+                        : "Couldn't load the PR checks from GitHub.",
             },
         ],
         prCommentsError: [
@@ -648,7 +665,27 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 loadPrComments: () => null,
                 loadPrCommentsSuccess: () => null,
-                loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+                loadPrCommentsFailure: (_, { errorObject }) =>
+                    isPrUnresolvable(errorObject)
+                        ? PR_UNRESOLVABLE_MESSAGE
+                        : "Couldn't load the PR comments from GitHub.",
+            },
+        ],
+        // A 404 means the backend can't resolve this report's PR at all, so every later attempt gets the
+        // same answer. Latched so the 15s poll and the report prop churn both stop re-asking (each retry
+        // used to cost a toast and an error-tracking event, forever, for as long as the tab stayed open).
+        prChecksUnresolvable: [
+            false,
+            {
+                loadPrChecksSuccess: () => false,
+                loadPrChecksFailure: (state, { errorObject }) => state || isPrUnresolvable(errorObject),
+            },
+        ],
+        prCommentsUnresolvable: [
+            false,
+            {
+                loadPrCommentsSuccess: () => false,
+                loadPrCommentsFailure: (state, { errorObject }) => state || isPrUnresolvable(errorObject),
             },
         ],
     }),
@@ -901,12 +938,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
             // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
             if (values.hasImplementationPr) {
-                if (values.prChecks === null && !values.prChecksLoading) {
+                if (values.prChecks === null && !values.prChecksLoading && !values.prChecksUnresolvable) {
                     actions.loadPrChecks()
                 }
-                if (values.prComments === null && !values.prCommentsLoading) {
+                if (values.prComments === null && !values.prCommentsLoading && !values.prCommentsUnresolvable) {
                     actions.loadPrComments()
                 }
+            }
+        },
+        // Nothing left to poll for once the PR can't be resolved, so drop the interval rather than
+        // letting it tick against a permanent 404 for as long as the tab stays open.
+        loadPrChecksFailure: () => {
+            if (values.prChecksUnresolvable) {
+                cache.disposables.dispose('prChecksPoll')
             }
         },
     })),
@@ -931,7 +975,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // unmount / hidden tab.
         cache.disposables.add(() => {
             const interval = setInterval(() => {
-                if (values.hasImplementationPr) {
+                if (values.hasImplementationPr && !values.prChecksUnresolvable) {
                     actions.loadPrChecks()
                 }
             }, PR_CHECKS_POLL_INTERVAL_MS)

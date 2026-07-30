@@ -772,12 +772,17 @@ class SignalReportViewSet(
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
     # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
-    # loads its evidence. `bulk_state` is included so a bulk restore (state='potential')
-    # can reach suppressed reports too. `refund` is included so an already-archived but
-    # billed report can still be refunded. Mutating-by-ID actions (delete, reingest) are
-    # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
-    # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund"})
+    # loads its evidence. `pr_checks` / `pr_comments` back the same detail view's PR
+    # sections — the detail serves `implementation_pr_url` for a suppressed report, so
+    # these have to resolve it too or the view polls a permanent 404. `bulk_state` is
+    # included so a bulk restore (state='potential') can reach suppressed reports too.
+    # `refund` is included so an already-archived but billed report can still be
+    # refunded. Mutating-by-ID actions (delete, reingest) are deliberately NOT here, so
+    # a suppressed report stays unreachable for those and keeps returning 404 — matching
+    # the existing contract.
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
+        {"state", "bulk_state", "retrieve", "signals", "refund", "pr_checks", "pr_comments"}
+    )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).
