@@ -21,7 +21,7 @@ import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import type { ReplayScannerPromptSuggestionApi } from '../../generated/api.schemas'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { scannerQualityLogic } from '../scannerQualityLogic'
+import { scannerCalibrationLogic } from '../scannerCalibrationLogic'
 import { SummarizerScannerConfig } from '../types'
 import {
     changedFields,
@@ -63,7 +63,7 @@ function SuggestionDiffPanes({
                             icon={<IconExpand45 />}
                             tooltip="Expand diff to full screen"
                             onClick={onExpand}
-                            data-attr="vision-quality-expand-diff"
+                            data-attr="vision-calibration-expand-diff"
                         />
                     )}
                 </div>
@@ -373,8 +373,8 @@ export function ConfigChangeCards({
     scannerId: string
     readOnly?: boolean
 }): JSX.Element {
-    const { fieldValues } = useValues(scannerQualityLogic({ scannerId }))
-    const { setFieldValue } = useActions(scannerQualityLogic({ scannerId }))
+    const { fieldValues } = useValues(scannerCalibrationLogic({ scannerId }))
+    const { setFieldValue } = useActions(scannerCalibrationLogic({ scannerId }))
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const changes = parseConfigChanges(suggestion.changes)
 
@@ -435,7 +435,7 @@ export function ConfigChangeCards({
                 <button
                     type="button"
                     aria-label="Revert to the suggested value"
-                    data-attr="vision-quality-revert-field"
+                    data-attr="vision-calibration-revert-field"
                     onClick={() => setFieldValue(suggestion.id, field, suggested[field])}
                     className="absolute top-0 right-0 flex cursor-pointer text-muted hover:text-default"
                 >

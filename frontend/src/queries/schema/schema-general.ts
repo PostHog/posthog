@@ -492,6 +492,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean
     pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
@@ -8141,6 +8143,9 @@ export const externalDataSources = [
     'FirstPromoter',
     'Zero',
     'Inth',
+    'BCMS',
+    'Convonite',
+    'Hookdeck',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
