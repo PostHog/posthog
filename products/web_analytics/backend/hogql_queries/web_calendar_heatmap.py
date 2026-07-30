@@ -29,7 +29,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     ceil_utc_day,
     floor_utc_day,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import handle_stale_served
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    handle_stale_served,
+    is_precompute_enabled_for_team,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     _READ_SETTINGS,
@@ -203,6 +206,16 @@ class WebCalendarHeatmapTrendsQueryRunner(CalendarHeatmapTrendsQueryRunner):
     """Active Hours runner for web-analytics-tagged calendar heatmap queries.
     Serves the unique-visitors tab from the shared web_overview precompute
     buckets and falls back to the live calendar heatmap path otherwise."""
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        # Rollout state in the cache key = immediate kill switch: disabling a
+        # flag must not keep serving cached precompute-derived results until
+        # they stale out (same mechanism as WebTrendsQueryRunner).
+        payload["web_trends_precompute"] = is_trends_precompute_enabled_for_team(
+            self.team
+        ) and is_precompute_enabled_for_team(self.team)
+        return payload
 
     def _calculate(self) -> TrendsQueryResponse:
         structured = execute_lazy_precomputed_heatmap(self)
