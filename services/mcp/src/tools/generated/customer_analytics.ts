@@ -29,6 +29,11 @@ import {
     AccountsRelationshipsListParams,
     AccountsRelationshipsListQueryParams,
     AccountsRetrieveParams,
+    AccountsSummariesListParams,
+    AccountsSummariesListQueryParams,
+    AnnouncementsCreateBody,
+    AnnouncementsListQueryParams,
+    AnnouncementsRetrieveParams,
     CustomPropertyDefinitionsCreateBody,
     CustomPropertyDefinitionsDestroyParams,
     CustomPropertyDefinitionsListQueryParams,
@@ -64,7 +69,7 @@ import {
     GroupsTypesMetricsRetrieveParams,
 } from '@/generated/customer_analytics/api'
 import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AccountRelationshipDefinitionsCreateSchema = AccountRelationshipDefinitionsCreateBody
@@ -523,6 +528,113 @@ const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Acc
         const result = await context.api.request<Schemas.Account>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const AccountsSummariesListSchema = AccountsSummariesListParams.omit({ project_id: true }).extend(
+    AccountsSummariesListQueryParams.shape
+)
+
+const accountsSummariesList = (): ToolBase<
+    typeof AccountsSummariesListSchema,
+    WithPostHogUrl<Schemas.PaginatedAccountChannelSummaryList>
+> => ({
+    name: 'accounts-summaries-list',
+    schema: AccountsSummariesListSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsSummariesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountChannelSummaryList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/summaries/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer_analytics')
+    },
+})
+
+const AnnouncementsChannelsListSchema = z.object({})
+
+const announcementsChannelsList = (): ToolBase<
+    typeof AnnouncementsChannelsListSchema,
+    Schemas.AnnouncementChannel[]
+> => ({
+    name: 'announcements-channels-list',
+    schema: AnnouncementsChannelsListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof AnnouncementsChannelsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AnnouncementChannel[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/channels/`,
+        })
+        return result
+    },
+})
+
+const AnnouncementsCreateSchema = AnnouncementsCreateBody
+
+const announcementsCreate = (): ToolBase<typeof AnnouncementsCreateSchema, Schemas.Announcement> => ({
+    name: 'announcements-create',
+    schema: AnnouncementsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AnnouncementsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.channels !== undefined) {
+            body['channels'] = params.channels
+        }
+        const result = await context.api.request<Schemas.Announcement>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AnnouncementsListSchema = AnnouncementsListQueryParams
+
+const announcementsList = (): ToolBase<
+    typeof AnnouncementsListSchema,
+    WithPostHogUrl<Schemas.PaginatedAnnouncementList>
+> => ({
+    name: 'announcements-list',
+    schema: AnnouncementsListSchema,
+    handler: async (context: Context, params: z.infer<typeof AnnouncementsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAnnouncementList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['deliveries'])),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/customer_analytics')
+    },
+})
+
+const AnnouncementsRetrieveSchema = AnnouncementsRetrieveParams.omit({ project_id: true })
+
+const announcementsRetrieve = (): ToolBase<typeof AnnouncementsRetrieveSchema, Schemas.Announcement> => ({
+    name: 'announcements-retrieve',
+    schema: AnnouncementsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof AnnouncementsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Announcement>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/announcements/${encodeURIComponent(String(params.short_id))}/`,
         })
         return result
     },
@@ -1192,6 +1304,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-relationships-end-create': accountsRelationshipsEndCreate,
     'accounts-relationships-list': accountsRelationshipsList,
     'accounts-retrieve': accountsRetrieve,
+    'accounts-summaries-list': accountsSummariesList,
+    'announcements-channels-list': announcementsChannelsList,
+    'announcements-create': announcementsCreate,
+    'announcements-list': announcementsList,
+    'announcements-retrieve': announcementsRetrieve,
     'custom-property-definitions-create': customPropertyDefinitionsCreate,
     'custom-property-definitions-destroy': customPropertyDefinitionsDestroy,
     'custom-property-definitions-list': customPropertyDefinitionsList,
