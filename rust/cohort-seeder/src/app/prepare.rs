@@ -18,7 +18,8 @@ use sqlx::PgPool;
 use tracing::warn;
 
 use crate::domain::{
-    plan_days, Lookback, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps, RunId, RunKind,
+    plan_days, Lookback, PersonRunValidation, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps,
+    RunId, RunKind,
 };
 use crate::observability::metrics::{
     BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_DROPPED,
@@ -81,10 +82,11 @@ pub(super) async fn refresh_runs(
     let mut planning = Vec::new();
     let mut seen_runs = HashSet::with_capacity(discovered.len());
     let mut waiting_boundary = 0_u64;
-    let mut without_chunks = 0_u64;
+    let mut without_chunks: HashMap<RunKind, u64> = HashMap::new();
 
     for run in discovered {
         seen_runs.insert(run.run_id);
+        let kind = run.kind;
         match prepare_run(pool, store, plan_caps, reported_runs, run).await {
             PrepareOutcome::Eligible(prepared) => {
                 let run_id = match &prepared {
@@ -94,17 +96,20 @@ pub(super) async fn refresh_runs(
                 eligible.insert(run_id, prepared);
             }
             PrepareOutcome::WaitingBoundary => waiting_boundary += 1,
-            PrepareOutcome::NoChunks => without_chunks += 1,
+            PrepareOutcome::NoChunks => *without_chunks.entry(kind).or_default() += 1,
             PrepareOutcome::Skipped => {}
             PrepareOutcome::PlanningNeeded(request) => {
-                without_chunks += 1;
+                *without_chunks.entry(kind).or_default() += 1;
                 planning.push(request);
             }
         }
     }
 
     gauge!(RUNS_WAITING_BOUNDARY).set(waiting_boundary as f64);
-    gauge!(RUNS_WITHOUT_CHUNKS).set(without_chunks as f64);
+    for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
+        let count = without_chunks.get(&kind).copied().unwrap_or(0);
+        gauge!(RUNS_WITHOUT_CHUNKS, "kind" => kind.as_str()).set(count as f64);
+    }
     let eligible_run_ids = eligible.keys().copied().collect::<Vec<_>>();
     match store.remaining_chunks(&eligible_run_ids).await {
         Ok(remaining) => gauge!(RUN_CHUNKS_REMAINING).set(remaining as f64),
@@ -121,7 +126,8 @@ async fn prepare_run(
     reported_runs: &mut HashSet<RunId>,
     run: DiscoveredRun,
 ) -> PrepareOutcome {
-    counter!(RUNS_DISCOVERED, "status" => run.status.as_str()).increment(1);
+    counter!(RUNS_DISCOVERED, "status" => run.status.as_str(), "kind" => run.kind.as_str())
+        .increment(1);
 
     let kind = run.kind;
     let Some(boundary) = resolve_boundary(pool, run).await else {
@@ -202,7 +208,8 @@ async fn prepare_behavioral(
 
     // Without the proof the run never dispatches, so an uncovered cohort can never stamp readiness
     // on zero seeded history. Siblings still get planned and seeded.
-    let coverage_complete = record_coverage(run_id, &validated.uncovered_cohorts);
+    let coverage_complete =
+        record_coverage(run_id, RunKind::Behavioral, &validated.uncovered_cohorts);
 
     let days = plan_days(
         &validated.run.conditions,
@@ -213,7 +220,7 @@ async fn prepare_behavioral(
         if coverage_complete {
             // A legitimately zero-chunk run still needs the proof, or it stalls waiting for chunks
             // that will never exist.
-            stamp_planning(pool, run_id).await;
+            stamp_planning(pool, run_id, RunKind::Behavioral).await;
         }
         return PrepareOutcome::NoChunks;
     }
@@ -222,12 +229,19 @@ async fn prepare_behavioral(
         .await
     {
         Ok(PlanOutcome::Planned { inserted }) => {
-            counter!(CHUNKS_PLANNED).increment(inserted);
+            counter!(CHUNKS_PLANNED, "kind" => RunKind::Behavioral.as_str()).increment(inserted);
             if coverage_complete {
-                stamp_planning(pool, run_id).await;
+                stamp_planning(pool, run_id, RunKind::Behavioral).await;
             }
         }
-        Ok(PlanOutcome::RunNotSeeding | PlanOutcome::AlreadyPlanned) => {
+        Ok(PlanOutcome::RunNotSeeding) => return PrepareOutcome::Skipped,
+        Ok(PlanOutcome::AlreadyPlanned) => {
+            // Behavioral planning never takes the all-or-nothing gate; reaching this means the
+            // store contract changed underneath this caller.
+            warn!(
+                ?run_id,
+                "behavioral planning unexpectedly reported AlreadyPlanned"
+            );
             return PrepareOutcome::Skipped;
         }
         Err(error) => {
@@ -238,9 +252,10 @@ async fn prepare_behavioral(
     PrepareOutcome::Eligible(PreparedRun::Behavioral(Arc::new(validated.run)))
 }
 
-/// The person pipeline: validate the pinned payload (zero surviving hashes fails the run inside
-/// `handle_run_error`), then classify by planning state — the stamp or existing chunks make the run
-/// claim-eligible; otherwise it needs its planning scan.
+/// The person pipeline: validate the pinned payload (zero surviving hashes with an active
+/// participation fails the run inside `handle_run_error`; all-superseded retires as zero-work),
+/// then classify by planning state — the stamp or existing chunks make the run claim-eligible;
+/// otherwise it needs its planning scan.
 async fn prepare_person(
     pool: &PgPool,
     store: &PgChunkStore,
@@ -249,7 +264,16 @@ async fn prepare_person(
 ) -> PrepareOutcome {
     let run_id = boundary.run_id;
     let validated = match boundary.load_person_pinned(pool).await {
-        Ok(validated) => validated,
+        Ok(PersonRunValidation::Seedable(validated)) => validated,
+        Ok(PersonRunValidation::Retired { warnings }) => {
+            if reported_runs.insert(run_id) {
+                record_pinned_warnings(&warnings);
+            }
+            // Nothing expects coverage, so the zero-chunk proof lets the run finish as zero-work
+            // downstream — the behavioral zero-condition retirement, kind-adjusted.
+            stamp_planning(pool, run_id, RunKind::PersonProperty).await;
+            return PrepareOutcome::NoChunks;
+        }
         Err(error) => {
             handle_run_error(pool, Some(run_id), error).await;
             return PrepareOutcome::Skipped;
@@ -265,7 +289,11 @@ async fn prepare_person(
     {
         persist_run_warning(pool, run_id, RunWarningNote::ConditionsDropped).await;
     }
-    let coverage_complete = record_coverage(run_id, &validated.uncovered_cohorts);
+    let coverage_complete = record_coverage(
+        run_id,
+        RunKind::PersonProperty,
+        &validated.uncovered_cohorts,
+    );
 
     let stamped = match read_planning_stamp(pool, run_id, RunKind::PersonProperty).await {
         Ok(stamp) => stamp.is_some(),
@@ -280,10 +308,10 @@ async fn prepare_person(
     }
     match store.chunk_progress(run_id).await {
         Ok(progress) if progress.total() > 0 => {
-            // Planned but not yet stamped — a planner that stamped late or a supersession that
-            // completed coverage since. Stamp here so B7.3a needn't backfill proofs.
+            // Planned but not yet stamped — the planner left the stamp to this pass (its coverage
+            // snapshot could predate a supersession). Coverage here is fresh from the database.
             if coverage_complete {
-                stamp_person_planning(pool, run_id).await;
+                stamp_planning(pool, run_id, RunKind::PersonProperty).await;
             }
             PrepareOutcome::Eligible(PreparedRun::Person(run))
         }
@@ -298,10 +326,10 @@ async fn prepare_person(
     }
 }
 
-fn record_coverage(run_id: RunId, uncovered_cohorts: &[CohortId]) -> bool {
+fn record_coverage(run_id: RunId, kind: RunKind, uncovered_cohorts: &[CohortId]) -> bool {
     let coverage_complete = uncovered_cohorts.is_empty();
     if !coverage_complete {
-        counter!(RUNS_PLANNING_WITHHELD).increment(1);
+        counter!(RUNS_PLANNING_WITHHELD, "kind" => kind.as_str()).increment(1);
         warn!(
             run_id = ?run_id,
             uncovered_cohorts = ?uncovered_cohorts,
@@ -313,21 +341,13 @@ fn record_coverage(run_id: RunId, uncovered_cohorts: &[CohortId]) -> bool {
 
 /// Stamp the planning proof once planning has run. A failure is logged but never changes the prepare
 /// outcome — the run keeps seeding and the next pass re-stamps.
-async fn stamp_planning(pool: &PgPool, run_id: RunId) {
-    match mark_chunks_planned(pool, run_id, RunKind::Behavioral).await {
-        Ok(PlanningStampOutcome::Stamped) => counter!(RUNS_PLANNING_STAMPED).increment(1),
+async fn stamp_planning(pool: &PgPool, run_id: RunId, kind: RunKind) {
+    match mark_chunks_planned(pool, run_id, kind).await {
+        Ok(PlanningStampOutcome::Stamped) => {
+            counter!(RUNS_PLANNING_STAMPED, "kind" => kind.as_str()).increment(1);
+        }
         Ok(PlanningStampOutcome::Skipped) => {}
         Err(error) => warn!(run_id = ?run_id, error = %error, "stamping the planning proof failed"),
-    }
-}
-
-async fn stamp_person_planning(pool: &PgPool, run_id: RunId) {
-    match mark_chunks_planned(pool, run_id, RunKind::PersonProperty).await {
-        Ok(PlanningStampOutcome::Stamped) => counter!(RUNS_PLANNING_STAMPED).increment(1),
-        Ok(PlanningStampOutcome::Skipped) => {}
-        Err(error) => {
-            warn!(run_id = ?run_id, error = %error, "stamping the person planning proof failed");
-        }
     }
 }
 

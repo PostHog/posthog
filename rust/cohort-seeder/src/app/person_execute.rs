@@ -113,7 +113,6 @@ async fn stream_chunk(
     lease_cancel: &CancellationToken,
     shutdown: &CancellationToken,
 ) -> Result<(StreamedChunk, InFlight), Halted<ClaimedChunk, PersonChunkError>> {
-    let _timer = ScanTimer::start();
     let spec = match run.chunk_spec(&chunk.spec()) {
         Ok(spec) => spec,
         Err(error) => return Err(Halted::failed(chunk, PersonChunkError::Spec(error))),
@@ -132,6 +131,9 @@ async fn stream_chunk(
     };
     let mut inflight = InFlight::new(settings.max_inflight.get());
     let mut seeds_produced: u64 = 0;
+    // Started after setup so the spec/cursor early returns don't seed the histogram with
+    // near-zero samples.
+    let _timer = ScanTimer::start();
 
     loop {
         let row = tokio::select! {

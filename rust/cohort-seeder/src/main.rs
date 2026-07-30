@@ -307,6 +307,7 @@ fn log_startup(config: &Config) {
         person_seeds_enabled = config.seeder_person_seeds_enabled,
         person_seeds_per_sec = config.seeder_person_seeds_per_sec,
         persons_per_chunk = config.seeder_persons_per_chunk,
+        person_max_concurrent_chunks = config.seeder_person_max_concurrent_chunks,
         person_emit_nonmatchers = config.seeder_person_emit_nonmatchers,
         reconcile_auto_dispatch_enabled = config.seeder_reconcile_auto_dispatch_enabled,
         confirm_register_backfilled = config.seeder_confirm_register_backfilled,

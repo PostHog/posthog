@@ -18,7 +18,35 @@ use super::orchestrator::ORCHESTRATOR_LIVENESS_DEADLINE;
 pub struct PersonSettings {
     pub seeds_per_sec: NonZeroU32,
     pub persons_per_chunk: NonZeroU64,
+    /// The person path's own slot budget: a person chunk never occupies a behavioral slot, so a
+    /// long person scan cannot stall live behavioral seeding.
+    pub max_concurrent_chunks: NonZeroUsize,
     pub emit_nonmatchers: bool,
+}
+
+impl PersonSettings {
+    /// The pacer is shared across concurrent person chunks, so one chunk's floor wall-clock is
+    /// `persons_per_chunk / (seeds_per_sec / concurrency)` — and the ClickHouse cursor stays open
+    /// across the paced produce, counting client read time against `max_execution_time`. Refuse a
+    /// combination that would eat more than half that budget at startup rather than at hour four.
+    fn validate_scan_budget(
+        &self,
+        ch_max_execution_time_secs: u64,
+    ) -> Result<(), OrchestratorSettingsError> {
+        let projected_secs = self
+            .persons_per_chunk
+            .get()
+            .saturating_mul(self.max_concurrent_chunks.get() as u64)
+            / u64::from(self.seeds_per_sec.get());
+        let budget_secs = ch_max_execution_time_secs / 2;
+        if projected_secs > budget_secs {
+            return Err(OrchestratorSettingsError::PersonChunkExceedsScanBudget {
+                projected_secs,
+                budget_secs,
+            });
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -105,13 +133,19 @@ impl TryFrom<&Config> for OrchestratorSettings {
         let person = config
             .seeder_person_seeds_enabled
             .then(|| {
-                Ok::<_, OrchestratorSettingsError>(PersonSettings {
+                let person = PersonSettings {
                     seeds_per_sec: NonZeroU32::new(config.seeder_person_seeds_per_sec)
                         .ok_or(OrchestratorSettingsError::ZeroPersonSeedRate)?,
                     persons_per_chunk: NonZeroU64::new(config.seeder_persons_per_chunk)
                         .ok_or(OrchestratorSettingsError::ZeroPersonsPerChunk)?,
+                    max_concurrent_chunks: NonZeroUsize::new(
+                        config.seeder_person_max_concurrent_chunks,
+                    )
+                    .ok_or(OrchestratorSettingsError::ZeroPersonConcurrency)?,
                     emit_nonmatchers: config.seeder_person_emit_nonmatchers,
-                })
+                };
+                person.validate_scan_budget(config.seeder_ch_max_execution_time_secs)?;
+                Ok::<_, OrchestratorSettingsError>(person)
             })
             .transpose()?;
         Ok(Self::new(
@@ -149,6 +183,17 @@ pub enum OrchestratorSettingsError {
     ZeroPersonSeedRate,
     #[error("persons per chunk must be greater than zero")]
     ZeroPersonsPerChunk,
+    #[error("person max concurrent chunks must be greater than zero")]
+    ZeroPersonConcurrency,
+    #[error(
+        "one person chunk needs ~{projected_secs}s at the configured rate and concurrency, over \
+         the {budget_secs}s scan budget (half of SEEDER_CH_MAX_EXECUTION_TIME_SECS); shrink \
+         SEEDER_PERSONS_PER_CHUNK or raise SEEDER_PERSON_SEEDS_PER_SEC"
+    )]
+    PersonChunkExceedsScanBudget {
+        projected_secs: u64,
+        budget_secs: u64,
+    },
 }
 
 /// The produce sequencing's tunables: the in-flight delivery bound and the queue-full backoff (capped
@@ -355,6 +400,36 @@ mod tests {
             OrchestratorSettings::try_from(&enabled),
             Err(SettingsError::Orchestrator(
                 OrchestratorSettingsError::ZeroPersonsPerChunk
+            ))
+        ));
+        enabled.seeder_persons_per_chunk = 1_000_000;
+        enabled.seeder_person_max_concurrent_chunks = 0;
+        assert!(matches!(
+            OrchestratorSettings::try_from(&enabled),
+            Err(SettingsError::Orchestrator(
+                OrchestratorSettingsError::ZeroPersonConcurrency
+            ))
+        ));
+    }
+
+    /// A chunk whose floor wall-clock (shared pacer, concurrency multiplier) would eat more than
+    /// half the ClickHouse execution-time budget must refuse at startup, not at hour four.
+    #[test]
+    fn person_chunk_sizing_must_fit_the_clickhouse_scan_budget() {
+        let mut config = Config::init_from_hashmap(&HashMap::new()).unwrap();
+        config.seeder_person_seeds_enabled = true;
+        assert!(OrchestratorSettings::try_from(&config).is_ok());
+
+        // 5M persons at 2000/s across 6 concurrent chunks ⇒ 15000s > 14400/2.
+        config.seeder_persons_per_chunk = 5_000_000;
+        config.seeder_person_max_concurrent_chunks = 6;
+        assert!(matches!(
+            OrchestratorSettings::try_from(&config),
+            Err(SettingsError::Orchestrator(
+                OrchestratorSettingsError::PersonChunkExceedsScanBudget {
+                    projected_secs: 15_000,
+                    budget_secs: 7_200,
+                }
             ))
         ));
     }

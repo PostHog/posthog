@@ -49,8 +49,8 @@ pub use partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 pub use person::{
     person_chunk_sentinel_day, tile_ranges, EvaluatedConditions, PersonChunkSpec,
     PersonChunkSpecError, PersonEvaluator, PersonPinnedSnapshot, PersonPlanError, PersonRange,
-    PersonRangeError, PersonRowOutcome, PersonRowSkip, PersonSeedContext, PinnedPersonRun, RunKind,
-    UnknownRunKind, ValidatedPinnedPersonRun, MAX_PERSON_CHUNKS,
+    PersonRangeError, PersonRowOutcome, PersonRowSkip, PersonRunValidation, PersonSeedContext,
+    PinnedPersonRun, RunKind, UnknownRunKind, ValidatedPinnedPersonRun, MAX_PERSON_CHUNKS,
 };
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,

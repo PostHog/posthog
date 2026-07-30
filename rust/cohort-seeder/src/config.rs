@@ -184,15 +184,20 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub seeder_person_seeds_enabled: bool,
 
-    /// Person-seed produce rate, separate from `seeder_tiles_per_sec` so the two throughputs tune
-    /// independently.
+    /// Person-seed produce rate, shared across concurrent person chunks and separate from
+    /// `seeder_tiles_per_sec` so the two throughputs tune independently.
     #[envconfig(default = "2000")]
     pub seeder_person_seeds_per_sec: u32,
 
     /// Target persons per planned UUID-range chunk; the planning scan keeps every Nth id as a
-    /// range boundary.
-    #[envconfig(default = "5000000")]
+    /// range boundary. Sized so one chunk's paced emission completes in single-digit minutes —
+    /// settings validation refuses a value the ClickHouse execution-time budget cannot cover.
+    #[envconfig(default = "1000000")]
     pub seeder_persons_per_chunk: u64,
+
+    /// The person path's own chunk-slot budget, so a person scan never occupies a behavioral slot.
+    #[envconfig(default = "1")]
+    pub seeder_person_max_concurrent_chunks: usize,
 
     /// Emit empty-`matched` seeds for scanned non-matchers. They heal stale-TRUE state and cost
     /// only a point-read on absent records (the consumer's no-create rule).

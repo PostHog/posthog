@@ -16,7 +16,9 @@ use cohort_seeder::app::reconcile_dispatch::{
     prepare_reconcile_dispatch, CompletionRequirement, PrepareReconcileDispatchError,
     RegisterBackfillConfirmation,
 };
-use cohort_seeder::domain::{tile_ranges, ClaimEpoch, PinnedWarning, ProduceHwms, RunKind};
+use cohort_seeder::domain::{
+    tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms, RunKind,
+};
 use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome};
 use cohort_seeder::store::lease::LeaseFailure;
 use cohort_seeder::store::runs::{
@@ -925,7 +927,10 @@ async fn discovery_is_kind_gated_and_person_pinned_load_validates() -> Result<()
             BoundaryOutcome::Established(run) | BoundaryOutcome::AlreadyEstablished(run) => run,
             BoundaryOutcome::NoLongerSeedable { .. } => bail!("person run was not seedable"),
         };
-        let validated = seedable.load_person_pinned(&pool).await?;
+        let PersonRunValidation::Seedable(validated) = seedable.load_person_pinned(&pool).await?
+        else {
+            bail!("person run with an active participation unexpectedly retired");
+        };
         ensure!(validated.run.conditions.len() == 1);
         ensure!(validated.run.horizon_days == 30);
         ensure!(validated.uncovered_cohorts.is_empty());
@@ -933,6 +938,38 @@ async fn discovery_is_kind_gated_and_person_pinned_load_validates() -> Result<()
             warning,
             PinnedWarning::ConditionSuperseded { cohort_id, .. } if *cohort_id == CohortId(11)
         )));
+        Ok(())
+    })
+    .await
+}
+
+/// The cluster-wide planning claim is exclusive per run and frees on release, so at most one
+/// replica ever runs a run's boundary scan.
+#[tokio::test]
+async fn person_planning_claim_is_exclusive_per_run_until_released() -> Result<()> {
+    with_db(|pool| async move {
+        let run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
+        let other_run = insert_person_run(&pool, 3, "seeding", true, person_pinned(&[])).await?;
+        let store = PgChunkStore::new(pool.clone());
+
+        let held = store
+            .try_claim_person_planning(run)
+            .await?
+            .context("first claim should win")?;
+        ensure!(store.try_claim_person_planning(run).await?.is_none());
+        // Claims are per run: a different run's planner is unaffected.
+        let other = store
+            .try_claim_person_planning(other_run)
+            .await?
+            .context("a different run's claim should win")?;
+
+        held.release().await;
+        other.release().await;
+        let reclaimed = store
+            .try_claim_person_planning(run)
+            .await?
+            .context("a released claim should be reclaimable")?;
+        reclaimed.release().await;
         Ok(())
     })
     .await

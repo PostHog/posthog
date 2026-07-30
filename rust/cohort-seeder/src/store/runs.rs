@@ -11,10 +11,9 @@ use sqlx::types::Json;
 use sqlx::{FromRow, PgPool};
 
 use crate::domain::{
-    BehavioralShapeHash, BehavioralShapeHashError, PersonPinnedSnapshot, PinnedError,
-    PinnedParticipation, PinnedParticipationState, PinnedPersonRun, PinnedRun, PinnedRunSnapshot,
-    ReconcileTile, RunId, RunKind, TriggerKind, UtcMillis, ValidatedPinnedPersonRun,
-    ValidatedPinnedRun,
+    BehavioralShapeHash, BehavioralShapeHashError, PersonPinnedSnapshot, PersonRunValidation,
+    PinnedError, PinnedParticipation, PinnedParticipationState, PinnedPersonRun, PinnedRun,
+    PinnedRunSnapshot, ReconcileTile, RunId, RunKind, TriggerKind, UtcMillis, ValidatedPinnedRun,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
@@ -211,10 +210,7 @@ impl SeedableRun {
         Ok(PinnedRun::validate(snapshot)?)
     }
 
-    pub async fn load_person_pinned(
-        &self,
-        pool: &PgPool,
-    ) -> Result<ValidatedPinnedPersonRun, RunError> {
+    pub async fn load_person_pinned(&self, pool: &PgPool) -> Result<PersonRunValidation, RunError> {
         let participations = self.fetch_participations(pool).await?;
         let snapshot = PersonPinnedSnapshot {
             run_id: self.run_id,

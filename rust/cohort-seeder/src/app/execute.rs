@@ -15,7 +15,7 @@ use tracing::{info, warn};
 use crate::clickhouse::scanner::ChunkScanner;
 use crate::domain::{
     ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, PinnedRun,
-    ProducedChunk, ScannedChunk, StreamedChunk,
+    ProducedChunk, RunKind, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
@@ -239,17 +239,20 @@ pub(super) enum ChunkOutcome {
     },
 }
 
-pub(super) fn record_task_result(result: Result<ChunkOutcome, tokio::task::JoinError>) {
+pub(super) fn record_task_result(
+    result: Result<ChunkOutcome, tokio::task::JoinError>,
+    kind: RunKind,
+) {
     match result {
         Ok(ChunkOutcome::Confirmed {
             lease,
             tiles_produced,
         }) => {
-            counter!(CHUNKS_CONFIRMED).increment(1);
+            counter!(CHUNKS_CONFIRMED, "kind" => kind.as_str()).increment(1);
             info!(?lease, tiles_produced, "chunk confirmed");
         }
         Ok(ChunkOutcome::Failed { lease, detail }) => {
-            counter!(CHUNKS_FAILED).increment(1);
+            counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(?lease, error = %detail, "chunk failed and was released for retry");
         }
         Ok(ChunkOutcome::Unclaimed { lease }) => {
@@ -260,11 +263,11 @@ pub(super) fn record_task_result(result: Result<ChunkOutcome, tokio::task::JoinE
             detail,
             recovery,
         }) => {
-            counter!(CHUNKS_FAILED).increment(1);
+            counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(?lease, error = %detail, recovery_error = %recovery, "chunk recovery update did not apply");
         }
         Err(error) => {
-            counter!(CHUNKS_FAILED).increment(1);
+            counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             warn!(error = %error, "chunk task failed unexpectedly");
         }
     }

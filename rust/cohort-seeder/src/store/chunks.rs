@@ -14,7 +14,7 @@ use chrono::NaiveDate;
 use cohort_core::filters::TeamId;
 use cohort_core::{day_idx_of_naive_date, DayIdx};
 use sqlx::types::Json;
-use sqlx::{FromRow, PgPool};
+use sqlx::{Connection, FromRow, PgPool};
 use std::fmt;
 use std::num::NonZeroU16;
 use uuid::Uuid;
@@ -107,6 +107,35 @@ impl PgChunkStore {
         Ok(PlanOutcome::Planned { inserted })
     }
 
+    /// Try to claim the cluster-wide planning slot for one person run, so at most one replica runs
+    /// the full-table ClickHouse boundary aggregation per run. The claim is a session advisory
+    /// lock on a connection detached from the pool: releasing (or crashing — the socket closes)
+    /// frees it, and it can never leak back into the pool still holding the lock.
+    pub async fn try_claim_person_planning(
+        &self,
+        run_id: RunId,
+    ) -> Result<Option<PersonPlanningClaim>, ChunkStoreError> {
+        let mut connection = self.pool.acquire().await?.detach();
+        let claimed = sqlx::query_scalar::<_, bool>(PERSON_PLANNING_LOCK_SQL)
+            .bind(run_id)
+            .fetch_one(&mut connection)
+            .await;
+        match claimed {
+            Ok(true) => Ok(Some(PersonPlanningClaim {
+                connection: Some(connection),
+                run_id,
+            })),
+            Ok(false) => {
+                connection.close().await.ok();
+                Ok(None)
+            }
+            Err(error) => {
+                connection.close().await.ok();
+                Err(error.into())
+            }
+        }
+    }
+
     /// Plan a person run's UUID-range chunks under one all-or-nothing statement: `FOR UPDATE` on
     /// the `seeding` run row plus a `NOT EXISTS` chunks gate, one row per range under the
     /// far-future sentinel day with `band` = ordinal. Deliberately no `ON CONFLICT`: under READ
@@ -172,7 +201,12 @@ impl PgChunkStore {
         .await;
         let result = match result {
             Ok(result) => result,
-            Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("23505") => {
+            // Only the (run, day, band) constraint means "another planner won"; any other unique
+            // violation must surface rather than be misread as an idempotent no-op.
+            Err(sqlx::Error::Database(error))
+                if error.code().as_deref() == Some("23505")
+                    && error.constraint() == Some("cohort_bfc_run_day_band_uq") =>
+            {
                 return Ok(PlanOutcome::AlreadyPlanned);
             }
             Err(error) => return Err(error.into()),
@@ -523,6 +557,27 @@ pub struct Claim {
     pub chunk: ClaimedChunk,
     pub kind: ClaimKind,
     pub lease: LeaseHandle,
+}
+
+const PERSON_PLANNING_LOCK_SQL: &str = "SELECT pg_try_advisory_lock(hashtextextended($1::text, 0))";
+
+/// The held cluster-wide planning claim; release explicitly, or drop to free via connection close.
+pub struct PersonPlanningClaim {
+    connection: Option<sqlx::PgConnection>,
+    run_id: RunId,
+}
+
+impl PersonPlanningClaim {
+    pub async fn release(mut self) {
+        if let Some(mut connection) = self.connection.take() {
+            sqlx::query("SELECT pg_advisory_unlock(hashtextextended($1::text, 0))")
+                .bind(self.run_id)
+                .execute(&mut connection)
+                .await
+                .ok();
+            connection.close().await.ok();
+        }
+    }
 }
 
 /// The result of planning a run's chunks. `RunNotSeeding` is control flow (the run left the

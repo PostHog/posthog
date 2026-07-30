@@ -193,6 +193,15 @@ pub struct ValidatedPinnedPersonRun {
     pub uncovered_cohorts: Vec<CohortId>,
 }
 
+/// A person run's validation outcome. `Retired` mirrors the behavioral zero-condition retirement:
+/// with every participation superseded, nothing expects coverage, so the run finishes as zero-work
+/// instead of failing.
+#[derive(Debug)]
+pub enum PersonRunValidation {
+    Seedable(ValidatedPinnedPersonRun),
+    Retired { warnings: Vec<PinnedWarning> },
+}
+
 #[derive(Debug, Deserialize)]
 struct PersonPinnedPayload {
     schema_version: u32,
@@ -207,9 +216,7 @@ struct RawPersonPinnedCondition {
 }
 
 impl PinnedPersonRun {
-    pub fn validate(
-        snapshot: PersonPinnedSnapshot,
-    ) -> Result<ValidatedPinnedPersonRun, PinnedError> {
+    pub fn validate(snapshot: PersonPinnedSnapshot) -> Result<PersonRunValidation, PinnedError> {
         let payload: PersonPinnedPayload = serde_json::from_value(snapshot.pinned)?;
         if payload.schema_version != 1 {
             return Err(PinnedError::SchemaVersion(payload.schema_version));
@@ -253,9 +260,15 @@ impl PinnedPersonRun {
             }
         }
         let uncovered_cohorts = participation.uncovered_from(&covered);
+        if surviving.is_empty() && uncovered_cohorts.is_empty() {
+            // No active participation expects coverage (all superseded or none exist): retire.
+            // Zero survivors with an active participation stays terminal below — that cohort's
+            // pinned conditions dropped from the catalog, which is a genuine data problem.
+            return Ok(PersonRunValidation::Retired { warnings });
+        }
         let conditions = EvaluatedConditions::new(surviving)?;
 
-        Ok(ValidatedPinnedPersonRun {
+        Ok(PersonRunValidation::Seedable(ValidatedPinnedPersonRun {
             run: PinnedPersonRun {
                 run_id: snapshot.run_id,
                 team_id: snapshot.team_id,
@@ -265,7 +278,7 @@ impl PinnedPersonRun {
             },
             warnings,
             uncovered_cohorts,
-        })
+        }))
     }
 
     /// Narrow a claimed chunk to the person path, after proving it belongs to this run/team. This
@@ -324,6 +337,8 @@ fn classify_person_condition(hash: ConditionHash, filters: &TeamFilters) -> Pers
 #[derive(Debug, Clone)]
 pub struct EvaluatedConditions(Vec<(ConditionHash, Arc<Vec<Value>>)>);
 
+// Non-empty by construction, so an `is_empty` would be a method whose contract is "never call me".
+#[allow(clippy::len_without_is_empty)]
 impl EvaluatedConditions {
     fn new(surviving: BTreeMap<ConditionHash, Arc<Vec<Value>>>) -> Result<Self, PinnedError> {
         if surviving.is_empty() {
@@ -337,11 +352,6 @@ impl EvaluatedConditions {
 
     pub fn len(&self) -> usize {
         self.0.len()
-    }
-
-    /// Always false: emptiness is rejected at construction.
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &(ConditionHash, Arc<Vec<Value>>)> {
@@ -551,6 +561,13 @@ mod tests {
     const HASH_A: &str = "aaaaaaaaaaaaaaaa";
     const HASH_B: &str = "bbbbbbbbbbbbbbbb";
 
+    fn seedable(validation: Result<PersonRunValidation, PinnedError>) -> ValidatedPinnedPersonRun {
+        match validation.unwrap() {
+            PersonRunValidation::Seedable(validated) => validated,
+            PersonRunValidation::Retired { .. } => panic!("expected a seedable run"),
+        }
+    }
+
     #[test]
     fn run_kind_round_trips_and_fails_closed() {
         for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
@@ -630,7 +647,7 @@ mod tests {
         ));
 
         // A hash absent from the frozen catalog warns, drops, and leaves the cohort uncovered.
-        let validated = PinnedPersonRun::validate(snapshot(
+        let validated = seedable(PinnedPersonRun::validate(snapshot(
             pinned(&[(1, HASH_A), (2, HASH_B)]),
             vec![
                 participation(1, active.clone(), false),
@@ -640,8 +657,7 @@ mod tests {
                     false,
                 ),
             ],
-        ))
-        .unwrap();
+        )));
         assert_eq!(
             validated
                 .run
@@ -662,14 +678,13 @@ mod tests {
         assert_eq!(validated.run.horizon_days, 30);
 
         // A superseded cohort's hash warns distinctly and expects no coverage.
-        let validated = PinnedPersonRun::validate(snapshot(
+        let validated = seedable(PinnedPersonRun::validate(snapshot(
             pinned(&[(1, HASH_A), (2, HASH_B)]),
             vec![
                 participation(1, active.clone(), false),
                 participation(2, person_filter_leaves(&[(HASH_B, "plan", "paid")]), true),
             ],
-        ))
-        .unwrap();
+        )));
         assert_eq!(validated.run.conditions.len(), 1);
         assert!(validated.uncovered_cohorts.is_empty());
         assert!(validated
@@ -689,7 +704,7 @@ mod tests {
         ));
 
         // Cross-cohort duplicate hashes dedup to one evaluated condition covering both cohorts.
-        let validated = PinnedPersonRun::validate(snapshot(
+        let validated = seedable(PinnedPersonRun::validate(snapshot(
             pinned(&[(1, HASH_A), (2, HASH_A)]),
             vec![
                 participation(1, active.clone(), false),
@@ -699,18 +714,32 @@ mod tests {
                     false,
                 ),
             ],
-        ))
-        .unwrap();
+        )));
         assert_eq!(validated.run.conditions.len(), 1);
         assert!(validated.uncovered_cohorts.is_empty());
 
-        // Zero surviving hashes is terminal — the run must fail rather than seed nothing.
+        // Zero surviving hashes with an active participation is terminal — that cohort's pinned
+        // conditions dropped from the catalog, a genuine data problem.
         assert!(matches!(
             PinnedPersonRun::validate(snapshot(
                 pinned(&[(1, HASH_B)]),
-                vec![participation(1, active, false)],
+                vec![participation(1, active.clone(), false)],
             )),
             Err(PinnedError::NoSurvivingPersonConditions)
+        ));
+
+        // Every participation superseded: nothing expects coverage, so the run retires as
+        // zero-work instead of failing (the behavioral zero-condition semantics).
+        assert!(matches!(
+            PinnedPersonRun::validate(snapshot(
+                pinned(&[(1, HASH_A)]),
+                vec![participation(1, active, true)],
+            )),
+            Ok(PersonRunValidation::Retired { warnings })
+                if warnings.contains(&PinnedWarning::ConditionSuperseded {
+                    cohort_id: CohortId(1),
+                    hash: hash(HASH_A),
+                })
         ));
     }
 
@@ -758,15 +787,14 @@ mod tests {
     }
 
     fn build_evaluator(emit_nonmatchers: bool) -> PersonEvaluator {
-        let validated = PinnedPersonRun::validate(snapshot(
+        let validated = seedable(PinnedPersonRun::validate(snapshot(
             pinned(&[(1, HASH_A), (1, HASH_B)]),
             vec![participation(
                 1,
                 person_filter_leaves(&[(HASH_A, "email", "a@b.com"), (HASH_B, "plan", "paid")]),
                 false,
             )],
-        ))
-        .unwrap();
+        )));
         PersonEvaluator::new(TeamId(2), validated.run.conditions, emit_nonmatchers)
     }
 
@@ -881,11 +909,10 @@ mod tests {
                 "conditionHash": HASH_B,
                 "bytecode": broken,
             }));
-        let validated = PinnedPersonRun::validate(snapshot(
+        let validated = seedable(PinnedPersonRun::validate(snapshot(
             pinned(&[(1, HASH_A), (1, HASH_B)]),
             vec![participation(1, leaves, false)],
-        ))
-        .unwrap();
+        )));
         let mut evaluator = PersonEvaluator::new(TeamId(2), validated.run.conditions, true);
         let ctx = context();
 

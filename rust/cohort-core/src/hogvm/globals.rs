@@ -78,7 +78,9 @@ pub fn build_person_scan_globals(
     person_id: Uuid,
     properties: &str,
 ) -> Result<Value, GlobalsError> {
-    let person_properties = parse_optional_json(Some(properties), "person_properties")?;
+    // Quiet parse: a seeder scan failure must not increment the stream processor's Stage 1
+    // counter — the seeder meters its own skipped rows.
+    let person_properties = parse_optional_json_quiet(Some(properties), "person_properties")?;
     Ok(person_scope_globals(
         team_id.0,
         &person_id.to_string(),
@@ -94,15 +96,23 @@ fn person_scope_globals(team_id: i32, person_id: &str, person_properties: Value)
     })
 }
 
-/// Parse a raw JSON payload, treating `None` or empty string as `{}`.
+/// Parse a raw JSON payload, treating `None` or empty string as `{}`, counting failures on the
+/// Stage 1 metric — the live event paths' behavior.
 fn parse_optional_json(raw: Option<&str>, field: &'static str) -> Result<Value, GlobalsError> {
+    parse_optional_json_quiet(raw, field).inspect_err(|_| {
+        counter!(STAGE1_GLOBALS_PARSE_ERROR, "field" => field).increment(1);
+    })
+}
+
+/// The metric-free parse core, for callers that meter failures themselves.
+fn parse_optional_json_quiet(
+    raw: Option<&str>,
+    field: &'static str,
+) -> Result<Value, GlobalsError> {
     let Some(raw) = raw.filter(|s| !s.is_empty()) else {
         return Ok(json!({}));
     };
-    serde_json::from_str(raw).map_err(|source| {
-        counter!(STAGE1_GLOBALS_PARSE_ERROR, "field" => field).increment(1);
-        GlobalsError { field, source }
-    })
+    serde_json::from_str(raw).map_err(|source| GlobalsError { field, source })
 }
 
 /// `event.elements_chain ?? properties['$elements_chain'] ?? null`
