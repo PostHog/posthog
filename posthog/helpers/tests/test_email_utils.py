@@ -3,6 +3,7 @@ from typing import Optional, cast
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 import requests
 from parameterized import parameterized
@@ -24,6 +25,7 @@ from posthog.helpers.email_utils import (
     validate_display_name,
     validate_message_body,
 )
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
 
@@ -69,6 +71,36 @@ class TestEmailLookupHandler(TestCase):
                         self.assertEqual(found_user.id, user.id)
         finally:
             user.delete()
+
+
+class TestEmailCaseVariantLookup(TestCase):
+    """Accounts differing only by email case exist from when signup was case sensitive."""
+
+    def _create_case_variants(self) -> tuple[Organization, User, User]:
+        organization = Organization.objects.create(name="Test org")
+        used = User.objects.create_and_join(organization, "twins@example.com", "testpass123", "Used")
+        # Bypass the manager, which lowercases emails, to recreate a legacy mixed-case row.
+        User.objects.filter(id=used.id).update(email="Twins@Example.com")
+        abandoned = User.objects.create_user(email="twins@example.com", password="testpass123", first_name="Abandoned")
+        return organization, User.objects.get(id=used.id), abandoned
+
+    def test_prefers_account_with_organization_over_exact_case_twin(self):
+        _organization, used, _abandoned = self._create_case_variants()
+
+        found = EmailLookupHandler.get_user_by_email("twins@example.com")
+
+        self.assertIsNotNone(found)
+        self.assertEqual(cast(User, found).id, used.id)
+
+    def test_prefers_most_recently_logged_in_over_never_logged_in_twin(self):
+        organization, used, abandoned = self._create_case_variants()
+        OrganizationMembership.objects.create(organization=organization, user=abandoned)
+        User.objects.filter(id=used.id).update(last_login=timezone.now())
+
+        found = EmailLookupHandler.get_user_by_email("twins@example.com")
+
+        self.assertIsNotNone(found)
+        self.assertEqual(cast(User, found).id, used.id)
 
 
 class TestEmailValidationHelper(TestCase):

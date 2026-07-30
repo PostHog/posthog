@@ -53,6 +53,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -1059,13 +1060,9 @@ class PasswordResetSerializer(serializers.Serializer):
                 code="email_not_available",
             )
 
-        try:
-            user = User.objects.filter(is_active=True).get(email__iexact=email)
-        except User.DoesNotExist:
-            user = None
-        except User.MultipleObjectsReturned:
-            # If multiple users share the same email (different casing), use the exact match
-            user = User.objects.filter(is_active=True, email=email).first()
+        # Resolves legacy accounts whose emails differ only by casing to the one the person
+        # actually uses, rather than to whichever spelling they happened to type.
+        user = EmailLookupHandler.get_user_by_email(email)
 
         if user:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)

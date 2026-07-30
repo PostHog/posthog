@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlparse
 
 from django.apps import apps
 from django.conf import settings
-from django.contrib.auth.backends import BaseBackend
+from django.contrib.auth.backends import BaseBackend, ModelBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
@@ -30,6 +30,7 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
@@ -1201,6 +1202,55 @@ class WebauthnBackend(BaseBackend):
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return None
+
+
+# Upper bound on how many case variants of one email we're willing to check a password
+# against, so a pathological set of duplicates can't turn one login into dozens of
+# (deliberately expensive) hash comparisons.
+MAX_EMAIL_CASE_VARIANTS_CHECKED = 5
+
+
+class CaseVariantEmailBackend(ModelBackend):
+    """
+    Password authentication for people who own more than one account for the same email.
+
+    Signup was case sensitive until emails were normalized, so some accounts exist twice,
+    differing only by casing. `ModelBackend` asks the user manager for a single row, so
+    whichever row loses that lookup is unreachable — the person gets "invalid email or
+    password", or authenticates into the twin and is then challenged for a 2FA device they
+    never enrolled. Checking the password against every case variant lands them on their
+    own account no matter how they typed the address.
+
+    Single-account logins (virtually all of them) fall through to `ModelBackend`, which
+    must stay registered after this backend in `AUTHENTICATION_BACKENDS`.
+    """
+
+    def authenticate(
+        self,
+        request: Optional[HttpRequest],
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Optional[User]:
+        email = username or kwargs.get(User.USERNAME_FIELD)
+        if not email or password is None:
+            return None
+
+        # `is_active=None` returns inactive users too; `user_can_authenticate` filters them
+        # below, matching ModelBackend.
+        candidates = EmailLookupHandler.get_users_by_email(email, is_active=None)
+        if len(candidates) < 2:
+            return None
+
+        for user in candidates[:MAX_EMAIL_CASE_VARIANTS_CHECKED]:
+            if user.check_password(password) and self.user_can_authenticate(user):
+                structlog_logger.info(
+                    "login_resolved_email_case_variant",
+                    user_id=user.pk,
+                    candidate_count=len(candidates),
+                )
+                return user
+        return None
 
 
 class WebhookSignatureAuthentication(authentication.BaseAuthentication):

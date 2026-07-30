@@ -255,6 +255,8 @@ AUTHENTICATION_BACKENDS: list[str] = [
     "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
+    # Must stay ahead of ModelBackend — it falls through to it for single-account logins
+    "posthog.auth.CaseVariantEmailBackend",
     "django.contrib.auth.backends.ModelBackend",
     "posthog.auth.WebauthnBackend",
 ]

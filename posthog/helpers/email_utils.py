@@ -7,8 +7,9 @@ import re
 import html
 import hashlib
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
 from functools import partial
 from typing import TYPE_CHECKING, Optional, cast, overload
@@ -16,8 +17,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
-from django.core.exceptions import MultipleObjectsReturned
-from django.db.models import QuerySet
+from django.db.models import Count
 
 import requests
 import structlog
@@ -247,38 +247,69 @@ class EmailNormalizer:
         return email.lower()
 
 
+# Sort placeholder for users who have never logged in, so they lose the recency
+# comparison against anyone who has.
+_NEVER_LOGGED_IN = datetime.min.replace(tzinfo=UTC)
+
+
+def _candidate_rank(user: "User", email: str) -> tuple:
+    """
+    Ranking used to pick between accounts whose emails differ only by case.
+    Highest first: belongs to an organization, then most recently logged in,
+    then the exact-case spelling that was typed, then the oldest account.
+    """
+    return (
+        getattr(user, "organization_memberships_count", 0) > 0,
+        user.last_login or _NEVER_LOGGED_IN,
+        user.email == email,
+        -user.id,
+    )
+
+
+def rank_email_case_variants(users: Iterable["User"], email: str) -> list["User"]:
+    """
+    Order accounts that share `email` up to casing, best candidate first. Users must be
+    annotated with `organization_memberships_count` (see `EmailLookupHandler.get_users_by_email`).
+    """
+    return sorted(users, key=partial(_candidate_rank, email=email), reverse=True)
+
+
 class EmailLookupHandler:
     @staticmethod
-    def get_user_by_email(email: str, is_active: Optional[bool] = True) -> Optional["User"]:
+    def get_users_by_email(email: str, is_active: Optional[bool] = True) -> list["User"]:
         """
-        Get user by email with backwards compatibility.
-        First tries exact match (for existing users), then case-insensitive fallback.
+        Every user whose email matches `email` case-insensitively, best candidate first.
 
-        Handles the edge case where multiple users exist with case variations of the same email
-        (e.g., test@email.com, Test@email.com, TEST@email.com) by:
-        1. Preferring exact case match if it exists
-        2. Returning the first case-insensitive match deterministically if no exact match
+        Signups were case sensitive until emails were normalized, so some people own two
+        accounts that differ only by casing (e.g. `Test@email.com` and `test@email.com`).
+        Callers that can disambiguate further — an authentication backend checking the
+        password, a management command reporting duplicates — need all of them; callers
+        that just want "the account" should use `get_user_by_email`.
         """
         from posthog.models.user import User
 
         queryset = User.objects.filter(is_active=is_active) if is_active else User.objects.all()
+        candidates = queryset.filter(email__iexact=email).annotate(
+            organization_memberships_count=Count("organization_memberships")
+        )
+        return rank_email_case_variants(candidates, email)
 
-        # First try: exact match (preserves existing behavior)
-        try:
-            return queryset.get(email=email)
-        except User.DoesNotExist:
-            pass
+    @staticmethod
+    def get_user_by_email(email: str, is_active: Optional[bool] = True) -> Optional["User"]:
+        """
+        Get the user owning `email`, matched case-insensitively.
 
-        # Second try: case-insensitive match
-        try:
-            return queryset.get(email__iexact=email)
-        except User.DoesNotExist:
+        When case variations of the same email exist we deliberately do *not* prefer the
+        exact-case row: an abandoned twin created by a case-sensitive signup would then
+        shadow the account the person actually uses, sending them to a login or password
+        reset for the wrong account. `get_users_by_email` ranking decides instead.
+        """
+        candidates = EmailLookupHandler.get_users_by_email(email, is_active=is_active)
+        if not candidates:
             return None
-        except MultipleObjectsReturned:
-            # Handle multiple case variations of the same email
-            return EmailMultiRecordHandler.handle_multiple_users(
-                queryset.filter(email__iexact=email), email, "user_lookup"
-            )
+        if len(candidates) > 1:
+            EmailMultiRecordHandler.report_multiple_users(candidates, email, "user_lookup")
+        return candidates[0]
 
 
 class EmailMultiRecordHandler:
@@ -288,38 +319,33 @@ class EmailMultiRecordHandler:
     """
 
     @staticmethod
-    def handle_multiple_users(queryset: QuerySet, email: str, context: str) -> Optional["User"]:
+    def report_multiple_users(candidates: list["User"], email: str, context: str) -> None:
         """
-        Handle multiple user records with case variations of the same email.
-
-        Returns:
-            Last logged in user deterministically
+        Log and capture the fact that several accounts share `email` up to casing, so the
+        duplicates can be found and cleaned up (see the `find_duplicate_users_by_email_case`
+        management command). `candidates` must already be ranked, best first.
         """
-        case_insensitive_matches = queryset.order_by("-last_login")
-        user_count = case_insensitive_matches.count()
-        last_logged_in_user = case_insensitive_matches.first()
+        if len(candidates) <= 1:
+            return
 
-        if user_count > 1:
-            email_variations = list(case_insensitive_matches.values_list("email", flat=True))
-            last_logged_in_user_id = last_logged_in_user.id if last_logged_in_user else None
+        email_variations = [user.email for user in candidates]
+        selected_user_id = candidates[0].id
 
-            posthoganalytics.capture(
-                "multiple users with email case variations",
-                properties={
-                    "email": email,
-                    "user_count": user_count,
-                    "email_variations": email_variations,
-                    "last_logged_in_user_id": last_logged_in_user_id,
-                },
-            )
+        posthoganalytics.capture(
+            "multiple users with email case variations",
+            properties={
+                "email": email,
+                "user_count": len(candidates),
+                "email_variations": email_variations,
+                "selected_user_id": selected_user_id,
+            },
+        )
 
-            logger.warning(
-                f"Multiple users with case variations of email '{email}' during {context}. "
-                f"Found {user_count} variations: {email_variations}. "
-                f"Returning last logged in user (ID: {last_logged_in_user_id})"
-            )
-
-        return last_logged_in_user
+        logger.warning(
+            f"Multiple users with case variations of email '{email}' during {context}. "
+            f"Found {len(candidates)} variations: {email_variations}. "
+            f"Returning user (ID: {selected_user_id})"
+        )
 
 
 class EmailValidationHelper:

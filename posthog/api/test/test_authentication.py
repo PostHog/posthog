@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
@@ -224,6 +224,34 @@ class TestLoginAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
+
+    def _create_case_variant_twin(self, password: str) -> User:
+        # Signup was case sensitive until emails were normalized, so some people own two
+        # accounts differing only by casing. Recreate that: the account they use is
+        # mixed-case, plus an abandoned lowercase twin with no organization.
+        self.user.is_email_verified = True
+        self.user.save()
+        User.objects.filter(id=self.user.id).update(email="User1@posthog.com")
+
+        twin = User.objects.create_user(email="user1@posthog.com", password=password, first_name="Twin")
+        twin.is_email_verified = True
+        twin.save()
+        return twin
+
+    def test_login_with_case_variant_twin_reaches_own_account_not_twins_2fa(self):
+        twin = self._create_case_variant_twin(cast(str, self.CONFIG_PASSWORD))
+        twin.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore[attr-defined]
+
+        response = self.client.post("/api/login", {"email": "user1@posthog.com", "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.session[SESSION_KEY], str(self.user.pk))
+
+    def test_login_still_reaches_a_case_variant_twin_when_only_its_password_matches(self):
+        twin = self._create_case_variant_twin("twin-password-12345")
+
+        response = self.client.post("/api/login", {"email": "USER1@posthog.com", "password": "twin-password-12345"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.session[SESSION_KEY], str(twin.pk))
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
