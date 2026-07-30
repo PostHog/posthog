@@ -207,10 +207,14 @@ antithesis, em-dash addiction — is already covered by
 
 ```tsx
 // don't — flashes "No results" during the first fetch
-{items.length === 0 ? <EmptyState /> : <ItemsList items={items} />}
+{
+  items.length === 0 ? <EmptyState /> : <ItemsList items={items} />
+}
 
 // do — branch in resolution order: loading → error → empty → content
-{itemsLoading ? <Spinner /> : items.length === 0 ? <EmptyState /> : <ItemsList items={items} />}
+{
+  itemsLoading ? <Spinner /> : items.length === 0 ? <EmptyState /> : <ItemsList items={items} />
+}
 ```
 
 ### A boolean that means both "no" and "not yet"
@@ -240,7 +244,7 @@ old name before calling it done. Every surviving alias costs future readers a tr
 
 ```ts
 // don't — this "rename" breaks every dashboard querying the old name
-posthog.capture('autopilot run started')   // was: 'project x run started'
+posthog.capture('autopilot run started') // was: 'project x run started'
 ```
 
 Event names, property names/values, flag keys, `data-attr` values, storage keys, and URL paths

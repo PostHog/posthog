@@ -142,14 +142,14 @@ scaffolding. Climb the ladder one rung at a time:
   is narrower than the name, rename one of them.
 - **Wire strings are frozen.** The rename sweep stops at anything the outside world can see:
 
-  | Frozen string                           | Who depends on it                                              |
-  | --------------------------------------- | -------------------------------------------------------------- |
-  | Event names (`posthog.capture('…')`)    | dashboards, insights, cohorts, alerts                           |
-  | Event/person property names and values  | the same, plus breakdowns and filters                           |
-  | Feature flag keys                       | rollout state lives server-side; a renamed key is a new flag    |
-  | `data-attr` values                      | autocapture-built dashboards, Playwright selectors, QA tooling  |
-  | `localStorage` / `sessionStorage` keys  | users' persisted state silently resets                          |
-  | URL paths and search params             | bookmarks, docs links, `urlToAction` handlers                   |
+  | Frozen string                          | Who depends on it                                              |
+  | -------------------------------------- | -------------------------------------------------------------- |
+  | Event names (`posthog.capture('…')`)   | dashboards, insights, cohorts, alerts                          |
+  | Event/person property names and values | the same, plus breakdowns and filters                          |
+  | Feature flag keys                      | rollout state lives server-side; a renamed key is a new flag   |
+  | `data-attr` values                     | autocapture-built dashboards, Playwright selectors, QA tooling |
+  | `localStorage` / `sessionStorage` keys | users' persisted state silently resets                         |
+  | URL paths and search params            | bookmarks, docs links, `urlToAction` handlers                  |
 
   Pin them where they're defined with a comment stating the constraint, e.g.
   `// pinned: analytics event name — renaming breaks dashboards`. If a wire string genuinely
@@ -165,10 +165,14 @@ acts on it.
 
 ```tsx
 // don't — the empty state renders during the first fetch
-{items.length === 0 ? <EmptyState /> : <ItemsList items={items} />}
+{
+  items.length === 0 ? <EmptyState /> : <ItemsList items={items} />
+}
 
 // do — unresolved data is its own branch, checked first
-{itemsLoading ? <Spinner /> : items.length === 0 ? <EmptyState /> : <ItemsList items={items} />}
+{
+  itemsLoading ? <Spinner /> : items.length === 0 ? <EmptyState /> : <ItemsList items={items} />
+}
 ```
 
 - Branch in resolution order: loading → error → empty → content.
