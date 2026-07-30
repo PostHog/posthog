@@ -1510,9 +1510,11 @@ export interface queryDatabaseLogicActions {
             types?: string[][]
         }
     } // dataWarehouseViewsLogic
+    refreshDatabaseSchema: () => {
+        value: true
+    } // databaseTableListLogic
     loadDrafts: () => any // draftsLogic
     loadMoreDrafts: () => any // draftsLogic
-    refreshDatabaseSchema: () => any // databaseTableListLogic
     renameDraft: (
         draftId: string,
         name: string
@@ -1749,6 +1751,7 @@ export interface queryDatabaseLogicMeta {
         treeData: (
             treeDataContext: TreeDataContext,
             databaseLoading: boolean,
+            databaseLoadError: string | null,
             dataWarehouseSavedQueriesLoading: boolean,
             drafts: DataWarehouseSavedQueryDraft[],
             draftsResponseLoading: boolean,
