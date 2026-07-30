@@ -216,6 +216,18 @@ def _classify_refresh_schemas_error(source: AnySource | None, error: Exception) 
     return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, False
 
 
+def resolve_source_or_none(source_type: str) -> AnySource | None:
+    """Resolve a stored source_type string to its source class, or None when it isn't a registered source.
+
+    `ExternalDataSourceType` declares far more types than self-register, so both the enum coercion and
+    the registry lookup can raise `ValueError` for rows that exist in the database.
+    """
+    try:
+        return SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except (ValueError, KeyError):
+        return None
+
+
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
     sensitive: set[str] = set()
@@ -2760,8 +2772,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             instance.soft_delete()
 
         # Best-effort webhook cleanup — soft-deletes are already committed
-        source_type = ExternalDataSourceType(instance.source_type)
-        source = SourceRegistry.get_source(source_type)
+        source = resolve_source_or_none(instance.source_type)
         if isinstance(source, WebhookSource) and instance.job_inputs:
             try:
                 config = source.parse_config(instance.job_inputs)
@@ -4558,8 +4569,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @action(methods=["GET"], detail=True)
     def webhook_info(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
-        source_type = ExternalDataSourceType(instance.source_type)
-        source = SourceRegistry.get_source(source_type)
+        source = resolve_source_or_none(instance.source_type)
 
         if not isinstance(source, WebhookSource):
             return Response(
@@ -4639,8 +4649,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "Source has no configuration"},
             )
 
-        source_type = ExternalDataSourceType(instance.source_type)
-        source = SourceRegistry.get_source(source_type)
+        source = resolve_source_or_none(instance.source_type)
 
         if not isinstance(source, WebhookSource):
             return Response(
@@ -4713,8 +4722,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "Source has no configuration"},
             )
 
-        source_type = ExternalDataSourceType(instance.source_type)
-        source = SourceRegistry.get_source(source_type)
+        source = resolve_source_or_none(instance.source_type)
 
         if not isinstance(source, WebhookSource):
             return Response(
@@ -5008,8 +5016,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def delete_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
-        source_type = ExternalDataSourceType(instance.source_type)
-        source = SourceRegistry.get_source(source_type)
+        source = resolve_source_or_none(instance.source_type)
 
         if not isinstance(source, WebhookSource):
             return Response(

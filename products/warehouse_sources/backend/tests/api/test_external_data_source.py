@@ -9051,6 +9051,42 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["supports_webhooks"] is False
 
+    def _create_unresolvable_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="NotARegisteredSource",
+            created_by=self.user,
+            job_inputs={"api_key": "test"},
+        )
+
+    def test_webhook_info_unresolvable_source_type(self):
+        source = self._create_unresolvable_source()
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["supports_webhooks"] is False
+
+    @parameterized.expand(
+        [
+            ("create_webhook", {}),
+            ("update_webhook_inputs", {"inputs": {"secret": "x"}}),
+            ("delete_webhook", {}),
+        ]
+    )
+    def test_webhook_actions_reject_unresolvable_source_type(self, action: str, payload: dict):
+        source = self._create_unresolvable_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/{action}/", payload
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "This source type does not support webhooks"
+
     def test_webhook_info_no_hog_function(self):
         source = self._create_stripe_source()
 
