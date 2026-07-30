@@ -5,6 +5,7 @@ from parameterized import parameterized
 from products.conversations.backend.formatting import (
     _slack_emoji_name_to_char,
     _slack_unicode_to_char,
+    content_to_slack_mrkdwn,
     extract_images_from_rich_content,
     extract_slack_user_ids,
     rich_content_to_html,
@@ -298,6 +299,20 @@ class TestSlackFormatting(SimpleTestCase):
             else:
                 assert el["elements"][0]["text"] == "\n"
 
+    @parameterized.expand(
+        [
+            ("bold_stays_bold", "**bold**", "*bold*"),
+            ("italic", "*italic*", "_italic_"),
+            ("bold_italic", "***both***", "*_both_*"),
+            ("strike", "~~gone~~", "~gone~"),
+            ("escaped_punctuation_unescaped", "e\\.g\\. query\\-time \\(v2\\)", "e.g. query-time (v2)"),
+            ("escaped_syntax_not_emphasis", "2 \\* 3 \\* 4", "2 * 3 * 4"),
+            ("backslash_outside_escape_set_kept", "path C:\\\\Users", "path C:\\Users"),
+        ]
+    )
+    def test_outbound_mrkdwn_conversion(self, _name: str, markdown: str, expected: str) -> None:
+        assert content_to_slack_mrkdwn(markdown) == expected
+
     def test_outbound_excludes_images_from_text_when_requested(self) -> None:
         rich_content = {
             "type": "doc",
@@ -589,6 +604,21 @@ class TestRichContentBlockNodes(SimpleTestCase):
         text, blocks = rich_content_to_slack_payload(doc, "fallback")
         assert blocks is None
         assert text == "- ~gone~"
+
+    def test_slack_text_fallback_is_not_markdown_escaped(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                _paragraph("Two options (pick one):"),
+                {
+                    "type": "bulletList",
+                    "content": [_list_item(_paragraph("Use query-time properties, e.g. person.email"))],
+                },
+            ],
+        }
+        text, blocks = rich_content_to_slack_payload(doc, "fallback")
+        assert blocks is None
+        assert text == "Two options (pick one):\n\n- Use query-time properties, e.g. person.email"
 
     @parameterized.expand(
         [

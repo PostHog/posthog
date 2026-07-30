@@ -28,6 +28,7 @@ _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
+_RE_MD_ESCAPED_CHAR = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 
@@ -161,11 +162,25 @@ def strip_slack_user_mentions(text: str) -> str:
 
 
 def content_to_slack_mrkdwn(content: str) -> str:
-    """Convert markdown comment content to Slack mrkdwn text."""
+    """Convert markdown comment content to Slack mrkdwn text.
+
+    Backslash-escaped characters are unescaped: mrkdwn has no escape syntax, so a
+    markdown ``\\.`` would otherwise reach Slack as a literal backslash. They are
+    masked before the syntax conversions below so an escaped ``*`` is not mistaken
+    for emphasis.
+    """
     if not content:
         return ""
 
     text = content
+
+    escaped_chars: list[str] = []
+
+    def capture_escaped_char(match: re.Match) -> str:
+        escaped_chars.append(match.group(1))
+        return f"\x00ESC{len(escaped_chars) - 1}\x00"
+
+    text = _RE_MD_ESCAPED_CHAR.sub(capture_escaped_char, text)
 
     text = _RE_MD_IMAGE.sub(r"<\2|\1>", text)
 
@@ -176,10 +191,20 @@ def content_to_slack_mrkdwn(content: str) -> str:
         return f"\x00BI{len(bold_italic_matches) - 1}\x00"
 
     text = _RE_MD_BOLD_ITALIC.sub(capture_bold_italic, text)
-    text = _RE_MD_BOLD.sub(r"*\1*", text)
+
+    bold_matches: list[str] = []
+
+    def capture_bold(match: re.Match) -> str:
+        bold_matches.append(match.group(1))
+        return f"\x00B{len(bold_matches) - 1}\x00"
+
+    text = _RE_MD_BOLD.sub(capture_bold, text)
     text = _RE_MD_ITALIC.sub(r"_\1_", text)
     text = _RE_MD_STRIKE.sub(r"~\1~", text)
     text = _RE_MD_LINK.sub(r"<\2|\1>", text)
+
+    for index, value in enumerate(bold_matches):
+        text = text.replace(f"\x00B{index}\x00", f"*{value}*")
 
     for index, value in enumerate(bold_italic_matches):
         text = text.replace(f"\x00BI{index}\x00", f"*_{value}_*")
@@ -197,7 +222,12 @@ def content_to_slack_mrkdwn(content: str) -> str:
             pass
         return "@teammate"
 
-    return _RE_MD_MENTION.sub(resolve_mention, text)
+    text = _RE_MD_MENTION.sub(resolve_mention, text)
+
+    for index, value in enumerate(escaped_chars):
+        text = text.replace(f"\x00ESC{index}\x00", value)
+
+    return text
 
 
 def slack_mrkdwn_to_content(text: str, user_names: dict[str, str] | None = None) -> str:
