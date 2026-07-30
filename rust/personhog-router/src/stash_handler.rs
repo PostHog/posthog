@@ -222,7 +222,25 @@ async fn forward_key_run(
             put_back_rest(session, run.key, entry, entries, "cancelled").await;
             return outcome;
         }
-        match forward_one(leader_backend, max_stash_wait, partition, &entry.item).await {
+        // Race the forward against cancellation: an in-flight call can
+        // otherwise hold this lane for the full backend timeout, and at
+        // router shutdown the drain-lane join sits between cancellation
+        // and the lease revoke — a slow forward there delays
+        // deregistration, stalling every freeze that counts this router.
+        let forwarded = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => None,
+            d = forward_one(leader_backend, max_stash_wait, partition, &entry.item) => Some(d),
+        };
+        let Some(disposition) = forwarded else {
+            // The abandoned call may already be on the wire, so the
+            // outcome is unknown — same ambiguity as a transport bounce,
+            // same conservative marking.
+            entry.item.possibly_applied = true;
+            put_back_rest(session, run.key, entry, entries, "cancelled").await;
+            return outcome;
+        };
+        match disposition {
             Disposition::Reply {
                 response,
                 outcome: label,
