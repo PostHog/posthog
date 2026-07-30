@@ -27,7 +27,6 @@ class NodeRole(StrEnum):
     INGESTION_EVENTS = "events"
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
-    SHUFFLEHOG = "shufflehog"
     ENDPOINTS = "endpoints"
     LOGS = "logs"
 
@@ -71,6 +70,7 @@ class ClickHouseUser(StrEnum):
     META = "meta"
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
+    ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
 

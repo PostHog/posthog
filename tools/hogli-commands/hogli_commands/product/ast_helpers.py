@@ -20,6 +20,21 @@ def ast_parse_safe(file_path: Path) -> ast.Module | None:
         return None
 
 
+def get_imported_module_names(tree: ast.Module) -> set[str]:
+    """Every dotted module path the tree imports via real import statements.
+
+    'from a.b import c' records both 'a.b' and 'a.b.c' (c may be a submodule); relative
+    imports are skipped — they can't name a path outside the importing package."""
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            imported.add(node.module)
+            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return imported
+
+
 def _file_imports_django_models(tree: ast.Module) -> bool:
     """Check whether a file imports from django.db.models (or django.db)."""
     for node in ast.walk(tree):
@@ -99,7 +114,90 @@ def has_any_function_defs(file_path: Path) -> bool:
     tree = ast_parse_safe(file_path)
     if not tree:
         return False
+    return tree_has_top_level_functions(tree)
+
+
+def tree_has_top_level_functions(tree: ast.Module) -> bool:
+    """True if the module has any top-level function definition (a re-export module has none)."""
     return any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) for node in ast.iter_child_nodes(tree))
+
+
+def _is_type_checking_guard(node: ast.stmt) -> bool:
+    """True for an `if TYPE_CHECKING:` / `if typing.TYPE_CHECKING:` block header."""
+    if not isinstance(node, ast.If):
+        return False
+    test = node.test
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
+def module_dunder_all(tree: ast.Module) -> set[str] | None:
+    """The names in a module-level `__all__` list/tuple of string literals, or None if absent.
+
+    None (no __all__) and an empty set (explicitly empty __all__) are meaningfully different to
+    callers, so they aren't collapsed. A non-literal `__all__` (e.g. `sorted(_LAZY)`) reads as
+    None — its contents can't be known statically."""
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "__all__" for t in node.targets):
+            continue
+        if not isinstance(node.value, (ast.List, ast.Tuple)):
+            return None
+        return {e.value for e in node.value.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+    return None
+
+
+def module_level_import_froms(tree: ast.Module) -> list[tuple[int, str | None, list[tuple[str, str | None]]]]:
+    """Every module-level `from ... import ...` as (level, module, [(name, asname)]).
+
+    asname is None when no alias is given; `import Foo as Foo` yields ("Foo", "Foo") so callers
+    can tell the explicit self-alias re-export idiom apart from a plain import. Skips imports
+    nested in functions/classes (not module bindings) and inside `if TYPE_CHECKING:` blocks
+    (type-only, nothing crosses at runtime)."""
+    results: list[tuple[int, str | None, list[tuple[str, str | None]]]] = []
+    for node in ast.iter_child_nodes(tree):
+        if _is_type_checking_guard(node):
+            continue
+        if isinstance(node, ast.ImportFrom):
+            results.append((node.level, node.module, [(alias.name, alias.asname) for alias in node.names]))
+    return results
+
+
+def lazy_reexport_map(tree: ast.Module) -> dict[str, str]:
+    """PEP 562 lazy re-export map: {exported name -> dotted source module}.
+
+    Reads module-level dict literals whose values are all string module paths (the
+    `_LAZY`/`_MODULES` convention), but only when the module also defines a top-level
+    `__getattr__` — the hook that turns such a dict into real re-exports. Returns the
+    merged mapping across all qualifying dicts."""
+    has_getattr = any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "__getattr__"
+        for node in ast.iter_child_nodes(tree)
+    )
+    if not has_getattr:
+        return {}
+    mapping: dict[str, str] = {}
+    for node in ast.iter_child_nodes(tree):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Dict):
+            continue
+        entries: dict[str, str] = {}
+        valid = bool(node.value.keys)
+        for key, value in zip(node.value.keys, node.value.values):
+            if (
+                isinstance(key, ast.Constant)
+                and isinstance(key.value, str)
+                and isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+            ):
+                entries[key.value] = value.value
+            else:
+                valid = False
+                break
+        if valid:
+            mapping.update(entries)
+    return mapping
 
 
 def get_public_function_names(file_path: Path) -> list[str]:

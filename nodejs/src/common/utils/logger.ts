@@ -1,9 +1,13 @@
 import pino from 'pino'
 
-import { LogLevel } from '~/types'
+import type { LogLevel } from '~/types'
 
-import { defaultConfig } from '../config/config'
-import { isProdEnv } from './env-utils'
+import { isProdEnv, isTestEnv } from './env-utils'
+
+// Read from env directly instead of defaultConfig: that module throws at import when
+// Postgres env vars are missing, and entrypoints without them (e.g. the recording
+// rasterizer) reach this logger transitively.
+const logLevel: LogLevel = (process.env.LOG_LEVEL as LogLevel) || (isTestEnv() ? 'warn' : 'info')
 
 export class Logger {
     private pino: ReturnType<typeof pino>
@@ -13,7 +17,6 @@ export class Logger {
 
     constructor(name: string) {
         this.prefix = `[${name.toUpperCase()}]`
-        const logLevel: LogLevel = defaultConfig.LOG_LEVEL
         if (isProdEnv()) {
             this.pino = pino({
                 // By default pino will log the level number. So we can easily unify
@@ -108,9 +111,7 @@ export class Logger {
     }
 }
 
-// TODO: remove defaultConfig import — it creates circular imports when config files
-// import anything that transitively reaches this module. The logger should not depend on config.
-export const logger = new Logger(defaultConfig.PLUGIN_SERVER_MODE ?? 'MAIN')
+export const logger = new Logger(process.env.PLUGIN_SERVER_MODE ?? 'MAIN')
 
 export function serializeError(error: unknown): Record<string, unknown> | unknown {
     if (error instanceof Error) {

@@ -375,6 +375,57 @@ export const DefaultSurfaceWithRecents: Story = {
     },
 }
 
+// ---- Renamed series selection -------------------------------------------
+// Renders the combobox directly on the `all` scope with a committed selection
+// whose series carries a rename: the promoted first row is labelled with the
+// rename ("Completed sign-up") and keeps the raw event key visible beneath it.
+
+function RenamedSeriesSelectionContainer(): JSX.Element {
+    useMountedLogic(actionsModel)
+    const selectedEntry: MenuFilterEntry = {
+        item: { name: 'signed up', id: 'signed up' } as never,
+        group: {
+            type: TaxonomicFilterGroupType.Events,
+            name: 'Events',
+            getName: (t: any) => t?.name,
+            getValue: (t: any) => t?.name ?? t?.id,
+        } as unknown as TaxonomicFilterGroup,
+        name: 'signed up',
+    }
+    return (
+        <TaxonomicFilterHeadless.Root
+            bindRootProps={false}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+        >
+            <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[420px] bg-surface-primary">
+                <MenuFilterCombobox
+                    drillTo="all"
+                    selectedEntry={selectedEntry}
+                    selectedRename={{ label: 'Completed sign-up', raw: 'signed up' }}
+                    onCommit={() => {}}
+                    onBack={() => {}}
+                />
+            </div>
+        </TaxonomicFilterHeadless.Root>
+    )
+}
+
+export const RenamedSeriesSelection: Story = {
+    // Excluded from the snapshot/flake gate for the same reason as
+    // DefaultSurfaceWithRecents: the `all` scope fetches content lists and the
+    // preview pane loads async, so the render isn't pixel-stable. Kept for the
+    // Storybook demo; the rename labelling is covered by RTL in Combobox.test.tsx.
+    tags: ['test-skip'],
+    render: () => <RenamedSeriesSelectionContainer />,
+    parameters: {
+        docs: {
+            description: {
+                story: 'Reopening the rebuilt menu on a renamed series: the committed selection is promoted to the first row, labelled with the series\' rename ("Completed sign-up") while the raw `signed up` event key stays inline beneath it, with the checkmark and preview pane tracking the same row.',
+            },
+        },
+    },
+}
+
 function bareKeyRecentEntries(): MenuFilterEntry[] {
     const group = {
         type: TaxonomicFilterGroupType.EventProperties,

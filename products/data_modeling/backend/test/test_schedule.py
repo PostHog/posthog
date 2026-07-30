@@ -373,6 +373,32 @@ class TestGetV2ScheduledDagIds:
         assert captured["kwargs"]["query"] == "PostHogDagId IN ('dag-on-v2')"
         assert result == {"dag-on-v2"}
 
+    def test_tiered_schedule_ids_resolve_to_the_dag_id(self):
+        # cadence-tier schedules are "{dag_id}:{seconds}"; returning them raw would make every
+        # v2-detection consumer treat migrated DAGs as v1 and recreate v1 schedules
+        listings = [
+            self._listing("dag-a:900", "data-modeling-execute-dag"),
+            self._listing("dag-a:86400", "data-modeling-execute-dag"),
+            self._listing("dag-b", "data-modeling-execute-dag"),
+        ]
+
+        async def fake_list_schedules(*args, **kwargs):
+            async def gen():
+                for listing in listings:
+                    yield listing
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        with mock.patch(
+            "products.data_modeling.backend.schedule.async_connect",
+            new=mock.AsyncMock(return_value=temporal),
+        ):
+            result = get_v2_scheduled_dag_ids()
+
+        assert result == {"dag-a", "dag-b"}
+
     def test_empty_candidates_skips_temporal(self):
         connect = mock.AsyncMock()
         with mock.patch("products.data_modeling.backend.schedule.async_connect", new=connect):

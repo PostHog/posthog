@@ -67,10 +67,12 @@ function ConnectView({
     SettingsSection: SettingsSectionComponent
 }): JSX.Element {
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
-    // Connecting an integration requires project admin access (enforced again in the backend).
+    // Connecting an integration requires project membership (enforced again in the backend);
+    // editing or removing one still requires admin. Users with no project access fall back to
+    // the request-access flow below.
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        minimumAccessLevel: TeamMembershipLevel.Member,
     })
 
     const onConnectClick = (): void => {
@@ -91,7 +93,7 @@ function ConnectView({
             ) : (
                 // onClickCapture fires before the connect button triggers its OAuth redirect
                 <div onClickCapture={onConnectClick}>
-                    <SettingsSection next={urls.integration(definition.slug)} />
+                    <SettingsSection next={urls.integration(definition.slug)} centered />
                 </div>
             )}
 

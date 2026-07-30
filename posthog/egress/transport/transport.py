@@ -46,7 +46,7 @@ class EgressClient(ABC):
         session: requests.Session | None = None,
         **kwargs: Any,
     ) -> requests.Response:
-        self._gate(scope, source, priority)
+        self._gate(scope, source, priority, url)
 
         request_headers = {**self._standard_headers(), **(headers or {})}
         sender = session or requests
@@ -60,12 +60,12 @@ class EgressClient(ABC):
         self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
         return response
 
-    def _gate(self, scope: str | None, source: str, priority: Priority) -> None:
+    def _gate(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
         # Identity-blind callers have no shared budget to draw on — record volume only, never gate.
         # An empty scope is no identity either: gating on it would key a phantom budget/metric series.
         if not scope:
             return
-        granted = self._consume(scope, priority, source)
+        granted = self._consume(scope, priority, source, url)
         # CRITICAL never blocks: it records the decision (and consumes if there's room) but proceeds
         # regardless, so a user-facing call is never shed by us — the API's own 429 is the backstop.
         # Sheddable lanes back off so their headroom is left for higher-priority traffic.
@@ -79,8 +79,9 @@ class EgressClient(ABC):
         """Default headers merged under the caller's (the caller's win) — e.g. Accept, API version."""
 
     @abstractmethod
-    def _consume(self, scope: str, priority: Priority, source: str) -> bool:
-        """Draw ``1`` from the domain's shared budget for ``scope`` at ``priority``; True if granted."""
+    def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
+        """Draw ``1`` from the domain's shared budget for ``scope`` at ``priority``; True if granted.
+        ``url`` lets a domain route the draw to the resource-specific meter GitHub bills the URL to."""
 
     @abstractmethod
     def _record_response(

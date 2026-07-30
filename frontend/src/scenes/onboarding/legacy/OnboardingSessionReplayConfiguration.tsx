@@ -1,12 +1,16 @@
 import { useActions } from 'kea'
 
-import { HedgehogDirector } from '@posthog/brand/hoggies'
+import * as directorPng from '@posthog/brand/hoggies/png/director'
 import { LemonButton } from '@posthog/lemon-ui'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
+
+const HedgehogDirector = pngHoggie(directorPng)
 
 export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType = () => {
     const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)

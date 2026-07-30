@@ -1,1 +1,1 @@
-1247_oauthaccesstoken_token_idx
+1276_untrack_legacy_provisioning_columns

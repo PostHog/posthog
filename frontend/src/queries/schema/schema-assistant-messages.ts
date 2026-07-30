@@ -22,10 +22,6 @@ import type {
     PathsQuery,
     QuerySchema,
     RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsTopCustomersQuery,
     StickinessQuery,
     TrendsQuery,
 } from './schema-general'
@@ -275,10 +271,6 @@ export interface VisualizationItem {
         | PathsQuery
         | LifecycleQuery
         | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
     initiator?: string
 }
 
@@ -482,7 +474,6 @@ export type AssistantTool =
     | 'search'
     | 'read_data'
     | 'todo_write'
-    | 'filter_revenue_analytics'
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
@@ -520,6 +511,7 @@ export type AssistantTool =
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
     | 'assess_heatmap'
+    | 'summarize_website_interactions'
     | 'marketing_diagnose_setup'
     | 'marketing_explain_conversion_goal'
     | 'marketing_list_conversion_goals'
@@ -593,7 +585,6 @@ export enum AssistantNavigateUrl {
     Notebooks = 'notebooks',
     Replay = 'replay',
     ReplaySettings = 'replaySettings',
-    RevenueAnalytics = 'revenueAnalytics',
     SavedInsights = 'savedInsights',
     Settings = 'settings',
     SqlEditor = 'sqlEditor',

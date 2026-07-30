@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
@@ -276,6 +278,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         filters: Optional[StickinessFilter] = None,
         filter_test_accounts: Optional[bool] = False,
         compare_filters: Optional[CompareFilter] = None,
+        days_of_week: Optional[list[int]] = None,
     ):
         query_series: list[EventsNode | ActionsNode | DataWarehouseNode] = (
             [EventsNode(event="$pageview")] if series is None else series
@@ -286,7 +289,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         query = StickinessQuery(
             series=query_series,
-            dateRange=DateRange(date_from=query_date_from, date_to=query_date_to),
+            dateRange=DateRange(date_from=query_date_from, date_to=query_date_to, daysOfWeek=days_of_week),
             interval=query_interval,
             intervalCount=intervalCount,
             properties=properties,
@@ -789,6 +792,122 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["count"] == 2
         assert response.results[1]["compare_label"] == "previous"
         assert response.results[1]["data"] == [0, 0, 0, 0, 1, 0, 0, 0, 1]
+
+    @parameterized.expand(
+        [
+            ("mon_tue_only", [1, 2], [0, 1, 0, 0, 0, 0, 0]),
+            ("empty_means_unfiltered", [], [0, 0, 1, 0, 0, 0, 0]),
+            ("all_days_means_unfiltered", [1, 2, 3, 4, 5, 6, 7], [0, 0, 1, 0, 0, 0, 0]),
+        ]
+    )
+    def test_days_of_week_restricts_days_active(self, _name, days_of_week, expected_data):
+        # 2020-01-13 is a Monday; p1 is active Mon, Tue, and Sat
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-13T12:00:00Z",  # Monday
+                                "2020-01-14T12:00:00Z",  # Tuesday
+                                "2020-01-18T12:00:00Z",  # Saturday
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_query(date_from="2020-01-13", date_to="2020-01-19", days_of_week=days_of_week)
+
+        assert response.results[0]["data"] == expected_data
+
+    @parameterized.expand(
+        [
+            ("monday_filter_includes_it", [1], 1),
+            ("sunday_filter_excludes_it", [7], 0),
+        ]
+    )
+    def test_days_of_week_uses_project_timezone(self, _name, days_of_week, expected_count):
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        # 20:00 UTC Sunday = 05:00 Monday in Asia/Tokyo
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T20:00:00Z"])],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_query(date_from="2020-01-13", date_to="2020-01-19", days_of_week=days_of_week)
+
+        assert sum(response.results[0]["data"]) == expected_count
+
+    def test_days_of_week_actors_match_chart(self):
+        # The actors query must honor daysOfWeek like the chart does, or the persons modal
+        # would list people whose only events fall on deselected days
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p_weekday",
+                    events=[Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"])],  # Wednesday
+                    properties={},
+                ),
+                SeriesTestData(
+                    distinct_id="p_weekend",
+                    events=[Series(event="$pageview", timestamps=["2020-01-18T12:00:00Z"])],  # Saturday
+                    properties={},
+                ),
+            ]
+        )
+
+        query = self._get_query(date_from="2020-01-13", date_to="2020-01-19", days_of_week=[6, 7])
+        runner = get_query_runner(query=StickinessActorsQuery(source=query, day=1, operator="exact"), team=self.team)
+        actors = runner.calculate()
+
+        assert len(actors.results) == 1
+
+    def test_days_of_week_filters_compare_previous_period(self):
+        # Current period 2020-01-13..19, previous period 2020-01-06..12; 2020-01-06 is a Monday
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-06T12:00:00Z",  # Monday, previous period
+                                "2020-01-07T12:00:00Z",  # Tuesday, previous period
+                                "2020-01-14T12:00:00Z",  # Tuesday, current period
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_query(
+            date_from="2020-01-13",
+            date_to="2020-01-19",
+            compare_filters=CompareFilter(compare=True),
+            days_of_week=[1],
+        )
+
+        current, previous = response.results[0], response.results[1]
+        assert current["compare_label"] == "current"
+        assert current["count"] == 0
+        assert previous["compare_label"] == "previous"
+        # Only the previous period's Monday event counts toward days active
+        assert previous["count"] == 1
+        assert previous["data"][0] == 1
 
     def test_criteria(self):
         self._create_events(

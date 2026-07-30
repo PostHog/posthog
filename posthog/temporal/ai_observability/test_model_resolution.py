@@ -65,27 +65,17 @@ class TestExplicitModelSpec:
             ExplicitModelSpec("openai", "gpt-5", str(key.id)).resolve(team.id)
         assert _error_type(exc_info) == "key_invalid"
 
-    def test_trial_allowlisted_model_resolves_without_key(self, team):
-        resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-        assert resolved.provider_key is None
-        assert not resolved.is_byok
-
-    def test_trial_non_allowlisted_model_raises_model_not_allowed(self, team):
-        with pytest.raises(ApplicationError) as exc_info:
-            ExplicitModelSpec("openai", "gpt-5", None).resolve(team.id)
-        assert _error_type(exc_info) == "model_not_allowed"
-
-    def test_trial_quota_exhausted_raises_trial_limit_reached(self, team):
-        EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=100)
+    def test_keyless_requires_provider_key(self, team):
+        # No pinned key: resolution has no PostHog-funded fallback and must ask for a key.
         with pytest.raises(ApplicationError) as exc_info:
             ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-        assert _error_type(exc_info) == "trial_limit_reached"
+        assert _error_type(exc_info) == "provider_key_required"
 
-    def test_null_key_falls_back_to_matching_active_key_despite_exhausted_quota(self, team):
-        # Regression: an eval whose model config pinned a model but no key was blocked with
-        # trial_limit_reached even though the team had a healthy active key for that provider.
+    def test_null_key_falls_back_to_matching_active_key(self, team):
+        # An eval whose model config pinned a model but no key resolves to the team's healthy
+        # active key for that provider.
         key = _key(team, "openai")
-        EvaluationConfig.objects.create(team=team, active_provider_key=key, trial_eval_limit=100, trial_evals_used=100)
+        EvaluationConfig.objects.create(team=team, active_provider_key=key)
 
         resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
 
@@ -96,26 +86,18 @@ class TestExplicitModelSpec:
         key = _key(team, "anthropic")
         EvaluationConfig.objects.create(team=team, active_provider_key=key)
 
-        resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
-
-        assert resolved.provider_key is None
-        assert not resolved.is_byok
+        with pytest.raises(ApplicationError) as exc_info:
+            ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
+        assert _error_type(exc_info) == "provider_key_required"
 
 
 @pytest.mark.django_db
 class TestDefaultModelSpec:
-    def test_no_active_key_falls_back_to_posthog_trial(self, team):
-        resolved = DefaultModelSpec().resolve(team.id)
-        assert resolved.provider == "openai"
-        assert resolved.model == DEFAULT_MODEL_BY_PROVIDER["openai"]
-        assert resolved.provider_key is None
-        assert not resolved.is_byok
-
-    def test_no_active_key_with_exhausted_quota_raises_trial_limit_reached(self, team):
-        EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=100)
+    def test_no_active_key_requires_provider_key(self, team):
+        # Null config, no team active key — must bring a key.
         with pytest.raises(ApplicationError) as exc_info:
             DefaultModelSpec().resolve(team.id)
-        assert _error_type(exc_info) == "trial_limit_reached"
+        assert _error_type(exc_info) == "provider_key_required"
 
     def test_anthropic_active_key_resolves_to_anthropic_default(self, team):
         # Regression: a null config with an Anthropic active key used to resolve to openai/gpt-5-mini

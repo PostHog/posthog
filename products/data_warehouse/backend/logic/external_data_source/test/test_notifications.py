@@ -56,6 +56,17 @@ class TestNotifyExternalDataSyncFailures:
             should_sync=False,
             latest_error="Invalid API key",
         )
+        # CDC breakage halts syncing without flipping should_sync — it must still read as
+        # "action required", not "will retry".
+        ExternalDataSchema.objects.create(
+            name="Accounts",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            should_sync=True,
+            latest_error="Replication slot dropped",
+            sync_type_config={"cdc_broken": {"reason": "auto_dropped_critical_lag"}},
+        )
 
         with patch(SENDER_PATH) as mock_sender:
             notify_external_data_sync_failures(team.pk)
@@ -64,12 +75,13 @@ class TestNotifyExternalDataSyncFailures:
         team_id, items = mock_sender.call_args.args
         assert team_id == team.pk
         assert [(item["schema_name"], item["paused"]) for item in items] == [
+            ("Accounts", True),
             ("Invoice", True),
             ("Charge", False),
         ]
-        assert items[0]["error"] == "Invalid API key"
+        assert items[0]["error"] == "Replication slot dropped"
         assert items[0]["source_type"] == "Stripe"
-        assert f"managed-{source.id}/syncs?schema=Invoice" in items[0]["url"]
+        assert f"managed-{source.id}/syncs?schema=Accounts" in items[0]["url"]
 
     @pytest.mark.parametrize(
         "name,label,expected_display",

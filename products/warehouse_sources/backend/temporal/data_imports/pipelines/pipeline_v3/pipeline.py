@@ -8,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import (
     current_activity_attempt,
     current_workflow_id,
@@ -18,42 +19,51 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    process_incremental_value,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     advance_xmin_state,
     cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
+    handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
+    persist_primary_keys,
+    person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
+    resolve_primary_keys,
     run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
+    stage_chunk_for_person_property_sink,
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
     write_chunk_for_cdp_producer,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import async_iterate
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    PipelineResult,
-    ResumableData,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
+    merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
+    observe_and_project_table,
+    source_uses_delta_write_column_selection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -69,6 +79,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    ResumableData,
+    SourceResponse,
+)
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
 
@@ -110,9 +124,10 @@ class PipelineV3(Generic[ResumableData]):
         self._resource = source_response
         self._resource_name = source_response.name
 
-        # Allow user-specified primary keys to override auto-detected ones
-        if schema.primary_key_columns:
-            self._resource.primary_keys = schema.primary_key_columns
+        # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
+        # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
+        # intermittently returns nothing.
+        self._resource.primary_keys = resolve_primary_keys(schema, self._resource)
 
         self._job = job
         self._reset_pipeline = reset_pipeline
@@ -165,6 +180,12 @@ class PipelineV3(Generic[ResumableData]):
         # Determine if this is the first-ever sync (no DWH table exists yet)
         is_first_ever_sync = self._schema.table is None
 
+        # SQL sources project enabled_columns in their SELECT and own schema_metadata via
+        # introspection; managed-schema sources don't allow selection. Everything else gets the
+        # write-side drop plus observed-columns capture so the column picker has a catalog.
+        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(source.source_type)
+        self._observed_columns: dict[str, dict[str, Any]] = {}
+
         is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
 
         self._pg_producer = PostgresProducer(
@@ -196,10 +217,20 @@ class PipelineV3(Generic[ResumableData]):
             self._logger,
             chunk_size=source_response.chunk_size,
             chunk_size_bytes=source_response.chunk_size_bytes,
+            source_type=self._source.source_type if self._source else None,
+            team_id=self._job.team_id,
+            schema_name=self._schema.name,
         )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+        )
+        self._person_property_sink = PersonPropertyRowSink(
+            team_id=self._job.team_id,
+            schema_id=self._schema.id,
+            job_id=job_id,
+            logger=self._logger,
+            is_incremental=self._is_incremental,
         )
         self._accumulated_pa_schema = None
         self._shutdown_monitor = shutdown_monitor
@@ -238,10 +269,13 @@ class PipelineV3(Generic[ResumableData]):
 
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
+            await person_property_sink_clear_chunks(self._person_property_sink)
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
             validate_incremental_sync(self._is_incremental, self._resource)
+
+            await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,
@@ -260,8 +294,17 @@ class PipelineV3(Generic[ResumableData]):
             # overwrite handles it. Wiping the delta table mid-retry while the consumer
             # is loading the previous attempt's batches causes data loss.
             if self._attempt <= 1:
+                # Revive a corrupt-`_delta_log` table before extraction so it self-heals in this run
+                # instead of looping forever (an interrupted repartition swap or OOM-crashed merge).
+                await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
+
                 await handle_reset_or_full_refresh(
-                    self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                    self._reset_pipeline,
+                    should_resume,
+                    self._schema,
+                    self._delta_table_helper,
+                    self._logger,
+                    webhook_only=self._resource.webhook_only,
                 )
 
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
@@ -278,6 +321,14 @@ class PipelineV3(Generic[ResumableData]):
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
+
+                record_source_item_stats(
+                    item,
+                    source_type=source_type,
+                    logger=self._logger,
+                    team_id=self._job.team_id,
+                    schema_name=self._schema.name,
+                )
 
                 self._batcher.batch(item)
 
@@ -362,6 +413,22 @@ class PipelineV3(Generic[ResumableData]):
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
+        if self._uses_delta_write_column_selection:
+            pa_table = await observe_and_project_table(
+                pa_table,
+                self._schema.enabled_columns,
+                self._resource.primary_keys,
+                self._schema.incremental_field,
+                [
+                    *(self._schema.partitioning_keys_override or []),
+                    *(self._schema.partitioning_keys or []),
+                    *(self._resource.partition_keys or []),
+                ],
+                self._observed_columns,
+                self._logger,
+                "V3 Pipeline: Dropped non-enabled columns before write",
+            )
+
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
@@ -380,6 +447,7 @@ class PipelineV3(Generic[ResumableData]):
         self._internal_schema.add_pyarrow_table(pa_table)
 
         await write_chunk_for_cdp_producer(self._cdp_producer, batch_index, pa_table)
+        await stage_chunk_for_person_property_sink(self._person_property_sink, batch_index, pa_table)
 
         # Update accumulated schema with any new columns from this batch
         if self._accumulated_pa_schema is None:
@@ -408,6 +476,18 @@ class PipelineV3(Generic[ResumableData]):
         )
 
     async def _finalize(self, row_count: int) -> None:
+        # Column-picker bookkeeping — a failure here must not fail an otherwise successful sync.
+        if self._observed_columns:
+            observed = list(self._observed_columns.values())
+            try:
+                await database_sync_to_async_pool(update_sync_type_config_keys)(
+                    self._schema.id,
+                    self._job.team_id,
+                    mutate=lambda config: merge_observed_columns_into_schema_metadata(config, observed),
+                )
+            except Exception:
+                await self._logger.aexception("V3 Pipeline: Failed to persist observed columns into schema_metadata")
+
         total_batches = len(self._batch_results)
 
         if total_batches == 0:
@@ -445,9 +525,7 @@ class PipelineV3(Generic[ResumableData]):
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
-        if not self._schema.initial_sync_complete:
-            await self._logger.adebug("V3 Pipeline: Setting initial_sync_complete on schema")
-            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
+        # initial_sync_complete is set by the loader's post-load after data lands in Delta.
 
         await self._logger.ainfo(
             f"V3 Pipeline: Extraction complete",

@@ -5,11 +5,11 @@ import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
-import { ScopeAccessRow } from '../shared/ScopeAccessRow'
 import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {

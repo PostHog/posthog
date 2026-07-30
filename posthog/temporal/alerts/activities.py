@@ -8,16 +8,20 @@ import structlog
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import AlertCalculationInterval, AlertState
+from posthog.schema import AlertState
+
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
+from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
+    CALCULATION_INTERVAL_ORDER,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
@@ -41,6 +45,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -60,13 +65,12 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
     def get_alerts() -> list[AlertInfo]:
         now = datetime.now(UTC)
 
-        # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.REAL_TIME.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(1)),
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(2)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(3)),
-            default=Value(4),
+            *(
+                When(calculation_interval=interval.value, then=Value(order))
+                for interval, order in CALCULATION_INTERVAL_ORDER.items()
+            ),
+            default=Value(max(CALCULATION_INTERVAL_ORDER.values())),
             output_field=IntegerField(),
         )
 
@@ -124,12 +128,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 
         # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
         # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
-        # Only one of these will be non-None for any given interval — each returns None when
-        # the interval doesn't match, so this is an exclusive check, not a combination.
-        entitlement_error = AlertConfiguration.real_time_interval_validation_error(
-            calculation_interval=alert.calculation_interval,
-            organization=alert.team.organization,
-        ) or AlertConfiguration.every_15_minutes_interval_validation_error(
+        entitlement_error = AlertConfiguration.interval_entitlement_error(
             calculation_interval=alert.calculation_interval,
             organization=alert.team.organization,
         )
@@ -168,8 +167,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.SNOOZED)
             # Snooze expired — persist clear so evaluate_alert reads the fresh state.
             alert.snoozed_until = None
-            alert.state = AlertState.NOT_FIRING
-            alert.save(update_fields=["snoozed_until", "state"])
+            state_fields = apply_unsnooze(alert)
+            alert.save(update_fields=["snoozed_until", *state_fields])
 
         try:
             insight = alert.insight
@@ -219,7 +218,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             )
 
         # CH workload management keys off these tags to isolate alert queries from other tenants.
-        tag_queries(alert_config_id=str(alert.id), product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
+        # calculation_interval / config_type also let query_log cost be grouped by alert cadence
+        # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
+        tag_queries(
+            alert_config_id=str(alert.id),
+            product=Product.PRODUCT_ANALYTICS,
+            feature=Feature.ALERTING,
+            alert_calculation_interval=alert.calculation_interval,
+            alert_config_type=(alert.config or {}).get("type"),
+        )
 
         # Snapshot before add_alert_check mutates alert.state — needed to detect the
         # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.
@@ -247,8 +254,31 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 should_notify=False,  # disable_invalid_alert already emailed subscribers
                 new_state=AlertState.ERRORED,
             )
+        except TableAccessDeniedError as err:
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
+            # A revoked creator's access-denied error is a known limitation - report it as an event
+            # rather than capturing it, which would recur on every check until the alert is fixed.
+            if creator_access_revoked(alert.created_by, alert.team):
+                report_creator_access_revoked(
+                    user=alert.created_by,
+                    team=alert.team,
+                    source="alert",
+                    error=err,
+                    properties={"alert_id": str(alert.id), "insight_id": alert.insight_id},
+                )
+                error = {"message": str(err)}
+            else:
+                capture_exception(
+                    err,
+                    additional_properties={
+                        "alert_configuration_id": str(alert.id),
+                        "insight_id": alert.insight_id,
+                        "team_id": alert.team_id,
+                    },
+                )
+                error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
-            logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
                 err,
                 additional_properties={

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import EventsQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.models import PropertyDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.taxonomy.property_access import restricted_property_names
 
 from products.dashboards.backend.constants import ACTIVITY_EVENTS_MAX_LIMIT
 from products.dashboards.backend.widget_specs.configs import ACTIVITY_EVENTS_LIST_WIDGET_TYPE
@@ -33,9 +37,36 @@ ACTIVITY_EVENTS_WIDGET_SELECT = [
 ACTIVITY_EVENTS_WIDGET_RESULT_KEYS = ["uuid", "event", "person", "url", "lib", "timestamp"]
 
 
+def _validate_property_filter_access(
+    team: Team,
+    user: User | None,
+    property_filters: list[dict[str, Any]],
+) -> None:
+    restricted_event_properties = restricted_property_names(team, user, PropertyDefinition.Type.EVENT)
+    restricted_person_properties = restricted_property_names(team, user, PropertyDefinition.Type.PERSON)
+
+    for property_filter in property_filters:
+        property_type = property_filter.get("type")
+        property_key = property_filter.get("key")
+        if property_type == "event" and property_key in restricted_event_properties:
+            raise ValidationError("Filter references a restricted property")
+        if property_type == "person" and property_key in restricted_person_properties:
+            raise ValidationError("Filter references a restricted property")
+
+
+def _build_activity_events_property_filters(config: ValidatedActivityEventsListWidgetConfig) -> list[dict[str, Any]]:
+    configured_property_filters = config.get("properties")
+    widget_property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
+    return [
+        *(configured_property_filters if isinstance(configured_property_filters, list) else []),
+        *(widget_property_filters or []),
+    ]
+
+
 def _build_activity_events_query(
     team: Team,
     config: ValidatedActivityEventsListWidgetConfig,
+    property_filters: list[dict[str, Any]],
     limit: int,
 ) -> EventsQuery:
     date_range_raw = config.get("dateRange")
@@ -44,8 +75,6 @@ def _build_activity_events_query(
         date_from_value = date_range_raw.get("date_from")
         if isinstance(date_from_value, str):
             after = date_from_value
-
-    property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
 
     event_name = config.get("eventName")
     event = event_name if isinstance(event_name, str) and event_name else None
@@ -66,11 +95,12 @@ def _build_activity_events_query(
 def _run_activity_events_query(
     team: Team,
     config: ValidatedActivityEventsListWidgetConfig,
+    property_filters: list[dict[str, Any]],
     user: User | None,
     *,
     limit: int,
 ) -> dict[str, Any]:
-    query = _build_activity_events_query(team, config, limit)
+    query = _build_activity_events_query(team, config, property_filters, limit)
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
         return EventsQueryRunner(team=team, query=query, user=user).calculate().model_dump(mode="json")
 
@@ -87,9 +117,11 @@ def run_activity_events_list_widget(
     include_total_count: bool = True,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, config)
+    property_filters = _build_activity_events_property_filters(typed_config)
+    _validate_property_filter_access(team, user, property_filters)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:
-        data = _run_activity_events_query(team, typed_config, user, limit=page_limit)
+        data = _run_activity_events_query(team, typed_config, property_filters, user, limit=page_limit)
         raw_results = data.get("results")
         return ListWidgetPage(
             results=raw_results if isinstance(raw_results, list) else [],

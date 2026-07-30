@@ -30,18 +30,21 @@ export type InlineRichMarkdownEditorProps = {
     extensions: Extensions
     markdownToDoc: (markdown: string | null | undefined) => JSONContent
     docToMarkdown: (doc: JSONContent) => string
-    /** When false, hides the character count footer */
-    showCharacterCount?: boolean
     autoFocus?: boolean
     className?: string
-    /** Bubble menu: image upload (requires object storage when enabled) */
-    showBubbleImageUpload?: boolean
-    /** Bubble menu: emoji picker */
-    showBubbleEmoji?: boolean
-    /** Append `/` slash command menu (grouped sections, filter as you type) */
-    showSlashCommands?: boolean
-    /** Custom slash items when `showSlashCommands` is true (defaults match bubble / rich formatting toolbar) */
-    slashCommands?: InlineMarkdownSlashCommandItem[]
+    /** Toggle individual features on/off. Any key omitted keeps its default. */
+    controls?: {
+        /** Bubble menu + slash-command image upload (requires object storage). Default true. */
+        imageUpload?: boolean
+        /** Bubble menu emoji picker. Default true. */
+        emoji?: boolean
+        /** Append `/` slash command menu (grouped sections, filter as you type). Default false. */
+        slashCommands?: boolean
+        /** Character count footer. Default true. */
+        characterCount?: boolean
+    }
+    /** Custom slash items when `controls.slashCommands` is on (defaults match bubble / rich formatting toolbar) */
+    slashCommandItems?: InlineMarkdownSlashCommandItem[]
 }
 
 /**
@@ -91,14 +94,15 @@ export function InlineRichMarkdownEditor({
     extensions,
     markdownToDoc,
     docToMarkdown,
-    showCharacterCount = true,
     autoFocus = false,
     className = '',
-    showBubbleImageUpload = true,
-    showBubbleEmoji = true,
-    showSlashCommands = false,
-    slashCommands,
+    controls,
+    slashCommandItems,
 }: InlineRichMarkdownEditorProps): JSX.Element {
+    const showImageUpload = controls?.imageUpload ?? true
+    const showEmoji = controls?.emoji ?? true
+    const showSlashCommands = controls?.slashCommands ?? false
+    const showCharacterCount = controls?.characterCount ?? true
     const [linkUrl, setLinkUrl] = useState('')
     const [showLinkPopover, setShowLinkPopover] = useState(false)
     const [linkPopoverReferenceElement, setLinkPopoverReferenceElement] = useState<HTMLElement | null>(null)
@@ -143,11 +147,11 @@ export function InlineRichMarkdownEditor({
             ...extensions,
             createInlineMarkdownSlashCommandsExtension(
                 INLINE_MARKDOWN_SLASH_COMMANDS_PLUGIN_KEY,
-                slashCommands ?? DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS,
+                slashCommandItems ?? DEFAULT_INLINE_MARKDOWN_SLASH_COMMANDS,
                 { slashImageHostRef, slashLinkHostRef }
             ),
         ]
-    }, [extensions, showSlashCommands, slashCommands])
+    }, [extensions, showSlashCommands, slashCommandItems])
 
     const editor = useRichContentEditor({
         extensions: resolvedExtensions,
@@ -186,7 +190,7 @@ export function InlineRichMarkdownEditor({
         pick: () => {
             slashImageFileInputRef.current?.click()
         },
-        showSlashImageUpload: showBubbleImageUpload,
+        showSlashImageUpload: showImageUpload,
     }
     slashLinkHostRef.current = {
         openLinkPopover: () => {
@@ -224,8 +228,8 @@ export function InlineRichMarkdownEditor({
                     linkPopoverReferenceElement={linkPopoverReferenceElement}
                     clearLinkPopoverReference={clearLinkPopoverReference}
                     alternativeDropTargetRef={dropRef}
-                    showImageUpload={showBubbleImageUpload}
-                    showEmoji={showBubbleEmoji}
+                    showImageUpload={showImageUpload}
+                    showEmoji={showEmoji}
                 />
             ) : null}
             {showCharacterCount ? (

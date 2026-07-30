@@ -52,7 +52,7 @@ describe('LemonButton', () => {
             </form>
         )
 
-        await user.click(screen.getByRole('button', { name: label }))
+        await user.click(screen.getByRole('button'))
 
         expect(fn).not.toHaveBeenCalled()
     })
@@ -67,7 +67,7 @@ describe('LemonButton', () => {
             </LemonButton>
         )
 
-        await user.click(screen.getByRole('button', { name: 'Go' }))
+        await user.click(screen.getByRole('button'))
 
         expect(onClick).not.toHaveBeenCalled()
     })
@@ -96,7 +96,7 @@ describe('LemonButton', () => {
             </form>
         )
 
-        const input = screen.getByRole('textbox', { name: 'Field' })
+        const input = screen.getByLabelText('Field')
         input.focus()
         expect(input).toHaveFocus()
         await user.keyboard('{Enter}')
@@ -114,7 +114,7 @@ describe('LemonButton', () => {
             </form>
         )
 
-        await user.click(screen.getByRole('button', { name: 'Save' }))
+        await user.click(screen.getByRole('button'))
 
         expect(onSubmit).toHaveBeenCalledTimes(1)
     })

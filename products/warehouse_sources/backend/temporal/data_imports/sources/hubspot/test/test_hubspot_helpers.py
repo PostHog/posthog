@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.he
     _is_retryable_status,
     fetch_data,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import HUBSPOT_API_VERSION_V3
 
 
 def _make_response(status: int, payload: dict[str, Any] | None = None) -> MagicMock:
@@ -123,7 +124,7 @@ def test_get_property_names_recovers_from_transient_477() -> None:
     good = _make_response(200, {"results": [{"name": "deal_stage"}, {"name": "amount"}]})
     ctx, captured = _patch_session([_make_response(477), good])
     with ctx:
-        names = _get_property_names("key", "refresh", "deal")
+        names = _get_property_names("key", "refresh", "deal", api_version=HUBSPOT_API_VERSION_V3)
 
     assert names == ["deal_stage", "amount"]
     assert len(captured) == 2

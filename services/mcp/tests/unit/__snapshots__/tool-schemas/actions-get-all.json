@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "created_by": {
+            "description": "Comma-separated list of creator user ids. Returns only actions created by these users.",
+            "type": "string"
+        },
         "limit": {
             "description": "Maximum number of actions to return. Omit to return all.",
             "type": "number"
@@ -9,8 +13,16 @@
             "description": "Number of actions to skip before returning results.",
             "type": "number"
         },
+        "ordering": {
+            "description": "Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.",
+            "type": "string"
+        },
         "search": {
             "description": "Case-insensitive substring match on the action name.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded array of tag names, e.g. [\"billing\",\"beta\"]. Returns actions having any of these tags.",
             "type": "string"
         }
     },

@@ -59,14 +59,15 @@ class DiffCheck:
     triggers: list[str]  # fnmatch globs against changed paths (`*` spans `/`, as in build.py)
     verify: list[str] | None  # advisory command; None = guidance only (no runnable local check)
     fix: list[str] | None = None  # remediation for --fix
+    advice: str | None = None  # nudge-only: preflight never runs this check, it just says what to run
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
     matched: list[str] = field(default_factory=list)
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
-# broken lockfile blocking all CI, OpenAPI drift, formatting/lint, flag sort,
-# workflow-convention failures, migration conflicts.
+# broken lockfile blocking all CI, OpenAPI drift, formatting/lint/type checking,
+# flag sort, workflow-convention failures, migration conflicts.
 DIFF_CHECKS: list[DiffCheck] = [
     DiffCheck(
         key="lockfile",
@@ -101,6 +102,16 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["ruff", "format", "--check"],
         fix=["ruff", "format"],
         takes_files=True,
+    ),
+    DiffCheck(
+        key="type-check",
+        label="Python type checking (mypy)",
+        triggers=["*.py", "*.pyi"],
+        # A nudge, not a run: mypy is only meaningful repo-wide (it follows imports, so a
+        # changed-file subset both blames files outside the diff and misses reverse-dependency
+        # breakage), and that costs minutes cold. Naming the command lets the agent judge.
+        verify=None,
+        advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
     ),
     DiffCheck(
         key="markdown-format",
@@ -181,13 +192,17 @@ _CHECK_TIMEOUT_SECONDS = 600
 
 
 def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
+    if chk.advice is not None:
+        # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
+        return "advisory", chk.advice
     unmet = _unmet(chk)
     if do_fix and chk.fix is not None and not unmet:
         cmd = list(chk.fix)
     elif chk.verify is None:
         # Guidance-only (no runnable local check, or its fix needs an absent capability):
         # advise regardless, so the hint still shows on a bare checkout — even with --fix.
-        return "advisory", f"run `{' '.join(chk.fix or [])}` and commit drift"
+        # Ownership framing lives once in the advisory footer, not per check.
+        return "advisory", f"run `{' '.join(chk.fix or [])}` and commit before pushing"
     elif unmet:
         return "skipped", f"needs {', '.join(unmet)}"
     else:
@@ -423,7 +438,11 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     # Fetch first so both the diff base and the staleness check see a fresh
     # origin/master — a stale local ref would inflate the diff with master's own commits.
     _fetch_master()
-    files = changed_files(against)
+    # --strict is the blocking pre-push hook: scope it to the committed diff, since a
+    # push only carries commits. Untracked/uncommitted work never reaches CI, so gating
+    # a push on lint errors in a scratch file is a false block. Advisory/--fix runs keep
+    # the working tree in scope so agents can clean edits before committing.
+    files = changed_files(against, include_worktree=not strict)
     base = against or "origin/master"
 
     triggered: list[DiffCheck] = []
@@ -450,7 +469,9 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     for chk in triggered:
         status, detail = _run_diff_check(chk, do_fix)
         failures += status == "fail"
-        advisories += status == "advisory"
+        # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
+        # the footer on every matching push and cost the detected advisories their weight.
+        advisories += status == "advisory" and chk.advice is None
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])
@@ -474,6 +495,13 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         click.echo(
             f"  summary {json.dumps({k: summary[k] for k in ('changed_files', 'triggered', 'failures', 'mode')})}"
         )
+        if advisories:
+            # Non-blocking, so agents skip these as pre-existing. Restate ownership.
+            click.secho(
+                f"\n  {advisories} advisory(ies) are unpushed CI failures — resolve before pushing, "
+                "including drift you didn't introduce. You own the branch state you push.",
+                fg="yellow",
+            )
         click.echo()
 
     _emit_telemetry(summary)

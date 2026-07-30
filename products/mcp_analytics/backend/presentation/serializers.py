@@ -303,6 +303,99 @@ class MCPSessionIntentSerializer(serializers.Serializer):
     )
 
 
+class MCPIntentDigestSerializer(serializers.Serializer):
+    digest = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP "
+            "server, derived from the most recent recorded $mcp_intents across all sessions. Null when the "
+            "project has no recorded intents yet."
+        ),
+    )
+    intent_count = serializers.IntegerField(
+        read_only=True,
+        help_text="How many recorded intents (the most recent, capped at 100) the digest was derived from.",
+    )
+
+
+class MCPActivityStatsSerializer(serializers.Serializer):
+    total_calls = serializers.IntegerField(
+        read_only=True, help_text="$mcp_tool_call events captured in the last 30 days."
+    )
+    distinct_tools = serializers.IntegerField(
+        read_only=True, help_text="Distinct tools ($mcp_tool_name) called in the window."
+    )
+    distinct_sessions = serializers.IntegerField(
+        read_only=True, help_text="Distinct $session_ids seen on tool calls in the window."
+    )
+    distinct_clients = serializers.IntegerField(
+        read_only=True, help_text="Distinct agent clients ($mcp_client_name) seen in the window."
+    )
+    calls_with_intent = serializers.IntegerField(
+        read_only=True, help_text="Tool calls that carried an $mcp_intent, for intent-coverage checks."
+    )
+    error_calls = serializers.IntegerField(
+        read_only=True, help_text="Tool calls flagged as errors ($mcp_is_error) in the window."
+    )
+    missing_capability_reports = serializers.IntegerField(
+        read_only=True, help_text="$mcp_missing_capability events captured in the window."
+    )
+
+
+class MCPActivityToolRowSerializer(serializers.Serializer):
+    tool = serializers.CharField(read_only=True, help_text="MCP tool name ($mcp_tool_name).")
+    calls = serializers.IntegerField(read_only=True, help_text="Tool calls in the window.")
+    # The name shadows Serializer.errors, which is fine for a read-only output field.
+    errors = serializers.IntegerField(  # type: ignore[assignment]
+        read_only=True, help_text="Of those calls, how many errored."
+    )
+
+
+class MCPActivityClientRowSerializer(serializers.Serializer):
+    client = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Agent client name ($mcp_client_name). Empty when the SDK did not capture it.",
+    )
+    calls = serializers.IntegerField(read_only=True, help_text="Tool calls from this client in the window.")
+
+
+class MCPActivityRecentCallSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(read_only=True, help_text="When the tool call was captured.")
+    tool = serializers.CharField(read_only=True, help_text="Tool that was invoked ($mcp_tool_name).")
+    intent = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Agent intent for this tool call ($mcp_intent). Null when the SDK did not capture context.",
+    )
+    is_error = serializers.BooleanField(read_only=True, help_text="Whether the tool call resulted in an error.")
+    error_message = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Human-readable error extracted from the tool's response when is_error is true, otherwise null.",
+    )
+    duration_ms = serializers.FloatField(
+        read_only=True, allow_null=True, help_text="Duration of the tool call in milliseconds when captured."
+    )
+    client_name = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Agent client name ($mcp_client_name) when captured."
+    )
+
+
+class MCPActivityOverviewSerializer(serializers.Serializer):
+    stats = MCPActivityStatsSerializer(read_only=True, help_text="Aggregate counters over the last 30 days.")
+    top_tools = MCPActivityToolRowSerializer(
+        many=True, read_only=True, help_text="Most-called tools in the window, top 5 by call count."
+    )
+    clients = MCPActivityClientRowSerializer(
+        many=True, read_only=True, help_text="Agent clients in the window, top 6 by call count."
+    )
+    recent_calls = MCPActivityRecentCallSerializer(
+        many=True, read_only=True, help_text="The 20 most recent tool calls, newest first."
+    )
+
+
 class MCPIntentClusterToolEntrySerializer(serializers.Serializer):
     tool = serializers.CharField(read_only=True, help_text="MCP tool name that received calls for this cluster.")
     count = serializers.IntegerField(

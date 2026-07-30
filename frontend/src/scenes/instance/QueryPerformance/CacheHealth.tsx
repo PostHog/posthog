@@ -41,6 +41,15 @@ function tableLabel(table: string): string {
 }
 
 function TableCard({ table }: { table: CacheTableStats }): JSX.Element {
+    if (table.unavailable) {
+        return (
+            <LemonCard hoverEffect={false} className="flex-1 min-w-72">
+                <div className="font-mono text-xs text-muted">{table.table}</div>
+                <div className="text-xl font-semibold mt-1">Unavailable</div>
+                <div className="text-xs text-muted mt-1">Couldn't read system.parts from this table's cluster</div>
+            </LemonCard>
+        )
+    }
     return (
         <LemonCard hoverEffect={false} className="flex-1 min-w-72">
             <div className="font-mono text-xs text-muted">{table.table}</div>

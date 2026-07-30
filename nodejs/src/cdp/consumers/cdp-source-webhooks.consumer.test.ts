@@ -15,6 +15,7 @@ import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/we
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -201,6 +202,29 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({
                     error: 'Not found',
                 })
+            })
+
+            it('should 404 if the hog function is deleted', async () => {
+                // Deletion via the django API is a soft delete that leaves `enabled` untouched
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogfunction SET deleted=true, updated_at = NOW() WHERE id = $1`,
+                    [hogFunction.id],
+                    'testKey'
+                )
+
+                const res = await doPostRequest({
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(404)
+                expect(res.body).toEqual({
+                    error: 'Not found',
+                })
+                expect(mockExecuteSpy).not.toHaveBeenCalled()
             })
 
             it('should capture an event using internal capture', async () => {

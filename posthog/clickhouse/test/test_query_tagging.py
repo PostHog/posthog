@@ -16,6 +16,7 @@ from posthog.clickhouse.query_tagging import (
     _PROJECT_ROOT_PREFIX,
     _SOURCE_SKIP_PREFIXES,
     AccessMethod,
+    DagsterTags,
     Feature,
     HogQLFeatures,
     Product,
@@ -139,6 +140,40 @@ def test_tags_context():
 
     # Verify tags are restored
     assert get_query_tags() == create_base_tags(team_id=123)
+
+
+def test_tags_context_snapshot_isolation():
+    # Shallow-copy invariant: mutations through public helpers must not corrupt the
+    # saved snapshot that tags_context restores. Regression guard for the switch from
+    # deep to shallow model_copy in update_tags/tag_queries.
+    #
+    # A nested tag object set *before* taking the snapshot inside tags_context exercises
+    # the shallow-copy hazard: if the copy is truly shallow and with_temporal were to
+    # mutate the nested object in place (rather than replace the attribute), the snapshot
+    # would be corrupted. Setting a sentinel value before the snapshot lets us assert
+    # the nested object is untouched after all the in-context mutations.
+    reset_query_tags()
+    tag_queries(team_id=1)
+
+    with tags_context(user_id=42):
+        # Set a nested tag before taking the snapshot, then snapshot.
+        get_query_tags().with_temporal(TemporalTags(workflow_type="wt-before"))
+        snapshot = get_query_tags()
+        # Drive every public mutation helper after the snapshot is taken.
+        tag_queries(team_id=2)
+        update_tags(create_base_tags(cohort_id=99))
+        clear_tag("user_id")
+        qt = get_query_tags()
+        qt.with_temporal(TemporalTags(workflow_type="wt"))
+        qt.with_dagster(DagsterTags(run_id="run-1"))
+
+    # The snapshot taken inside tags_context must be untouched by all mutations above,
+    # including the nested temporal object that was set before the snapshot was taken.
+    expected = create_base_tags(team_id=1, user_id=42)
+    expected.with_temporal(TemporalTags(workflow_type="wt-before"))
+    assert snapshot == expected
+    assert snapshot.temporal is not None
+    assert snapshot.temporal.workflow_type == "wt-before"
 
 
 @pytest.mark.asyncio
@@ -312,7 +347,7 @@ def test_tag_contains_user_hogql_is_idempotent():
 
 def test_tag_contains_user_hogql_short_circuits_after_first_call():
     # Repeated calls (recursive property_to_expr, breakdown loops, @property accessors)
-    # must skip the model_copy(deep=True) inside tag_queries after the first call.
+    # must skip the model_copy() inside tag_queries after the first call.
     reset_query_tags()
     tag_contains_user_hogql()
     first_tags = get_query_tags()

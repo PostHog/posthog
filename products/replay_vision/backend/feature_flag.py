@@ -40,7 +40,7 @@ def is_replay_vision_actions_enabled(user: "User", team: "Team") -> bool:
 
 
 class ReplayVisionEnabledPermission(BasePermission):
-    """Hide Vision endpoints behind the `replay-vision` flag — 404 (not 403) when off."""
+    """Hide Vision endpoints behind the `replay-vision` flag: 404 (not 403) when off."""
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not is_replay_vision_enabled(request.user, view.team):  # type: ignore[arg-type, attr-defined]
@@ -49,7 +49,7 @@ class ReplayVisionEnabledPermission(BasePermission):
 
 
 class ReplayVisionActionsEnabledPermission(BasePermission):
-    """Hide Vision *action* endpoints behind the `replay-vision-actions` flag — 404 (not 403) when off."""
+    """Hide Vision *action* endpoints behind the `replay-vision-actions` flag: 404 (not 403) when off."""
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if not is_replay_vision_actions_enabled(request.user, view.team):  # type: ignore[arg-type, attr-defined]

@@ -17,7 +17,13 @@ jest.mock('./cdp-base.consumer', () => {
 })
 
 jest.mock('~/common/kafka/consumer', () => ({
-    createKafkaConsumer: jest.fn().mockReturnValue({}),
+    // Fresh stub per call: the matcher now constructs three consumers (events, person, internal
+    // events), and start()/stop()/isHealthy() touch all of them.
+    createKafkaConsumer: jest.fn(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        disconnect: jest.fn().mockResolvedValue(undefined),
+        isHealthy: jest.fn(),
+    })),
 }))
 
 jest.mock('pg', () => {
@@ -103,6 +109,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public calls: QueryCall[] = []
     public findRows: MockRow[] = []
     public wakeRows: MockRow[] = []
+    public moveRows: MockRow[] = []
     public updateRowCount = 0
 
     constructor() {
@@ -120,6 +127,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             }
             if (sql.includes('SELECT id, state FROM cyclotron_jobs')) {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
+            }
+            if (sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')) {
+                return Promise.resolve({ rows: this.moveRows, rowCount: this.moveRows.length })
             }
             if (sql.startsWith('UPDATE cyclotron_jobs')) {
                 return Promise.resolve({ rows: [], rowCount: this.updateRowCount })
@@ -1188,6 +1198,268 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
     })
 
+    describe('_parsePersonBatch', () => {
+        const rawPerson = (overrides: Record<string, any>): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    id: 'person-uuid-1',
+                    team_id: 1,
+                    properties: JSON.stringify({ plan: 'enterprise' }),
+                    is_deleted: 0,
+                    timestamp: '2024-01-01 00:00:00.000',
+                    ...overrides,
+                })
+            ),
+        })
+
+        beforeEach(() => {
+            ;(matcher as any).deps = {
+                teamManager: {
+                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+                },
+            }
+            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        it('maps a person mutation to $person_updated globals keyed on person_id only', async () => {
+            const result = await (matcher as any)._parsePersonBatch([rawPerson({})])
+
+            expect(result).toHaveLength(1)
+            const globals = result[0] as HogFunctionInvocationGlobals
+            expect(globals.event.event).toBe('$person_updated')
+            // distinct_id is empty so indexBatch keys this only on person_id, never adding a spurious
+            // (team_id, distinct_id) lookup.
+            expect(globals.event.distinct_id).toBe('')
+            expect(globals.person?.id).toBe('person-uuid-1')
+            expect(globals.person?.properties).toEqual({ plan: 'enterprise' })
+        })
+
+        it('skips deleted persons, persons with no id, and persons whose team has no actionable flow', async () => {
+            const getTeam = (matcher as any).deps.teamManager.getTeam
+
+            const result = await (matcher as any)._parsePersonBatch([
+                rawPerson({ is_deleted: 1 }),
+                rawPerson({ id: '' }),
+                rawPerson({ team_id: 2 }), // team 2 has no wait_until_condition flow
+                rawPerson({}),
+            ])
+
+            // Only the valid person for the actionable team survives.
+            expect(result.map((g: HogFunctionInvocationGlobals) => g.person?.id)).toEqual(['person-uuid-1'])
+            // The firehose early-out means getTeam is only paid for the surviving person.
+            expect(getTeam).toHaveBeenCalledTimes(1)
+            expect(getTeam).toHaveBeenCalledWith(1)
+        })
+
+        it('skips a person whose team cannot be loaded', async () => {
+            ;(matcher as any).deps.teamManager.getTeam = jest.fn().mockResolvedValue(null)
+
+            const result = await (matcher as any)._parsePersonBatch([rawPerson({})])
+
+            expect(result).toEqual([])
+        })
+    })
+
+    describe('_parseInternalEventsBatch', () => {
+        const rawInternalEvent = (
+            overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}
+        ): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: overrides.team_id ?? 1,
+                    event: {
+                        uuid: 'evt-uuid-1',
+                        event: '$insight_alert_firing',
+                        distinct_id: 'distinct-1',
+                        properties: {},
+                        timestamp: '2024-01-01T00:00:00Z',
+                        ...overrides.event,
+                    },
+                    ...(overrides.person !== undefined ? { person: overrides.person } : {}),
+                })
+            ),
+        })
+
+        beforeEach(() => {
+            ;(matcher as any).deps = {
+                teamManager: {
+                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+                },
+            }
+            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        it('maps an internal event to globals keyed on distinct_id', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([rawInternalEvent()])
+
+            expect(result).toHaveLength(1)
+            const globals = result[0] as HogFunctionInvocationGlobals
+            expect(globals.event.event).toBe('$insight_alert_firing')
+            expect(globals.event.distinct_id).toBe('distinct-1')
+        })
+
+        it('skips events with no identifiers and no-flow teams, but keeps a person-only event', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([
+                rawInternalEvent({ event: { distinct_id: '' } }), // no distinct_id and no person
+                rawInternalEvent({ team_id: 2 }), // team 2 has no actionable flow
+                rawInternalEvent({ event: { distinct_id: '' }, person: { id: 'person-1', properties: {} } }),
+            ])
+
+            // Only the person-only event for the actionable team survives — matched later by person_id.
+            expect(result).toHaveLength(1)
+            expect((result[0] as HogFunctionInvocationGlobals).person?.id).toBe('person-1')
+        })
+
+        it('skips an event whose team cannot be loaded', async () => {
+            ;(matcher as any).deps.teamManager.getTeam = jest.fn().mockResolvedValue(null)
+
+            const result = await (matcher as any)._parseInternalEventsBatch([rawInternalEvent()])
+
+            expect(result).toEqual([])
+        })
+
+        it('drops a malformed message (schema parse failure) without throwing', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([
+                { value: Buffer.from(JSON.stringify({ team_id: 1 })) }, // missing required `event`
+                rawInternalEvent(),
+            ])
+
+            // The bad message is dropped; the valid one still parses.
+            expect(result).toHaveLength(1)
+            expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$insight_alert_firing')
+        })
+    })
+
+    describe('_parsePersonDistinctIdBatch', () => {
+        const rawMove = (overrides: Record<string, any> = {}): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: 1,
+                    distinct_id: 'anon-did',
+                    person_id: 'survivor-uuid',
+                    version: 2,
+                    is_deleted: 0,
+                    ...overrides,
+                })
+            ),
+        })
+
+        it('maps a version>0 repoint to its distinct_id + survivor person', () => {
+            const result = (matcher as any)._parsePersonDistinctIdBatch([rawMove()])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 }])
+        })
+
+        it('drops version-0 inserts, deletions, missing-id and malformed messages', () => {
+            const result = (matcher as any)._parsePersonDistinctIdBatch([
+                rawMove({ version: 0 }), // brand-new distinct_id (person creation), not a repoint
+                rawMove({ is_deleted: 1 }), // distinct_id being deleted
+                rawMove({ person_id: '' }), // no survivor to point at
+                { value: Buffer.from('not json') }, // malformed
+                rawMove(),
+            ])
+            expect(result).toEqual([{ teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 }])
+        })
+    })
+
+    describe('processMoveBatch', () => {
+        beforeEach(() => {
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        const parkedWaitRow = (overrides: Record<string, any> = {}): any => ({
+            id: 'job-1',
+            team_id: 1,
+            distinct_id: 'anon-did',
+            function_id: 'flow-1',
+            action_id: 'wait_node',
+            state: Buffer.from(JSON.stringify({ state: { personId: 'old-uuid' } })),
+            ...overrides,
+        })
+
+        const lastUpdate = (): QueryCall | undefined =>
+            matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+
+        it('re-keys a parked wait onto the survivor (person_id column + state.personId)', async () => {
+            matcher.moveRows = [parkedWaitRow()]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
+            ])
+
+            const update = lastUpdate()
+            expect(update).toBeDefined()
+            // params: [ids, person_ids, states]. The person_id column moves to the survivor...
+            expect(update!.params[1]).toEqual(['survivor-uuid'])
+            const newState = parseJSON((update!.params[2][0] as Buffer).toString('utf-8')) as any
+            // ...and so does the persisted state.personId, so a distinct_id-less re-resolution follows it.
+            expect(newState.state.personId).toBe('survivor-uuid')
+            // The repoint also wakes the parked wait (scheduled = NOW()) so it re-checks against the
+            // merged person immediately, rather than depending on the poll tick — closes the race where
+            // the person-property update lands before this re-key. Dropping this hangs the wait.
+            expect(update!.sql).toContain('scheduled = NOW()')
+        })
+
+        it('re-keys onto the highest-version survivor when a batch chains merges out of order', async () => {
+            // anon-did → A (v2) then → B (v3) in the same batch, but the array carries them B-then-A.
+            // Repoints aren't Kafka-keyed, so this ordering is real; the highest version must win or the
+            // wait re-keys onto intermediate A, whose person-stream updates can't wake it once the poll is gone.
+            matcher.moveRows = [parkedWaitRow()]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-B', version: 3 },
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'intermediate-A', version: 2 },
+            ])
+
+            expect(lastUpdate()!.params[1]).toEqual(['survivor-B'])
+        })
+
+        it('rejects an older repoint that arrives in a later batch than a newer one already applied', async () => {
+            // Cross-batch ordering: anon-did → B (v3) was applied in an earlier batch (persisted as
+            // personIdRepointVersion), then a delayed anon-did → A (v2) lands. The version watermark must
+            // reject it — otherwise the wait rewinds onto obsolete A and B's updates no longer wake it.
+            matcher.moveRows = [
+                parkedWaitRow({
+                    state: Buffer.from(
+                        JSON.stringify({ state: { personId: 'survivor-B', personIdRepointVersion: 3 } })
+                    ),
+                }),
+            ]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'obsolete-A', version: 2 },
+            ])
+
+            expect(lastUpdate()).toBeUndefined()
+        })
+
+        it('skips a job parked on a delay step and scopes the lock to wait actions only', async () => {
+            // A job of the same wait-containing flow can sit on a delay step; rewriting its person_id off
+            // a repoint would be wrong. Two layers keep it safe: the SELECT is scoped to wait action_ids
+            // ($4), and the JS guard skips any row whose action isn't a wait_until_condition. Assert both.
+            const flow = makeHogFlow({ id: 'flow-1', team_id: 1 })
+            flow.actions.push({
+                id: 'delay_node',
+                name: 'Delay',
+                type: 'delay',
+                config: { delay_duration: '1h' },
+            } as any)
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            matcher.moveRows = [parkedWaitRow({ action_id: 'delay_node' })]
+            await matcher.processMoveBatch([
+                { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
+            ])
+
+            // JS guard: the delay-parked job is left untouched.
+            expect(lastUpdate()).toBeUndefined()
+            // SQL scoping: the lock/state fetch targets the wait step only — the delay/trigger/exit
+            // actions are excluded from the $4 action_id list.
+            const select = matcher.calls.find((c) =>
+                c.sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')
+            )!
+            expect(select.params[3]).toEqual(['wait_node'])
+        })
+    })
+
     // The full combination matrix lives here (mocked pg, ~ms each) rather than in the E2E suite:
     // it exercises the same wake decision the matcher makes for every events/property/action shape.
     describe('wake matrix: events / property / action combinations', () => {
@@ -1327,6 +1599,64 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 woken: false,
             },
         ]
+
+        // Follow-live contract: a parked job carries no copy of its wait condition - the matcher
+        // must evaluate the flow's live config on every event. Guards against a refactor that
+        // stamps the condition (or its bytecode) into job state at park time, which would make
+        // edits to a wait condition silently ignored for everyone already parked on it.
+        it('after a wait-condition edit, only the new condition wakes a parked job', async () => {
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            // The job parked while the wait subscribed to 'old_wake_event'; the flow has since
+            // been edited to wait for 'new_wake_event'
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: {
+                                max_wait_duration: '5m',
+                                events: [
+                                    {
+                                        filters: {
+                                            bytecode: eventBytecode('new_wake_event'),
+                                            events: [{ id: 'new_wake_event' }],
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+
+            await matcher.runWake([wakeWith('old_wake_event')])
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
+
+            matcher.calls = []
+            await matcher.runWake([wakeWith('new_wake_event')])
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeDefined()
+        })
 
         it.each(cases)('$name -> woken: $woken', async ({ config, event, woken }) => {
             matcher.findRows = [

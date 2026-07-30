@@ -57,6 +57,9 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                             return new HttpResponse(keyZero)
                         } else if (key === '1') {
                             return new HttpResponse(keyOne)
+                        } else if (start_blob_key === '2' && end_blob_key === '2') {
+                            // a heartbeat blob with no snapshots
+                            return new HttpResponse('')
                         } else if (start_blob_key === '0' && end_blob_key === '1') {
                             return new HttpResponse(`${keyZero}\n${keyOne}`)
                         }
@@ -84,6 +87,39 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
         logic.actions.loadRecordingMeta()
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'create')
+    })
+
+    describe('processing after live source growth', () => {
+        it('an empty heartbeat blob does not wipe the processed stream', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshots()
+            })
+                .toDispatchActions([snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess, 'setProcessedSnapshots'])
+                .toFinishAllListeners()
+
+            const processedBefore = logic.values.snapshots.length
+            expect(processedBefore).toBeGreaterThan(0)
+
+            // a live recording appends a blob that contains no snapshots, after earlier raw data was released
+            const HEARTBEAT_SOURCE: SessionRecordingSnapshotSource = {
+                source: 'blob_v2',
+                start_timestamp: '2025-05-18T03:52:00.000000Z',
+                end_timestamp: '2025-05-18T03:52:10.000000Z',
+                blob_key: '2',
+            }
+            await expectLogic(logic, () => {
+                snapshotLogic.actions.loadSnapshotSourcesSuccess([
+                    BLOB_V2_SOURCE_ZERO,
+                    BLOB_V2_SOURCE_ONE,
+                    HEARTBEAT_SOURCE,
+                ])
+            })
+                .toDispatchActions([snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess, 'setProcessedSnapshots'])
+                .toFinishAllListeners()
+
+            expect(logic.values.snapshots.length).toBe(processedBefore)
+            expect(snapshotLogic.cache.store.getEntry(2)?.state).toBe('loaded')
+        })
     })
 
     describe('loading session core', () => {

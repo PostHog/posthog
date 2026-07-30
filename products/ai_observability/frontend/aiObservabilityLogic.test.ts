@@ -4,10 +4,13 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { productRedirects } from '~/products'
+import { isTracesQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -158,6 +161,7 @@ describe('aiObservabilitySharedLogic', () => {
         ])
         logic.actions.setDates('-30d', '-1d')
         logic.actions.setShouldFilterTestAccounts(true)
+        logic.actions.setSearchQuery('walrus')
 
         // Navigate to another tab without params
         router.actions.push(urls.aiObservabilityGenerations())
@@ -170,7 +174,60 @@ describe('aiObservabilitySharedLogic', () => {
                 dateTo: null,
             },
             shouldFilterTestAccounts: false,
+            searchQuery: '',
         })
+    })
+
+    it('syncs the trace content search between the URL, state, and traces query', () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH], {
+            [FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH]: true,
+        })
+
+        router.actions.push(urls.aiObservabilityTraces(), { trace_search: 'walrus' })
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+
+        const tabLogic = aiObservabilityTracesTabLogic()
+        tabLogic.mount()
+        const source = tabLogic.values.tracesQuery.source
+        expect(isTracesQuery(source) && source.searchTerm).toBe('walrus')
+        tabLogic.unmount()
+
+        logic.actions.setSearchQuery('penguin')
+        expect(router.values.searchParams).toMatchObject({ trace_search: 'penguin' })
+
+        logic.actions.setSearchQuery('')
+        expect(router.values.searchParams).not.toHaveProperty('trace_search')
+    })
+
+    it('does not apply the search to the traces query when the flag is off', () => {
+        // A shared URL must not invisibly filter a list with no visible search box.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        router.actions.push(urls.aiObservabilityTraces(), { trace_search: 'walrus' })
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+
+        const tabLogic = aiObservabilityTracesTabLogic()
+        tabLogic.mount()
+        const source = tabLogic.values.tracesQuery.source
+        expect(isTracesQuery(source) && source.searchTerm).toBeUndefined()
+        tabLogic.unmount()
+    })
+
+    it('keeps the search when URL state applies without a searchQuery', () => {
+        // Payloads built by other tabs omit searchQuery — they must not clear it.
+        logic.actions.setSearchQuery('walrus')
+        logic.actions.applyUrlState({
+            propertyFilters: [],
+            dateFrom: '-14d',
+            dateTo: null,
+            shouldFilterTestAccounts: false,
+            datesChanged: true,
+        })
+
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+        expect(router.values.searchParams).toMatchObject({ trace_search: 'walrus' })
     })
 })
 

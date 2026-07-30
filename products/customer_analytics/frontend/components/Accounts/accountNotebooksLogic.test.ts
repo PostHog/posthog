@@ -15,6 +15,10 @@ import type {
 import { accountNotebooksLogic, NOTES_PER_PAGE } from './accountNotebooksLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
+    // Keep the real module for everything else — connected logics (e.g. column config's
+    // customPropertyDefinitionsList) call other generated functions on mount, and an
+    // absent export makes their loaders throw on every test.
+    ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsNotebooksList: jest.fn(),
     accountsNotebooksCreate: jest.fn(),
 }))

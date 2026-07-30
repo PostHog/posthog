@@ -11,7 +11,7 @@ from posthog.hogql.direct_sql.mysql_adapter import mysql_error_to_message, mysql
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 
 
 class TestDirectMySQLQuery(APIBaseTest):
@@ -424,3 +424,58 @@ class TestDirectMySQLQuery(APIBaseTest):
         self.assertEqual(executed_statements[1], "START TRANSACTION READ ONLY")
         self.assertEqual(response.results, [(1, "a@b.com")])
         self.assertEqual(response.types, [("id", "Int64"), ("email", "String")])
+
+    def test_hogql_query_for_synced_source_prints_identical_sql_to_pure_direct(self):
+        direct_source = self._create_source(prefix="direct")
+        self._create_table(direct_source, "orders")
+        synced_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="MySQL",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=True,
+            prefix="synced",
+            job_inputs={
+                "host": "localhost",
+                "port": 3306,
+                "database": "shop",
+                "user": "mysql",
+                "password": "mysql",
+                "schema": "shop",
+                "using_ssl": "true",
+            },
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="orders",
+            source=synced_source,
+            should_sync=True,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [
+                        {"name": "id", "data_type": "bigint", "is_nullable": False},
+                        {"name": "email", "data_type": "text", "is_nullable": True},
+                        {"name": "created_at", "data_type": "datetime", "is_nullable": True},
+                    ],
+                    "source_schema": "shop",
+                    "source_table_name": "orders",
+                }
+            },
+        )
+
+        sql_by_mode = {}
+        for mode, source in (("direct", direct_source), ("synced", synced_source)):
+            executor = HogQLQueryExecutor(
+                query="SELECT id, email FROM orders WHERE id > 10",
+                team=self.team,
+                connection_id=str(source.id),
+            )
+            sql, _context = executor.generate_clickhouse_sql()
+            sql_by_mode[mode] = sql
+
+        # The virtual table built from schema metadata must print byte-identically to the
+        # physical pure-direct row for the same source location and columns.
+        self.assertEqual(sql_by_mode["synced"], sql_by_mode["direct"])
+        self.assertIn("shop.orders", sql_by_mode["synced"])

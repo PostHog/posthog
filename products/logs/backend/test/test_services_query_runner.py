@@ -178,7 +178,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
                 {sql}
             """)
 
-    def _services(self, date_from: str, date_to: str) -> list[dict]:
+    def _services(self, date_from: str, date_to: str) -> dict:
         response = self.client.post(
             f"/api/projects/{self.team.id}/logs/services",
             data={
@@ -191,7 +191,7 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.json()["services"]
+        return response.json()
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_services_honors_sub_day_date_range(self):
@@ -202,10 +202,22 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         full_day = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
         windowed = self._services("2025-12-16T10:24:00Z", "2025-12-16T10:33:00Z")
 
-        self.assertEqual(sum(s["log_count"] for s in full_day), 1003)
-        self.assertEqual(len(windowed), 1)
-        self.assertEqual(windowed[0]["service_name"], "cdp-legacy-events-consumer")
-        self.assertEqual(windowed[0]["log_count"], 100)
+        self.assertEqual(sum(s["log_count"] for s in full_day["services"]), 1003)
+        self.assertEqual(len(windowed["services"]), 1)
+        self.assertEqual(windowed["services"][0]["service_name"], "cdp-legacy-events-consumer")
+        self.assertEqual(windowed["services"][0]["log_count"], 100)
+
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_sparkline_covers_exactly_the_returned_services(self):
+        # The sparkline must line up exactly with the aggregates result: never a
+        # service the table won't render (extra), and never a displayed service
+        # missing its trend (the row-cap truncation the scoping fix removes).
+        result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+        service_names = {s["service_name"] for s in result["services"]}
+        sparkline_services = {row["service_name"] for row in result["sparkline"]}
+
+        self.assertTrue(service_names)
+        self.assertEqual(sparkline_services, service_names)
 
 
 if __name__ == "__main__":

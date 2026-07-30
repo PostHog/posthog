@@ -367,7 +367,12 @@ interface ContextDisplayProps {
     size?: 'small' | 'default'
 }
 
-export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
+// Memoized: QuestionInput re-renders on every keystroke (local input state), and this subtree
+// (ModeSelector, TaxonomicPopover, context tags with tooltips) is its most expensive part while
+// being keystroke-independent. useValues subscriptions inside still trigger their own re-renders.
+export const ContextDisplay = React.memo(function ContextDisplay({
+    size = 'default',
+}: ContextDisplayProps): JSX.Element | null {
     const { showContextUI, contextDisabledReason, conversation, sandboxConversationKey } = useValues(maxThreadLogic)
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
@@ -422,4 +427,4 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
             </div>
         </div>
     )
-}
+})

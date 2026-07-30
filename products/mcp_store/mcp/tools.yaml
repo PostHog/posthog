@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: MCP Store
 feature: mcp_store
-url_prefix: /settings/environment-mcp-servers
+url_prefix: /settings/mcp-servers
 ui_apps: {}
 tools:
     mcp-connection-tools-list:
@@ -74,6 +74,12 @@ tools:
         enabled: false
     mcp-connections-update:
         operation: mcp_server_installations_update
+        enabled: false
+    mcp-server-installations-share-create:
+        operation: mcp_server_installations_share_create
+        enabled: false
+    mcp-server-installations-unshare-create:
+        operation: mcp_server_installations_unshare_create
         enabled: false
     mcp-servers-list:
         operation: mcp_servers_list

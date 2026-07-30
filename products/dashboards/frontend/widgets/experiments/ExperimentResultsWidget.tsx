@@ -1,9 +1,10 @@
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { HedgehogExperiment } from '@posthog/brand/hoggies'
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -19,6 +20,8 @@ import type { DashboardWidgetComponentProps } from '../registry'
 import { ExperimentPickerSelect } from './ExperimentPickerSelect'
 import { patchExperimentResultsWidgetConfig } from './experimentsWidgetConfigValidation'
 import { NotebookCompactTable } from './LazyNotebookCompactTable'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export type ExperimentResultsWidgetMetricEntry = {
     uuid: string | null

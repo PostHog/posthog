@@ -29,6 +29,7 @@ import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
 import type {
+    AreaSelectData,
     ChartConfig,
     ChartDrawArgs,
     ChartScales,
@@ -72,6 +73,12 @@ export interface ChartProps<Meta = unknown> {
     /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
      *  x-axis only — has no effect on charts with a vertical (`interactionAxis: 'y'`) interaction. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
+    /** Enables a 2D brush: the drag tracks both axes, the selection rect clamps to the dragged
+     *  vertical range, and the completed gesture reports the x label range plus the y pixel
+     *  span, with the committed `scales` so chart-type adapters can map pixels onto their own
+     *  bands. Takes precedence over `onDateRangeZoom`. Chart-type adapters provide this and
+     *  expose a domain-shaped callback (e.g. Heatmap's `onBrush`); consumers do not. */
+    onAreaSelect?: (data: AreaSelectData, scales: ChartScales) => void
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -120,6 +127,7 @@ export function Chart<Meta = unknown>({
     tooltip: renderTooltipProp,
     onPointClick,
     onDateRangeZoom,
+    onAreaSelect,
     className,
     dataAttr,
     children,
@@ -153,6 +161,7 @@ export function Chart<Meta = unknown>({
         formatters: yAxisFormatters,
         positions: yAxisPositions,
         titles: yAxisTitles,
+        hidden: yAxisHidden,
     } = useYAxisMaps(yAxes, yAxisLabel)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
@@ -210,6 +219,7 @@ export function Chart<Meta = unknown>({
         yAxisFormatters,
         yAxisPositions,
         yAxisTitles,
+        yAxisHidden,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -236,8 +246,18 @@ export function Chart<Meta = unknown>({
                       userYTickFormatter: yTickFormatter,
                       yAxisFormatters,
                       titles: yAxisTitles,
+                      hiddenAxes: yAxisHidden,
                   }),
-        [scales, hideYAxis, axisOrientation, resolvedYFormatter, yTickFormatter, yAxisFormatters, yAxisTitles]
+        [
+            scales,
+            hideYAxis,
+            axisOrientation,
+            resolvedYFormatter,
+            yTickFormatter,
+            yAxisFormatters,
+            yAxisTitles,
+            yAxisHidden,
+        ]
     )
 
     // Mirrors AxisLabels' visible-label computation (same pure helpers, same inputs) so every tick
@@ -310,6 +330,7 @@ export function Chart<Meta = unknown>({
         resolveClickToNearestSeries,
         onPointClick,
         onDateRangeZoom,
+        onAreaSelect,
         resolveValue,
         resolvePositionValue,
         resolveBottomValue,
@@ -330,7 +351,14 @@ export function Chart<Meta = unknown>({
             labelToCoord,
         })
         return composeDrawHoverWithSelection(withCrosshair)
-    }, [showCrosshair, theme.crosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord, drawHoverRef.current])
+    }, [
+        showCrosshair,
+        theme.crosshairColor,
+        theme.crosshairDashPattern,
+        axisOrientation,
+        labelToCoord,
+        drawHoverRef.current,
+    ])
 
     useChartDraw({
         ctx,
@@ -402,7 +430,7 @@ export function Chart<Meta = unknown>({
                     className={className}
                     dataAttr={dataAttr}
                     pointer={hoverIndex >= 0 && !!onPointClick}
-                    crosshair={!!onDateRangeZoom}
+                    crosshair={!!onDateRangeZoom || !!onAreaSelect}
                     ariaLabel={ariaLabel}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}

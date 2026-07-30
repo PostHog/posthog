@@ -54,6 +54,10 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.deletePerson(person, this.transaction)
     }
 
+    async deletePersons(persons: InternalPerson[]): Promise<PersonMessage[]> {
+        return await this.repository.deletePersons(persons, this.transaction)
+    }
+
     async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return await this.repository.addDistinctId(person, distinctId, version, this.transaction)
     }
@@ -64,6 +68,20 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         limit?: number
     ): Promise<MoveDistinctIdsResult> {
         return await this.repository.moveDistinctIds(source, target, limit, this.transaction)
+    }
+
+    async moveDistinctIdsFromPersons(
+        sources: InternalPerson[],
+        target: InternalPerson
+    ): Promise<MoveDistinctIdsResult> {
+        return await this.repository.moveDistinctIdsFromPersons(sources, target, this.transaction)
+    }
+
+    async countDistinctIdsForPersons(
+        teamID: Team['id'],
+        personIds: InternalPerson['id'][]
+    ): Promise<Map<string, number>> {
+        return await this.repository.countDistinctIdsForPersons(teamID, personIds, this.transaction)
     }
 
     async fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]> {
@@ -82,6 +100,19 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.updateCohortsAndFeatureFlagsForMerge(
             teamID,
             sourcePersonID,
+            targetPersonID,
+            this.transaction
+        )
+    }
+
+    async updateCohortsAndFeatureFlagsForMergeBatch(
+        teamID: Team['id'],
+        sourcePersonIDs: InternalPerson['id'][],
+        targetPersonID: InternalPerson['id']
+    ): Promise<void> {
+        return await this.repository.updateCohortsAndFeatureFlagsForMergeBatch(
+            teamID,
+            sourcePersonIDs,
             targetPersonID,
             this.transaction
         )

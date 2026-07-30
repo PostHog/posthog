@@ -443,6 +443,17 @@ class TestValidateAlertConfig:
             detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
         )
 
+    def test_detector_alert_rejects_non_time_series_trend(self) -> None:
+        with pytest.raises(ValueError, match="Anomaly detection isn't supported for non time series trends"):
+            validate_alert_config(
+                _base_query(display="ActionsPie"),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(),
+                "daily",
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            )
+
     def test_any_row_hogql_alert_rejects_relative_conditions(self) -> None:
         with pytest.raises(ValueError, match="Any-row SQL alerts only support absolute value conditions"):
             validate_alert_config(

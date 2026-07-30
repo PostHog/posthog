@@ -1,0 +1,17 @@
+// Shared styling for a scanner's synthesized summary markdown (digest card + run scene).
+.ScannerSummaryMarkdown {
+    // Observation citations ([obs N] resolved to observation links) read as compact superscript markers,
+    // rather than a cluttered inline row of external-link chips.
+    a[href*='/replay-vision/observations/'] {
+        font-size: 0.7em;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        vertical-align: super;
+
+        // LemonMarkdown appends an "open in new tab" icon to every link; citations read cleaner without it.
+        svg {
+            display: none;
+        }
+    }
+}

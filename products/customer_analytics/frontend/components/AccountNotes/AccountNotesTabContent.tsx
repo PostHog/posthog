@@ -26,13 +26,15 @@ export function AccountNotesTabContent(): JSX.Element {
         search,
         createdByFilter,
         createdByCurrentUser,
+        assignedToCurrentUser,
         accountFilter,
         pagination,
     } = useValues(accountNotesLogic)
-    const { setSearch, setCreatedByFilter, setCreatedByCurrentUser, reportFilterChange } = useActions(accountNotesLogic)
+    const { setSearch, setCreatedByFilter, setCreatedByCurrentUser, setAssignedToCurrentUser, reportFilterChange } =
+        useActions(accountNotesLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
-    const hasFilters = !!search || createdByFilter.length > 0 || accountFilter !== null
+    const hasFilters = !!search || createdByFilter.length > 0 || assignedToCurrentUser || accountFilter !== null
 
     const columns: LemonTableColumns<AccountNoteApi> = [
         {
@@ -136,6 +138,16 @@ export function AccountNotesTabContent(): JSX.Element {
                     label="My notes"
                     info="Shortcut for Created by: you — notes you created"
                     data-attr="account-notes-my-notes-filter"
+                />
+                <LemonCheckbox
+                    checked={assignedToCurrentUser}
+                    onChange={(value) => {
+                        setAssignedToCurrentUser(value)
+                        reportFilterChange('my_accounts')
+                    }}
+                    label="My accounts"
+                    info="Notes on accounts where you are the CSM or account executive"
+                    data-attr="account-notes-my-accounts-filter"
                 />
             </div>
             {accountNotesResponse === null ? (

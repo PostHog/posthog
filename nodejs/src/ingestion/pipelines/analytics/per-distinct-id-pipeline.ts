@@ -5,6 +5,7 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { TeamManager } from '~/common/utils/team-manager'
+import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
@@ -60,37 +61,40 @@ function classifyEvent(input: PerDistinctIdPipelineInput): EventBranch {
     return EVENT_BRANCH_MAP.get(input.event.event) ?? 'event'
 }
 
-export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput, TContext>(
+// The event branch's person step consumes the merge-fold decision, so this pipeline requires it on
+// its inputs (the joined pipeline's planning step attaches it); the AI branch ignores it.
+export function createPerDistinctIdPipeline<
+    TInput extends PerDistinctIdPipelineInput & WithMergeFoldDecision,
+    TContext,
+>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
     const { options, outputs, aiSubpipelineFactory, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
-    return builder.retry(
-        (e) =>
-            e.branching(classifyEvent, (branches) =>
-                branches
-                    .branch('ai', (b) =>
-                        aiSubpipelineFactory(b, {
-                            options,
-                            outputs,
-                            teamManager,
-                            groupTypeManager,
-                            hogTransformer,
-                            topHog,
-                        })
-                    )
-                    .branch('event', (b) =>
-                        createEventSubpipeline(b, {
-                            options,
-                            outputs,
-                            teamManager,
-                            groupTypeManager,
-                            hogTransformer,
-                            topHog,
-                        })
-                    )
-            ),
-        { tries: 5, sleepMs: 100, name: 'per_distinct_id' }
+    // Retry is applied per step inside each branch's subpipeline (on the I/O
+    // steps that can throw transient errors), rather than around the whole chain.
+    return builder.branching(classifyEvent, (branches) =>
+        branches
+            .branch('ai', (b) =>
+                aiSubpipelineFactory(b, {
+                    options,
+                    outputs,
+                    teamManager,
+                    groupTypeManager,
+                    hogTransformer,
+                    topHog,
+                })
+            )
+            .branch('event', (b) =>
+                createEventSubpipeline(b, {
+                    options,
+                    outputs,
+                    teamManager,
+                    groupTypeManager,
+                    hogTransformer,
+                    topHog,
+                })
+            )
     )
 }

@@ -55,11 +55,16 @@ Diagnose layer by layer, from consumer to output:
    This is the total time to consume + process a batch. High values mean slow processing.
    Compare across consumer groups to identify which pipeline is slow.
 
-2. **Pipeline step latency** — `events_pipeline_step_ms` by `step_name`.
-   Identify which step is the bottleneck. Common culprits:
+2. **Pipeline step latency** — `ingestion_pipeline_step_duration_seconds` by `step_name`
+   (histogram; avg = `rate(_sum)/rate(_count)`, tail via `histogram_quantile` on `_bucket`).
+   The older `events_pipeline_step_ms` is legacy. Identify which step is the bottleneck.
+   Common culprits:
    - `processPersonsStep` / `processGroupsStep` — database writes
-   - `produceEventsStep` — Kafka production
-   - `extractHeatmapDataStep` — CPU-intensive parsing
+   - `hogTransformEventStep` — customer-defined transformations (CPU or fetch)
+   - `emitEventStep` — Kafka production
+     Compare **p50 vs p99**: a heavy tail (p50 fine, p99 in seconds) means a
+     _minority_ of events is expensive — a pattern that never shows up in
+     volume-ranked views.
 
 3. **Person store latency** — `person_*` metrics for flush duration and DB write time.
    `personhog_latency_seconds` for PersonHog gRPC call latency.
@@ -103,7 +108,26 @@ Diagnose layer by layer, from consumer to output:
    Large person properties = slow reads/writes.
 5. **Postgres health** — check PgBouncer metrics and CloudWatch RDS for the
    persons DB (`posthog-cloud-persons-prod-us-east-1`).
-6. **Group processing** — `group_*` metrics for similar DB operation patterns.
+6. **pganalyze — query-level view of the persons DB** (the pganalyze MCP is
+   available in agent sessions; `list_servers` / `get_databases` to find the
+   persons DB for the environment):
+   - `get_query_stats` sorted by **`avgTime` and `avgTimeDelta`** — never by
+     `pctOfTotal`. A low-volume contention query (e.g. 143 calls at ~2.5s
+     each, 0.2% of total runtime) is invisible by total-runtime share but can
+     stall a whole team's person processing. `avgTimeDelta` surfaces what
+     _regressed_ in the incident window.
+   - Watch the person write-path tables: `posthog_person`,
+     `posthog_persondistinctid`, `posthog_personlessdistinctid`,
+     `posthog_featureflaghashkeyoverride`.
+   - Known contention signature (real incident): a team-scoped
+     `DELETE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` on
+     `posthog_personlessdistinctid`, ~2.4s of I/O per call at ~85% buffer hit
+     (disk-bound ⇒ bloat), colliding with the hot
+     `addPersonlessDistinctIdsBatch` insert path — stalls that team's person
+     processing, and with it the Kafka partition(s) carrying that team.
+   - `get_query_explains` for plan history; table stats for dead tuples /
+     TOAST bloat when a query is I/O-bound.
+7. **Group processing** — `group_*` metrics for similar DB operation patterns.
    `group_update_version_mismatch` for optimistic update conflicts.
 
 ## 6. "Kafka / MSK problems" — broker and topic health
@@ -226,7 +250,71 @@ ClickHouse lag means users see stale data even if ingestion workers are healthy.
 10. **CH cluster overview** — dashboard `vm-clickhouse-cluster-overview`.
     QPS, memory tracking, disk capacity, connection count, ZooKeeper health.
 
-## 11. "Comparing prod-us vs prod-eu" — cross-environment
+## 11. "A single partition is lagging" — keyed-cost diagnosis
+
+One partition lagging while the rest of the topic is healthy is a distinct
+failure class with its own method. Distilled from a real multi-hour incident;
+following the order below turns it into minutes.
+
+1. **Topology reasoning first — it eliminates whole categories.** Analytics
+   events are keyed by `token:distinct_id`, so a single lagging partition
+   means the cost is tied to what hashes there: one team, or a small set of
+   `distinct_id` values. Anything fleet-wide (a team-wide transformation, a
+   deploy, a global config change, shared-infra degradation) would lag every
+   partition and is structurally excluded — don't spend time on those.
+   Corollary: **one partition = one consumer**; adding pods can never drain
+   it. Restarts only help if a stuck connection was the cause (rare — verify
+   before restarting; if lag growth continues unchanged after a restart, the
+   cost is in the traffic itself).
+
+2. **Locate it.** `ingestion_lag_ms{app="…", partition="N"}` for the lag
+   curve and onset time. Find the owning pod and live offsets from the batch
+   logs in Loki: `{app="ingestion-analytics-main"} |= "KAFKA_BATCH_START" |= "\"partition\":N"`.
+
+3. **Slow or busy? Compute it, don't guess.** From two batch-log samples:
+   offset delta ÷ elapsed = events/sec; batch duration ÷ batch size =
+   ms/event.
+   - **Busy** (high events/sec, normal ms/event): a _volume_ hot key —
+     identify it with tophog ranked by volume, and the lever is overflow
+     routing.
+   - **Slow** (low events/sec, high ms/event): _expensive_ per-event work —
+     continue below. Nothing will show up in volume rankings; a "no hot key"
+     result from volume tools is expected, not exculpatory.
+
+4. **Which stage.** Per-pod step breakdown:
+   `sum by (step_name) (rate(ingestion_pipeline_step_duration_seconds_sum{pod="…"}[5m]))
+/ sum by (step_name) (rate(…_count{pod="…"}[5m]))`, then rank the suspect
+   pod against the fleet for the top step. **Two traps:**
+   - A pod usually carries ~2 partitions — elevation on the pod can come from
+     either one, and two different steps can implicate two _different_
+     partitions. Treat pod-level attribution as a hint, not proof.
+   - During backlog drain the pod saturates and _all_ steps inflate together
+     — measure during the lagging phase, or re-measure after drain.
+     Also check p50 vs p99 for the suspect step (`histogram_quantile` on
+     `_bucket`): a heavy tail means a minority of poisoned events.
+
+5. **Who.** tophog ranked by **cost, not volume** — see the
+   `querying-tophog` skill. `process_persons_time` summed by
+   `key['team_id'], key['distinct_id']` with an ms-per-event ratio separates
+   hot keys from expensive actors; data written after 2026-07-06 can filter
+   `key['partition'] = 'N'` directly, and `merge_events_per_distinct_id`
+   identifies merge storms.
+
+6. **If `processPersonsStep` is implicated** → playbook 5 step 6 (pganalyze,
+   sorted by `avgTime`/`avgTimeDelta`). The root cause can be a single
+   low-volume contention query on the persons write path that no
+   volume-ranked view will ever surface.
+
+7. **If `hogTransformEventStep` is implicated** → inspect the suspect team's
+   enabled transformations (Data pipelines UI, or `posthog_hogfunction` where
+   `type = 'transformation' AND enabled`). Two traps: `app_metrics2` failure
+   counts mislead — _destinations_ fail noisily but run in CDP, **off** the
+   ingestion path; only `type='transformation'` runs inline and can wedge a
+   partition. And a _slow but succeeding_ fetch inside a transformation lands
+   in `succeeded`, invisible in failure counts — judge by latency evidence,
+   not failure evidence.
+
+## 12. "Comparing prod-us vs prod-eu" — cross-environment
 
 Most ingestion app metrics use the `app` / `ingestion_pipeline` labels but
 **no environment label** — the environment is implicit in which Grafana you're connected to.

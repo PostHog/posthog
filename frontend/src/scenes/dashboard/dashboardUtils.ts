@@ -4,6 +4,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -13,7 +14,7 @@ import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { pollForResults } from '~/queries/query'
+import { parseErrorMessage, pollForResults } from '~/queries/query'
 import { DashboardFilter, HogQLVariable, TileFilters } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -30,6 +31,20 @@ import {
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+
+export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
+    const queryStatus = insight.query_status
+    if (!queryStatus?.error) {
+        return null
+    }
+
+    const parsedError = parseErrorMessage(queryStatus.error_message ?? undefined)
+    return new ApiError(undefined, 400, undefined, {
+        detail: parsedError.message,
+        code: queryStatus.error_code ?? parsedError.code,
+        queryId: queryStatus.id,
+    })
+}
 
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
@@ -66,6 +81,7 @@ export function dashboardToSaveableTemplate(
                 }
                 if (tile.button_tile) {
                     return {
+                        type: 'BUTTON' as const,
                         button_tile: {
                             url: tile.button_tile.url,
                             text: tile.button_tile.text,
@@ -160,8 +176,6 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
-
-export const QUICK_FILTER_DEBOUNCE_MS = 1500
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {

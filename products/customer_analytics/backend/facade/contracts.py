@@ -22,12 +22,45 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class InvalidCustomPropertyOptions(ValueError):
+    """Raised when a select property's options fail validation; the viewset maps it to a 400."""
+
+
+class EventStreamTestMessageError(Exception):
+    """The test message could not be sent — unconfigured stream or a Slack API failure."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
     """A user assigned to an account role (CSM, account executive, account owner)."""
 
     id: int
     email: str
+
+
+@stdlib_dataclass(frozen=True)
+class AccountRelationshipDefinition:
+    """A team-defined account relationship type (CSM, Onboarding manager, ...).
+
+    Stdlib dataclass with defaults so the wrapping ``DataclassSerializer`` can construct it
+    from partial request bodies (see :class:`CustomPropertyDefinitionView`).
+    """
+
+    id: UUID | None = None
+    name: str = ""
+    description: str | None = None
+    is_single_holder: bool = True
+
+
+@dataclass(frozen=True)
+class AccountRelationship:
+    """One assignment of a user to an account relationship, with its effective range."""
+
+    id: UUID
+    definition: AccountRelationshipDefinition
+    user: AccountAssignment | None
+    started_at: datetime
+    ended_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -59,6 +92,45 @@ class Account:
     name: str
     properties: AccountProperties
     created_at: datetime | None
+
+
+@dataclass(frozen=True)
+class AccountDueForSlackSummary:
+    """An account whose bound Slack channel is due a periodic summary.
+
+    ``period_start``/``period_end`` are the UTC instants of the last closed calendar
+    window (yesterday, last ISO week, last month) in the account team's timezone.
+    """
+
+    team_id: int
+    account_id: str
+    account_name: str
+    slack_channel_id: str
+    cadence: str
+    period_start: datetime
+    period_end: datetime
+
+
+@dataclass(frozen=True)
+class AccountSlackSummaryBinding:
+    """An account's current summary opt-in: its cadence and bound Slack channel."""
+
+    cadence: str
+    slack_channel_id: str
+
+
+@dataclass(frozen=True)
+class AccountChannelSummaryView:
+    """A stored channel summary as returned by the account summaries endpoint."""
+
+    id: UUID
+    slack_channel_id: str
+    cadence: str
+    period_start: datetime
+    period_end: datetime
+    content: str
+    message_count: int
+    generated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -98,6 +170,7 @@ class AccountContextData:
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
+    relationships: list[AccountRelationship] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -109,6 +182,11 @@ class ExternalAccount:
     consumes stays byte-identical to the pre-facade response — a validated
     pydantic pass-through, not a re-typed projection. ``id`` is the stringified
     UUID, matching the wire shape.
+
+    ``custom_properties`` contains every team-defined custom property definition
+    keyed by definition name, with the account's current scalar value (or ``None``
+    when unset). Every definition is present so result paths are deterministic even
+    when a property hasn't been set on this account yet.
     """
 
     id: str
@@ -116,6 +194,41 @@ class ExternalAccount:
     name: str
     properties: dict
     tags: list[str] = field(default_factory=list)
+    relationships: dict[str, list[dict]] = field(default_factory=dict)
+    custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountAssignment:
+    """An active relationship assignment on the external list wire shape.
+
+    Carries the assigned user's id and current email plus their display name so
+    external consumers (the billing service's ownership sync) don't need a
+    second lookup. ``name`` is None when the user has no name set.
+    """
+
+    user_id: int
+    email: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class ExternalAccountListItem:
+    """One account row on the external list wire shape, with active relationship
+    assignments to current organization members keyed by definition name."""
+
+    external_id: str
+    name: str
+    relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExternalAccountListPage:
+    """A page of external account rows. ``next_cursor`` is the last account id
+    of a full page, or None when the listing is exhausted."""
+
+    results: list[ExternalAccountListItem] = field(default_factory=list)
+    next_cursor: str | None = None
 
 
 class ExternalAccountUpdateError(Enum):
@@ -124,6 +237,7 @@ class ExternalAccountUpdateError(Enum):
 
     NOT_FOUND = "not_found"
     USER_NOT_IN_ORGANIZATION = "user_not_in_organization"
+    RELATIONSHIP_DEFINITION_NOT_FOUND = "relationship_definition_not_found"
     INVALID_PROPERTIES = "invalid_properties"
     UPDATE_FAILED = "update_failed"
 
@@ -200,6 +314,7 @@ class AccountView:
     properties: dict = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     notebooks: list[str] = field(default_factory=list)
+    slack_summary_cadence: str | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -250,6 +365,16 @@ class CustomPropertyReference:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyOption:
+    """One allowed value of a select custom property. ``id`` is server-assigned and stable across
+    renames so option edits can be diffed; ``color`` is a preset data-color token."""
+
+    label: str = ""
+    color: str = ""
+    id: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class CustomPropertyDefinitionView:
     """A team-scoped custom account-property definition as returned by the
     custom-property-definitions endpoints.
@@ -265,12 +390,16 @@ class CustomPropertyDefinitionView:
     name: str = ""
     description: str | None = None
     display_type: str = "text"
+    target_type: str = "account"
+    # Only set for group targets: which group type (0-4) the property attaches to. Null otherwise.
+    group_type_index: int | None = None
     is_big_number: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
     source: "CustomPropertySourceView | None" = None
+    options: list[CustomPropertyOption] | None = None
 
 
 @stdlib_dataclass(frozen=True)
@@ -280,15 +409,19 @@ class CustomPropertySourceView:
 
     ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
     saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
-    Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    Account-target sources set ``saved_query`` + ``source_column``; person-target sources set
+    ``external_data_schema`` + ``column_property_map`` instead. Defaults exist so the wrapping
+    serializer can parse partial request bodies (see :class:`AccountView`).
     """
 
     id: UUID | None = None
     definition: UUID | None = None
     saved_query: UUID | None = None
-    source_column: str = ""
+    external_data_schema: UUID | None = None
+    source_column: str | None = ""
     key_column: str = ""
+    column_property_map: dict | None = None
+    column_descriptions: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None
@@ -296,6 +429,32 @@ class CustomPropertySourceView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+    # Person-target schedule visibility (None for account sources). ``sync_frequency_interval`` is
+    # in seconds; ``next_sync_at`` is approximate (last synced + interval), it drifts if the
+    # underlying schedule was paused. ``latest_run`` is the most recent sync/backfill run.
+    sync_frequency_interval_seconds: float | None = None
+    next_sync_at: datetime | None = None
+    latest_run: "CustomPropertySyncRunView | None" = None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertySyncRunView:
+    """One person-property sync/backfill run, as returned by the source ``runs`` endpoint and nested
+    on a source as ``latest_run``. The counts are the sync funnel (read -> changed -> existing (=
+    persons affected) -> produced; skipped_missing_person is changed rows with no matching person)."""
+
+    id: UUID | None = None
+    trigger: str = ""
+    status: str = ""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    rows_read: int = 0
+    changed: int = 0
+    existing: int = 0
+    produced: int = 0
+    skipped_missing_person: int = 0
+    error: str | None = None
+    created_at: datetime | None = None
 
 
 @stdlib_dataclass(frozen=True)
@@ -348,6 +507,7 @@ class CreateAccountInput:
     external_id: str | None = None
     properties: dict = field(default_factory=dict)
     tags: list[str] | None = None
+    slack_summary_cadence: str | None = None
 
 
 @dataclass(frozen=True)
@@ -363,9 +523,11 @@ class UpdateAccountInput:
     external_id: str | None = None
     properties: dict | None = None
     tags: list[str] | None = None
+    slack_summary_cadence: str | None = None
     # Distinguishes "external_id omitted" from "external_id explicitly set to null".
     external_id_provided: bool = False
     properties_provided: bool = False
+    slack_summary_cadence_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -421,3 +583,69 @@ class ExternalAccountCustomPropertiesResult:
     values: list[CustomPropertyValue] | None = None
     error: ExternalAccountCustomPropertiesError | None = None
     error_field: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class EventStreamView:
+    """A user's event stream as returned by the event-stream endpoints.
+
+    One stream per user per team (``created_by`` is the owner): the events to watch
+    (``event_names``), the owner's Slack delivery target, and the member accounts
+    (``account_ids``) whose users' events are streamed.
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    enabled: bool = False
+    event_names: list[str] = field(default_factory=list)
+    slack_integration: int | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    account_ids: list[UUID] = field(default_factory=list)
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
+
+
+class AnnouncementValidationError(ValueError):
+    def __init__(self, detail: str | dict[str, str]) -> None:
+        super().__init__(str(detail))
+        self.detail = detail
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementChannelView:
+    id: str
+    name: str
+    is_member: bool
+    customer_name: str | None
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementDeliveryView:
+    id: UUID | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    status: str = ""
+    error: str = ""
+    slack_message_ts: str = ""
+    sent_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementView:
+    # Defaults let the wrapping DataclassSerializer parse create requests, which carry only
+    # message + channels; channels is write-only and always returned empty.
+    id: UUID | None = None
+    short_id: str = ""
+    message: str = ""
+    status: str = ""
+    total_channels: int = 0
+    sent_count: int = 0
+    failed_count: int = 0
+    sent_at: datetime | None = None
+    created_at: datetime | None = None
+    created_by: UserBasicInfo | None = None
+    deliveries: list[AnnouncementDeliveryView] = field(default_factory=list)
+    channels: list[str] = field(default_factory=list)

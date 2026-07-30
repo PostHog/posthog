@@ -9,8 +9,7 @@ import { funnelConversionRate, RATE_TO_PERCENT } from './funnelBarHorizontalShar
 
 export const FUNNEL_STEPS_BAR_SERIES_KEY = 'funnel-steps-bar-series'
 
-/** Inner gap between bars as a fraction of the band slot. Exported because the web container also
- *  needs it for its per-step legend width math. */
+/** Inner gap between bars as a fraction of the band slot. */
 export const FUNNEL_STEPS_BAND_PADDING = 0.1
 
 export interface FunnelStepsBarConfigOptions {
@@ -37,8 +36,8 @@ export function buildFunnelStepsBarConfig(options: FunnelStepsBarConfigOptions =
         margins: options.margins,
         yTickFormatter: (value) => `${Math.round(value)}%`,
         tooltip: { placement: options.tooltipPlacement ?? 'top' },
+        barCornerRadius: 10,
         bars: {
-            cornerRadius: 10,
             track: true,
             shadow: { color: 'rgba(0,0,0,0.15)', blur: 6, offsetY: -2 },
             bandPadding: FUNNEL_STEPS_BAND_PADDING,

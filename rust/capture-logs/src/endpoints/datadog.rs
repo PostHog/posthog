@@ -1,5 +1,5 @@
 use crate::log_record::{override_timestamp, KafkaLogRow};
-use crate::service::Service;
+use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
     extract::State,
     extract::{Path, Query},
@@ -256,6 +256,7 @@ pub fn datadog_log_to_kafka_row(
         event_name,
         attributes,
         bytes_uncompressed: None,
+        retention_days: None,
     }
     .with_computed_bytes();
     (row, was_overridden)
@@ -322,6 +323,8 @@ pub async fn export_datadog_logs_http(
     }
 
     tracing::Span::current().record("token", &token);
+
+    let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
     let logs: Vec<DatadogLog> = match serde_json::from_slice::<Vec<DatadogLog>>(&body) {
         Ok(logs) => logs,

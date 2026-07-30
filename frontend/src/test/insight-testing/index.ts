@@ -9,7 +9,7 @@ export {
     buildStickinessQuery,
     buildTrendsQuery,
     renderInsight,
-    renderInsight as renderInsightPage,
+    renderInsightPage,
     renderWithInsights,
 } from './render-insight'
 export type { InsightQuery, RenderInsightProps, RenderWithInsightsProps } from './render-insight'

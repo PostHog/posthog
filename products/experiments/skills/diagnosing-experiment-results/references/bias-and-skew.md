@@ -349,7 +349,7 @@ The four common shapes:
   everyone. Rare but high-impact.
 
 **Detect.** `feature-flags-activity-retrieve { id: <feature_flag_id> }` is authoritative for the
-diff (the higher-fidelity activity endpoint). `activity-log-list { scope: "FeatureFlag" }` only
+diff (the higher-fidelity activity endpoint). `advanced-activity-logs-list { scopes: ["FeatureFlag"] }` only
 shows _who/when_, not _what_ — but a cluster of edits around or after `start_date` is the
 fingerprint to pursue further.
 

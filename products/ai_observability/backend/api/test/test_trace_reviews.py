@@ -1,5 +1,4 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -12,14 +11,6 @@ from products.ai_observability.backend.models.trace_reviews import TraceReview, 
 
 
 class TestTraceReviewsApi(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.feature_flag_patcher = patch(
-            "products.ai_observability.backend.api.trace_reviews.feature_enabled_or_false", return_value=True
-        )
-        self.feature_flag_patcher.start()
-        self.addCleanup(self.feature_flag_patcher.stop)
-
     def _endpoint(self) -> str:
         return f"/api/environments/{self.team.id}/llm_analytics/trace_reviews/"
 

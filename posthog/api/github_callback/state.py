@@ -61,6 +61,17 @@ def has_team_management_access(user: User, team: Team) -> bool:
     return level is not None and level >= OrganizationMembership.Level.ADMIN
 
 
+def has_team_membership_access(user: User, team: Team) -> bool:
+    """Whether ``user`` may add a new team-level integration for ``team``.
+
+    Adding an integration only requires effective project membership; modifying or removing an
+    existing one still requires admin (see ``has_team_management_access``). Mirrors
+    ``TeamMemberAccessPermission`` on the DRF side.
+    """
+    level = UserPermissions(user).team(team).effective_membership_level
+    return level is not None
+
+
 def resolve_github_setup_callback_context(
     user: User,
     state_raw: str | None,

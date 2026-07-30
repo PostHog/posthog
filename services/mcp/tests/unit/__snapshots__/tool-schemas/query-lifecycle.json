@@ -51,14 +51,13 @@
             "description": "Date range for the query"
         },
         "filterTestAccounts": {
-            "default": false,
-            "description": "Exclude internal and test users by applying the respective filters",
+            "description": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
             "type": "boolean"
         },
         "interval": {
             "default": "day",
             "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
-            "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "enum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
             "type": "string"
         },
         "kind": {

@@ -63,6 +63,8 @@ describe('surveysLogic', () => {
             })
                 .delay(400)
                 .toDispatchActions(['loadSearchResults'])
+                // let the search request settle so its success action doesn't land after unmount
+                .toFinishAllListeners()
         })
 
         it('searchedSurveys reflects backend results once loaded', async () => {

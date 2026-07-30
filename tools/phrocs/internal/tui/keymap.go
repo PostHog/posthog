@@ -25,6 +25,7 @@ type keyMap struct {
 	SearchPrev       key.Binding
 	CommitFilter     key.Binding
 	ToggleFilter     key.Binding
+	InputMode        key.Binding
 	Quit             key.Binding
 	Help             key.Binding
 	Backspace        key.Binding
@@ -127,6 +128,10 @@ func defaultKeyMap() keyMap {
 		ToggleFilter: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("↹:", "back to search"),
+		),
+		InputMode: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("↵:", "input"),
 		),
 		Quit: key.NewBinding(
 			key.WithKeys("q", "ctrl+c"),

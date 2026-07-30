@@ -195,7 +195,7 @@ export interface HogFunctionMinimalApi {
     readonly status: HogFunctionStatusApi | null
     /** @nullable */
     readonly execution_order: number | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -241,6 +241,7 @@ export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
  * * `warehouse_source_webhook` - Warehouse Source Webhook
  * * `site_app` - Site App
  * * `transformation` - Transformation
+ * * `transformation_log` - Transformation Log
  */
 export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
 
@@ -252,6 +253,7 @@ export const HogFunctionTypeEnumApi = {
     WarehouseSourceWebhook: 'warehouse_source_webhook',
     SiteApp: 'site_app',
     Transformation: 'transformation',
+    TransformationLog: 'transformation_log',
 } as const
 
 /**
@@ -262,6 +264,7 @@ export const HogFunctionTypeEnumApi = {
  * * `choice` - choice
  * * `json` - json
  * * `integration` - integration
+ * * `integration_multi` - integration_multi
  * * `integration_field` - integration_field
  * * `email` - email
  * * `native_email` - native_email
@@ -270,6 +273,7 @@ export const HogFunctionTypeEnumApi = {
  * * `posthog_business_hours` - posthog_business_hours
  * * `non_failure_status_codes` - non_failure_status_codes
  * * `customer_analytics_account_properties` - customer_analytics_account_properties
+ * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
  */
 export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
 
@@ -281,6 +285,7 @@ export const InputsSchemaItemTypeEnumApi = {
     Choice: 'choice',
     Json: 'json',
     Integration: 'integration',
+    IntegrationMulti: 'integration_multi',
     IntegrationField: 'integration_field',
     Email: 'email',
     NativeEmail: 'native_email',
@@ -289,6 +294,7 @@ export const InputsSchemaItemTypeEnumApi = {
     PosthogBusinessHours: 'posthog_business_hours',
     NonFailureStatusCodes: 'non_failure_status_codes',
     CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
+    CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
 } as const
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -375,7 +381,7 @@ export interface MappingsApi {
 
 export interface HogFunctionApi {
     readonly id: string
-    /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+    /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
      *
      * * `destination` - Destination
      * * `site_destination` - Site Destination
@@ -383,7 +389,8 @@ export interface HogFunctionApi {
      * * `source_webhook` - Source Webhook
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
-     * * `transformation` - Transformation */
+     * * `transformation` - Transformation
+     * * `transformation_log` - Transformation Log */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -441,7 +448,7 @@ export interface HogFunctionApi {
     _create_in_folder?: string
     /** @nullable */
     readonly batch_export_id: string | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -452,7 +459,7 @@ export type PatchedHogFunctionApiInputs = { [key: string]: InputsItemApi }
 
 export interface PatchedHogFunctionApi {
     readonly id?: string
-    /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+    /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
      *
      * * `destination` - Destination
      * * `site_destination` - Site Destination
@@ -460,7 +467,8 @@ export interface PatchedHogFunctionApi {
      * * `source_webhook` - Source Webhook
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
-     * * `transformation` - Transformation */
+     * * `transformation` - Transformation
+     * * `transformation_log` - Transformation Log */
     type?: HogFunctionTypeEnumApi | null
     /**
      * Display name for the function.
@@ -518,7 +526,7 @@ export interface PatchedHogFunctionApi {
     _create_in_folder?: string
     /** @nullable */
     readonly batch_export_id?: string | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 

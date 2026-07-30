@@ -38,14 +38,11 @@ from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import (
-    AwsS3Integration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     DatabricksIntegration,
     DatabricksIntegrationError,
     Integration,
-    S3CompatibleIntegration,
-    S3CredentialIntegrationError,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -423,6 +420,30 @@ class S3CompatibleDestinationConfigSerializer(S3FamilyDestinationConfigSerialize
     )
 
 
+class SnowflakeDestinationConfigSerializer(serializers.Serializer):
+    """Typed configuration for a Snowflake batch-export destination.
+
+    Account, user, authentication type and credentials may live in a linked Integration (when one is
+    provided) or inline in this config (legacy). Mirrors the non-credential fields of
+    `SnowflakeBatchExportInputs` in `products/batch_exports/backend/service.py`.
+    """
+
+    database = serializers.CharField(help_text="Snowflake database to write to.")
+    warehouse = serializers.CharField(help_text="Snowflake compute warehouse to use.")
+    schema = serializers.CharField(help_text="Schema inside the database containing the destination table.")
+    table_name = serializers.CharField(
+        required=False,
+        default="events",
+        help_text="Destination table name.",
+    )
+    role = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Optional Snowflake role to assume for the session.",
+    )
+
+
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="BatchExportDestinationConfig",
@@ -433,6 +454,7 @@ class S3CompatibleDestinationConfigSerializer(S3FamilyDestinationConfigSerialize
             "Postgres": PostgresDestinationConfigSerializer,
             "AwsS3": AwsS3DestinationConfigSerializer,
             "S3Compatible": S3CompatibleDestinationConfigSerializer,
+            "Snowflake": SnowflakeDestinationConfigSerializer,
         },
         resource_type_field_name="type",
     )
@@ -526,6 +548,20 @@ class S3CompatibleDestinationRequestSerializer(serializers.Serializer):
     config = S3CompatibleDestinationConfigSerializer()
 
 
+class SnowflakeDestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating a Snowflake batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["Snowflake"])
+    integration_id = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "ID of a snowflake-kind Integration providing the account, user and credentials. Preferred over "
+            "inline credentials. Use the integrations-list MCP tool to find one."
+        ),
+    )
+    config = SnowflakeDestinationConfigSerializer()
+
+
 BatchExportDestinationRequest = PolymorphicProxySerializer(
     component_name="BatchExportDestinationRequest",
     serializers={
@@ -535,6 +571,7 @@ BatchExportDestinationRequest = PolymorphicProxySerializer(
         "Postgres": PostgresDestinationRequestSerializer,
         "AwsS3": AwsS3DestinationRequestSerializer,
         "S3Compatible": S3CompatibleDestinationRequestSerializer,
+        "Snowflake": SnowflakeDestinationRequestSerializer,
     },
     resource_type_field_name="type",
 )
@@ -545,10 +582,11 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     """JSONField annotated with a polymorphic OpenAPI request schema.
 
     Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
-    S3Compatible) are exposed in the schema. integration_id is required for Databricks, AzureBlob
-    and BigQuery, and optional for the S3 family (inline credentials remain supported for the time
-    being). Existing Postgres and S3 exports created before integrations keep their inline
-    credentials. Runtime validation remains `BatchExportDestinationSerializer.validate_destination`.
+    S3Compatible, Snowflake) are exposed in the schema. integration_id is required for Databricks,
+    AzureBlob and BigQuery, and optional for the S3 family and Snowflake (inline credentials remain
+    supported for the time being). Existing Postgres, S3 and Snowflake exports created before
+    integrations keep their inline credentials. Runtime validation remains
+    `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
@@ -610,12 +648,12 @@ class BatchExportRequestSerializer(serializers.Serializer):
     )
 
 
-# S3-family destinations that may authenticate via an Integration, mapped to the handler that
-# validates the linked integration's kind and credentials. Adding a future S3-family destination
-# (e.g. a first-class GCS-via-S3 type) is a one-line addition here.
-S3_INTEGRATION_HANDLERS: dict[str, type[AwsS3Integration] | type[S3CompatibleIntegration]] = {
-    BatchExportDestination.Destination.AWS_S3: AwsS3Integration,
-    BatchExportDestination.Destination.S3_COMPATIBLE: S3CompatibleIntegration,
+# S3-family destinations that may authenticate via an Integration, mapped to
+# the linked integration's kind. Adding a future S3-family destination (e.g. a
+# first-class GCS-via-S3 type) is a one-line addition here.
+S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
+    BatchExportDestination.Destination.AWS_S3: Integration.IntegrationKind.AWS_S3,
+    BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
 }
 
 
@@ -624,15 +662,16 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
     The `config` field is polymorphic and typed only for destinations that keep
     credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
-    AwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed
-    OpenAPI schema. Secret fields are stripped from `config` on read.
+    AwsS3, S3Compatible, Snowflake). Other destination types accept the same JSON shape but without a
+    typed OpenAPI schema. Secret fields are stripped from `config` on read.
     """
 
     config = TypedBatchExportDestinationConfigField(
         help_text=(
             "Destination-specific configuration. Fields depend on `type`. Credentials for "
-            "integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) "
-            "are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses."
+            "integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, "
+            "Snowflake) are NOT stored here — they live in the linked Integration. Secret fields are stripped "
+            "from responses."
         ),
     )
     integration = TeamScopedPrimaryKeyRelatedField(
@@ -649,8 +688,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials. Required when creating Databricks, "
-            "AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials "
-            "remain supported); unused for other types."
+            "AzureBlob, and BigQuery destinations; optional for AwsS3, S3Compatible and Snowflake (inline "
+            "credentials remain supported); unused for other types."
         ),
     )
 
@@ -688,14 +727,17 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
             raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
 
-        # S3-family credential fields are optional on the dataclass (integration-backed exports
+        # Some credential/connection fields are optional on the dataclass (integration-backed exports
         # resolve them at run time), so they must be required here only when no Integration is linked.
-        # TODO: remove this code once integrations for S3 are enforced
+        # TODO: remove this code once integrations for S3 and Snowflake are enforced
         conditionally_required: set[str] = set()
-        if export_type in S3_FAMILY_TYPES and attrs.get("integration") is None:
-            conditionally_required = {"aws_access_key_id", "aws_secret_access_key"}
-            if export_type == BatchExportDestination.Destination.S3_COMPATIBLE:
-                conditionally_required.add("endpoint_url")
+        if attrs.get("integration") is None:
+            if export_type in S3_FAMILY_TYPES:
+                conditionally_required = {"aws_access_key_id", "aws_secret_access_key"}
+                if export_type == BatchExportDestination.Destination.S3_COMPATIBLE:
+                    conditionally_required.add("endpoint_url")
+            elif export_type == BatchExportDestination.Destination.SNOWFLAKE:
+                conditionally_required = {"account", "user"}
 
         for destination_field in destination_fields:
             is_required = (
@@ -1028,6 +1070,28 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def validate_interval(self, interval: str) -> str:
+        """Validate sub-hour frequency intervals are only available when feature flag is enabled."""
+        team_id = self.context["team_id"]
+
+        if interval not in ("hour", "day", "week"):
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "high-frequency-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+        return interval
+
     def validate_timezone(self, timezone: str | None) -> str | None:
         """Validate timezone.
 
@@ -1145,13 +1209,29 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(f"Invalid destination URL: {url}")
 
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
-            if config.get("authentication_type") == "password" and merged_config.get("password") is None:
-                raise serializers.ValidationError("Password is required if authentication type is password")
-            if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
-                raise serializers.ValidationError("Private key is required if authentication type is key pair")
+            integration: Integration | None = destination_attrs.get("integration")
+
+            # Sticky integration: an export that uses one cannot drop back to inline credentials.
+            # TODO: remove this guard once integrations are mandatory for Snowflake and inline credentials are gone.
+            if instance is not None and instance.destination.integration is not None and integration is None:
+                raise serializers.ValidationError(
+                    "Cannot remove the integration from a Snowflake batch export that uses one. "
+                    "Re-send its `integration` to keep it (or a different one to swap)."
+                )
+
+            if integration is not None:
+                # (Team ownership is already enforced by the team-scoped `integration` field.)
+                if integration.kind != Integration.IntegrationKind.SNOWFLAKE:
+                    raise serializers.ValidationError("Integration is not a Snowflake integration.")
+            else:
+                # Inline credentials: the credential field for the chosen auth type is required.
+                if config.get("authentication_type") == "password" and merged_config.get("password") is None:
+                    raise serializers.ValidationError("Password is required if authentication type is password")
+                if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
+                    raise serializers.ValidationError("Private key is required if authentication type is key pair")
 
         if destination_type in S3_FAMILY_TYPES:
-            integration: Integration | None = destination_attrs.get("integration")
+            integration = destination_attrs.get("integration")
 
             # TODO: remove this guard once integrations are mandatory for S3 and inline credentials are gone.
             if instance is not None and instance.destination.integration is not None and integration is None:
@@ -1165,12 +1245,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
             required_non_empty_inputs = ["bucket_name", "region", "prefix"]
             # Credentials are only required inline when no Integration provides them.
             if integration is None:
-                required_non_empty_inputs += ["aws_access_key_id", "aws_secret_access_key"]
+                required_non_empty_inputs += ["aws_access_key_id", "aws_secret_access_key", "aws_role_arn"]
+
             empty_inputs = []
+
             for required_input in required_non_empty_inputs:
                 value = config.get(required_input)
                 if value is not None and isinstance(value, str) and value.strip() == "":
                     empty_inputs.append(required_input)
+
             if empty_inputs:
                 raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
 
@@ -1180,15 +1263,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if integration is not None:
                 # An Integration only makes sense for the integration-backed S3 types. Reject it on the
                 # legacy "S3" type
-                # TODO: remove this branch once the legacy "S3" destination type is fully removed.
-                if destination_type not in S3_INTEGRATION_HANDLERS:
+                # TODO: remove this branch once the legacy "S3" destination type is fully removed
+                try:
+                    kind = S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]
+                except KeyError:
                     raise serializers.ValidationError(
                         f"{destination_type} destinations do not support integration-based credentials."
                     )
-                try:
-                    S3_INTEGRATION_HANDLERS[destination_type](integration)
-                except S3CredentialIntegrationError as e:
-                    raise serializers.ValidationError(str(e))
+
+                if not integration.kind == kind:
+                    raise serializers.ValidationError(
+                        f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+                    )
 
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = merged_config.get("file_format", "JSONLines")
@@ -1335,23 +1421,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
         team_id = self.context["team_id"]
-
-        if validated_data["interval"] not in ("hour", "day", "week"):
-            team = Team.objects.get(id=team_id)
-
-            if not posthoganalytics.feature_enabled(
-                "high-frequency-batch-exports",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={
-                    "organization": {
-                        "id": str(team.organization.id),
-                        "created_at": team.organization.created_at,
-                    }
-                },
-                send_feature_flag_events=False,
-            ):
-                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
 
         hogql_query = None
         if hogql_query := validated_data.pop("hogql_query", None):
@@ -1515,8 +1584,9 @@ def recursive_dict_merge(
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(
     # Request bodies use a polymorphic destination schema so that integration-backed types
-    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) advertise integration_id up
-    # front — required for Databricks, AzureBlob and BigQuery, optional for Postgres and the S3 family.
+    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake) advertise
+    # integration_id up front — required for Databricks, AzureBlob and BigQuery, optional for Postgres,
+    # the S3 family and Snowflake.
     # Responses continue to use BatchExportSerializer.
     create=extend_schema(request=BatchExportRequestSerializer),
     update=extend_schema(request=BatchExportRequestSerializer),

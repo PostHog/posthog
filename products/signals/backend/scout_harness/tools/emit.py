@@ -19,8 +19,8 @@ Attribution (`scout_run_id`, `task_run_id`, `finding_id`, `skill_name`, `skill_v
 is read off the run row so the agent never has to plumb it through. `task_run_id` is the
 join key into the `signals_scouts_runs` LLM-analytics view (the `scout_run_id` bridge row
 is not on that view). The `SignalsScoutSignalExtra`
-shape (defined in `posthog.schema`) is what the existing `_SIGNAL_VARIANT_LOOKUP`
-in `products/signals/backend/api.py` validates against.
+shape (defined in `products/signals/backend/contracts.py`) is what `SIGNAL_VARIANT_LOOKUP`
+validates against.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
@@ -449,12 +450,13 @@ def _record_emit(
     the read-modify-write on `emitted_finding_ids` is safe even though emits within a single
     run are sequential today, and keeps `emitted_count` exactly `len(emitted_finding_ids)`
     so the two never drift. The emission row is written in the same atomic block so the tally
-    and the per-finding record never diverge — one row per appended `finding_id`. Uses the
-    unscoped `all_teams` manager because the caller already validated `team`/`run` ownership
-    and emit can run with no team scope set (Temporal activity)."""
+    and the per-finding record never diverge — one row per appended `finding_id`. A configured
+    Slack delivery is queued only after this transaction commits, with the destination snapshotted
+    at emit time. Uses the unscoped `all_teams` manager because the caller already validated
+    `team`/`run` ownership and emit can run with no team scope set (Temporal activity)."""
     try:
         with transaction.atomic():
-            run = SignalScoutRun.all_teams.select_for_update().filter(pk=run_id).first()
+            run = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run_id).first()
             if run is None:
                 logger.warning("signals_scout.emit: run %s gone, skipping emit tally", run_id)
                 return
@@ -462,7 +464,7 @@ def _record_emit(
             run.emitted_finding_ids = finding_ids
             run.emitted_count = len(finding_ids)
             run.save(update_fields=["emitted_finding_ids", "emitted_count"])
-            SignalScoutEmission.all_teams.create(
+            emission = SignalScoutEmission.all_teams.create(
                 team_id=run.team_id,
                 scout_run=run,
                 finding_id=finding_id,
@@ -472,6 +474,12 @@ def _record_emit(
                 severity=severity,
                 source_id=source_id,
                 tags=tags or [],
+            )
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="finding",
+                output_id=str(emission.id),
+                delivery_id=str(emission.id),
             )
     except Exception:
         # Tally and emission row are best-effort; the signal already emitted. Log and move on

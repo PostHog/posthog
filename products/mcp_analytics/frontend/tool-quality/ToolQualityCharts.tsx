@@ -5,23 +5,32 @@ import {
     ChartLegend,
     type ChartTheme,
     type Series,
+    type TimeInterval,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
     legendItemsFromSeries,
 } from '@posthog/quill-charts'
 
+import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
 
-function buildConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
+function buildConfig(
+    timezone: string,
+    interval: TimeInterval,
+    yAxis?: TimeSeriesLineChartConfig['yAxis']
+): TimeSeriesLineChartConfig {
     return {
-        yAxis: { showGrid: false, ...yAxis },
+        curve: 'monotone',
         showAxisLines: true,
-        xAxis: { interval: 'day', timezone },
+        showTickMarks: true,
         showCrosshair: true,
+        showGrid: true,
+        yAxis,
+        xAxis: { interval, timezone },
         tooltip: { placement: 'cursor' },
     }
 }
@@ -63,11 +72,13 @@ export function ToolQualityCharts({
     loading,
     theme,
     timezone,
+    interval,
 }: {
     data: DailyChartData
     loading: boolean
     theme: ChartTheme
     timezone: string
+    interval: TimeInterval
 }): JSX.Element {
     const isEmpty = data.labels.length === 0
 
@@ -91,12 +102,18 @@ export function ToolQualityCharts({
         [data, theme]
     )
 
-    const countsConfig = useMemo(() => buildConfig(timezone), [timezone])
-    const percentConfig = useMemo(
-        () => buildConfig(timezone, { tickFormatter: (value: number) => formatPercentage(value, { compact: true }) }),
-        [timezone]
+    const countsConfig = useChartConfig(() => buildConfig(timezone, interval), [timezone, interval])
+    const percentConfig = useChartConfig(
+        () =>
+            buildConfig(timezone, interval, {
+                tickFormatter: (value: number) => formatPercentage(value, { compact: true }),
+            }),
+        [timezone, interval]
     )
-    const latencyConfig = useMemo(() => buildConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
+    const latencyConfig = useChartConfig(
+        () => buildConfig(timezone, interval, { tickFormatter: formatMsAsSeconds }),
+        [timezone, interval]
+    )
 
     return (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

@@ -20,7 +20,7 @@ import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, dlq, isOkResult, ok, redirect } from '~/ingestion/framework/results'
@@ -29,7 +29,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
-type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
+type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
 describe('Filter Map', () => {
     /**
@@ -62,7 +62,7 @@ describe('Filter Map', () => {
         }
 
         // Step 1: Resolve team from teamId (some lookups may fail)
-        function createTeamLookupStep(): BatchProcessingStep<RawEvent, EventWithTeam> {
+        function createTeamLookupStep(): ChunkProcessingStep<RawEvent, EventWithTeam> {
             return function teamLookupStep(events) {
                 return Promise.resolve(
                     events.map((event) => {
@@ -79,7 +79,7 @@ describe('Filter Map', () => {
         }
 
         // Step 2: Process event (runs within teamAware context)
-        function createProcessEventStep(): BatchProcessingStep<EventWithTeam, EventWithTeam, typeof OVERFLOW_OUTPUT> {
+        function createProcessEventStep(): ChunkProcessingStep<EventWithTeam, EventWithTeam, typeof OVERFLOW_OUTPUT> {
             return function processEventStep(events) {
                 return Promise.resolve(
                     events.map((item) => {
@@ -92,7 +92,7 @@ describe('Filter Map', () => {
                         const warnings: PipelineWarning[] = []
                         if (item.event.name === 'deprecated_event') {
                             warnings.push({
-                                type: 'deprecated_event',
+                                type: 'event_dropped_by_transformation',
                                 details: { eventName: item.event.name },
                             })
                         }
@@ -109,8 +109,8 @@ describe('Filter Map', () => {
 
         // filterMap() filters OK results, maps them, and processes through subpipeline.
         // Non-OK results pass through unchanged, so we only need handleResults once at the end.
-        const pipeline = newBatchPipelineBuilder<RawEvent, { message: Message }>()
-            .pipeBatch(createTeamLookupStep())
+        const pipeline = newChunkPipelineBuilder<RawEvent, { message: Message }>()
+            .pipeChunk(createTeamLookupStep())
             .gather()
             .filterMap(
                 // Map: extract team from result and add to context
@@ -124,7 +124,7 @@ describe('Filter Map', () => {
                 // Subpipeline: process events with team context
                 (b) =>
                     b
-                        .teamAware((b) => b.pipeBatch(createProcessEventStep()).gather())
+                        .teamAware((b) => b.pipeChunk(createProcessEventStep()).gather())
                         .handleIngestionWarnings(mockWarningOutputs)
             )
             // Handle all results (both from subpipeline and passed-through non-OK) once at the end
@@ -172,6 +172,6 @@ describe('Filter Map', () => {
         expect(mockWarningOutputs.queueMessages).toHaveBeenCalledTimes(1)
         expect(mockWarningOutputs.queueMessages.mock.calls[0][0]).toBe(INGESTION_WARNINGS_OUTPUT)
         const warningValue = mockWarningOutputs.queueMessages.mock.calls[0][1][0].value!.toString()
-        expect(warningValue).toContain('"type":"deprecated_event"')
+        expect(warningValue).toContain('"type":"event_dropped_by_transformation"')
     })
 })

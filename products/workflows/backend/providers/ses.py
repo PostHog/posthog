@@ -339,9 +339,17 @@ class SESProvider:
 
     def delete_identity(self, identity: str):
         """
-        Delete an identity from SES
+        Delete an identity from SES, removing its tenant associations first
+        (SES refuses to delete an identity that still has tenant associations)
         """
         try:
+            arn = self._identity_arn(identity)
+            for tenant_name in self._list_identity_tenants(identity):
+                try:
+                    self.ses_v2_client.delete_tenant_resource_association(TenantName=tenant_name, ResourceArn=arn)
+                except ClientError as e:
+                    if e.response["Error"]["Code"] != "NotFoundException":
+                        raise
             self.ses_client.delete_identity(Identity=identity)
             logger.info(f"Identity {identity} deleted from SES")
         except (ClientError, BotoCoreError) as e:

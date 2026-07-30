@@ -1,4 +1,14 @@
+import enum
 import dataclasses
+
+
+class MaterializationFixStatus(enum.StrEnum):
+    """Outcome of an AI materialization-fix suggestion run."""
+
+    OK = "ok"
+    CANNOT_FIX = "cannot_fix"
+    INVALID = "invalid"
+    MODEL_ERROR = "model_error"
 
 
 @dataclasses.dataclass(frozen=True)

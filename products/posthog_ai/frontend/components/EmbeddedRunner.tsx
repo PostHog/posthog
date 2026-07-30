@@ -1,6 +1,7 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { TaskTrackerProps } from '../scenes/TaskTracker/TaskTracker'
 
@@ -9,7 +10,7 @@ export type { TaskTrackerProps } from '../scenes/TaskTracker/TaskTracker'
 // The TaskTracker scene (master/detail list + composer + run detail) is the heavy runner UI. It's loaded on
 // demand so a consumer that only links to it — e.g. the Max scene rendering it behind the sandbox view
 // toggle — doesn't statically pull it into its own chunk. Only `react` + a lightweight spinner load eagerly.
-const Lazy = lazy(() => import('../scenes/TaskTracker/TaskTracker').then((m) => ({ default: m.TaskTracker })))
+const Lazy = lazyWithRetry(() => import('../scenes/TaskTracker/TaskTracker').then((m) => ({ default: m.TaskTracker })))
 
 /**
  * Embeddable, code-split TaskTracker runner. Renders the standalone `/tasks` product (tasks list + composer
