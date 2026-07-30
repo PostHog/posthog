@@ -38,7 +38,7 @@ from ..models import SignalReportArtefact
 
 logger = logging.getLogger(__name__)
 
-MAX_SUGGESTED_REVIEWERS = 3
+MAX_SUGGESTED_REVIEWERS = 10
 MAX_COMMIT_LOOKUPS = 15
 
 RECENCY_FULL_WEIGHT_DAYS = 30
@@ -133,7 +133,7 @@ def resolve_suggested_reviewers(
     repository: str,
     commit_hashes_with_reasons: dict[str, str],
 ) -> list[_ResolvedReviewer]:
-    """Resolve commit hashes to up to 3 reviewers, preferring recently-active owners.
+    """Resolve commit hashes to up to ``MAX_SUGGESTED_REVIEWERS`` reviewers, preferring recently-active owners.
 
     Blame candidates (commit authors, weighted by finding position) are recency-shaped
     against cached area activity, and recently-active area contributors enter as capped
