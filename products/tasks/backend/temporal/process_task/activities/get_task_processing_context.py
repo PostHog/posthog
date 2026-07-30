@@ -134,6 +134,12 @@ class TaskProcessingContext:
         return (self.state or {}).get("sandbox_environment_id")
 
     @property
+    def is_snapshot_resume(self) -> bool:
+        state = self.state or {}
+        has_resume_source = isinstance(state.get("resume_from_run_id"), str) or state.get("handoff_resumed") is True
+        return has_resume_source and isinstance(state.get("snapshot_external_id"), str)
+
+    @property
     def loop_id(self) -> str | None:
         """Set when this run was spawned by a loop firing (see products/tasks/backend/facade/loops.py)."""
         value = (self.state or {}).get("loop_id")
