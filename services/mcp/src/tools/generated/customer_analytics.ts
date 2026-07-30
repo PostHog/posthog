@@ -602,7 +602,7 @@ const announcementsCreatePrepare = (): ToolBase<typeof AnnouncementsCreateSchema
             purpose: 'announcements-create',
             actionLabel: 'send announcement',
             messageTemplate:
-                "About to send this announcement as the SupportHog bot to the Slack channels {channels} — a real, outward-facing message to customers that cannot be recalled once posted. The message body is: {message}. Reply 'confirm' to send.\n",
+                "About to send this announcement as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
             codec: __runtime.codec,
             boundScope: { projectId: String(__scopeProjectId) },
         })
