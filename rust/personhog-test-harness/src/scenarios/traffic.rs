@@ -276,6 +276,11 @@ fn chaos_config(args: &TrafficArgs) -> ChaosConfig {
             .chaos_etcd_endpoints
             .clone()
             .map(|endpoints| (endpoints, args.chaos_etcd_prefix.clone())),
+        etcd_target: args.chaos_etcd_namespace.as_ref().map(|ns| TargetSpec {
+            kind: TargetKind::Etcd,
+            namespace: ns.clone(),
+            selector: "app.kubernetes.io/name=etcd".to_string(),
+        }),
     }
 }
 
@@ -422,6 +427,7 @@ mod tests {
     #[test]
     fn vacuous_or_panicking_configurations_are_rejected() {
         let valid = TrafficArgs {
+            chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
             enabled: true,
             team_id: 900_101,
