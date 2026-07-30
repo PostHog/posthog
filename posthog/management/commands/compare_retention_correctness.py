@@ -57,12 +57,19 @@ deletes between runs never make it skip or re-check an insight, which a numeric 
 file is tied to the filter set it was created with (``--team-id`` etc.); reusing it under a different
 scope is refused so a narrowed cursor can't silently leave insights unchecked.
 
+With a ``--state-file``, interrupting a run (Ctrl-C, pod eviction) loses nothing: every finished
+insight is also appended to ``<state-file>.journal`` the moment it completes, and the next run skips
+the journaled insights and folds their recorded results into the report — so ``--all --state-file
+sweep.json`` is a single resumable run. The journal is absorbed into the state file when a batch
+finishes. The cursor alone can't provide this: teams run in parallel lanes, so an interrupted run's
+completed ids are scattered across the id range, not a contiguous prefix a cursor could describe.
+
 Examples:
     # All retention insights, up to 8 teams in parallel
     python manage.py compare_retention_correctness
 
-    # Every matching insight in one run, no batching
-    python manage.py compare_retention_correctness --all
+    # Every matching insight in one run; Ctrl-C safe — re-run the same command to resume
+    python manage.py compare_retention_correctness --all --state-file /tmp/retention_sweep.json
 
     # Resumable sweep over every insight: run this repeatedly until it reports "complete"
     python manage.py compare_retention_correctness --state-file /tmp/retention_sweep.json --limit 500
@@ -90,7 +97,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import UTC, datetime
 from time import perf_counter
-from typing import Any, Optional
+from typing import Any, Optional, TextIO
 
 from unittest.mock import patch
 
@@ -124,6 +131,8 @@ _use_dwh_var: contextvars.ContextVar[bool] = contextvars.ContextVar("retention_u
 
 
 PROGRESS_STATUSES = ("OK", "MISMATCH", "ERROR", "ERROR_LEGACY", "ERROR_DWH", "ERROR_BOTH", "SKIPPED")
+
+JOURNAL_SUFFIX = ".journal"
 
 
 @dataclasses.dataclass
@@ -192,14 +201,15 @@ def merge_progress_state(
     rows: list[Row],
     *,
     next_cursor: Optional[int],
-    limit: int,
+    complete: bool,
     scope: str = "",
 ) -> ProgressState:
     """Fold one batch's rows into the running checkpoint. Pure — no IO, no clock, never mutates ``prev``.
 
-    ``next_cursor`` is the highest insight id covered by the batch (``None`` when the batch was empty, e.g.
-    the sweep ran off the end). The sweep is ``complete`` once a batch returns fewer rows than ``limit``,
-    i.e. the source is exhausted. The cursor only ever advances.
+    ``next_cursor`` is the highest insight id covered so far (``None`` when nothing new was covered, e.g.
+    the sweep ran off the end). ``complete`` — the fresh selection came up short of ``--limit``, i.e. the
+    source is exhausted — is decided by the caller, because ``rows`` may also carry journal-recovered rows
+    from an interrupted run, so its length says nothing about exhaustion. The cursor only ever advances.
     """
     base = prev or ProgressState(scope=scope)
     counts = dict(base.counts)
@@ -213,7 +223,7 @@ def merge_progress_state(
         resolved_mismatches=base.resolved_mismatches,
         # All attributed variants (ERROR_LEGACY / ERROR_DWH / ERROR_BOTH) accumulate here too.
         errors=base.errors + [_row_record(r) for r in rows if r.status.startswith("ERROR")],
-        complete=len(rows) < limit,
+        complete=complete,
         scope=scope or base.scope,
     )
 
@@ -279,6 +289,38 @@ def scope_signature(options: dict[str, Any]) -> str:
         },
         sort_keys=True,
     )
+
+
+def journal_line(row: Row) -> str:
+    return json.dumps(_row_record(row))
+
+
+def parse_journal_lines(lines: list[str], scope: str) -> list[Row]:
+    """Decode the rows journaled by an interrupted run. Pure.
+
+    The first line is a scope header; a mismatch raises ``ValueError`` so results from a
+    differently-filtered run can't be folded into this sweep. Undecodable row lines (a write torn by
+    the interrupt) are dropped — the worst case is re-checking that one insight. On a duplicate id
+    the latest record wins, so a re-checked insight is only counted once.
+    """
+    if not lines:
+        return []
+    try:
+        header = json.loads(lines[0])
+    except ValueError:
+        raise ValueError("journal header is unreadable")
+    if not isinstance(header, dict) or "scope" not in header:
+        raise ValueError("journal has no scope header")
+    if header["scope"] != scope:
+        raise ValueError("journal was written for a different filter set")
+    rows: dict[int, Row] = {}
+    for line in lines[1:]:
+        try:
+            row = Row(**json.loads(line))
+        except (ValueError, TypeError):
+            continue
+        rows[row.id] = row
+    return list(rows.values())
 
 
 def load_progress_state(path: str) -> Optional[ProgressState]:
@@ -421,7 +463,9 @@ class Command(BaseCommand):
             default=None,
             help="JSON checkpoint for a resumable sweep. If it exists the run resumes from its saved cursor; "
             "afterwards it is rewritten with the new cursor plus accumulated counts and findings. Re-run the "
-            "same command to walk every matching insight in --limit-sized batches until it reports complete.",
+            "same command to walk every matching insight in --limit-sized batches until it reports complete. "
+            "Interrupted runs resume too: each finished insight is journaled to <state-file>.journal as it "
+            "completes, and the next run skips the journaled insights and keeps their results.",
         )
         parser.add_argument(
             "--after-id",
@@ -476,6 +520,8 @@ class Command(BaseCommand):
             )
 
         prev_state, already_complete = self._load_resume_state(state_file, scope, after_id, options["restart"])
+        journal_file = f"{state_file}{JOURNAL_SUFFIX}" if state_file else None
+        journal_rows = self._load_journal(journal_file, scope, restart=options["restart"])
 
         # Re-verify mismatches recorded by earlier batches before doing new work: enough time has
         # usually passed for in-motion data (merges, replica divergence) to settle, so artifacts
@@ -494,36 +540,44 @@ class Command(BaseCommand):
         # Explicit --after-id wins; otherwise resume from the saved checkpoint (None = start from the top).
         cursor = after_id if after_id is not None else (prev_state.cursor if prev_state else None)
 
-        insights = self._select_insights(options, after_id=cursor)
+        insights = self._select_insights(options, after_id=cursor, exclude_ids={r.id for r in journal_rows})
         if not insights:
-            self._handle_empty(options, state_file, scope, prev_state, cursor)
+            self._handle_empty(options, state_file, scope, prev_state, cursor, journal_rows, journal_file)
             return
 
-        rows = self._run(
-            insights,
-            options["base_url"].rstrip("/"),
-            options["freeze_window"],
-            options["recheck_mismatches"],
-            options["concurrency"],
-        )
-        self._print_summary(rows)
+        journal = self._open_journal(journal_file, scope)
+        try:
+            rows = self._run(
+                insights,
+                options["base_url"].rstrip("/"),
+                options["freeze_window"],
+                options["recheck_mismatches"],
+                options["concurrency"],
+                journal,
+            )
+        finally:
+            if journal is not None:
+                journal.close()
+        all_rows = journal_rows + rows
+        self._print_summary(all_rows)
 
-        next_cursor = max(i.id for i in insights)
-        # --all drains everything past the cursor in one batch, so the sweep is complete by
-        # construction; a limit above the batch size makes the "fewer rows than limit" test agree.
-        effective_limit = len(insights) + 1 if options["all"] else options["limit"]
+        next_cursor = max(r.id for r in all_rows)
+        # Exhaustion is judged on the fresh selection alone: --all drains everything past the
+        # cursor, and journal-recovered rows don't count against the batch size.
+        fresh_exhausted = options["all"] or len(insights) < options["limit"]
         if state_file:
             new_state = merge_progress_state(
-                prev_state, rows, next_cursor=next_cursor, limit=effective_limit, scope=scope
+                prev_state, all_rows, next_cursor=next_cursor, complete=fresh_exhausted, scope=scope
             )
             new_state.updated_at = datetime.now(UTC).isoformat()
             save_progress_state(state_file, new_state)
+            self._absorb_journal(journal_file)
             self._print_checkpoint(state_file, new_state)
             self._print_cumulative(new_state)
         else:
-            self._print_next_cursor(next_cursor, len(insights), effective_limit)
+            self._print_next_cursor(next_cursor, fresh_exhausted)
 
-        mismatches = sum(1 for r in rows if r.status == "MISMATCH")
+        mismatches = sum(1 for r in all_rows if r.status == "MISMATCH")
         if options["fail_on_mismatch"] and mismatches:
             raise CommandError(f"{mismatches} insight(s) mismatched between variants")
 
@@ -551,6 +605,46 @@ class Command(BaseCommand):
             )
             return prev, True
         return prev, False
+
+    def _load_journal(self, path: Optional[str], scope: str, restart: bool) -> list[Row]:
+        """Rows persisted per-insight by an interrupted run. They are excluded from this run's
+        selection and their recorded results folded into the checkpoint when the batch completes."""
+        if path is None or not os.path.exists(path):
+            return []
+        if restart:
+            os.remove(path)
+            return []
+        with open(path) as f:
+            lines = f.read().splitlines()
+        try:
+            rows = parse_journal_lines(lines, scope)
+        except ValueError as exc:
+            raise CommandError(f"{path}: {exc}. Use a separate --state-file, or pass --restart to overwrite it.")
+        if rows:
+            self.stdout.write(f"Recovered {len(rows)} finished insight(s) from the interrupted run in {path}.")
+        return rows
+
+    def _open_journal(self, path: Optional[str], scope: str) -> Optional[TextIO]:
+        if path is None:
+            return None
+        handle = open(path, "a")
+        if handle.tell() == 0:
+            handle.write(json.dumps({"scope": scope}) + "\n")
+        else:
+            with open(path, "rb") as tail:
+                tail.seek(-1, os.SEEK_END)
+                ends_clean = tail.read(1) == b"\n"
+            if not ends_clean:
+                # The previous interrupt tore a write mid-line; start on a fresh line so the next
+                # record isn't glued onto the fragment (which would corrupt both).
+                handle.write("\n")
+        handle.flush()
+        return handle
+
+    def _absorb_journal(self, path: Optional[str]) -> None:
+        # The batch's rows are in the state file now; a leftover journal would double-fold them.
+        if path is not None and os.path.exists(path):
+            os.remove(path)
 
     def _revalidate_previous_mismatches(self, state: ProgressState, options: dict[str, Any]) -> ProgressState:
         self.stdout.write(f"Re-verifying {len(state.mismatches)} previously recorded mismatch(es)…")
@@ -589,12 +683,19 @@ class Command(BaseCommand):
         scope: str,
         prev_state: Optional[ProgressState],
         cursor: Optional[int],
+        journal_rows: list[Row],
+        journal_file: Optional[str],
     ) -> None:
-        """Nothing left to check: either the filters match nothing or the sweep just ran off the end."""
+        """Nothing newly selected: the filters match nothing, the sweep ran off the end, or an
+        interrupted run already journaled everything that was left."""
         if state_file:
-            new_state = merge_progress_state(prev_state, [], next_cursor=None, limit=options["limit"], scope=scope)
+            next_cursor = max((r.id for r in journal_rows), default=None)
+            new_state = merge_progress_state(
+                prev_state, journal_rows, next_cursor=next_cursor, complete=True, scope=scope
+            )
             new_state.updated_at = datetime.now(UTC).isoformat()
             save_progress_state(state_file, new_state)
+            self._absorb_journal(journal_file)
             self.stdout.write(
                 self.style.SUCCESS(
                     f"No insights past cursor id {cursor or 0} — sweep complete after {new_state.processed} insight(s)."
@@ -607,7 +708,13 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("No retention insights matched the given filters."))
 
     def _run(
-        self, insights: list[Insight], base_url: str, freeze: bool, recheck: bool, concurrency_opt: int
+        self,
+        insights: list[Insight],
+        base_url: str,
+        freeze: bool,
+        recheck: bool,
+        concurrency_opt: int,
+        journal: Optional[TextIO] = None,
     ) -> list[Row]:
         urls = {i.id: f"{base_url}/project/{i.team_id}/insights/{i.short_id}/edit" for i in insights}
 
@@ -631,6 +738,11 @@ class Command(BaseCommand):
         def report(row: Row) -> None:
             nonlocal done
             with progress_lock:
+                if journal is not None:
+                    # Persist before printing, flushed per row, so an interrupt loses at most the
+                    # insights still in flight.
+                    journal.write(journal_line(row) + "\n")
+                    journal.flush()
                 done += 1
                 counts[row.status] += 1
                 self._print_progress(done, total, row)
@@ -648,7 +760,9 @@ class Command(BaseCommand):
                     rows.extend(future.result())
         return rows
 
-    def _select_insights(self, options: dict[str, Any], after_id: Optional[int] = None) -> list[Insight]:
+    def _select_insights(
+        self, options: dict[str, Any], after_id: Optional[int] = None, exclude_ids: Optional[set[int]] = None
+    ) -> list[Insight]:
         queryset = Insight.objects.filter(saved=True, deleted=False, query__source__kind="RetentionQuery")
         if options["team_id"]:
             queryset = queryset.filter(team_id__in=options["team_id"])
@@ -656,6 +770,8 @@ class Command(BaseCommand):
             queryset = queryset.filter(id__in=options["insight_id"])
         if options["short_id"]:
             queryset = queryset.filter(short_id__in=options["short_id"])
+        if exclude_ids:
+            queryset = queryset.exclude(id__in=exclude_ids)
         queryset = queryset.select_related("team")
         if options["sample"]:
             return list(queryset.order_by("?")[: options["sample"]])
@@ -705,9 +821,9 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.ERROR(f"  {r.short_id} (team {r.team_id}) {r.url} — {r.detail}"))
         sys.stdout.flush()
 
-    def _print_next_cursor(self, next_cursor: int, batch_size: int, limit: int) -> None:
+    def _print_next_cursor(self, next_cursor: int, exhausted: bool) -> None:
         self.stdout.write("")
-        if batch_size < limit:
+        if exhausted:
             self.stdout.write(self.style.SUCCESS(f"Reached the end of the set (last insight id {next_cursor})."))
         else:
             self.stdout.write(f"Next cursor: {next_cursor}. Continue the sweep with --after-id {next_cursor}")

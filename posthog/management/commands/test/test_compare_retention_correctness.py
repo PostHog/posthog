@@ -1,4 +1,7 @@
+import os
+import tempfile
 from datetime import UTC, datetime
+from io import StringIO
 
 from unittest import TestCase
 from unittest.mock import patch
@@ -6,10 +9,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.management.commands.compare_retention_correctness import (
+    Command,
     ProgressState,
     Row,
     _check_one,
+    journal_line,
     merge_progress_state,
+    parse_journal_lines,
     revalidate_mismatches,
     scope_signature,
 )
@@ -27,13 +33,13 @@ def _row(insight_id, status, detail=""):
 class TestMergeProgressState(TestCase):
     def test_accumulates_counts_and_findings_across_batches(self):
         first = merge_progress_state(
-            None, [_row(1, "OK"), _row(2, "MISMATCH", "d2")], next_cursor=2, limit=2, scope="S"
+            None, [_row(1, "OK"), _row(2, "MISMATCH", "d2")], next_cursor=2, complete=False, scope="S"
         )
         second = merge_progress_state(
             first,
             [_row(3, "ERROR", "e3"), _row(4, "OK"), _row(5, "ERROR_DWH", "e5")],
             next_cursor=5,
-            limit=3,
+            complete=False,
             scope="S",
         )
         self.assertEqual(second.processed, 5)
@@ -47,43 +53,57 @@ class TestMergeProgressState(TestCase):
         self.assertEqual(second.cursor, 5)
 
     def test_does_not_mutate_previous_state(self):
-        first = merge_progress_state(None, [_row(1, "MISMATCH")], next_cursor=1, limit=10, scope="S")
-        merge_progress_state(first, [_row(2, "MISMATCH")], next_cursor=2, limit=10, scope="S")
+        first = merge_progress_state(None, [_row(1, "MISMATCH")], next_cursor=1, complete=False, scope="S")
+        merge_progress_state(first, [_row(2, "MISMATCH")], next_cursor=2, complete=False, scope="S")
         self.assertEqual(first.processed, 1)
         self.assertEqual(len(first.mismatches), 1)
 
     def test_cursor_never_regresses(self):
-        first = merge_progress_state(None, [_row(5, "OK")], next_cursor=5, limit=1, scope="S")
-        rewound = merge_progress_state(first, [_row(2, "OK")], next_cursor=2, limit=10, scope="S")
+        first = merge_progress_state(None, [_row(5, "OK")], next_cursor=5, complete=False, scope="S")
+        rewound = merge_progress_state(first, [_row(2, "OK")], next_cursor=2, complete=False, scope="S")
         self.assertEqual(rewound.cursor, 5)
 
-
-class TestSweepCompletion(TestCase):
-    @parameterized.expand(
-        [
-            ("full_batch_keeps_going", 3, 3, False),
-            ("short_batch_completes", 2, 3, True),
-            ("empty_batch_completes", 0, 3, True),
-        ]
-    )
-    def test_complete_iff_batch_smaller_than_limit(self, _name, batch_size, limit, expected):
-        rows = [_row(i, "OK") for i in range(1, batch_size + 1)]
-        state = merge_progress_state(None, rows, next_cursor=batch_size or None, limit=limit, scope="S")
-        self.assertEqual(state.complete, expected)
-
     def test_empty_batch_leaves_cursor_in_place(self):
-        first = merge_progress_state(None, [_row(1, "OK"), _row(2, "OK")], next_cursor=2, limit=2, scope="S")
+        first = merge_progress_state(None, [_row(1, "OK"), _row(2, "OK")], next_cursor=2, complete=False, scope="S")
         self.assertFalse(first.complete)
-        done = merge_progress_state(first, [], next_cursor=None, limit=2, scope="S")
+        done = merge_progress_state(first, [], next_cursor=None, complete=True, scope="S")
         self.assertTrue(done.complete)
         self.assertEqual(done.cursor, 2)
         self.assertEqual(done.processed, 2)
 
 
+class TestJournal(TestCase):
+    def test_recovers_rows_dropping_a_line_torn_by_the_interrupt(self):
+        rows = [_row(1, "OK"), _row(2, "MISMATCH", "2 stable cell diff(s)")]
+        lines = ['{"scope": "S"}', *(journal_line(r) for r in rows), '{"id": 3, "short_id": "s3", "tea']
+        self.assertEqual(parse_journal_lines(lines, "S"), rows)
+
+    def test_refuses_journal_from_a_different_filter_set(self):
+        lines = ['{"scope": "S"}', journal_line(_row(1, "OK"))]
+        with self.assertRaises(ValueError):
+            parse_journal_lines(lines, "OTHER")
+
+    def test_append_after_torn_tail_starts_on_a_fresh_line(self):
+        # A plain append would glue the resumed run's first record onto the torn fragment,
+        # silently losing both rows on the next recovery.
+        cmd = Command(stdout=StringIO())
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "sweep.json.journal")
+            handle = cmd._open_journal(path, scope="S")
+            handle.write(journal_line(_row(1, "OK")) + "\n")
+            handle.write('{"id": 2, "sho')
+            handle.close()
+            handle = cmd._open_journal(path, scope="S")
+            handle.write(journal_line(_row(2, "OK")) + "\n")
+            handle.close()
+            recovered = cmd._load_journal(path, scope="S", restart=False)
+            self.assertEqual([r.id for r in recovered], [1, 2])
+
+
 class TestProgressStateRoundTrip(TestCase):
     def test_to_dict_from_dict_preserves_state(self):
         state = merge_progress_state(
-            None, [_row(1, "OK"), _row(2, "MISMATCH", "d")], next_cursor=2, limit=2, scope="SC"
+            None, [_row(1, "OK"), _row(2, "MISMATCH", "d")], next_cursor=2, complete=False, scope="SC"
         )
         self.assertEqual(ProgressState.from_dict(state.to_dict()), state)
 
