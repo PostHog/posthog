@@ -433,7 +433,9 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
         enabled: zod
             .boolean()
             .optional()
-            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+            .describe(
+                'Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Setting false records a user pause (`status` becomes `paused_by_user`, which the system never overrides); setting true resumes the scout from any pause.'
+            ),
         emit: zod
             .boolean()
             .optional()
