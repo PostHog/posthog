@@ -8,6 +8,8 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from posthog.rbac.user_access_control import UserAccessControl
 
@@ -55,8 +57,16 @@ class TestForwardDiscussionNote(APIBaseTest):
             emitted_report_ids=[str(report.id)],
         )
 
+    def _request(self) -> Request:
+        # Session-style request: no API-key authenticator, so `_may_steer_scouts` reduces to the RBAC
+        # editor bar the default test user clears — the same gate the dismissal forwarder uses.
+        drf = Request(APIRequestFactory().post("/"))
+        drf._authenticator = None
+        drf.user = self.user
+        return drf
+
     def _forward(self, report: SignalReport, text: str = _PROMPT) -> str | None:
-        return forward_discussion_note(team=self.team, report_id=str(report.id), text=text, user_id=self.user.id)
+        return forward_discussion_note(team=self.team, report_id=str(report.id), text=text, request=self._request())
 
     def test_forwards_question_targeted_at_authoring_scout(self) -> None:
         report = self._create_report()
@@ -64,12 +74,13 @@ class TestForwardDiscussionNote(APIBaseTest):
         self._record_authoring_run(report)
 
         note_id = self._forward(report)
+        assert note_id is not None
 
         note = SignalScoutNote.objects.get(id=note_id)
         self.assertEqual(note.origin, SignalScoutNote.Origin.REPORT_DISCUSSION)
         self.assertEqual(note.skill_name, SCOUT_SKILL)
         self.assertEqual(note.created_by_id, self.user.id)
-        self.assertIsNotNone(note.expires_at)
+        assert note.expires_at is not None
         self.assertTrue(note.expires_at > timezone.now())
         self.assertIn("Is this still happening?", note.content)
         self.assertIn(str(report.id), note.content)
@@ -79,7 +90,9 @@ class TestForwardDiscussionNote(APIBaseTest):
     def test_falls_back_to_fleet_when_no_authoring_run(self) -> None:
         report = self._create_report()
 
-        note = SignalScoutNote.objects.get(id=self._forward(report))
+        note_id = self._forward(report)
+        assert note_id is not None
+        note = SignalScoutNote.objects.get(id=note_id)
 
         self.assertEqual(note.skill_name, "")
 

@@ -15,13 +15,13 @@ or ignore it as noise; the scout's own judgement decides which. It is a derived 
 record of truth: the question lives on the discussion task regardless, so forwarding is best-effort and
 never allowed to fail task creation.
 
-Authorization mirrors the dismissal path. Creating a discussion task needs only `task:write`, while the
-notes table is otherwise gated to skill-authoring authorization (scouts read note content verbatim while
-holding privileged sandbox tools), so forwarding re-checks that the user could have left the note by hand
-(`user_can_steer_scouts`) against the canonical project whose scouts read it. Lacking a request here (the
-facade hands us a `user_id`, not a `Request`), we can't check the API-token `scoped_teams` leg, so we only
-forward when the task was created on the canonical team itself — a child environment's question never
-reaches the parent project's readers.
+Authorization mirrors the dismissal path exactly. Creating a discussion task needs only `task:write`,
+while the notes table is otherwise gated to skill-authoring authorization (scouts read note content
+verbatim while holding privileged sandbox tools), so forwarding re-checks that the caller could have
+left the note by hand — the same `_may_steer_scouts` gate the dismissal forwarder uses, which enforces
+the request's token `scoped_teams` leg plus canonical-project access and the `llm_skill` editor bar. It
+runs against the canonical project whose scouts read the row, and only when the task was created on the
+canonical team itself, so a child environment's question never reaches the parent project's readers.
 """
 
 from __future__ import annotations
@@ -30,9 +30,11 @@ import logging
 
 from django.utils import timezone
 
+from rest_framework.request import Request
+
 from posthog.models import Team, User
 
-from products.signals.backend.dismissal_notes import DERIVED_NOTE_TTL, resolve_report_scout_skill, user_can_steer_scouts
+from products.signals.backend.dismissal_notes import DERIVED_NOTE_TTL, _may_steer_scouts, resolve_report_scout_skill
 from products.signals.backend.models import SignalReport, SignalScoutNote
 from products.signals.backend.scout_harness.tools.notes import leave_note
 
@@ -52,7 +54,7 @@ def forward_discussion_note(
     team: Team,
     report_id: str,
     text: str,
-    user_id: int | None,
+    request: Request,
 ) -> str | None:
     """Leave a discussion question as a scout note. Returns the created note id, or None if nothing
     was forwarded.
@@ -62,10 +64,10 @@ def forward_discussion_note(
     runs inside one failure boundary, because authorization and target resolution both read the
     database.
     """
-    if user_id is None or not text or not text.strip():
+    if not text or not text.strip():
         return None
     try:
-        return _forward(team=team, report_id=str(report_id), text=text, user_id=user_id)
+        return _forward(team=team, report_id=str(report_id), text=text, request=request)
     except Exception:
         logger.exception(
             "Failed to forward a discussion question to a scout note",
@@ -74,7 +76,7 @@ def forward_discussion_note(
         return None
 
 
-def _forward(*, team: Team, report_id: str, text: str, user_id: int) -> str | None:
+def _forward(*, team: Team, report_id: str, text: str, request: Request) -> str | None:
     question = _extract_question(text)
     if not question:
         return None
@@ -86,8 +88,11 @@ def _forward(*, team: Team, report_id: str, text: str, user_id: int) -> str | No
     if team.id != canonical_team.id:
         return None
 
-    user = User.objects.filter(pk=user_id).first()
-    if user is None or not user_can_steer_scouts(user, canonical_team):
+    # Same gate the dismissal forwarder uses: the caller must be authorized to have written this note
+    # by hand (token `scoped_teams`, canonical-project access, `llm_skill` editor), so a bare
+    # `task:write` credential can't plant a scout steering note it couldn't otherwise write.
+    user = request.user
+    if not isinstance(user, User) or not _may_steer_scouts(request, canonical_team):
         return None
 
     report = SignalReport.objects.filter(team_id=canonical_team.id, id=report_id).first()

@@ -21,7 +21,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -36,6 +36,11 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+
+if TYPE_CHECKING:
+    # Kept off the module import path (this facade must stay importable without DRF); only used to
+    # type the optional request threaded through for signals discussion-note authorization.
+    from rest_framework.request import Request
 
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
@@ -3947,7 +3952,9 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
-def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> contracts.TaskDetailDTO:
+def create_task(
+    team_id: int, user_id: int | None, *, validated_data: dict, request: "Request | None" = None
+) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
     Absorbs the cross-product ``SignalReportTask`` linkage, ``generate_task_title``, and
@@ -4099,18 +4106,21 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             )
 
     if (
-        signal_report_task_relationship == TASK_RUN_TYPE_DISCUSSION
+        request is not None
+        and signal_report_task_relationship == TASK_RUN_TYPE_DISCUSSION
         and task.signal_report_id
         and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
     ):
         # Forward the user's question to the report's scout as a steering note. Best-effort and kept
         # out of the create transaction: the note is a derived convenience the scout can weigh or
-        # ignore, and the question lives on the discussion task either way.
+        # ignore, and the question lives on the discussion task either way. The request carries the
+        # authorization the note write is gated on (same gate as a dismissal note), so a caller
+        # without a request (or one lacking scout-steering authorization) simply doesn't forward.
         forward_discussion_note(
             team=team,
             report_id=str(task.signal_report_id),
             text=task.description or "",
-            user_id=user_id,
+            request=request,
         )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
