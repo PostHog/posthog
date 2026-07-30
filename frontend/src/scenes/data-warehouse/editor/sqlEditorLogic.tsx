@@ -32,7 +32,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -80,12 +80,21 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { validateMetricName } from 'products/data_catalog/frontend/common'
+import {
+    dataCatalogMetricsCreate,
+    dataCatalogMetricsPartialUpdate,
+    dataCatalogMetricsRetrieve,
+} from 'products/data_catalog/frontend/generated/api'
 import { DagSelector, openCreateDagDialog } from 'products/data_modeling/frontend/DagSelector'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
 import type { PaginatedResponse } from '../../../lib/api'
+
+// Mirrors MANAGED_WAREHOUSE_SOURCE_PREFIX in products/warehouse_sources/backend/models/external_data_source.py.
+export const MANAGED_WAREHOUSE_SOURCE_PREFIX = 'managed_warehouse'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/schema-general'
 import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '../../../types'
@@ -106,6 +115,12 @@ import {
     aiSuggestionOnReject,
     aiSuggestionOnRejectText,
 } from './suggestions/aiSuggestion'
+import {
+    queryHistorySuggestionOnAccept,
+    queryHistorySuggestionOnAcceptText,
+    queryHistorySuggestionOnReject,
+    queryHistorySuggestionOnRejectText,
+} from './suggestions/queryHistorySuggestion'
 import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
@@ -230,9 +245,10 @@ export interface QueryTab {
     insight?: QueryBasedInsightModel
     response?: Record<string, any>
     draft?: DataWarehouseSavedQueryDraft
+    metricName?: string
 }
 
-export type SqlEditorSource = 'insight' | 'endpoint' | 'view'
+export type SqlEditorSource = 'insight' | 'endpoint' | 'view' | 'metric'
 
 export interface DataWarehouseAccessControlModalProps {
     resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
@@ -246,7 +262,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer' | 'materialization_fix'
+    source?: 'max_ai' | 'hogql_fixer' | 'query_history' | 'materialization_fix'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -488,6 +504,7 @@ export interface sqlEditorLogicValues {
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
     editingInsight: QueryBasedInsightModel | null
+    editingMetricName: string | null
     editingView: DataWarehouseSavedQuery | undefined
     editorKey: string
     editorSource: SqlEditorSource
@@ -511,6 +528,7 @@ export interface sqlEditorLogicValues {
     materializationModalView: DataWarehouseSavedQuery | null
     metadata: HogQLMetadataResponse | null
     metadataLoading: boolean
+    metricUpdating: boolean
     originalQueryInput: string | null | undefined
     queryInput: string | null
     rejectText: string
@@ -523,7 +541,7 @@ export interface sqlEditorLogicValues {
     sourceQuery: DataVisualizationNode
     splitQueryRanges: QueryRange[]
     suggestedQueryInput: string
-    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | null
+    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
     suggestionPayload: SuggestionPayload | null
     upstream: {
         edges: DataModelingEdge[]
@@ -649,6 +667,9 @@ export interface sqlEditorLogicActions {
     ) => {
         force?: boolean
     } // databaseTableListLogic
+    resetConnectionScope: () => {
+        value: true
+    } // databaseTableListLogic
     setConnection: (connectionId: string | null) => {
         connectionId: string | null
     } // databaseTableListLogic
@@ -730,10 +751,12 @@ export interface sqlEditorLogicActions {
         query?: string,
         view?: DataWarehouseSavedQuery,
         insight?: QueryBasedInsightModel,
-        draft?: DataWarehouseSavedQueryDraft
+        draft?: DataWarehouseSavedQueryDraft,
+        metricName?: string
     ) => {
         draft: DataWarehouseSavedQueryDraft | undefined
         insight: QueryBasedInsightModel<Node<Record<string, any>>> | undefined
+        metricName: string | undefined
         query: string | undefined
         view: DataWarehouseSavedQuery | undefined
     }
@@ -851,6 +874,18 @@ export interface sqlEditorLogicActions {
         name: string
         queryOverride: string | undefined
     }
+    saveAsMetric: () => {
+        value: true
+    }
+    saveAsMetricSubmit: (
+        name: string,
+        description: string,
+        queryOverride?: string
+    ) => {
+        description: string
+        name: string
+        queryOverride: string | undefined
+    }
     saveAsView: (
         materializeAfterSave?: any,
         fromDraft?: string
@@ -903,6 +938,9 @@ export interface sqlEditorLogicActions {
     setEditingInsightName: (name: string) => {
         name: string
     }
+    setEditingMetricName: (metricName: string | null) => {
+        metricName: string | null
+    }
     setEditorSource: (source: SqlEditorSource) => {
         source: SqlEditorSource
     }
@@ -953,6 +991,9 @@ export interface sqlEditorLogicActions {
     setMetadataLoading: (loading: boolean) => {
         loading: boolean
     }
+    setMetricUpdating: (updating: boolean) => {
+        updating: boolean
+    }
     setQueryInput: (queryInput: string | null) => {
         queryInput: string | null
     }
@@ -969,7 +1010,7 @@ export interface sqlEditorLogicActions {
         suggestedQueryInput: string,
         source?: SuggestionPayload['source']
     ) => {
-        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | undefined
+        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | undefined
         suggestedQueryInput: string
     }
     setUpstreamViewMode: (mode: 'graph' | 'table') => {
@@ -982,6 +1023,9 @@ export interface sqlEditorLogicActions {
         loading: boolean
     }
     syncUrlWithQuery: () => {
+        value: true
+    }
+    updateEditingMetric: () => {
         value: true
     }
     updateInsight: () => {
@@ -1012,7 +1056,7 @@ export interface sqlEditorLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
-        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | null
+        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
         diffShowRunButton: (suggestionPayload: SuggestionPayload | null) => boolean | undefined
         acceptText: (suggestionPayload: SuggestionPayload | null) => string
         rejectText: (suggestionPayload: SuggestionPayload | null) => string
@@ -1022,6 +1066,7 @@ export interface sqlEditorLogicMeta {
             queryInput: string | null
         ) => string | null | undefined
         editingView: (activeTab: QueryTab | null) => DataWarehouseSavedQuery | undefined
+        editingMetricName: (activeTab: QueryTab | null) => string | null
         changesToSave: (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
@@ -1061,6 +1106,25 @@ export type sqlEditorLogicType = MakeLogicType<
     SqlEditorLogicProps,
     sqlEditorLogicMeta
 >
+
+// Which mounted editors currently want the shared schema catalog scoped to a connection, keyed by
+// tab id. Several editors can be mounted at once (notebook SQL nodes, metrics, endpoints) on the
+// same connection, so the last one out is the one that hands the catalog back unscoped.
+const connectionScopeOwners = new Map<string, string>()
+
+function claimConnectionScope(tabId: string, connectionId: string | null | undefined): void {
+    if (connectionId) {
+        connectionScopeOwners.set(tabId, connectionId)
+    } else {
+        connectionScopeOwners.delete(tabId)
+    }
+}
+
+// Drops this tab's claim and reports whether the scoped connection is now unclaimed.
+function releaseConnectionScope(tabId: string, scopedConnectionId: string | null): boolean {
+    connectionScopeOwners.delete(tabId)
+    return scopedConnectionId !== null && ![...connectionScopeOwners.values()].includes(scopedConnectionId)
+}
 
 export const sqlEditorLogic = kea<sqlEditorLogicType>([
     path(['data-warehouse', 'editor', 'sqlEditorLogic']),
@@ -1107,7 +1171,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
-            ['setConnection', 'loadDatabase'],
+            ['setConnection', 'loadDatabase', 'resetConnectionScope'],
             connectionSelectorLogic,
             ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
@@ -1129,12 +1193,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             query?: string,
             view?: DataWarehouseSavedQuery,
             insight?: QueryBasedInsightModel,
-            draft?: DataWarehouseSavedQueryDraft
+            draft?: DataWarehouseSavedQueryDraft,
+            metricName?: string
         ) => ({
             query,
             view,
             insight,
             draft,
+            metricName,
         }),
         updateTab: (tab: QueryTab) => ({ tab }),
 
@@ -1176,6 +1242,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             queryOverride,
             dagId,
         }),
+        saveAsMetric: true,
+        saveAsMetricSubmit: (name: string, description: string, queryOverride?: string) => ({
+            name,
+            description,
+            queryOverride,
+        }),
+        setEditingMetricName: (metricName: string | null) => ({ metricName }),
+        updateEditingMetric: true,
+        setMetricUpdating: (updating: boolean) => ({ updating }),
         updateInsight: true,
         setEditingInsightName: (name: string) => ({ name }),
         setEditingInsightDescription: (description: string) => ({ description }),
@@ -1458,6 +1533,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 setInsightLoading: (_, { loading }) => loading,
             },
         ],
+        metricUpdating: [
+            false,
+            {
+                setMetricUpdating: (_, { updating }) => updating,
+            },
+        ],
         activeTab: [
             null as QueryTab | null,
             {
@@ -1626,16 +1707,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 }
 
+                const isQueryHistory = source === 'query_history'
+                if (isQueryHistory) {
+                    // Accept/cancel of the restore is captured via sql-editor-accepted/rejected-suggestion
+                    posthog.capture('sql-editor-history-restore-initiated')
+                }
+
                 // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
                 // Only skip diff mode if the editor is completely empty
                 if (values.queryInput && values.queryInput.trim() !== '') {
                     actions._setSuggestionPayload({
                         suggestedValue: suggestedQueryInput,
                         originalValue: values.queryInput, // Store the current content as original for diff mode
-                        acceptText: aiSuggestionOnAcceptText,
-                        rejectText: aiSuggestionOnRejectText,
-                        onAccept: aiSuggestionOnAccept,
-                        onReject: aiSuggestionOnReject,
+                        acceptText: isQueryHistory ? queryHistorySuggestionOnAcceptText : aiSuggestionOnAcceptText,
+                        rejectText: isQueryHistory ? queryHistorySuggestionOnRejectText : aiSuggestionOnRejectText,
+                        onAccept: isQueryHistory ? queryHistorySuggestionOnAccept : aiSuggestionOnAccept,
+                        onReject: isQueryHistory ? queryHistorySuggestionOnReject : aiSuggestionOnReject,
                         source,
                         diffShowRunButton: true,
                     })
@@ -1676,7 +1763,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             editInsight: ({ query, insight }) => {
                 actions.createTab(query, undefined, insight)
             },
-            createTab: async ({ query = '', view, insight, draft }) => {
+            createTab: async ({ query = '', view, insight, draft, metricName }) => {
                 // Use tabId to ensure each browser tab has its own unique Monaco model
                 const tabName = insight ? (insight.name ?? NEW_QUERY) : draft?.name || view?.name || NEW_QUERY
                 const tabDescription = insight?.description ?? ''
@@ -1711,6 +1798,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         description: tabDescription,
                         sourceQuery: insightVisualizationQuery,
                         draft: draft,
+                        metricName,
                     })
                 }
                 if (insightVisualizationQuery) {
@@ -1757,12 +1845,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             enforceConnectionRawQueryMode: () => {
                 // Raw-only connections cannot compile HogQL — force raw SQL mode.
-                if (
-                    values.selectedConnectionId &&
-                    !values.selectedConnectionSupportsHogQL &&
-                    !values.sourceQuery.source.sendRawQuery
-                ) {
-                    actions.setSendRawQuery(true)
+                // The managed warehouse (auto-provisioned Duckgres) speaks DuckDB
+                // natively end-to-end, so raw mode is the better default for it too:
+                // it skips the HogQL reprint and reaches the engine verbatim.
+                if (values.selectedConnectionId && !values.sourceQuery.source.sendRawQuery) {
+                    const option = (values.connectionOptions ?? []).find(
+                        (option) => option.id === values.selectedConnectionId
+                    )
+                    const isManagedWarehouseSource =
+                        option?.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && option?.source_type === 'Postgres'
+
+                    if (!values.selectedConnectionSupportsHogQL || isManagedWarehouseSource) {
+                        actions.setSendRawQuery(true)
+                    }
                 }
             },
             // Options can load after a connection was restored from the URL.
@@ -1893,6 +1988,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query,
                 })
 
+                // Tag only the executed query — keeping tags out of sourceQuery so saved
+                // insights/views and change detection never pick them up
+                const executedSource: HogQLQuery = {
+                    ...newSource,
+                    tags: { ...newSource.tags, productKey: 'sql_editor' },
+                }
+
                 actions.setSourceQuery({
                     ...values.sourceQuery,
                     source: newSource,
@@ -1904,14 +2006,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!cache.umountDataNode) {
                     cache.umountDataNode = dataNodeLogic({
                         key: values.dataLogicKey,
-                        query: newSource,
+                        query: executedSource,
                     }).mount()
                 }
 
                 dataNodeLogic({
                     key: values.dataLogicKey,
-                    query: newSource,
-                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, newSource)
+                    query: executedSource,
+                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
@@ -2412,6 +2514,81 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
             },
+            saveAsMetric: async () => {
+                const candidates = resolveSaveCandidates()
+                const selectedRef = { current: candidates.queries[candidates.initialIndex] }
+                LemonDialog.openForm({
+                    title: 'Save as metric',
+                    initialValues: { name: '', description: '' },
+                    content: (
+                        <>
+                            <LemonField name="name" label="Name">
+                                <LemonInput placeholder="monthly_active_users" autoFocus />
+                            </LemonField>
+                            <LemonField name="description" label="Description" className="mt-2">
+                                <LemonInput placeholder="What this metric measures and how to read it" />
+                            </LemonField>
+                            <SaveTargetCycler
+                                candidates={candidates}
+                                onChange={(q) => {
+                                    selectedRef.current = q
+                                }}
+                            />
+                        </>
+                    ),
+                    errors: {
+                        name: (name) => validateMetricName(name?.trim() || ''),
+                        description: (description) => (!description?.trim() ? 'Add a description' : undefined),
+                    },
+                    onSubmit: async ({ name, description }) =>
+                        actions.saveAsMetricSubmit(name.trim(), description.trim(), selectedRef.current),
+                })
+            },
+            saveAsMetricSubmit: async ({ name, description, queryOverride }) => {
+                try {
+                    const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
+                        name,
+                        description,
+                        definition: normalizeRawQuerySource({
+                            ...(values.sourceQuery.source as HogQLQuery),
+                            query: queryOverride ?? values.queryInput ?? '',
+                        }) as unknown as Record<string, unknown>,
+                    })
+                    lemonToast.success('Metric created')
+                    router.actions.push(urls.dataCatalogMetric(metric.name))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to create metric')
+                }
+            },
+            updateEditingMetric: async () => {
+                if (!values.editingMetricName || values.metricUpdating) {
+                    return
+                }
+                actions.setMetricUpdating(true)
+                try {
+                    await dataCatalogMetricsPartialUpdate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        values.editingMetricName,
+                        {
+                            definition: normalizeRawQuerySource({
+                                ...(values.sourceQuery.source as HogQLQuery),
+                                query: values.queryInput ?? '',
+                            }) as unknown as Record<string, unknown>,
+                        }
+                    )
+                    lemonToast.success('Metric updated')
+                    router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to update metric')
+                } finally {
+                    actions.setMetricUpdating(false)
+                }
+            },
+            setEditingMetricName: ({ metricName }) => {
+                if (values.activeTab) {
+                    actions.updateTab({ ...values.activeTab, metricName: metricName ?? undefined })
+                }
+            },
             setEditingInsightName: ({ name }) => {
                 if (values.activeTab) {
                     actions.updateTab({ ...values.activeTab, name })
@@ -2556,6 +2733,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
                 if (values.activeTab?.view?.id === viewId && !values.activeTab?.draft) {
+                    // createTab() alone reuses the existing model and doesn't clear queryInput
+                    applyUndoableModelEdit(props.monaco, values.activeTab?.uri, '')
+                    actions.setQueryInput('')
                     actions.createTab()
                 }
             },
@@ -2661,7 +2841,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
         }
     }),
-    subscriptions(({ actions, values, cache }) => ({
+    subscriptions(({ actions, values, cache, props }) => ({
         queryInput: (queryInput: string | null) => {
             // Subquery validation results are keyed by subquery text — but the same text
             // may now refer to a subquery with different surrounding context, so drop
@@ -2745,6 +2925,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             cache.lastSelectedConnectionId = selectedConnectionId
+            claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase()
             if (selectedConnectionId) {
@@ -2807,6 +2988,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (s) => [s.activeTab],
             (activeTab: QueryTab | null) => {
                 return activeTab?.view
+            },
+        ],
+        editingMetricName: [
+            (s) => [s.activeTab],
+            (activeTab: QueryTab | null) => {
+                return activeTab?.metricName ?? null
             },
         ],
         changesToSave: [
@@ -2946,7 +3133,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (
                 searchParams.source === 'endpoint' ||
                 searchParams.source === 'insight' ||
-                searchParams.source === 'view'
+                searchParams.source === 'view' ||
+                searchParams.source === 'metric'
             ) {
                 actions.setEditorSource(searchParams.source)
             }
@@ -3191,6 +3379,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                } else if (searchParams.edit_metric) {
+                    // edit_metric binds the "Update metric" button to overwrite a named metric.
+                    // Both edit_metric and open_query are URL-controlled, so we never bind the
+                    // update target to URL-supplied SQL — a crafted link could otherwise overwrite
+                    // a teammate's metric with arbitrary HogQL. Load the metric server-side and open
+                    // its stored query, so the update target and its definition come from the same
+                    // authenticated response.
+                    try {
+                        // Validate before it reaches the request path: the value is interpolated
+                        // into the URL unencoded, so a name containing "../" could otherwise
+                        // traverse to a metric in another project. The name regex forbids slashes.
+                        if (validateMetricName(searchParams.edit_metric)) {
+                            throw new Error('Invalid metric name')
+                        }
+                        const metric = await dataCatalogMetricsRetrieve(
+                            String(ApiConfig.getCurrentTeamId()),
+                            searchParams.edit_metric
+                        )
+                        const definition = metric.definition as Record<string, unknown> | null | undefined
+                        const metricQuery = typeof definition?.query === 'string' ? definition.query : ''
+                        actions.createTab(metricQuery, undefined, undefined, undefined, metric.name)
+                    } catch {
+                        // Invalid name, metric not found, or no access — open an unbound empty tab
+                        // rather than binding an update target we couldn't verify.
+                        actions.createTab('')
+                    }
+                    tabAdded = true
                 } else if (searchParams.open_query) {
                     // kea-router decodes JSON-shaped URL values to objects — a node here carries
                     // visualization settings (display, chartSettings) alongside the SQL
@@ -3271,6 +3486,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     })),
     afterMount(({ actions, props, values, cache }) => {
         cache.lastSelectedConnectionId = values.selectedConnectionId
+        claimConnectionScope(props.tabId, values.selectedConnectionId)
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
 
@@ -3465,14 +3681,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
         if (
             (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene) || !hasExplicitEditorUrlState) &&
-            shouldSyncDatabaseConnection &&
-            !values.databaseLoading
+            shouldSyncDatabaseConnection
         ) {
             actions.setConnection(values.selectedConnectionId ?? null)
-            actions.loadDatabase()
+            // `databaseTableListLogic` is a shared singleton. If a prior visit left `databaseLoading`
+            // stuck true (a load that never settled), the plain guard would skip the reload and the
+            // editor would sit on "Loading..." forever. On remount we still need data, so force a
+            // fresh request to bypass any hung in-flight load.
+            actions.loadDatabase(values.databaseLoading ? { force: true } : undefined)
         }
     }),
-    beforeUnmount(({ cache, props }) => {
+    beforeUnmount(({ actions, values, cache, props }) => {
+        // The editor scopes the shared schema catalog to whichever connection it was querying, and
+        // that logic stays mounted after the editor closes. Hand it back unscoped so pages like the
+        // sources list don't render the connection's tables as if they were the project's own. Only
+        // once no mounted editor still wants that connection though, or closing one of two editors
+        // sharing a connection would leave the survivor with the wrong schema tree.
+        if (releaseConnectionScope(props.tabId, values.databaseConnectionId)) {
+            actions.resetConnectionScope()
+        }
+
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
         clearQueryOutlineOverlay(cache, props.editor)

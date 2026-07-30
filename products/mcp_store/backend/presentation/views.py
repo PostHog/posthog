@@ -7,6 +7,8 @@ from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import DomainNameValidator
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse
@@ -25,6 +27,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.cdp.services.icons import CDPIconsService
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
@@ -118,7 +121,7 @@ def _is_https(url: str) -> bool:
 
 
 def _is_valid_posthog_code_callback_url(url: str) -> bool:
-    """Validate that a PostHog Code callback URL is safe to redirect to (prevents open redirect)."""
+    """Validate that a PostHog Desktop callback URL is safe to redirect to (prevents open redirect)."""
     parsed = urlparse(url)
     if parsed.scheme in ("array", "posthog-code"):
         return True
@@ -159,10 +162,29 @@ def _template_uses_dcr(template: MCPServerTemplate) -> bool:
     return not credentials.get("client_id")
 
 
+# The domain becomes a path segment of img.logo.dev/{domain} and part of the icon cache key.
+# Django's validator enforces real hostname grammar (label lengths, total length cap, no
+# schemes/paths/query junk), so the endpoint can't be steered off the logo host and callers
+# can't mint oversized cache keys.
+_ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
+
+
 class MCPServerTemplateSerializer(serializers.ModelSerializer):
+    icon_domain = serializers.CharField(
+        read_only=True,
+        help_text="The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time "
+        "via the logo.dev proxy endpoint. Empty when no brand icon is known.",
+    )
+    # Kept until PostHog Desktop stops reading it; drop together with the model column.
+    icon_key = serializers.CharField(
+        read_only=True,
+        help_text="Deprecated: use icon_domain instead. Lowercase key for clients that still "
+        "render bundled icon assets.",
+    )
+
     class Meta:
         model = MCPServerTemplate
-        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "category"]
+        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "icon_domain", "category"]
 
 
 class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
@@ -184,17 +206,48 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
         serializer = MCPServerTemplateSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
+    # Image bytes for <img src>; deliberately outside the typed client surface.
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=False, required_scopes=["project:read"])
+    def icon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        # Canonicalized (lowercase, no FQDN trailing dot) before validation so case variants
+        # share one cache entry downstream.
+        domain = request.GET.get("domain", "").strip().lower().rstrip(".")
+        try:
+            _ICON_DOMAIN_VALIDATOR(domain)
+        except DjangoValidationError:
+            raise serializers.ValidationError("domain must be a bare hostname, e.g. linear.app")
+        theme = request.GET.get("theme")
+        return CDPIconsService().get_icon_http_response(
+            domain,
+            # The theme becomes part of the icon cache key, so only known values pass through —
+            # arbitrary strings would let one client mint unbounded cache entries.
+            theme=theme if theme in ("light", "dark") else None,
+            # ServerIcon renders its own generic fallback glyph on 404 instead of logo.dev's monogram.
+            fallback="404",
+            team_id=self.team_id,
+        )
+
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
     template_id = serializers.UUIDField(source="template.id", read_only=True, allow_null=True, default=None)
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    icon_domain = serializers.CharField(
+        source="template.icon_domain",
+        read_only=True,
+        default="",
+        help_text="Brand domain from the linked template, rendered via the logo.dev icon proxy. "
+        "Empty if custom install (no template).",
+    )
+    # Kept until PostHog Desktop stops reading it; drop together with the model column.
     icon_key = serializers.CharField(
         source="template.icon_key",
         read_only=True,
         default="",
-        help_text="Lowercase key from the linked template for brand icons. Empty if custom install (no template).",
+        help_text="Deprecated: use icon_domain instead. Lowercase key from the linked template for "
+        "clients that still render bundled icon assets. Empty if custom install (no template).",
     )
     proxy_url = serializers.SerializerMethodField()
     tool_count = serializers.SerializerMethodField(
@@ -211,6 +264,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "template_id",
             "name",
             "icon_key",
+            "icon_domain",
             "display_name",
             "url",
             "description",
@@ -1456,7 +1510,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
     OAuth providers redirect here after authorization. This endpoint
     validates the state token, exchanges the code for tokens, and
-    redirects to the originating client (PostHog web or PostHog Code).
+    redirects to the originating client (PostHog web or PostHog Desktop).
     """
 
     # Use SessionAuthentication; leave permission_classes empty for uniform 400s, not 401s

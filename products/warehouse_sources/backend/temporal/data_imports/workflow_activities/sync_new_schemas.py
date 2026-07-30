@@ -6,10 +6,14 @@ from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
-from products.warehouse_sources.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
+from products.warehouse_sources.backend.models.external_data_schema import (
+    auto_enable_new_schemas,
+    sync_old_schemas_with_new_schemas,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -69,7 +73,9 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             return
 
         try:
-            schemas = new_source.get_schemas(config, inputs.team_id)
+            schemas = new_source.get_schemas(
+                config, inputs.team_id, api_version=new_source.resolve_api_version(source.api_version)
+            )
         except Exception as e:
             # Schema discovery is best-effort and runs on its own ~6h cadence. If the source's
             # credentials are broken (expired/revoked tokens, permission denied, deleted account,
@@ -77,6 +83,14 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # retry here, and the per-schema sync path surfaces and disables the source on the
             # same error. Skip quietly on known non-retryable source errors rather than spamming
             # retries and error tracking on every discovery run. Other errors still propagate.
+            #
+            # UndecryptedIntegrationSecretError is checked by type, not message, mirroring
+            # import_data_sync.py's handling: it's shared across every OAuth-based source and
+            # fails identically on every retry, so it shouldn't depend on each source listing the
+            # message in get_non_retryable_errors.
+            if isinstance(e, UndecryptedIntegrationSecretError):
+                logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
+                return
             error_msg = str(e)
             non_retryable_errors = new_source.get_non_retryable_errors()
             if any(pattern in error_msg for pattern in non_retryable_errors):
@@ -106,6 +120,10 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     if len(schemas_created) > 0:
         logger.info(f"Added new schemas: {', '.join(schemas_created)}")
+
+        auto_enabled = auto_enable_new_schemas(source, schemas_created, {s.name: s for s in schemas})
+        if auto_enabled:
+            logger.info(f"Auto-enabled sync for new schemas: {', '.join(auto_enabled)}")
     else:
         logger.info("No new schemas to create")
 

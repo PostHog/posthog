@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { FormContext } from 'kea-forms'
-import { useContext, useEffect, useMemo } from 'react'
+import { useContext, useEffect, useMemo, useRef } from 'react'
 
-import { LemonInput, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonInput, LemonInputSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -69,15 +70,19 @@ function IntegrationAccountSelectorInner({
 
     // Seed the multi field's form state from the legacy single-value field (e.g. a pre-multi-repo
     // GitHub source's `repository`) so an untouched edit still validates and saves the full list.
+    // Seed at most once per mount: re-seeding whenever the field is empty would instantly undo a
+    // user removing the last chip (e.g. to swap the single repo for another one).
     const { fieldName, multiple } = props
+    const seededLegacyValue = useRef(false)
     useEffect(() => {
-        if (!multiple || normalizeMultiValue(ownValue).length > 0) {
+        if (!multiple || seededLegacyValue.current || normalizeMultiValue(ownValue).length > 0) {
             return
         }
         const seeded = normalizeMultiValue(undefined, legacySingleValue)
         if (seeded.length === 0) {
             return
         }
+        seededLegacyValue.current = true
         const setValueAction = formLogic.actions[`set${formKey.charAt(0).toUpperCase()}${formKey.slice(1)}Value`]
         setValueAction?.(['payload', fieldName], seeded)
     }, [multiple, ownValue, legacySingleValue, formLogic, formKey, fieldName])
@@ -96,7 +101,6 @@ function IntegrationAccountSelectorInner({
             <MultiAccountField
                 {...props}
                 integrationId={integrationIsValid && integrationId ? integrationId : undefined}
-                legacySingleValue={legacySingleValue}
             />
         )
     }
@@ -110,6 +114,19 @@ function IntegrationAccountSelectorInner({
 
 function captionHelp(caption?: string): JSX.Element | undefined {
     return caption ? <LemonMarkdown className="text-xs">{caption}</LemonMarkdown> : undefined
+}
+
+/** Re-run OAuth for the connected integration in place, so a failed account load is recoverable
+ *  without hunting for the disconnect/reconnect action elsewhere on the page. */
+function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.Element {
+    return (
+        <Link
+            disableClientSideRouting
+            to={api.integrations.authorizeUrl({ kind: integrationKind, next: window.location.pathname })}
+        >
+            Reconnect
+        </Link>
+    )
 }
 
 function AccountTextField({
@@ -176,7 +193,13 @@ function useFormIntegrationId(formLogic: any, formKey: string, integrationField:
 
 const OWNER_REPO_PATTERN = /^[^/\s]+\/[^/\s]+$/
 
-function accountOptionLabel(displayName: string, value: string, isPrimary: boolean, badges: string[]): JSX.Element {
+function accountOptionLabel(
+    displayName: string,
+    value: string,
+    isPrimary: boolean,
+    badges: string[],
+    group?: string | null
+): JSX.Element {
     // When display_name === value (e.g. GSC site url), "value (value)" is redundant.
     const labelText = displayName === value ? displayName : `${displayName} (${value})`
     return (
@@ -188,6 +211,7 @@ function accountOptionLabel(displayName: string, value: string, isPrimary: boole
                     {badge}
                 </LemonTag>
             ))}
+            {group && <span className="text-xs text-secondary">under {group}</span>}
         </div>
     )
 }
@@ -201,8 +225,7 @@ function MultiAccountField({
     fieldLabel,
     placeholder,
     caption,
-    legacySingleValue,
-}: IntegrationAccountSelectorProps & { integrationId?: number; legacySingleValue?: unknown }): JSX.Element {
+}: IntegrationAccountSelectorProps & { integrationId?: number }): JSX.Element {
     if (integrationId) {
         return (
             <MultiAccountFieldWithOptions
@@ -212,7 +235,6 @@ function MultiAccountField({
                 fieldLabel={fieldLabel}
                 placeholder={placeholder}
                 caption={caption}
-                legacySingleValue={legacySingleValue}
             />
         )
     }
@@ -222,7 +244,6 @@ function MultiAccountField({
             fieldLabel={fieldLabel}
             placeholder={placeholder}
             caption={caption}
-            legacySingleValue={legacySingleValue}
             options={[]}
         />
     )
@@ -235,7 +256,6 @@ function MultiAccountFieldWithOptions({
     fieldLabel,
     placeholder,
     caption,
-    legacySingleValue,
 }: {
     integrationId: number
     sourceType: string
@@ -243,7 +263,6 @@ function MultiAccountFieldWithOptions({
     fieldLabel: string
     placeholder?: string
     caption?: string
-    legacySingleValue?: unknown
 }): JSX.Element {
     const { accounts, accountsLoading, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
@@ -270,7 +289,6 @@ function MultiAccountFieldWithOptions({
             fieldLabel={fieldLabel}
             placeholder={placeholder}
             caption={caption}
-            legacySingleValue={legacySingleValue}
             options={options}
             loading={accountsLoading}
             onInputChange={setSearch}
@@ -284,7 +302,6 @@ function MultiAccountFieldInner({
     fieldLabel,
     placeholder,
     caption,
-    legacySingleValue,
     options,
     loading,
     onInputChange,
@@ -294,7 +311,6 @@ function MultiAccountFieldInner({
     fieldLabel: string
     placeholder?: string
     caption?: string
-    legacySingleValue?: unknown
     options: LemonInputSelectOption[]
     loading?: boolean
     onInputChange?: (value: string) => void
@@ -303,7 +319,9 @@ function MultiAccountFieldInner({
     return (
         <LemonField name={fieldName} label={fieldLabel} help={captionHelp(caption)}>
             {({ value, onChange }) => {
-                const selected = normalizeMultiValue(value, legacySingleValue)
+                // The legacy single value is seeded into form state once (see IntegrationAccountSelectorInner),
+                // so render the form value as-is — falling back here would resurrect a chip the user removed.
+                const selected = normalizeMultiValue(value)
                 const malformed = selected.filter((entry) => !OWNER_REPO_PATTERN.test(entry))
                 return (
                     <div className="flex flex-col gap-2">
@@ -334,13 +352,14 @@ function MultiAccountFieldInner({
 
 function IntegrationAccountFieldWithDropdown({
     integrationId,
+    integrationKind,
     sourceType,
     fieldName,
     fieldLabel,
     placeholder,
     caption,
 }: IntegrationAccountSelectorProps & { integrationId: number }): JSX.Element {
-    const { accounts, accountsLoading, accountsError } = useValues(
+    const { accounts, accountsLoading, accountsLoaded, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
     )
     const { loadAccounts, setSearch } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
@@ -352,13 +371,23 @@ function IntegrationAccountFieldWithDropdown({
     const suggestions = useMemo<InputSuggestion[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
         return sorted.map((account) => {
-            const searchText =
-                account.display_name === account.value
-                    ? `${account.value} ${account.secondary_text ?? ''}`
-                    : `${account.display_name} ${account.value} ${account.secondary_text ?? ''}`
+            const searchText = [
+                account.display_name === account.value ? '' : account.display_name,
+                account.value,
+                account.secondary_text ?? '',
+                account.group ?? '',
+            ]
+                .filter(Boolean)
+                .join(' ')
             return {
                 value: account.value,
-                label: accountOptionLabel(account.display_name, account.value, account.is_primary, account.badges),
+                label: accountOptionLabel(
+                    account.display_name,
+                    account.value,
+                    account.is_primary,
+                    account.badges,
+                    account.group
+                ),
                 searchText,
             }
         })
@@ -384,7 +413,17 @@ function IntegrationAccountFieldWithDropdown({
                             emptyMessage="No accounts accessible by this integration."
                             loadingMessage="Loading accounts…"
                         />
-                        {accountsError && <p className="m-0 text-xs text-warning">{accountsError}</p>}
+                        {accountsError && (
+                            <p className="m-0 text-xs text-warning">
+                                {accountsError} <ReconnectLink integrationKind={integrationKind} />
+                            </p>
+                        )}
+                        {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
+                            <p className="m-0 text-xs text-warning">
+                                No accounts are accessible for this connection. Check that the connected account has the
+                                right permissions, then <ReconnectLink integrationKind={integrationKind} />.
+                            </p>
+                        )}
                         {savedValueMissing && (
                             <p className="m-0 text-xs text-warning">
                                 The currently saved {fieldLabel} <code>{value}</code> isn't in the accessible list for

@@ -2,7 +2,7 @@
 
 Maps the raw GitHub workflow-runs warehouse snapshot into honest CI columns:
 ``status`` and ``conclusion`` are passed through unchanged (a conclusion can be
-stale until the ``workflow_run`` webhook settles it — see SPEC §9), and
+stale until the ``workflow_run`` webhook settles it — see SPEC §7), and
 ``duration_seconds`` is only computed for completed runs. ``head_sha`` is the
 canonical join key back to the pull-requests builder for a PR's CI status, while
 ``pr_number`` keys the per-PR push / re-run rollup and ``run_attempt`` distinguishes
@@ -15,8 +15,8 @@ a run with no association (fork PRs, and pushes to a branch with no open PR) ext
 ``0`` (filtered out of the rollup, which only counts ``pr_number > 0``); a run shared
 across more than one PR (uncommon — one head tied to multiple open PRs) is credited to
 its first PR only, not fanned out across all of them. That's a deliberate v1
-simplification — the rollup is an approximate friction signal (pushes / re-runs), not
-billing — kept until the job-level source (SPEC §6) replaces this attribution.
+simplification: the rollup is an approximate friction signal (pushes / re-runs), not
+billing.
 
 The real GitHub source lands timestamps as **strings** and ``repository`` /
 ``pull_requests`` as **Nullable** JSON, so this builder runs in two layers: an inner
@@ -60,6 +60,7 @@ def build_query(table_name: str, *, started_floor: bool = False) -> str:
             updated_at,
             created_at,
             run_attempt,
+            default_branch,
             pr_number,
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
             arrayElement(repo_parts, 1) AS repo_owner,
@@ -75,6 +76,7 @@ def build_query(table_name: str, *, started_floor: bool = False) -> str:
                 run_attempt,
                 JSONExtractInt(arrayElement(JSONExtractArrayRaw(ifNull(pull_requests, '[]')), 1), 'number') AS pr_number,
                 splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
+                ifNull(JSONExtractString(repository, 'default_branch'), '') AS default_branch,
                 parseDateTimeBestEffort(run_started_at) AS run_started_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(created_at) AS created_at

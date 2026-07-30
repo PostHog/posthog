@@ -18,7 +18,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
-import api, { ApiError } from '~/lib/api'
+import { ApiConfig, ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
@@ -32,21 +32,30 @@ import {
 import { isTracesQuery } from '~/queries/utils'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import {
-    AnyPropertyFilter,
-    Breadcrumb,
-    ChartDisplayType,
-    LLMPrompt,
-    LLMPromptResolveResponse,
-    LLMPromptVersionSummary,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { AnyPropertyFilter, Breadcrumb, ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
+import {
+    llmPromptsCreate,
+    llmPromptsNameArchiveCreate,
+    llmPromptsNameLabelsDestroy,
+    llmPromptsNameLabelsUpdate,
+    llmPromptsNamePartialUpdate,
+    llmPromptsResolveNameRetrieve,
+} from '../generated/api'
+import type { LLMPromptLabelApi, LLMPromptResolveResponseApi } from '../generated/api.schemas'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
-import { getApiErrorDetail, openDiscardChangesDialog, requestPromptDuplicate, validatePromptName } from './utils'
+import { LLMPrompt, LLMPromptVersionSummary } from './types'
+import {
+    getApiErrorDetail,
+    openCreateLabelDialog,
+    openDiscardChangesDialog,
+    openMoveLabelDialog,
+    openRemoveLabelDialog,
+    requestPromptDuplicate,
+    validatePromptName,
+} from './utils'
 
 export enum PromptMode {
     View = 'view',
@@ -72,6 +81,7 @@ export interface PromptFormValues {
 export interface ResolvedLLMPrompt extends LLMPrompt {
     versions: LLMPromptVersionSummary[]
     has_more: boolean
+    labels: LLMPromptLabelApi[]
 }
 
 export function isPrompt(prompt: LLMPrompt | ResolvedLLMPrompt | PromptFormValues | null): prompt is ResolvedLLMPrompt {
@@ -100,7 +110,7 @@ async function fetchResolvedPrompt(
     params?: { version?: number; offset?: number; before_version?: number; limit?: number }
 ): Promise<ResolvedLLMPrompt> {
     return getResolvedPrompt(
-        await api.llmPrompts.resolveByName(promptName, {
+        await llmPromptsResolveNameRetrieve(String(ApiConfig.getCurrentTeamId()), promptName, {
             ...params,
             limit: params?.limit ?? PROMPT_VERSIONS_LIMIT,
         })
@@ -117,11 +127,13 @@ async function refreshLatestPromptState(
     return latestPrompt
 }
 
-function getResolvedPrompt(response: LLMPromptResolveResponse): ResolvedLLMPrompt {
+function getResolvedPrompt(response: LLMPromptResolveResponseApi): ResolvedLLMPrompt {
+    // Casts apply the deliberate narrowing documented in ./types (string prompt, UserBasicType created_by).
     return {
-        ...response.prompt,
-        versions: response.versions,
+        ...(response.prompt as unknown as LLMPrompt),
+        versions: response.versions as unknown as LLMPromptVersionSummary[],
         has_more: response.has_more,
+        labels: response.labels ?? [],
     }
 }
 
@@ -133,6 +145,7 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
         created_by: prompt.created_by,
         created_at: prompt.created_at,
         is_latest: isLatest,
+        labels: [],
     }
 }
 
@@ -173,6 +186,8 @@ export interface llmPromptLogicValues {
     isPublishReviewOpen: boolean
     isRenderingMarkdown: boolean
     isViewMode: boolean
+    labelPickerVersion: number | null
+    labelsByVersion: Record<number, LLMPromptLabelApi[]>
     mode: PromptMode
     nextVersion: number | null
     prompt: PromptFormValues | ResolvedLLMPrompt | null
@@ -185,6 +200,7 @@ export interface llmPromptLogicValues {
     promptFormTouched: boolean
     promptFormTouches: Record<string, boolean>
     promptFormValidationErrors: DeepPartialMap<PromptFormValues, ValidationErrorType>
+    promptLabels: LLMPromptLabelApi[]
     promptLoading: boolean
     promptUsageLogQuery: DataTableNode
     promptUsagePropertyFilter: AnyPropertyFilter[]
@@ -207,6 +223,9 @@ export interface llmPromptLogicValues {
 export interface llmPromptLogicActions {
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     cancelEditing: () => {
+        value: true
+    }
+    closeLabelPicker: () => {
         value: true
     }
     closePublishReview: () => {
@@ -255,11 +274,27 @@ export interface llmPromptLogicActions {
         prompt: ResolvedLLMPrompt
         payload?: any
     }
+    openLabelPicker: (version: number) => {
+        version: number
+    }
     openPublishReview: () => {
         value: true
     }
+    removeLabel: (labelName: string) => {
+        labelName: string
+    }
     requestPublish: () => {
         value: true
+    }
+    requestRemoveLabel: (labelName: string) => {
+        labelName: string
+    }
+    requestSetLabel: (
+        labelName: string,
+        version: number
+    ) => {
+        labelName: string
+        version: number
     }
     resetPromptForm: (values?: PromptFormValues) => {
         values?: PromptFormValues
@@ -269,6 +304,13 @@ export interface llmPromptLogicActions {
     }
     setCompareVersion: (compareVersion: number | null) => {
         compareVersion: number | null
+    }
+    setLabel: (
+        labelName: string,
+        version: number
+    ) => {
+        labelName: string
+        version: number
     }
     setMode: (mode: PromptMode) => {
         mode: PromptMode
@@ -354,6 +396,8 @@ export interface llmPromptLogicMeta {
         isEditMode: (mode: PromptMode, arg: any) => boolean
         versions: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => LLMPromptVersionSummary[]
         canLoadMoreVersions: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => boolean
+        promptLabels: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => LLMPromptLabelApi[]
+        labelsByVersion: (promptLabels: LLMPromptLabelApi[]) => Record<number, LLMPromptLabelApi[]>
         isDiffVisible: (compareVersion: number | null) => boolean
         canCompareVersions: (prompt: PromptFormValues | ResolvedLLMPrompt | null) => boolean
         compareVersionOptions: (
@@ -431,6 +475,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         closePublishReview: true,
         setVersionDescription: (versionDescription: string) => ({ versionDescription }),
         setSnippetLanguage: (snippetLanguage: PromptSnippetLanguage) => ({ snippetLanguage }),
+        openLabelPicker: (version: number) => ({ version }),
+        closeLabelPicker: true,
+        requestSetLabel: (labelName: string, version: number) => ({ labelName, version }),
+        setLabel: (labelName: string, version: number) => ({ labelName, version }),
+        requestRemoveLabel: (labelName: string) => ({ labelName }),
+        removeLabel: (labelName: string) => ({ labelName }),
     }),
 
     reducers(({ props }) => ({
@@ -528,6 +578,15 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setSnippetLanguage: (_, { snippetLanguage }) => snippetLanguage,
             },
         ],
+        labelPickerVersion: [
+            null as number | null,
+            {
+                openLabelPicker: (_, { version }) => version,
+                closeLabelPicker: () => null,
+                requestSetLabel: () => null,
+                loadPromptSuccess: () => null,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -564,10 +623,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     let savedPrompt: LLMPrompt
 
                     if (isNew) {
-                        savedPrompt = await api.llmPrompts.create({
+                        savedPrompt = (await llmPromptsCreate(String(ApiConfig.getCurrentTeamId()), {
                             name: formValues.name,
                             prompt: formValues.prompt,
-                        })
+                        })) as unknown as LLMPrompt
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success('Prompt created successfully')
                         router.actions.replace(urls.aiObservabilityPrompt(savedPrompt.name))
@@ -584,11 +643,15 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         }
 
                         const versionDescription = values.versionDescription.trim()
-                        savedPrompt = await api.llmPrompts.update(props.promptName, {
-                            prompt: formValues.prompt,
-                            base_version: currentPrompt.latest_version,
-                            ...(versionDescription ? { version_description: versionDescription } : {}),
-                        })
+                        savedPrompt = (await llmPromptsNamePartialUpdate(
+                            String(ApiConfig.getCurrentTeamId()),
+                            props.promptName,
+                            {
+                                prompt: formValues.prompt,
+                                base_version: currentPrompt.latest_version,
+                                ...(versionDescription ? { version_description: versionDescription } : {}),
+                            }
+                        )) as unknown as LLMPrompt
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success(`Published v${savedPrompt.version}`)
 
@@ -603,6 +666,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             ...savedPrompt,
                             versions: optimisticVersions,
                             has_more: currentPrompt.has_more,
+                            labels: currentPrompt.labels,
                         })
                         actions.setPromptFormValues(getPromptFormDefaults(savedPrompt))
                         actions.setMode(PromptMode.View)
@@ -620,6 +684,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             ...savedPrompt,
                             versions: [],
                             has_more: false,
+                            labels: [],
                         })
                         actions.setPromptFormValues(getPromptFormDefaults(savedPrompt))
                     }
@@ -745,6 +810,23 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         canLoadMoreVersions: [
             (s) => [s.prompt],
             (prompt: PromptFormValues | ResolvedLLMPrompt | null) => (isPrompt(prompt) ? prompt.has_more : false),
+        ],
+
+        promptLabels: [
+            (s) => [s.prompt],
+            (prompt: PromptFormValues | ResolvedLLMPrompt | null): LLMPromptLabelApi[] =>
+                isPrompt(prompt) ? (prompt.labels ?? []) : [],
+        ],
+
+        labelsByVersion: [
+            (s) => [s.promptLabels],
+            (promptLabels: LLMPromptLabelApi[]): Record<number, LLMPromptLabelApi[]> => {
+                const byVersion: Record<number, LLMPromptLabelApi[]> = {}
+                for (const label of promptLabels) {
+                    byVersion[label.version] = [...(byVersion[label.version] ?? []), label]
+                }
+                return byVersion
+            },
         ],
 
         isDiffVisible: [(s) => [s.compareVersion], (compareVersion: number | null): boolean => compareVersion !== null],
@@ -1006,7 +1088,89 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, asyncActions, props, values }) => ({
+        requestSetLabel: ({ labelName, version }) => {
+            const existing = values.promptLabels.find((label) => label.name === labelName)
+            if (existing?.version === version) {
+                return
+            }
+            if (existing) {
+                openMoveLabelDialog({
+                    labelName,
+                    fromVersion: existing.version,
+                    toVersion: version,
+                    onMove: () => asyncActions.setLabel(labelName, version),
+                })
+                return
+            }
+            // Creation confirms too: code may already fetch by this label (404 → SDK fallback),
+            // in which case creating it is the go-live moment.
+            openCreateLabelDialog({
+                labelName,
+                version,
+                onCreate: () => asyncActions.setLabel(labelName, version),
+            })
+        },
+
+        // Never throws: kea surfaces a throwing listener as an unhandled rejection. The awaited
+        // dialog button resolves either way; errors surface via toast.
+        setLabel: async ({ labelName, version }) => {
+            try {
+                const label = await llmPromptsNameLabelsUpdate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    props.promptName,
+                    labelName,
+                    { version }
+                )
+                if (isPrompt(values.prompt)) {
+                    actions.setPrompt({
+                        ...values.prompt,
+                        labels: [...values.prompt.labels.filter((l) => l.name !== labelName), label],
+                    })
+                }
+                lemonToast.success(`${labelName} now points at v${version}`)
+                llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
+            } catch (error) {
+                lemonToast.error(getApiErrorDetail(error) || 'Failed to set label')
+                if (error instanceof ApiError && error.status === 409) {
+                    // Lost a concurrent-write race; resync so badges show where the label actually is.
+                    actions.loadPrompt()
+                }
+            }
+        },
+
+        requestRemoveLabel: ({ labelName }) => {
+            const existing = values.promptLabels.find((label) => label.name === labelName)
+            if (!existing) {
+                return
+            }
+            openRemoveLabelDialog({
+                labelName,
+                version: existing.version,
+                onRemove: () => asyncActions.removeLabel(labelName),
+            })
+        },
+
+        removeLabel: async ({ labelName }) => {
+            try {
+                await llmPromptsNameLabelsDestroy(String(ApiConfig.getCurrentTeamId()), props.promptName, labelName)
+            } catch (error) {
+                // 404 means the label is already gone; reflect that locally like a success.
+                if (!(error instanceof ApiError && error.status === 404)) {
+                    lemonToast.error(getApiErrorDetail(error) || 'Failed to remove label')
+                    return
+                }
+            }
+            if (isPrompt(values.prompt)) {
+                actions.setPrompt({
+                    ...values.prompt,
+                    labels: values.prompt.labels.filter((l) => l.name !== labelName),
+                })
+            }
+            lemonToast.info(`Label ${labelName} removed`)
+            llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
+        },
+
         requestPublish: () => {
             // New prompts publish directly (v1, nothing to diff against); an empty form
             // goes through submit so kea-forms surfaces the validation errors.
@@ -1044,7 +1208,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         deletePrompt: async () => {
             if (props.promptName !== 'new' && values.prompt && isPrompt(values.prompt)) {
                 try {
-                    await api.llmPrompts.archiveByName(values.prompt.name)
+                    await llmPromptsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), values.prompt.name)
                     lemonToast.info(`${values.prompt.name || 'Prompt'} has been archived.`)
                     llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                     router.actions.replace(urls.aiObservabilityPrompts(), {
@@ -1128,7 +1292,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
             if (existingPrompt) {
                 return {
-                    prompt: { ...existingPrompt, versions: [], has_more: false },
+                    prompt: { ...existingPrompt, versions: [], has_more: false, labels: [] },
                     promptForm: getPromptFormDefaults(existingPrompt),
                     versionsLoading: false,
                 }

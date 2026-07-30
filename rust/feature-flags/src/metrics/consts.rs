@@ -20,6 +20,15 @@ pub const COHORT_CACHE_HIT_COUNTER: &str = "flags_cohort_cache_hit_total";
 pub const COHORT_CACHE_MISS_COUNTER: &str = "flags_cohort_cache_miss_total";
 pub const COHORT_CACHE_SIZE_BYTES_GAUGE: &str = "flags_cohort_cache_size_bytes";
 pub const COHORT_CACHE_ENTRIES_GAUGE: &str = "flags_cohort_cache_entries";
+// Incremented once per unsupported cohort filter leaf (e.g. a `behavioral` filter)
+// skipped during dependency extraction, instead of failing the whole cohort parse.
+pub const COHORT_UNSUPPORTED_FILTER_COUNTER: &str = "flags_cohort_unsupported_filter_total";
+// Incremented once per cohort whose filters fail dependency extraction or evaluation
+// with CohortFiltersParsingError — most commonly a malformed leaf of a known type
+// (CohortValuesItem::MalformedKnownType), but also excessive nesting depth or other
+// structural errors. Cohort and team ids are in the companion debug log, not metric
+// labels (cardinality).
+pub const COHORT_MALFORMED_FILTER_COUNTER: &str = "flags_cohort_malformed_filter_total";
 // Realtime cohort membership cache (CachedCohortMembershipProvider, keyed on
 // (team_id, person_uuid)). hit = lookup fully served from cache; miss = a
 // behavioral cohorts DB query was issued (no cache entry, or the entry was
@@ -329,6 +338,13 @@ pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_t
 // split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
 pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
 
+// Remote config ETag metrics
+// Labels: result (hit = 304, miss = 200 with stale etag, none = request sent no
+// If-None-Match; the 200 still carries an etag since it is computed per request). Unlike flag
+// definitions there is no redis_error case: no cache backs this endpoint, so the etag is
+// content-derived per request and can always be computed.
+pub const REMOTE_CONFIG_ETAG_COUNTER: &str = "flags_remote_config_etag_total";
+
 // Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)
 pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";
@@ -373,6 +389,13 @@ pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_COUNTER: &str = "flags_dependency_graph_build_total";
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_TIME: &str = "flags_dependency_graph_build_ms";
 pub const FLAG_MISSING_REQUESTED_FLAG_KEY: &str = "missing_requested_flag_key";
+
+// Requests short-circuited because the team is over its billing quota.
+pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
+
+// Conditions skipped during evaluation because required context was absent.
+// Labels: reason (missing_device_id, missing_group_type)
+pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
 
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label

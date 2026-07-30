@@ -11,10 +11,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -22,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.deepsource import (
     DeepsourceResumeConfig,
     deepsource_source,
@@ -31,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource
     DEEPSOURCE_ENDPOINTS,
     ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DeepsourceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.deepsource import (
+    DeepsourceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
@@ -139,6 +138,7 @@ The account login is the organization or user name exactly as it appears in Deep
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # No DeepSource connection accepts a server-side timestamp filter (Relay cursor args
         # only), so every schema is full refresh — see settings.py.
@@ -159,7 +159,11 @@ The account login is the organization or user name exactly as it appears in Deep
         return schemas
 
     def validate_credentials(
-        self, config: DeepsourceSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DeepsourceSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_deepsource_credentials(config.api_token, config.account_login, config.vcs_provider)
 

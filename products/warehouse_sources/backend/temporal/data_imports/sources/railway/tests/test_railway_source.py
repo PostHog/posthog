@@ -4,7 +4,9 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RailwaySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.railway import (
+    RailwaySourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.railway import RailwayResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.source import RailwaySource

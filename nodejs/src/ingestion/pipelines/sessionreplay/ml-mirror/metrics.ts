@@ -1,4 +1,8 @@
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
+
+// Days. A batch that spans dates files the whole object under its oldest event date (see objectKey), so
+// these buckets are chosen to separate a same-day batch (span 0) from one dragged back by a straggler.
+const PARTITION_DAY_BUCKETS = [0, 1, 2, 3, 7, 14, 30, 90, 365]
 
 /**
  * Metrics for the ML block-metadata Parquet sink (drains the mirror's block-metadata topic to the ML
@@ -36,6 +40,16 @@ export class MlParquetSinkMetrics {
         help: 'Batcher flushes by outcome: wrote a Parquet object, or committed offsets with an empty buffer',
         labelNames: ['outcome'],
     })
+    private static readonly partitionLagDays = new Histogram({
+        name: 'ml_mirror_parquet_sink_partition_lag_days',
+        help: "Days between an object's partition date (its oldest event date) and write time",
+        buckets: PARTITION_DAY_BUCKETS,
+    })
+    private static readonly eventDateSpanDays = new Histogram({
+        name: 'ml_mirror_parquet_sink_event_date_span_days',
+        help: 'Days between the oldest and newest event date in one written object; a non-zero span means a mixed-date batch whose partition date understates most of its rows',
+        buckets: PARTITION_DAY_BUCKETS,
+    })
 
     public static incRowsParsed(count: number): void {
         this.rowsParsed.inc(count)
@@ -53,5 +67,9 @@ export class MlParquetSinkMetrics {
     }
     public static incFlush(outcome: 'written' | 'empty'): void {
         this.flushes.labels(outcome).inc()
+    }
+    public static observePartition(lagDays: number, spanDays: number): void {
+        this.partitionLagDays.observe(lagDays)
+        this.eventDateSpanDays.observe(spanDays)
     }
 }

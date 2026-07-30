@@ -9,17 +9,16 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import UpstashSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.upstash import (
+    UpstashSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.settings import (
     ENDPOINTS,
     UPSTASH_ENDPOINTS,
@@ -103,6 +102,7 @@ Create a management API key in the [Upstash console](https://console.upstash.com
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every Upstash management endpoint is full refresh (no pagination, no server-side time
         # filter), so no schema advertises incremental fields.
@@ -122,7 +122,11 @@ Create a management API key in the [Upstash console](https://console.upstash.com
         return schemas
 
     def validate_credentials(
-        self, config: UpstashSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: UpstashSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_upstash_credentials(config.email, config.api_key)
 
@@ -131,5 +135,6 @@ Create a management API key in the [Upstash console](https://console.upstash.com
             email=config.email,
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

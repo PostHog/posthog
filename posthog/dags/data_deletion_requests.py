@@ -27,10 +27,12 @@ from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseClust
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
 from posthog.models.data_deletion_request import (
+    AUTO_APPROVE_INTERVAL_MINUTES,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
     RequestType,
+    auto_approve_pending_requests,
     compile_hogql_predicate,
     event_match_sql_fragment,
     event_removal_where,
@@ -1466,6 +1468,64 @@ def verify_queued_deletion_requests_op(context: dagster.OpExecutionContext, conf
 @dagster.job(tags=OWNER_TAG)
 def verify_queued_deletion_requests_job():
     verify_queued_deletion_requests_op()
+
+
+# ---------------------------------------------------------------------------
+# Auto-approve sweep job: approves pending event removals small enough to skip review
+# ---------------------------------------------------------------------------
+
+
+class AutoApproveConfig(dagster.Config):
+    max_requests: int = pydantic.Field(
+        default=50,
+        ge=1,
+        description="Most requests to evaluate in one tick. Each one costs a pair of ClickHouse "
+        "queries, so this bounds what a backlog can spend before the next tick.",
+    )
+
+
+@dagster.op(tags=OWNER_TAG)
+def auto_approve_pending_deletion_requests_op(context: dagster.OpExecutionContext, config: AutoApproveConfig) -> None:
+    """Refresh stats on pending auto-approve candidates and approve the ones under the size limit."""
+    outcome = auto_approve_pending_requests(max_requests=config.max_requests, on_event=context.log.info)
+    context.add_output_metadata(
+        {
+            "approved": dagster.MetadataValue.int(outcome.approved),
+            "skipped": dagster.MetadataValue.int(outcome.skipped),
+            "errored": dagster.MetadataValue.int(outcome.errored),
+            # Surfaced so a tick that hit the cap reads as truncated rather than as "that was all of them".
+            "max_requests": dagster.MetadataValue.int(config.max_requests),
+        }
+    )
+    context.log.info(
+        f"auto_approve_pending_deletion_requests: {outcome.approved} approved, "
+        f"{outcome.skipped} left pending, {outcome.errored} errored."
+    )
+
+
+@dagster.job(tags=OWNER_TAG)
+def auto_approve_deletion_requests_job():
+    """Approve pending event removals that are small enough to skip ClickHouse Team review.
+
+    Stats are refreshed inside the job, immediately before the size decision, so the count it
+    approves against is one it measured rather than one a person fetched at an unknown earlier time.
+    """
+    auto_approve_pending_deletion_requests_op()
+
+
+@dagster.schedule(
+    job=auto_approve_deletion_requests_job,
+    cron_schedule=f"*/{AUTO_APPROVE_INTERVAL_MINUTES} * * * *",
+    execution_timezone="UTC",
+    default_status=dagster.DefaultScheduleStatus.STOPPED,
+)
+def auto_approve_deletion_requests_schedule():
+    """Sweep for auto-approvable pending requests.
+
+    Stopped by default like the rest of this feature's schedules and sensors — an operator turns it on
+    in the Dagster UI, and nothing is auto-approved until they do.
+    """
+    return dagster.RunRequest()
 
 
 # ---------------------------------------------------------------------------

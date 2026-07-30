@@ -173,24 +173,23 @@ const RetryButton = ({
     onRetry: () => void
     query?: Record<string, any> | Node | null
 }): JSX.Element => {
-    let sideAction = {}
-    if (query) {
-        sideAction = {
-            dropdown: {
-                overlay: (
-                    <LemonMenuOverlay
-                        items={[
-                            {
-                                label: 'Open in query debugger',
-                                to: urls.debugQuery(query),
-                            },
-                        ]}
-                    />
-                ),
-                placement: 'bottom-end',
-            },
-        }
-    }
+    const sideAction = query
+        ? {
+              dropdown: {
+                  overlay: (
+                      <LemonMenuOverlay
+                          items={[
+                              {
+                                  label: 'Open in query debugger',
+                                  to: urls.debugQuery(query),
+                              },
+                          ]}
+                      />
+                  ),
+                  placement: 'bottom-end' as const,
+              },
+          }
+        : undefined
 
     return (
         <LemonButton
@@ -426,7 +425,13 @@ export function SlowQuerySuggestions({
 }): JSX.Element | null {
     const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
 
-    if (loadingTimeSeconds < SLOW_LOADING_TIME) {
+    // `loadingTimeSeconds` only advances on dataNodeLogic's wall-clock timer, which Storybook has no
+    // way to fast-forward, so a story covering these suggestions would have to sit through
+    // SLOW_LOADING_TIME of real loading before they render. Dropping the threshold in Storybook makes
+    // them a consequence of the insight loading instead of a race against the clock.
+    const slowLoadingTime = inStorybook() || inStorybookTestRunner() ? 0 : SLOW_LOADING_TIME
+
+    if (loadingTimeSeconds < slowLoadingTime) {
         return null
     }
 
@@ -647,6 +652,7 @@ export interface InsightErrorStateProps {
     queryId?: string | null
     excludeDetail?: boolean
     excludeActions?: boolean
+    supportOnly?: boolean
     fixWithAIComponent?: JSX.Element
     onRetry?: () => void
 }
@@ -657,6 +663,7 @@ export function InsightErrorState({
     queryId,
     excludeDetail = false,
     excludeActions = false,
+    supportOnly = false,
     fixWithAIComponent,
     onRetry,
 }: InsightErrorStateProps): JSX.Element {
@@ -677,12 +684,27 @@ export function InsightErrorState({
         excludeDetail = true // We don't provide support for self-hosted instances
     }
 
+    if (supportOnly) {
+        excludeActions = true
+    }
+
+    const bugReportLink = (
+        <Link
+            data-attr="insight-error-bug-report"
+            onClick={() => {
+                openSupportForm({ kind: 'bug', target_area: 'analytics' })
+            }}
+        >
+            If this persists, submit a bug report.
+        </Link>
+    )
+
     return (
         <div
             data-attr="insight-empty-state"
             className="flex flex-col items-center gap-2 justify-center rounded px-4 py-6 h-full w-full"
         >
-            <IconErrorOutline className="text-5xl shrink-0" />
+            <IconErrorOutline className="text-4xl shrink-0 text-danger" />
 
             <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
                 {/* Note that this default phrasing signals the issue is intermittent, */}
@@ -690,26 +712,21 @@ export function InsightErrorState({
                 {title || <span>There was a problem completing this query</span>}
             </h2>
 
-            {!excludeDetail && (
+            {!excludeDetail && !supportOnly && (
                 <div className="mt-4">
                     We apologize for this unexpected situation. There are a couple of things you can do:
                     <ol>
                         <li>
                             First and foremost you can <b>try again</b>. We recommend you wait a moment before doing so.
                         </li>
-                        <li>
-                            <Link
-                                data-attr="insight-error-bug-report"
-                                onClick={() => {
-                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
-                                }}
-                            >
-                                If this persists, submit a bug report.
-                            </Link>
-                        </li>
+                        <li>{bugReportLink}</li>
                     </ol>
                 </div>
             )}
+
+            {/* Outside the excludeDetail gate: self-hosted sets excludeDetail=true, but
+                supportOnly still needs the bug-report path or it dead-ends. */}
+            {supportOnly && <div className="mt-4">{bugReportLink}</div>}
 
             {!excludeActions && (
                 <div className="flex gap-2 mt-4">

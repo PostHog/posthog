@@ -3,9 +3,15 @@ import json
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
+    LinkedinAdsSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import (
+    LINKEDIN_ADS_VERSION_202606,
+    LINKEDIN_ADS_VERSION_202607,
+    LinkedInAdsSource,
+)
 
 
 class TestLinkedInAdsSource:
@@ -44,6 +50,75 @@ class TestLinkedInAdsSource:
     def test_non_retryable_errors_does_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            'LinkedIn API error (retryable, 500): {"message":"Internal Server Error","status":500}',
+            'LinkedIn API error (retryable, 429): {"message":"Too many requests"}',
+            'LinkedIn API error (retryable, 503): {"message":"Service Unavailable"}',
+            "LinkedIn API returned a malformed (non-JSON) response: Expecting value: line 1 column 1 (char 0)",
+        ],
+    )
+    def test_retryable_errors_match_exhausted_transient_failures(self, observed_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(pattern in observed_error for pattern in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND"}',
+            'LinkedIn daily rate limit reached (429): {"message":"throttled"}',
+            "Connection reset by peer",
+        ],
+    )
+    def test_retryable_errors_does_not_match_unrelated(self, other_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert not any(pattern in other_error for pattern in retryable_errors)
+
+    def test_defaults_new_sources_to_202607(self):
+        assert self.source.default_version == LINKEDIN_ADS_VERSION_202607
+        assert set(self.source.supported_versions) == {"v1", LINKEDIN_ADS_VERSION_202606, LINKEDIN_ADS_VERSION_202607}
+
+    @pytest.mark.parametrize(
+        "pinned_version,expected_header",
+        [
+            # Existing sources pinned to the legacy label must keep sending the header they always
+            # sent (202508), so their syncs stay byte-for-byte unchanged after the default flip.
+            ("v1", "202508"),
+            (LINKEDIN_ADS_VERSION_202606, "202606"),
+            (LINKEDIN_ADS_VERSION_202607, "202607"),
+            # No pin resolves to the new default.
+            (None, "202607"),
+            # An undeclared pin is honored verbatim and passed straight through for LinkedIn to validate.
+            ("209901", "209901"),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_source"
+    )
+    def test_source_for_pipeline_dispatches_resolved_api_version(
+        self, mock_linkedin_ads_source, pinned_version, expected_header
+    ):
+        inputs = mock.MagicMock()
+        inputs.api_version = pinned_version
+        inputs.should_use_incremental_field = False
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_linkedin_ads_source.call_args.kwargs["api_version"] == expected_header
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.linkedin_ads_client_for_integration"
+    )
+    def test_get_oauth_accounts_uses_default_version_header(self, mock_client_for_integration):
+        # The account picker must track the default version's header, not the client's legacy default,
+        # so listing doesn't break for new sources once the oldest declared header sunsets.
+        mock_client_for_integration.return_value.get_accounts.return_value = []
+
+        self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
+
+        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202607"
 
     def test_validate_credentials_missing_account_id(self):
         """Test credential validation with missing account ID."""

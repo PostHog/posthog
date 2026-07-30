@@ -53,11 +53,9 @@ const mockTaggers: Tagger[] = [
 const providerKeyMocks = {
     '/api/environments/:team_id/llm_analytics/provider_keys/': { results: [] },
     '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-        trial_eval_limit: 100,
-        trial_evals_used: 0,
-        trial_evals_remaining: 100,
-        trial_grandfathered: false,
-        trial_deprecation_date: '2026-07-15T00:00:00Z',
+        active_provider_key: null,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
     },
 }
 

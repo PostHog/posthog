@@ -15,7 +15,17 @@ def prompt_version_cache_key(team: Team | str | int, prompt_name: str, version: 
     return f"{_prompt_cache_key_prefix(team, prompt_name)}:v:{version}"
 
 
-def parse_prompt_cache_key(cache_key: KeyType) -> tuple[int, str, int | None] | None:
+def prompt_label_cache_key(team: Team | str | int, prompt_name: str, label_name: str) -> str:
+    # Prompt names and label names both forbid ":", so splitting on it stays unambiguous.
+    return f"{_prompt_cache_key_prefix(team, prompt_name)}:label:{label_name}"
+
+
+def parse_prompt_cache_key(cache_key: KeyType) -> tuple[int, str, int | None, str | None] | None:
+    """Parse a prompt cache key into (team_id, prompt_name, version, label).
+
+    Latest keys have version=None and label=None; version and label keys carry
+    exactly one of the two.
+    """
     if not isinstance(cache_key, str):
         return None
 
@@ -33,7 +43,7 @@ def parse_prompt_cache_key(cache_key: KeyType) -> tuple[int, str, int | None] | 
         return None
 
     if len(parts) == 3 and parts[2] == "latest":
-        return team_id, prompt_name, None
+        return team_id, prompt_name, None, None
 
     if len(parts) == 4 and parts[2] == "v":
         try:
@@ -42,6 +52,9 @@ def parse_prompt_cache_key(cache_key: KeyType) -> tuple[int, str, int | None] | 
             return None
         if version < 1:
             return None
-        return team_id, prompt_name, version
+        return team_id, prompt_name, version, None
+
+    if len(parts) == 4 and parts[2] == "label" and parts[3]:
+        return team_id, prompt_name, None, parts[3]
 
     return None

@@ -17,13 +17,42 @@ import type { Setting, SettingSection } from './types'
 const AI_OBSERVABILITY_SETTINGS_SECTION: SettingSectionId = 'project-ai-observability'
 const AI_OBSERVABILITY_BYOK_SETTING: SettingId = 'ai-observability-byok'
 const LEGACY_LLM_ANALYTICS_BYOK_SETTING = 'llm-analytics-byok'
+const WEB_ANALYTICS_SETTINGS_SECTION: SettingSectionId = 'project-web-analytics'
+const WEB_ANALYTICS_AUTHORIZED_URLS_SETTING: SettingId = 'web-analytics-authorized-urls'
+const LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING = 'authorized-urls'
 
 const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
     'environment-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
     'project-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
+    // The dedicated Toolbar section was removed; its authorized-URL config now lives under Web analytics.
+    'environment-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
+    'project-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
+}
+
+// Settings that moved to a different section, keyed by setting id. Deep links to the old
+// section (docs, CDP filter warnings, bookmarks) redirect to the setting's current home.
+const MOVED_SETTINGS: Record<string, SettingSectionId> = {
+    'internal-user-filtering': 'project-customization',
+    'warehouse-person-properties': 'environment-customer-analytics',
 }
 
 const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)
+
+const sectionForMovedSetting = (section: string, hashParams: Params): SettingSectionId | null => {
+    for (const [settingId, currentSection] of Object.entries(MOVED_SETTINGS)) {
+        if (section === currentSection) {
+            continue
+        }
+        if (
+            hasHashParam(hashParams, settingId) ||
+            hashParams.setting === settingId ||
+            hashParams.selectedSetting === settingId
+        ) {
+            return currentSection
+        }
+    }
+    return null
+}
 
 const canonicalSettingsSection = (section: string): string => {
     if (LEGACY_SETTINGS_SECTIONS[section]) {
@@ -56,6 +85,25 @@ const canonicalSettingsHashParams = (hashParams: Params): [Params, boolean] => {
     if (nextHashParams.selectedSetting === LEGACY_LLM_ANALYTICS_BYOK_SETTING) {
         nextHashParams.selectedSetting = AI_OBSERVABILITY_BYOK_SETTING
         nextHashParams[AI_OBSERVABILITY_BYOK_SETTING] = null
+        changed = true
+    }
+
+    // The toolbar `#authorized-urls` deep link now points at the Web analytics domains setting.
+    if (hasHashParam(nextHashParams, LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING)) {
+        delete nextHashParams[LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING]
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
+        changed = true
+    }
+
+    if (nextHashParams.setting === LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING) {
+        nextHashParams.setting = WEB_ANALYTICS_AUTHORIZED_URLS_SETTING
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
+        changed = true
+    }
+
+    if (nextHashParams.selectedSetting === LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING) {
+        nextHashParams.selectedSetting = WEB_ANALYTICS_AUTHORIZED_URLS_SETTING
+        nextHashParams[WEB_ANALYTICS_AUTHORIZED_URLS_SETTING] = null
         changed = true
     }
 
@@ -177,11 +225,12 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
             const canonicalSection = canonicalSettingsSection(section)
             const [hashParams, didCanonicalizeHashParams] = canonicalSettingsHashParams(router.values.hashParams)
+            const targetSection = sectionForMovedSetting(canonicalSection, hashParams) ?? canonicalSection
 
             // Use `replace` so legacy settings URLs don't become dead back-button entries.
-            if (canonicalSection !== section || didCanonicalizeHashParams) {
+            if (targetSection !== section || didCanonicalizeHashParams) {
                 router.actions.replace(
-                    urls.settings(canonicalSection as SettingSectionId),
+                    urls.settings(targetSection as SettingSectionId),
                     router.values.searchParams,
                     hashParams
                 )
@@ -204,7 +253,13 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
 
                 const firstSection = values.sections.find((s) => s.level === effectiveLevel)
                 if (firstSection) {
-                    router.actions.replace(urls.settings(firstSection.id))
+                    // Keep the params: links like `/settings/project#variables` rely on the hash
+                    // to scroll to the setting after the redirect.
+                    router.actions.replace(
+                        urls.settings(firstSection.id),
+                        router.values.searchParams,
+                        router.values.hashParams
+                    )
                 } else {
                     actions.selectLevel(effectiveLevel)
                 }

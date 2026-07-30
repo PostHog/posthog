@@ -18,6 +18,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     StructDatabaseField,
     UnknownDatabaseField,
+    UUIDDatabaseField,
 )
 
 if TYPE_CHECKING:
@@ -181,7 +182,7 @@ def reconstruct_ordered_columns(
 
 
 CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
-    "UUID": StringDatabaseField,
+    "UUID": UUIDDatabaseField,
     "String": StringDatabaseField,
     "Nothing": UnknownDatabaseField,
     "DateTime64": DateTimeDatabaseField,
@@ -210,6 +211,15 @@ CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "Enum8": StringDatabaseField,
 }
 
+# Old-style column metadata stores only the ClickHouse type string and resolves through a
+# mapping on every query, so retyping UUID in CLICKHOUSE_HOGQL_MAPPING would flip every
+# legacy column at once on deploy. Pin those to their historical String typing — UUID typing
+# reaches a table only when a sync or materialization regenerates its column metadata.
+LEGACY_CLICKHOUSE_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
+    **CLICKHOUSE_HOGQL_MAPPING,
+    "UUID": StringDatabaseField,
+}
+
 STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "BooleanDatabaseField": BooleanDatabaseField,
     "DateDatabaseField": DateDatabaseField,
@@ -220,6 +230,7 @@ STR_TO_HOGQL_MAPPING: dict[str, DatabaseFieldFactory] = {
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "UUIDDatabaseField": UUIDDatabaseField,
     "StructDatabaseField": StructDatabaseField,
     "UnknownDatabaseField": UnknownDatabaseField,
     "boolean": BooleanDatabaseField,
@@ -536,6 +547,34 @@ def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> di
     return {
         column_name: snowflake_column_to_dwh_column(column_name, snowflake_type, nullable)
         for column_name, snowflake_type, nullable in columns
+    }
+
+
+def clickhouse_column_to_dwh_column(_column_name: str, clickhouse_type: str, nullable: bool) -> dict[str, Any]:
+    # The source is already ClickHouse, so the type string is a valid ClickHouse type — used verbatim.
+    # `system.columns.type` usually already encodes nullability, so only wrap when it doesn't.
+    ch_type = clickhouse_type.strip()
+    already_nullable = ch_type.startswith("Nullable(") or ch_type.startswith("LowCardinality(Nullable(")
+    if nullable and not already_nullable:
+        if ch_type.startswith("LowCardinality(") and ch_type.endswith(")"):
+            # LowCardinality must stay the outermost wrapper — ClickHouse rejects
+            # Nullable(LowCardinality(...)), so nest Nullable inside it instead.
+            inner = ch_type[len("LowCardinality(") : -1]
+            ch_type = f"LowCardinality(Nullable({inner}))"
+        else:
+            ch_type = f"Nullable({ch_type})"
+    raw_clickhouse_type = clean_type(ch_type)
+    return {
+        "clickhouse": ch_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def clickhouse_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: clickhouse_column_to_dwh_column(column_name, clickhouse_type, nullable)
+        for column_name, clickhouse_type, nullable in columns
     }
 
 

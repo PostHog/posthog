@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage import (
     alpha_vantage_source,
     validate_credentials as validate_alpha_vantage_credentials,
@@ -27,7 +23,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AlphaVantageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.alphavantage import (
+    AlphaVantageSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -63,6 +62,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Alpha Vantage has no server-side updated-at cursor, so every table is full refresh only.
         schemas = [
@@ -85,7 +85,11 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: AlphaVantageSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: AlphaVantageSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         _, symbols_error = validate_symbols(config.symbols)
         if symbols_error:

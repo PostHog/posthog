@@ -29,6 +29,9 @@ export function signalCardSourceLine(signal: { source_product: string; source_ty
     if (source_product === 'session_replay') {
         return 'Session replay · Problem segment'
     }
+    if (source_product === 'replay_vision') {
+        return 'Replay vision · Scanner finding'
+    }
     if (source_product === 'llm_analytics' && source_type === 'evaluation') {
         return 'AI observability · Evaluation'
     }

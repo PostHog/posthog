@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class ConfigCatEndpointConfig:
@@ -24,4 +26,4 @@ CONFIGCAT_ENDPOINTS: dict[str, ConfigCatEndpointConfig] = {
 
 ENDPOINTS = tuple(CONFIGCAT_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

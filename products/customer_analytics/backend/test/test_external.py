@@ -9,9 +9,12 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_secret
+from posthog.test.persons import create_group
 
 from products.customer_analytics.backend.models import (
+    Account,
     AccountRelationship,
     AccountRelationshipDefinition,
     CustomPropertyValue,
@@ -326,6 +329,79 @@ class TestExternalAccountAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(unknown_uuid, response.json()["error"])
+
+    # -- Create (POST) ----------------------------------------------------
+
+    def _post(self, payload, token=None, **extra):
+        return self.client.post(self.url, data=payload, format="json", **self._auth_headers(token), **extra)
+
+    def test_post_requires_auth(self):
+        response = self.client.post(self.url, data={"external_id": "new-1"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_post_creates_account_named_after_its_group(self):
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save()
+        create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"name": "New Corp"})
+
+        response = self._post({"external_id": "new-1"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        body = response.json()
+        self.assertEqual(body["external_id"], "new-1")
+        self.assertEqual(body["name"], "New Corp")
+        account = Account.objects.for_team(self.team.id).get(external_id="new-1")
+        self.assertEqual(account.name, "New Corp")
+        self.assertIsNone(account.created_by)
+
+    @parameterized.expand(
+        [
+            ("no_group_type_configured", False, False),
+            ("group_missing", True, False),
+            ("group_has_no_name_property", True, True),
+        ]
+    )
+    def test_post_name_falls_back_to_external_id(self, _name, configure_group_type, create_nameless_group):
+        if configure_group_type:
+            self.team.customer_analytics_config.account_group_type_index = 0
+            self.team.customer_analytics_config.save()
+        if create_nameless_group:
+            create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"plan": "free"})
+
+        response = self._post({"external_id": "new-1"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "new-1")
+
+    def test_post_existing_account_is_a_noop(self):
+        response = self._post({"external_id": "acme-1"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "Acme Corp")
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.name, "Acme Corp")
+
+    @parameterized.expand([("missing", {}), ("blank", {"external_id": "   "})])
+    def test_post_requires_external_id(self, _name, payload):
+        response = self._post(payload)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_post_with_workflow_header_attributes_activity_to_workflow(self):
+        workflow_id = str(uuid4())
+        response = self._post({"external_id": "new-1"}, HTTP_X_POSTHOG_HOG_FLOW_ID=workflow_id)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="Account", activity="created")
+        self.assertIsNone(log.user)
+        detail = log.detail
+        assert detail is not None
+        self.assertEqual(detail["trigger"]["job_type"], "hog_flow")
+        self.assertEqual(detail["trigger"]["job_id"], workflow_id)
+
+    def test_post_does_not_see_other_teams_account(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        create_account(team_id=other_team.id, name="Other Team Corp", external_id="shared-key")
+        response = self._post({"external_id": "shared-key"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Account.objects.for_team(self.team.id).get(external_id="shared-key").name, "shared-key")
 
 
 class TestExternalAccountCustomPropertiesAPI(APIBaseTest):

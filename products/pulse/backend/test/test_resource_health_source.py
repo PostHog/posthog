@@ -1,0 +1,243 @@
+import uuid
+from datetime import timedelta
+from typing import Any
+
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
+from posthog.models.team import Team
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.schema_enums import AlertState
+
+from products.alerts.backend.models import AlertConfiguration
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.product_analytics.backend.models.insight import Insight
+from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem
+from products.pulse.backend.sources.resource_health import STUCK_REFRESH_ATTEMPTS, ResourceHealthSource
+
+from ee.models.rbac.access_control import AccessControl
+
+_TRENDS_QUERY = {
+    "kind": "InsightVizNode",
+    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+}
+
+
+class TestResourceHealthGather(BaseTest):
+    def _access(self, user=None) -> UserAccessControl:
+        return UserAccessControl(user=user or self.user, team=self.team)
+
+    def _gather(self, *, user=None, lookback_days: int = 7) -> list[SourceItem]:
+        return ResourceHealthSource().gather(self.team, None, lookback_days, self._access(user))
+
+    def _insight(self, name: str = "Signup funnel") -> Insight:
+        return Insight.objects.create(team=self.team, name=name, query=_TRENDS_QUERY)
+
+    def _alert(self, **kwargs: Any) -> AlertConfiguration:
+        defaults: dict[str, Any] = {
+            "team": self.team,
+            "insight": self._insight(),
+            "name": "Signup alert",
+            "state": AlertState.ERRORED,
+            "enabled": True,
+        }
+        defaults.update(kwargs)
+        return AlertConfiguration.objects.create(**defaults)
+
+    def _subscription(self, title: str = "Weekly report", **kwargs: Any) -> Subscription:
+        defaults: dict[str, Any] = {
+            "team": self.team,
+            "title": title,
+            "target_type": "email",
+            "target_value": "team@posthog.com",
+            "frequency": "weekly",
+            "start_date": timezone.now() - timedelta(days=30),
+        }
+        defaults.update(kwargs)
+        return Subscription.objects.create(**defaults)
+
+    def _delivery(
+        self, subscription: Subscription, status: str = SubscriptionDelivery.Status.FAILED, days_ago: float = 1
+    ) -> SubscriptionDelivery:
+        delivery = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team=self.team,
+            temporal_workflow_id="wf",
+            idempotency_key=str(uuid.uuid4()),
+            trigger_type="scheduled",
+            target_type="email",
+            target_value="team@posthog.com",
+            status=status,
+        )
+        # created_at is auto_now_add — move it explicitly to place the delivery in/out of period
+        SubscriptionDelivery.objects.filter(id=delivery.id).update(created_at=timezone.now() - timedelta(days=days_ago))
+        return delivery
+
+    def _set_refresh_state(
+        self, insight: Insight, refresh_attempt: int, dashboard_tile: DashboardTile | None = None
+    ) -> None:
+        resource = dashboard_tile or insight
+        resource.refresh_attempt = refresh_attempt
+        resource.save(update_fields=["refresh_attempt"])
+
+    def test_healthy_team_yields_no_items(self) -> None:
+        self._alert(state=AlertState.NOT_FIRING)
+        self._delivery(self._subscription(), status=SubscriptionDelivery.Status.COMPLETED)
+        self._set_refresh_state(self._insight(), refresh_attempt=0)
+
+        assert self._gather() == []
+
+    def test_errored_alert_yields_health_item(self) -> None:
+        alert = self._alert()
+
+        items = self._gather()
+
+        assert len(items) == 1
+        item = items[0]
+        assert item.source == "resource_health"
+        assert item.kind == "health"
+        assert "Signup alert" in item.title
+        assert item.evidence == [
+            EvidenceRef(
+                type=EvidenceType.ALERT,
+                ref=str(alert.id),
+                label="Signup alert",
+                url=f"/project/{self.team.id}/insights/{alert.insight.short_id}",
+            )
+        ]
+        assert item.fingerprint_hint == f"alert:{alert.id}"
+
+    @parameterized.expand(
+        [
+            ("disabled", {"enabled": False}),
+            ("firing_not_errored", {"state": AlertState.FIRING}),
+            ("snoozed", {"state": AlertState.SNOOZED}),
+        ]
+    )
+    def test_non_errored_alerts_ignored(self, _name: str, overrides: dict[str, Any]) -> None:
+        self._alert(**overrides)
+
+        assert self._gather() == []
+
+    def test_alert_on_soft_deleted_insight_ignored(self) -> None:
+        insight = self._insight()
+        insight.deleted = True
+        insight.save()
+        self._alert(insight=insight)
+
+        assert self._gather() == []
+
+    def test_failed_deliveries_grouped_per_subscription(self) -> None:
+        subscription = self._subscription()
+        self._delivery(subscription, days_ago=1)
+        self._delivery(subscription, days_ago=2)
+        self._delivery(subscription, status=SubscriptionDelivery.Status.COMPLETED, days_ago=1)
+
+        items = self._gather()
+
+        assert len(items) == 1
+        item = items[0]
+        assert item.kind == "health"
+        assert "Weekly report" in item.title
+        assert item.metrics["failed_deliveries"] == 2
+        assert item.evidence == [
+            EvidenceRef(
+                type=EvidenceType.SUBSCRIPTION,
+                ref=str(subscription.id),
+                label="Weekly report",
+                url=f"/project/{self.team.id}/subscriptions/{subscription.id}",
+            )
+        ]
+        assert item.fingerprint_hint == f"subscription:{subscription.id}"
+
+    @parameterized.expand(
+        [
+            ("out_of_period", SubscriptionDelivery.Status.FAILED, 8.0),
+            ("completed_in_period", SubscriptionDelivery.Status.COMPLETED, 1.0),
+            ("skipped_in_period", SubscriptionDelivery.Status.SKIPPED, 1.0),
+        ]
+    )
+    def test_non_failing_deliveries_ignored(self, _name: str, status: str, days_ago: float) -> None:
+        self._delivery(self._subscription(), status=status, days_ago=days_ago)
+
+        assert self._gather() == []
+
+    def test_deleted_subscription_failures_ignored(self) -> None:
+        subscription = self._subscription()
+        subscription.deleted = True
+        subscription.save()
+        self._delivery(subscription)
+
+        assert self._gather() == []
+
+    def test_stuck_insight_refresh_yields_health_item(self) -> None:
+        insight = self._insight()
+        dashboard = Dashboard.objects.create(team=self.team, name="Main")
+        tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        self._set_refresh_state(insight, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
+        self._set_refresh_state(insight, refresh_attempt=STUCK_REFRESH_ATTEMPTS + 1, dashboard_tile=tile)
+
+        items = self._gather()
+
+        assert len(items) == 1
+        item = items[0]
+        assert item.kind == "health"
+        assert "Signup funnel" in item.title
+        assert item.evidence == [
+            EvidenceRef(
+                type=EvidenceType.INSIGHT,
+                ref=insight.short_id,
+                label="Signup funnel",
+                url=f"/project/{self.team.id}/insights/{insight.short_id}",
+            )
+        ]
+        assert item.fingerprint_hint == f"insight:{insight.short_id}"
+
+    def test_below_threshold_refresh_attempts_ignored(self) -> None:
+        self._set_refresh_state(self._insight(), refresh_attempt=STUCK_REFRESH_ATTEMPTS - 1)
+
+        assert self._gather() == []
+
+    def test_restricted_insights_are_excluded_from_health_items(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        viewer = self._create_user("viewer@posthog.com")
+        restricted = self._insight("Restricted insight")
+        visible = self._insight("Visible insight")
+        AccessControl.objects.create(resource="insight", resource_id=restricted.id, team=self.team, access_level="none")
+        self._alert(insight=restricted, name="Restricted alert")
+        visible_alert = self._alert(insight=visible, name="Visible alert")
+        self._set_refresh_state(restricted, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
+        self._set_refresh_state(visible, refresh_attempt=STUCK_REFRESH_ATTEMPTS)
+
+        items = self._gather(user=viewer)
+
+        assert {item.fingerprint_hint for item in items} == {
+            f"alert:{visible_alert.id}",
+            f"insight:{visible.short_id}",
+        }
+
+    def test_one_failing_detector_does_not_kill_gather(self) -> None:
+        self._delivery(self._subscription())
+
+        def _boom(
+            source: ResourceHealthSource,
+            team: Team,
+            lookback_days: int,
+            user_access_control: UserAccessControl,
+        ) -> list[SourceItem]:
+            raise RuntimeError("db exploded")
+
+        with patch.object(ResourceHealthSource, "_errored_alerts", _boom):
+            items = self._gather()
+
+        assert [item.fingerprint_hint.split(":")[0] for item in items] == ["subscription"]

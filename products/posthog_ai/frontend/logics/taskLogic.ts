@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 
+import { TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { isApiNotFound, loadErrorMessage } from '../lib/load-error'
 import { phDebugQueryParams } from '../lib/ph-debug'
 import { Task, type TaskUpsertProps } from '../types/taskTypes'
@@ -115,7 +117,10 @@ export const taskLogic = kea<taskLogicType>([
                     }
                 },
                 runTask: async () => {
-                    return await api.tasks.run(props.taskId)
+                    // Interactive, not the default background: this run starts from the detail page the user
+                    // is watching, and the agent-server only relays AskUserQuestion (and other approval
+                    // prompts) to the client on non-background runs.
+                    return await api.tasks.run(props.taskId, { mode: TaskExecutionModeEnumApi.Interactive })
                 },
                 deleteTask: async () => {
                     await api.tasks.delete(props.taskId)

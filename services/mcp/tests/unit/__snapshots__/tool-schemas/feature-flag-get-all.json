@@ -37,6 +37,10 @@
             "enum": ["false", "true"],
             "type": "string"
         },
+        "key": {
+            "description": "Filter by exact feature flag key match. Case insensitive.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

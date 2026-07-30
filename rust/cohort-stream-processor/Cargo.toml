@@ -62,10 +62,16 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 uuid = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+# `statvfs` for the store-filesystem utilization sample (`observability::disk`).
+nix = { version = "0.31", features = ["fs"] }
+
 [dev-dependencies]
 # Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`
 # directly (a normal dependency is not in scope for the separate integration-test crates).
 chrono-tz = { workspace = true }
+# Convergence/idempotency property tests for the seed-tile apply core (`workers::seed_path`).
+proptest = "1"
 serde_json = { workspace = true }
 tempfile = "3"
 # `test-util` enables the paused clock (`start_paused` / `tokio::time::advance`) the sweep timer

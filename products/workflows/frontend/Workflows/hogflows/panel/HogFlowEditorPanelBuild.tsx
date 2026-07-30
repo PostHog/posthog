@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Fragment, useEffect, useState } from 'react'
 
 import { IconDrag } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonDropdown, LemonInput, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hogFunctionTemplateListLogic } from 'scenes/hog-functions/list/hogFunctionTemplateListLogic'
@@ -307,7 +307,12 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
                 <HogFlowEditorToolbarNode key={`${node.type}-${index}`} action={node} />
             ))}
             {featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS] && (
-                <HogFlowEditorToolbarNode key="push-notifications" action={PUSH_NOTIFICATION_ACTION_NODE} />
+                <HogFlowEditorToolbarNode key="push-notifications" action={PUSH_NOTIFICATION_ACTION_NODE}>
+                    <span className="inline-flex items-center gap-1.5">
+                        {PUSH_NOTIFICATION_ACTION_NODE.name}
+                        <LemonTag type="completion">Beta</LemonTag>
+                    </span>
+                </HogFlowEditorToolbarNode>
             )}
             <HogFunctionTemplatesChooser />
 

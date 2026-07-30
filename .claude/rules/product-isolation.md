@@ -12,6 +12,12 @@ this product is isolated.
   (`queries.py`, `tasks.py`, `temporal.py`, …) for wiring that core registers or
   dispatches on. Do not expose internal modules directly, and do not add raw
   cross-product imports — go through the target product's facade instead.
+  Wiring submodules may only re-export classes that implement a core-owned base
+  (`QueryRunner`, `MaxTool`, Temporal defns, `@shared_task`) and are defined under the
+  product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`,
+  `backend/temporal/`, `backend/tasks/`); data and error types belong in
+  `facade/contracts.py`; Django models never cross the boundary
+  (see `products/architecture.md` § Wiring couplings).
 - **Not isolated:** boundaries are not yet enforced by CI, but prefer using existing
   facades when they exist rather than importing internals.
 

@@ -126,6 +126,14 @@ pub struct Holdout {
     pub exclusion_percentage: f64,
 }
 
+impl Holdout {
+    /// `exclusion_percentage` clamped to a valid 0-100 range, guarding against an out-of-range
+    /// stored value.
+    pub fn exclusion_percentage_clamped(&self) -> f64 {
+        self.exclusion_percentage.clamp(0.0, 100.0)
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagPropertyGroup {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -177,6 +185,8 @@ pub struct MultivariateFlagOptions {
     pub variants: Vec<MultivariateFlagVariant>,
 }
 
+// Runtime Python mirror: products/feature_flags/backend/api/filters_schema.py validates
+// filters against these shapes at write time — keep field shapes in sync (issue #50084).
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagFilters {
     #[serde(default)]

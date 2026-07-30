@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RipplingSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rippling import (
+    RipplingSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling import RipplingResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import (
     ENDPOINTS,

@@ -870,6 +870,37 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert parser.parse(response["results"][0]["timestamp"]) > parser.parse(response["results"][-1]["timestamp"])
         assert "before=" in response["next"]
 
+    def test_retrieve_event_returns_utc_timestamp_when_project_timezone_is_not_utc(self):
+        self.team.timezone = "Africa/Algiers"
+        self.team.save()
+        event_uuid = _create_event(
+            team=self.team,
+            event="watched movie",
+            distinct_id="1",
+            timestamp="2026-06-30T20:44:19.407000Z",
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/{event_uuid}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["timestamp"] == "2026-06-30T20:44:19.407000+00:00"
+
+    def test_list_events_returns_utc_timestamp_when_project_timezone_is_not_utc(self):
+        self.team.timezone = "Africa/Algiers"
+        self.team.save()
+        with freeze_time("2026-06-30T20:45:00Z"):
+            _create_event(
+                team=self.team,
+                event="watched movie",
+                distinct_id="1",
+                timestamp="2026-06-30T20:44:19.407000Z",
+            )
+            flush_persons_and_events()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+
+        assert len(response["results"]) == 1
+        assert response["results"][0]["timestamp"] == "2026-06-30T20:44:19.407000+00:00"
+
     def test_action_no_steps(self):
         action = Action.objects.create(team=self.team)
 

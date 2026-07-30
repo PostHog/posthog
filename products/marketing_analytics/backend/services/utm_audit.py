@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import cache
 
 from django.utils import timezone
 
@@ -20,7 +21,12 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     INTEGRATION_DEFAULT_SOURCES,
     INTEGRATION_PRIMARY_SOURCE,
 )
-from products.marketing_analytics.backend.services.native_integrations import KEY_TO_NATIVE, iter_custom_source_mappings
+from products.marketing_analytics.backend.services.native_integrations import (
+    KEY_TO_NATIVE,
+    canonical_source_aliases,
+    iter_custom_source_mappings,
+    normalize,
+)
 from products.marketing_analytics.backend.services.types import (
     AlternativeSource,
     Campaign,
@@ -280,9 +286,26 @@ def _get_utm_events(team: Team, date_range: QueryDateRange, *, user: User | None
     return utm_map
 
 
+@cache
+def _default_alias_to_primary() -> dict[str, str]:
+    """Normalized default utm_source aliases ('facebook', 'adwords') -> the
+    integration's primary source name ('meta', 'google')."""
+    out: dict[str, str] = {}
+    for alias, target_key in canonical_source_aliases().items():
+        primary = INTEGRATION_PRIMARY_SOURCE.get(KEY_TO_NATIVE[target_key])
+        if primary:
+            out[alias] = str(primary).lower().strip()
+    return out
+
+
 def _resolve_source(utm_source: str, mappings: TeamMappings) -> str:
-    """Resolve a utm_source to its integration source using custom mappings."""
-    return mappings.source_to_integration.get(utm_source, utm_source)
+    """Resolve a utm_source to its integration's primary source: team custom
+    mappings first (they win, matching `build_combined_alias_map`), then the
+    platform default aliases so e.g. 'facebook' resolves to 'meta'."""
+    custom = mappings.source_to_integration.get(utm_source)
+    if custom is not None:
+        return custom
+    return _default_alias_to_primary().get(normalize(utm_source), utm_source)
 
 
 def _get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:

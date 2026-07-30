@@ -5,7 +5,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.constants import (
     ATTENTIVE_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_ATTENTIVE_EVENT_TYPE,
@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.
     AttentiveSource,
     _webhook_table_transformer,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AttentiveSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.attentive import (
+    AttentiveSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

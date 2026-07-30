@@ -81,14 +81,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const defaultInsightName =
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
-    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
-    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
     const metricsAlertsEnabled = useFeatureFlag('METRICS')
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
-        hogqlAlertsEnabled,
-        funnelAlertsEnabled,
-        metricsAlertsEnabled,
-    })
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
 
     const insightDisplayName = insight?.name || insight?.derived_name
 
@@ -186,7 +180,10 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
 
                         {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                            <InsightSubscribeProminentButton insightShortId={insight.short_id!} />
+                            <InsightSubscribeProminentButton
+                                insightShortId={insight.short_id!}
+                                canCreateAlert={canCreateAlertForInsight}
+                            />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
@@ -206,6 +203,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     urls.sqlEditor({
                                                         insightShortId: insight.short_id,
                                                         dashboard: dashboardId ?? undefined,
+                                                        // Carry unsaved view-mode filter edits into the editor so they can be saved
+                                                        filters: queryChanged ? query.source.filters : undefined,
                                                     })
                                                 )
                                             } else if (insight.short_id) {

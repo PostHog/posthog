@@ -8,7 +8,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ImaggaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.source import ImaggaSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

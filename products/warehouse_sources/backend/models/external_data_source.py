@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.types import DIRECT_ENGINE_BY_SOURCE_TYP
 
 logger = structlog.get_logger(__name__)
 
+MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
+SYSTEM_MANAGED_SOURCE_PREFIXES = frozenset({MANAGED_WAREHOUSE_SOURCE_PREFIX})
+
 
 class ExternalDataSourceManager(models.Manager):
     def get_queryset(self):
@@ -74,6 +77,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
     # Off by default — a user opts a synced source in explicitly before it becomes live-queryable.
     direct_query_enabled = models.BooleanField(default=False)
+    # Auto-enable syncing for schemas discovered after source creation (both the scheduled
+    # discovery pass and manual "Pull new schemas"). Off by default — per-source opt-in.
+    auto_sync_new_schemas = models.BooleanField(default=False)
+    # Optional list of fnmatch-style globs (e.g. ["raw_*"]) restricting which newly discovered
+    # schema names auto-sync; matched case-insensitively against both the qualified and bare
+    # table name. Null/empty means every new schema qualifies.
+    auto_sync_schema_patterns = models.JSONField(null=True, blank=True)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
@@ -104,6 +114,15 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def is_direct_redshift(self) -> bool:
         return self.is_direct_query and self.source_type == ExternalDataSourceType.REDSHIFT
+
+    @property
+    def is_system_managed(self) -> bool:
+        metadata = self.connection_metadata
+        return isinstance(metadata, dict) and metadata.get("system_managed") is True
+
+    @classmethod
+    def is_system_managed_prefix(cls, prefix: str | None) -> bool:
+        return isinstance(prefix, str) and prefix.strip() in SYSTEM_MANAGED_SOURCE_PREFIXES
 
     @property
     def direct_engine(self) -> str | None:

@@ -9,6 +9,7 @@ import math
 import uuid
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -18,9 +19,12 @@ from unittest.mock import patch
 import numpy as np
 from parameterized import parameterized
 
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
 from posthog.api.embedding_worker import EmbeddingResponse
 
 from products.mcp_analytics.backend import intent_clustering
+from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
     EMBEDDING_MODEL,
@@ -36,6 +40,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     cluster_embeddings,
     embed_intents_async,
     fetch_intent_corpus,
+    fetch_session_journeys,
 )
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -236,6 +241,25 @@ class TestBuildSnapshot:
         with pytest.raises(AssertionError):
             build_snapshot(records, np.array([0, 0], dtype=np.int64), np.array([_unit([1.0, 0.0])]))
 
+    def test_caps_stored_clusters_and_keeps_the_full_count_in_meta(self) -> None:
+        # A degenerate run (tight threshold, diverse corpus) can label almost every
+        # intent as its own cluster; without the cap the persisted blob and the
+        # unpaginated API response grow unbounded.
+        n_total = MAX_SNAPSHOT_CLUSTERS + 5
+        records = [
+            IntentRecord(intent_text=f"intent_{i}", frequency=i + 1, tool_counts={"tool_a": i + 1})
+            for i in range(n_total)
+        ]
+        labels = np.arange(n_total, dtype=np.int64)
+        embeddings = np.array([_unit([1.0, float(i + 1)]) for i in range(n_total)], dtype=np.float32)
+
+        snapshot = build_snapshot(records, labels, embeddings)
+
+        assert len(snapshot["clusters"]) == MAX_SNAPSHOT_CLUSTERS
+        assert snapshot["computed_with"]["n_clusters"] == n_total
+        # The highest-volume clusters are the ones kept (call counts 1..n_total; the 5 smallest drop).
+        assert min(cluster["call_count"] for cluster in snapshot["clusters"]) == 6
+
 
 # fetch_intent_corpus -----------------------------------------------------
 
@@ -433,6 +457,25 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         assert [r.intent_text for r in records] == ["look up feature flag rollout"]
         assert intent_by_session == {"real": "look up feature flag rollout"}
 
+    def test_tool_stats_and_journeys_are_not_truncated_at_the_default_hogql_limit(self) -> None:
+        # execute_hogql_query injects LIMIT 100 into any query without an explicit
+        # LIMIT. The per-session tool-stats and journey queries return one-plus rows
+        # per corpus session, so a corpus above 100 sessions silently lost tool
+        # counts and journeys for everything past the first 100 rows.
+        n_sessions = DEFAULT_RETURNED_ROWS + 20
+        for i in range(n_sessions):
+            self._seed_tool_call(f"session-{i}", "execute_sql", intent=f"unique intent {i}")
+        flush_persons_and_events()
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert len(intent_by_session) == n_sessions
+        assert len(records) == n_sessions
+        assert all(r.tool_counts == {"execute_sql": 1} for r in records)
+
+        journeys = fetch_session_journeys(self.team, list(intent_by_session.keys()))
+        assert len(journeys) == n_sessions
+
 
 # Embedding helpers -----------------------------------------------------
 
@@ -484,7 +527,9 @@ class TestEmbedIntentsAsyncCacheLogic:
             patch.object(intent_clustering, "_persist_embedding", side_effect=_persist),
             patch.object(intent_clustering, "async_generate_embedding", side_effect=worker),
         ):
-            return asyncio.run(embed_intents_async(object(), texts))  # type: ignore[arg-type]
+            # A stub with an `id` stands in for Team — the failure-path log
+            # reads team.id, and the cache IO that needs a real team is mocked.
+            return asyncio.run(embed_intents_async(SimpleNamespace(id=0), texts))  # type: ignore[arg-type]
 
     def test_first_run_populates_cache(self) -> None:
         cached: dict[str, np.ndarray] = {}

@@ -317,6 +317,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 0)
 
+        response = self.client.get("/api/person/?distinct_id=inexistent&include_total")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [], "next": None, "previous": None, "count": 0})
+
     def test_cant_see_another_organization_pii_with_filters(self):
         # Completely different organization
         another_org: Organization = Organization.objects.create()
@@ -1753,6 +1757,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
         self.assertCountEqual(activity, expected)
 

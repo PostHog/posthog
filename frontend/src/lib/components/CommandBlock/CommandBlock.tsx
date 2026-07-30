@@ -49,7 +49,8 @@ interface CommandBlockProps {
     condensed?: boolean
 }
 
-function condenseCommand(command: string): string {
+/** Strips display noise (`-y` flags, `@latest` pins) from a command; copy the original, show this. */
+export function condenseCommand(command: string): string {
     return command.replace(/ -y\b/g, '').replace(/@latest\b/g, '')
 }
 

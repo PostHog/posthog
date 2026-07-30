@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.firecrawl import (
     FirecrawlResumeConfig,
     firecrawl_source,
@@ -29,7 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firecrawl.
     ENDPOINTS,
     FIRECRAWL_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FirecrawlSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firecrawl import (
+    FirecrawlSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
@@ -100,6 +99,7 @@ You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.de
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FIRECRAWL_ENDPOINTS[endpoint]
@@ -122,7 +122,11 @@ You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.de
         return schemas
 
     def validate_credentials(
-        self, config: FirecrawlSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FirecrawlSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # A Firecrawl key is all-or-nothing (no per-endpoint scopes), so the same token probe covers
         # both source-create (schema_name=None) and the per-schema check.
@@ -142,6 +146,7 @@ You can create an API key in your [Firecrawl dashboard](https://www.firecrawl.de
         return firecrawl_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

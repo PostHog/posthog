@@ -536,6 +536,22 @@ describe('TrendsLineChart', () => {
         })
     })
 
+    describe('display fallback', () => {
+        it('renders the line chart for display types without a trends renderer', async () => {
+            // `Auto` is schema-valid on a trends query (reachable via the API/MCP) but has no
+            // dedicated branch in the trends render dispatch — it must not blank the tile.
+            renderInsight({
+                query: buildTrendsQuery({
+                    trendsFilter: { display: ChartDisplayType.Auto },
+                }),
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('trend-line-graph')).toBeInTheDocument()
+            })
+        })
+    })
+
     describe('click → persons modal', () => {
         it('single series: direct click shows the actors for the clicked day', async () => {
             renderInsight({ query: buildTrendsQuery() })
@@ -616,8 +632,7 @@ describe('TrendsLineChart', () => {
         })
     })
 
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+    describe('quill in-chart legend', () => {
         const twoSeriesQuery = buildTrendsQuery({
             series: [
                 { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
@@ -630,7 +645,7 @@ describe('TrendsLineChart', () => {
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-line-legend"]')!
 
         it('renders the in-chart legend and suppresses the legacy side legend', async () => {
-            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesQuery })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
@@ -642,7 +657,7 @@ describe('TrendsLineChart', () => {
         })
 
         it('keeps a toggled-off series listed and dimmed in the legend but out of the tooltip', async () => {
-            const { container } = renderInsight({ query: twoSeriesQuery, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesQuery })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()
@@ -668,7 +683,6 @@ describe('TrendsLineChart', () => {
         it('renders a static, non-interactive legend in shared mode', async () => {
             const { container } = renderInsight({
                 query: twoSeriesQuery,
-                featureFlags: quillLegendFlag,
                 inSharedMode: true,
             })
 

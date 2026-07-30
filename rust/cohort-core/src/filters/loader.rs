@@ -12,11 +12,16 @@ use tracing::warn;
 use crate::filters::catalog::FilterCatalog;
 use crate::filters::reverse_index::TeamFiltersBuilder;
 use crate::filters::{CohortId, FilterError, TeamId};
-use crate::metrics::{FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_TZ_FALLBACK};
+use crate::metrics::{
+    FILTER_CATALOG_COHORT_PARSE_ERRORS, FILTER_CATALOG_INVALID_SHAPE_HASH,
+    FILTER_CATALOG_TZ_FALLBACK,
+};
+use crate::seed::BehavioralShapeHash;
 
 /// Realtime cohorts to load, mirroring the Node filter manager's predicate, joined to
 /// `posthog_team` for the team timezone the bucket variants use for calendar-day computation.
-pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, t.timezone \
+pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, \
+            c.behavioral_filters_shape_hash, t.timezone \
      FROM posthog_cohort c \
      JOIN posthog_team t ON t.id = c.team_id \
      WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL";
@@ -27,6 +32,7 @@ pub struct CohortRow {
     pub id: i32,
     pub team_id: i32,
     pub filters: Value,
+    pub behavioral_filters_shape_hash: Option<String>,
     /// `posthog_team.timezone` — a non-null IANA zone name (default `"UTC"`).
     pub timezone: String,
 }
@@ -54,14 +60,36 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> F
             )
         });
 
-        if let Err(err) = builder.add_cohort(cohort_id, team_id, &row.filters) {
-            counter!(FILTER_CATALOG_COHORT_PARSE_ERRORS).increment(1);
-            warn!(
-                cohort_id = cohort_id.0,
-                team_id = team_id.0,
-                error = %err,
-                "skipping cohort that failed to parse",
-            );
+        match builder.add_cohort(cohort_id, team_id, &row.filters) {
+            Ok(()) => {
+                match row.behavioral_filters_shape_hash {
+                    // Python's canonical extractor returns an empty string when a cohort has no
+                    // behavioral leaves. It is an expected unknown guard, not malformed data.
+                    None => {}
+                    Some(raw_hash) if raw_hash.is_empty() => {}
+                    Some(raw_hash) => match BehavioralShapeHash::parse(&raw_hash) {
+                        Ok(hash) => builder.set_behavioral_shape_hash(cohort_id, hash),
+                        Err(error) => {
+                            counter!(FILTER_CATALOG_INVALID_SHAPE_HASH).increment(1);
+                            warn!(
+                                cohort_id = cohort_id.0,
+                                team_id = team_id.0,
+                                error = %error,
+                                "ignoring invalid persisted behavioral shape hash",
+                            );
+                        }
+                    },
+                }
+            }
+            Err(err) => {
+                counter!(FILTER_CATALOG_COHORT_PARSE_ERRORS).increment(1);
+                warn!(
+                    cohort_id = cohort_id.0,
+                    team_id = team_id.0,
+                    error = %err,
+                    "skipping cohort that failed to parse",
+                );
+            }
         }
     }
 
@@ -92,6 +120,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    const SHAPE_HASH: &str = "persisted-authoritative-hash";
+
     fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
         row_with_tz(id, team_id, filters, "UTC")
     }
@@ -101,8 +131,15 @@ mod tests {
             id,
             team_id,
             filters,
+            behavioral_filters_shape_hash: None,
             timezone: timezone.to_string(),
         }
+    }
+
+    fn row_with_shape_hash(id: i32, team_id: i32, shape_hash: Option<&str>) -> CohortRow {
+        let mut row = row(id, team_id, behavioral_cohort());
+        row.behavioral_filters_shape_hash = shape_hash.map(str::to_string);
+        row
     }
 
     fn behavioral_cohort() -> Value {
@@ -126,6 +163,42 @@ mod tests {
     fn empty_rows_build_an_empty_catalog() {
         let catalog = build_catalog_from_rows(vec![], false);
         assert_eq!(catalog.team_count(), 0);
+    }
+
+    #[test]
+    fn build_catalog_carries_only_valid_persisted_behavioral_shape_hashes() {
+        assert!(REALTIME_COHORTS_SQL.contains("c.behavioral_filters_shape_hash"));
+        let mut malformed = row(5, 7, json!({ "bogus": true }));
+        malformed.behavioral_filters_shape_hash = Some(SHAPE_HASH.to_string());
+        let catalog = build_catalog_from_rows(
+            vec![
+                row_with_shape_hash(1, 7, Some(SHAPE_HASH)),
+                row_with_shape_hash(2, 7, None),
+                row_with_shape_hash(3, 7, Some("")),
+                row_with_shape_hash(4, 7, Some("non-ascii-é")),
+                malformed,
+            ],
+            false,
+        );
+
+        let team = catalog.team(TeamId(7)).expect("team present");
+        assert_eq!(
+            team.behavioral_shape_hashes[&CohortId(1)].as_str(),
+            SHAPE_HASH,
+        );
+        assert!(!team.behavioral_shape_hashes.contains_key(&CohortId(2)));
+        assert!(!team.behavioral_shape_hashes.contains_key(&CohortId(3)));
+        assert!(!team.behavioral_shape_hashes.contains_key(&CohortId(4)));
+        assert!(!team.behavioral_shape_hashes.contains_key(&CohortId(5)));
+        assert!(team.cohorts.contains_key(&CohortId(3)));
+        assert!(
+            team.cohorts.contains_key(&CohortId(4)),
+            "only the bad hash is ignored"
+        );
+        assert!(
+            !team.cohorts.contains_key(&CohortId(5)),
+            "the malformed cohort is skipped"
+        );
     }
 
     #[test]

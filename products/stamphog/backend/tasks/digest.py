@@ -10,9 +10,10 @@ the PRs to the run. A Slack failure leaves the PRs unlinked so the next day retr
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 
-from django.db import router, transaction
+from django.db import InterfaceError, OperationalError, router, transaction
 from django.utils import timezone
 
 import structlog
@@ -39,6 +40,11 @@ DIGEST_MAX_PRS_PER_RUN = 100
 # A PENDING DigestRun older than this had its worker die between claiming its PRs and posting (or
 # failing) — reclaim it so those PRs re-enter the next digest instead of being stranded forever.
 STALE_PENDING_RUN_MINUTES = 60
+
+# The proof-of-post write is the dedup proof (see send_digest_for_channel); a transient DB blip there
+# converts a Slack-accepted digest into a duplicate re-send, so retry the write a few times first.
+_PROOF_OF_POST_WRITE_ATTEMPTS = 3
+_PROOF_OF_POST_WRITE_RETRY_SECONDS = 0.2
 
 
 def _previous_run_slot(now: datetime) -> datetime:
@@ -144,11 +150,23 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
     # write below. If the worker dies in between, the reclaim sweeper sees a non-empty slack_message_ts,
     # knows this run already posted, and finalizes it instead of unlinking + re-sending its PRs to Slack.
     # The metadata rides along so a reclaim-finalized run keeps its real pr_count/summary, not zeros.
-    DigestRun.objects.for_team(team_id).filter(id=run.id).update(
-        slack_message_ts=message_ts or "posted",
-        pr_count=len(prs),
-        summary=summary.to_dict(),
-    )
+    # This single write is the only thing standing between a Slack-accepted message and a duplicate
+    # re-send, so a transient DB blip here (not a Slack failure) must not be taken at face value: retry
+    # it a few times before letting the exception propagate.
+    for attempt in range(_PROOF_OF_POST_WRITE_ATTEMPTS):
+        try:
+            DigestRun.objects.for_team(team_id).filter(id=run.id).update(
+                slack_message_ts=message_ts or "posted",
+                pr_count=len(prs),
+                summary=summary.to_dict(),
+            )
+            break
+        except (OperationalError, InterfaceError):
+            # Only the transient connectivity classes: retrying an IntegrityError/ProgrammingError
+            # burns the attempts on a deterministic failure and delays the real traceback.
+            if attempt == _PROOF_OF_POST_WRITE_ATTEMPTS - 1:
+                raise
+            time.sleep(_PROOF_OF_POST_WRITE_RETRY_SECONDS)
 
     now = timezone.now()
     with transaction.atomic(using=write_db):

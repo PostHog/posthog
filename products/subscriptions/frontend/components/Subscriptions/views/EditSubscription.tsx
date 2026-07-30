@@ -7,6 +7,7 @@ import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-u
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,7 +47,6 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
-    formatNextDeliveryDate,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     intervalOptions,
@@ -321,7 +321,7 @@ function DashboardInsightsField({
                     selectedInsightIds={value ?? []}
                     onChange={onChange}
                     // The logic decides whether the auto-selection resets the form to a clean state
-                    // or joins a prefill's baseline — see applyInsightSelectionDefaults.
+                    // or joins a prefill's baseline — see applyDefaultSelectedInsights.
                     onDefaultsApplied={onDefaultsApplied}
                 />
             )}
@@ -353,7 +353,7 @@ function EditSubscriptionForm({
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
         useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyInsightSelectionDefaults, generatePreview } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -512,7 +512,7 @@ function EditSubscriptionForm({
                         {dashboard?.tiles && selectionReady && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
-                                onDefaultsApplied={applyInsightSelectionDefaults}
+                                onDefaultsApplied={applyDefaultSelectedInsights}
                             />
                         )}
 
@@ -738,7 +738,13 @@ function EditSubscriptionForm({
                             </div>
                             {nextDeliveryDate && (
                                 <div className="text-xs text-secondary mt-1">
-                                    Next delivery: {formatNextDeliveryDate(nextDeliveryDate)}
+                                    Next delivery:{' '}
+                                    <TZLabel
+                                        time={dayjs(nextDeliveryDate)}
+                                        formatDate="ddd, MMM D"
+                                        formatTime="HH:mm"
+                                        timestampStyle="absolute"
+                                    />
                                 </div>
                             )}
                         </div>
@@ -822,7 +828,19 @@ function EditSubscriptionForm({
                                 <p className="text-xs text-secondary mt-1 mb-0">
                                     On save we send this report once to the destination above, so you can confirm it
                                     looks right. Turn this off to wait for the next scheduled delivery
-                                    {nextDeliveryDate ? ` (${formatNextDeliveryDate(nextDeliveryDate)})` : ''}.
+                                    {nextDeliveryDate && (
+                                        <>
+                                            {' ('}
+                                            <TZLabel
+                                                time={dayjs(nextDeliveryDate)}
+                                                formatDate="ddd, MMM D"
+                                                formatTime="HH:mm"
+                                                timestampStyle="absolute"
+                                            />
+                                            )
+                                        </>
+                                    )}
+                                    .
                                 </p>
                             </div>
                         </div>

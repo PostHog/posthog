@@ -1,7 +1,19 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField
+
+# Vendor API versions. The Split (now Harness FME) Admin API is served under /internal/api/v2
+# (flag sets under v3) — the very paths this source already calls end-to-end, which the
+# UNVERSIONED_API_VERSION ("v1") placeholder resolved to. "v2" names that live API explicitly and
+# becomes the default new sources are stamped with; "v1" stays supported so pre-versioning pins
+# keep resolving to the identical request paths. Both labels hit the same wire (the request layer
+# does not branch on the pin), so a default flip leaves every existing and NULL-pinned row
+# byte-for-byte unchanged.
+SPLIT_IO_API_VERSION_V2 = "v2"
+SUPPORTED_VERSIONS = (UNVERSIONED_API_VERSION, SPLIT_IO_API_VERSION_V2)
+DEFAULT_VERSION = SPLIT_IO_API_VERSION_V2
 
 # How a list endpoint pages through results:
 # - "offset": `limit`/`offset` params with an `{"objects": [...], "offset", "limit", "totalCount"}` envelope

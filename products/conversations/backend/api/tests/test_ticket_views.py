@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.team.team import Team
 
-from products.conversations.backend.models import TicketView
+from products.conversations.backend.models import TicketView, TicketViewFavorite
 
 
 class TestTicketViewAPI(APIBaseTest):
@@ -196,6 +196,69 @@ class TestTicketViewAPI(APIBaseTest):
         response = self.client.delete(f"{self.base_url}{other_view.short_id}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert TicketView.objects.filter(pk=other_view.id).exists()
+
+    # --- Personal favorites ---
+
+    def test_favorite_and_unfavorite(self):
+        created = self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["is_favorited"] is True
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .count()
+            == 1
+        )
+
+        # Idempotent: favoriting again doesn't create a second row
+        self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": True}, format="json")
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .count()
+            == 1
+        )
+
+        response = self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": False}, format="json")
+        assert response.json()["is_favorited"] is False
+        assert (
+            not TicketViewFavorite.objects.for_team(self.team.pk)
+            .filter(ticket_view_id=created["id"], user=self.user)
+            .exists()
+        )
+
+    @parameterized.expand([("favorited", True), ("not_favorited", False)])
+    def test_create_with_favorited_flag(self, _label, favorited):
+        data = self._create_via_api(is_favorited=favorited)
+        assert data["is_favorited"] is favorited
+        assert (
+            TicketViewFavorite.objects.for_team(self.team.pk).filter(ticket_view_id=data["id"], user=self.user).exists()
+            is favorited
+        )
+
+    def test_favorites_are_personal_to_each_user(self):
+        created = self._create_via_api()
+        self.client.patch(f"{self.base_url}{created['short_id']}/", {"is_favorited": True}, format="json")
+
+        other_user = self._create_user("other@posthog.com")
+        other_client = APIClient()
+        other_client.force_login(other_user)
+
+        response = other_client.get(self.base_url)
+        assert response.json()["results"][0]["is_favorited"] is False
+
+    def test_favorited_views_sort_to_top(self):
+        older = self._create_via_api(name="Older")
+        self._create_via_api(name="Newer")
+
+        # Default order is newest-first; favoriting the older view must float it up
+        self.client.patch(f"{self.base_url}{older['short_id']}/", {"is_favorited": True}, format="json")
+
+        results = self.client.get(self.base_url).json()["results"]
+        assert [r["name"] for r in results] == ["Older", "Newer"]
+        assert results[0]["is_favorited"] is True
 
     # --- Auth ---
 

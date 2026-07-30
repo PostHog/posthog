@@ -14,7 +14,7 @@ ui_apps:
     feature-flag-list:
         type: list
         detail_tool: feature-flag-get-definition
-        detail_args: '{ flagId: item.id }'
+        detail_args: '{ id: item.id }'
         item_name_field: key
         click_prop: onFlagClick
     feature-flag-testing:

@@ -45,6 +45,7 @@ use cohort_stream_processor::partitions::{
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
+    ReconcileCompleteMarker,
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::durability::{
@@ -282,7 +283,7 @@ fn build_consumer_with_restore(
     ));
 
     CohortStreamEventsConsumer::new(
-        consumer,
+        Arc::new(consumer),
         topic.to_string(),
         dispatcher,
         handle,
@@ -729,6 +730,16 @@ impl MembershipSink for BarrierSink {
             .expect("BarrierSink poisoned")
             .extend(changes);
         acks
+    }
+
+    async fn produce_markers(
+        &self,
+        markers: Vec<ReconcileCompleteMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        markers
+            .into_iter()
+            .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+            .collect()
     }
 }
 
@@ -1224,7 +1235,7 @@ fn build_consumer_with_manifest(
     ));
 
     CohortStreamEventsConsumer::new(
-        consumer,
+        Arc::new(consumer),
         topic.to_string(),
         dispatcher,
         handle,

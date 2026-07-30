@@ -111,6 +111,7 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
+        extra_fields.setdefault("ui_configuration", default_ui_configuration_for_new_users())
         user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
@@ -184,6 +185,22 @@ class UserManager(BaseUserManager):
 
 def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
+
+
+# New users start with a slimmer sidebar. Existing users keep ui_configuration NULL, which the
+# frontend resolves as "everything shown" (their pre-customization experience). Absent keys also
+# mean "shown", so this only lists the elements hidden by default for new accounts. The shape must
+# stay valid against the UserUIConfiguration schema (see frontend/src/queries/schema/schema-general.ts).
+def default_ui_configuration_for_new_users() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "sidebar": {
+            "items": {
+                "files": {"visible": False},
+                "starred": {"visible": False},
+            },
+        },
+    }
 
 
 class ThemeMode(models.TextChoices):
@@ -260,6 +277,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         null=False,
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
+    )
+    # No field default on purpose: existing rows must stay NULL so long-time users keep seeing
+    # everything. New accounts get default_ui_configuration_for_new_users() via UserManager.create_user.
+    ui_configuration = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Per-user UI customization (currently sidebar element visibility), shaped like the "
+        "UserUIConfiguration schema. NULL means the user has no customization and every element shows.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
@@ -641,3 +666,27 @@ def _revoke_sessions_on_user_deactivation(sender: type[User], instance: User, **
         from posthog.session.activity import revoke_other_sessions  # noqa: PLC0415 — avoids a circular import
 
         revoke_other_sessions(instance, keep_session_key=None)
+
+
+@receiver(pre_save, sender=User)
+def _pause_loops_on_user_deactivation(sender: type[User], instance: User, **kwargs: object) -> None:
+    """Pause every loop owned by a user when they are deactivated (is_active True->False).
+
+    Loops execute as their owner for GitHub authorship and MCP identity (see
+    products/tasks/docs/LOOPS.md "Lifecycle and reconciliation"); deactivation is often the
+    security response and must not leave a loop still scheduled, or a sandbox still running,
+    under that owner's identity. Deferred to `transaction.on_commit` since pausing a loop's
+    Temporal schedule is an irreversible external side effect.
+    """
+    if instance._state.adding or instance.is_active:
+        return
+    was_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    if not was_active:
+        return
+
+    from products.tasks.backend.facade.loops import (  # noqa: PLC0415 (keeps loops/Temporal deps off the User model import path)
+        pause_loops_for_deactivated_user,
+    )
+
+    user_id = instance.pk
+    transaction.on_commit(lambda: pause_loops_for_deactivated_user(user_id))

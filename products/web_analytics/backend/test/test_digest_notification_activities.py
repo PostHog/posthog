@@ -106,7 +106,6 @@ class TestBuildAndSendForOrg(_DigestNotificationTestBase):
         assert data.target_id == str(self.user.id)
         assert data.team_id == self.team.id
         assert data.resource_type == "web_analytics"
-        assert data.archivable is True
         assert "utm_source=web_analytics_digest" in data.source_url
 
     def test_test_arm_records_exposure_and_captures_sent_event(self):
