@@ -16,10 +16,13 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
+from posthog.hogql.database.database import Database
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
+from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
@@ -27,7 +30,6 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 
 from products.data_modeling.backend.facade.api import get_declared_target, resume_nodes, suspension_state
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
-from products.data_warehouse.backend.facade.api import assert_can_materialize
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -325,10 +327,11 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # A run materializes every node it touches (the workflow sets is_materialized), and the
         # resulting rows then resolve under each view's own access rules. So this is the same
         # declassification as enabling materialization directly, and needs the same check.
+        database = Database.create_for(team_id=self.team_id, user=cast(User, req.user))
         for saved_query in DataWarehouseSavedQuery.objects.filter(
             team_id=self.team_id, node__id__in=node_ids
         ).distinct():
-            assert_can_materialize(saved_query.query, self.team_id, cast(User, req.user))
+            assert_user_can_read_query(saved_query.query, self.team_id, cast(User, req.user), database=database)
 
         # ExecuteDAGWorkflow skips suspended nodes, so without this the request is a silent no-op
         # for exactly the nodes that need it most.

@@ -17,7 +17,6 @@ _B = "products.data_warehouse.backend."
 
 # symbol -> source module (relative to backend.)
 _LAZY = {
-    "assert_can_materialize": "logic.materialization_access",
     "CreateTableResult": "logic.data_load.create_table",
     "create_table_from_saved_query": "logic.data_load.create_table",
     "a_pause_saved_query_schedule": "logic.data_load.saved_query_service",

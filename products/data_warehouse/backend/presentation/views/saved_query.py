@@ -43,6 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, RunSavedQueryRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.query_access import assert_user_can_read_query
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
@@ -54,7 +55,6 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
-    assert_can_materialize,
     pause_saved_query_schedule,
     saved_query_workflow_exists,
     sync_saved_query_workflow,
@@ -597,7 +597,12 @@ class DataWarehouseSavedQuerySerializer(
 
         if sync_frequency and sync_frequency != "never":
             # Scheduling a view is the same grant as materializing it directly.
-            assert_can_materialize(instance.query, self.context["team_id"], cast(User, self.context["request"].user))
+            assert_user_can_read_query(
+                instance.query,
+                self.context["team_id"],
+                cast(User, self.context["request"].user),
+                database=self.context.get("database"),
+            )
 
         dag_managed_frequency = False
         if sync_frequency and posthoganalytics.feature_enabled(
@@ -1211,7 +1216,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         if saved_query.managed_viewset is not None:
             raise serializers.ValidationError("Cannot materialize a query from a managed viewset.")
 
-        assert_can_materialize(saved_query.query, self.team_id, cast(User, request.user))
+        assert_user_can_read_query(saved_query.query, self.team_id, cast(User, request.user))
 
         sync_frequency_interval = sync_frequency_to_sync_frequency_interval("24hour")
 
