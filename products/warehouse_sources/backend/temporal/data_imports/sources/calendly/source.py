@@ -9,11 +9,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.calendly import (
+    CALENDLY_API_VERSION_V1,
     CALENDLY_API_VERSION_V2,
     SUPPORTED_API_VERSIONS,
     CalendlyResumeConfig,
@@ -24,7 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.s
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calendly import (
     CalendlySourceConfig,
 )
@@ -47,6 +49,11 @@ class CalendlySource(ResumableSource[CalendlySourceConfig, CalendlyResumeConfig]
 
     supported_versions = SUPPORTED_API_VERSIONS
     default_version = CALENDLY_API_VERSION_V2
+    # The "v1" label is this source's legacy default, not Calendly's retired v1 API — both labels
+    # have always resolved to the same live host. So the vendor's 2025-08-27 v1 sunset is not a
+    # sunset for these pins: nothing stops working, and `sunset_at` stays None. The label is
+    # deprecated so the in-product banner nudges users onto v2 at their own pace.
+    deprecated_versions = (VersionDeprecation(version=CALENDLY_API_VERSION_V1, sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

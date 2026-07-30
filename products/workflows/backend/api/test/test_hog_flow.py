@@ -121,6 +121,33 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         return response.json()["id"]
 
+    @parameterized.expand(
+        [
+            ("name_match", "welcome", {"Welcome email"}),
+            ("case_insensitive", "WELCOME", {"Welcome email"}),
+            ("description_match", "quarterly", {"Digest"}),
+            ("space_matches_separators", "password reset", {"Password reset"}),
+            ("no_match", "nonexistent", set()),
+        ]
+    )
+    def test_list_search_matches_name_and_description(self, _name, search, expected_names):
+        HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search={search}")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    def test_list_filter_by_created_by_uuid(self):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        HogFlow.objects.create(team=self.team, name="Mine", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Theirs", created_by=other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?created_by={other_user.uuid}")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
+
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value
         # that must not leak from a workflow *listing*.

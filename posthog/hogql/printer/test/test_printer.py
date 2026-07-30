@@ -470,7 +470,9 @@ class TestPrinter(BaseTest):
 
     def test_union_by_name_executes_on_clickhouse(self):
         sql = self._select("select 1 as a, 2 as b union all by name select 3 as b, 4 as a")
-        self.assertEqual(sync_execute(sql), [(1, 2), (4, 3)])
+        # UNION ALL branches come back in whatever order they finish, so sort before comparing:
+        # what matters here is that BY NAME lowering paired each value with the right column.
+        self.assertEqual(sorted(sync_execute(sql)), [(1, 2), (4, 3)])
 
     def test_union_by_name_nested_set_operand_reorders_every_leaf(self):
         response = self._select(

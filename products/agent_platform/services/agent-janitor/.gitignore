@@ -1,5 +1,0 @@
-dist/
-node_modules/
-*.tsbuildinfo
-.coherence-out/
-.coherence/

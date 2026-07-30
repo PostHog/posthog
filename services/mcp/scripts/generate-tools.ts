@@ -1790,6 +1790,12 @@ function generateCategoryFile(
                 if (wrapperConfig.ui_resource_uri) {
                     configParts.push(`uiResourceUri: '${wrapperConfig.ui_resource_uri}'`)
                 }
+                // Unlike the definitions-file branch, only an explicit `use_optimized_output` emits a
+                // format here — absent keeps the factory default, so pre-existing product wrappers
+                // don't silently change encoding.
+                if (wrapperConfig.use_optimized_output !== undefined) {
+                    configParts.push(`outputFormat: '${wrapperConfig.use_optimized_output ? 'optimized' : 'json'}'`)
+                }
                 if (wrapperConfig.url_prefix) {
                     configParts.push(`urlPrefix: '${wrapperConfig.url_prefix}'`)
                 }
