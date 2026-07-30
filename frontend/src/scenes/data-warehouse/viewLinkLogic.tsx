@@ -382,6 +382,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 // A key belongs to its table; keeping it across a table change would
                 // silently validate or save against a column of the wrong table.
                 selectSourceTable: () => null,
+                // A column and a SQL expression aren't interchangeable, so drop the key when the
+                // mode switches rather than reinterpreting the old value under the new mode.
+                setSourceKeyMode: () => null,
                 toggleNewJoinModal: (_, { join }) => join?.source_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.source_table_key ?? null,
                 clearModalFields: () => null,
@@ -392,6 +395,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             {
                 selectJoiningKey: (_, { selectedKey }) => selectedKey,
                 selectJoiningTable: () => null,
+                setJoiningKeyMode: () => null,
                 toggleNewJoinModal: (_, { join }) => join?.joining_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_key ?? null,
                 clearModalFields: () => null,
@@ -412,7 +416,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             {
                 setFieldName: () => true,
                 toggleNewJoinModal: () => false,
-                toggleEditJoinModal: () => false,
+                // An existing join's accessor is user-owned; treat it as touched so changing the
+                // joining table doesn't autofill over a custom accessor and break queries using it.
+                toggleEditJoinModal: (_, { join }) => !!join.field_name,
                 clearModalFields: () => false,
             },
         ],
@@ -459,6 +465,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 selectSourceTable: () => null,
                 selectJoiningKey: () => null,
                 selectJoiningTable: () => null,
+                setSourceKeyMode: () => null,
+                setJoiningKeyMode: () => null,
             },
         ],
     }),
@@ -545,6 +553,14 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 actions.autofillFieldName(selectedTableName.replaceAll('.', '_'))
             }
             actions.validateJoin()
+        },
+        // Clear the form value on a mode switch so a column and a SQL expression can't be
+        // reinterpreted under the other mode when validating or saving.
+        setSourceKeyMode: () => {
+            actions.setViewLinkValue('source_table_key', null)
+        },
+        setJoiningKeyMode: () => {
+            actions.setViewLinkValue('joining_table_key', null)
         },
         checkKeyTypeMismatch: () => {
             if (values.selectedSourceKey && values.selectedJoiningKey) {
