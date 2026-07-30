@@ -1306,7 +1306,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         super().save(*args, **kwargs)
 
     def transition_status_by_system(
-        self, new_status: "SignalScoutConfig.Status", *, pause_reason: "SignalScoutConfig.PauseReason"
+        self,
+        new_status: "SignalScoutConfig.Status",
+        *,
+        pause_reason: "SignalScoutConfig.PauseReason",
+        evaluated_at: datetime | None = None,
     ) -> bool:
         """Apply a system-driven status transition under the reason-scoped ownership rule.
 
@@ -1316,8 +1320,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         whose current pause carries its own reason, so independent pause mechanisms cannot
         clear or overwrite each other's state. The checks run against a freshly locked row,
         not the caller's instance, so a human pause or another writer's claim that landed
-        after the caller read the row cannot be overwritten. Saves and returns True when the
-        transition applies; returns False without writing when it is refused or a no-op.
+        after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
+        caller read the state its decision is based on) to also refuse the transition if the
+        status moved after that moment, e.g. a human re-enable racing a sweep's pause.
+        Saves and returns True when the transition applies; returns False without writing
+        when it is refused or a no-op.
         """
         if new_status == self.Status.PAUSED_BY_USER:
             raise ValueError("Only a user write may set paused_by_user.")
@@ -1331,6 +1338,22 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
             # scout its own writer already paused (pending_pause is runnable).
             if new_status == self.Status.PENDING_PAUSE and locked.status == self.Status.PAUSED_BY_SYSTEM:
                 return False
+            if (
+                evaluated_at is not None
+                and locked.status_changed_at is not None
+                and locked.status_changed_at > evaluated_at
+            ):
+                return False
+            # A resume must not carry the team past the enabled-scout cap: the pause freed a
+            # slot the config API may have legitimately given to another scout since.
+            from products.signals.backend.scout_harness.limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
+                MAX_ENABLED_SCOUTS_PER_TEAM,
+            )
+
+            if new_status in self.RUNNABLE_STATUSES and locked.status not in self.RUNNABLE_STATUSES:
+                peers = type(self).all_teams.filter(team_id=locked.team_id, enabled=True).exclude(pk=locked.pk).count()
+                if peers >= MAX_ENABLED_SCOUTS_PER_TEAM:
+                    return False
             recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
             if new_status == locked.status and recorded_reason == locked.pause_reason:
                 return False

@@ -1,5 +1,8 @@
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -124,6 +127,36 @@ class TestScoutStatusTransitions(BaseTest):
         config = self._config()
         with self.assertRaises(ValueError):
             config.transition_status_by_system(Status.PAUSED_BY_USER, pause_reason=Reason.NO_OUTPUT)
+
+    def test_stale_system_decision_refused_after_a_newer_status_change(self) -> None:
+        # A sweep evaluates, then a human moves the status before the sweep's write lands:
+        # the write carries the evaluation time and must lose to the newer human change.
+        config = self._config(status=Status.PENDING_PAUSE, pause_reason=Reason.NO_OUTPUT)
+        evaluation_time = timezone.now()
+        config.status = Status.ACTIVE
+        config.pause_reason = None
+        config.status_changed_at = timezone.now()
+        config.status_changed_by = self.user
+        config.save()
+
+        applied = config.transition_status_by_system(
+            Status.PAUSED_BY_SYSTEM, pause_reason=Reason.NO_OUTPUT, evaluated_at=evaluation_time
+        )
+
+        assert applied is False
+        config.refresh_from_db()
+        assert config.status == Status.ACTIVE
+
+    def test_system_resume_refused_when_team_is_at_the_enabled_cap(self) -> None:
+        paused = self._config(status=Status.PAUSED_BY_SYSTEM, pause_reason=Reason.REPEATED_FAILURES)
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-other")
+
+        with patch("products.signals.backend.scout_harness.limits.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
+            applied = paused.transition_status_by_system(Status.ACTIVE, pause_reason=Reason.REPEATED_FAILURES)
+
+        assert applied is False
+        paused.refresh_from_db()
+        assert paused.enabled is False
 
     def test_system_transition_clears_the_human_attribution_stamp(self) -> None:
         # Without the clear, a system pause would keep pointing at whichever human made the
