@@ -13,6 +13,8 @@ import type {
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
     HeatmapEventsResponseApi,
+    HeatmapPreflightRequestApi,
+    HeatmapPreflightResponseApi,
     HeatmapPrewarmRequestApi,
     HeatmapScreenshotResponseApi,
     HeatmapScreenshotsContentRetrieveParams,
@@ -270,6 +272,27 @@ export const savedRegenerateCreate = async (
     return apiMutator<HeatmapScreenshotResponseApi>(getSavedRegenerateCreateUrl(projectId, shortId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSavedPreflightCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/preflight/`
+}
+
+/**
+ * Fetch a page URL server-side and report whether it allows being embedded in the live preview iframe, plus the HTTP status it returned. The live preview loads the customer's site directly in their browser, so a site that sends X-Frame-Options or a restrictive frame-ancestors will never render, and a 4xx or 5xx from the site's own host or CDN leaves an empty frame with no explanation. This endpoint makes both cases explainable. The fetch comes from PostHog's own network rather than from the screenshot renderer, so a host that varies its response by IP or user agent can answer this differently than it answers a screenshot render. Settled verdicts are cached briefly, so repeat checks for the same URL do not refetch it.
+ * @summary Check whether a page can back a heatmap
+ */
+export const savedPreflightCreate = async (
+    projectId: string,
+    heatmapPreflightRequestApi: HeatmapPreflightRequestApi,
+    options?: RequestInit
+): Promise<HeatmapPreflightResponseApi> => {
+    return apiMutator<HeatmapPreflightResponseApi>(getSavedPreflightCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapPreflightRequestApi),
     })
 }
 

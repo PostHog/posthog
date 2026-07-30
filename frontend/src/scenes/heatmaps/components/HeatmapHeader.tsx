@@ -101,8 +101,7 @@ export function HeatmapHeader(): JSX.Element {
                                     onClick: () => changeCaptureMethod('screenshot'),
                                 }}
                             >
-                                This page didn't load in the live preview. It may block embedding. If it is public,
-                                switch to Screenshot. If it requires login, use a session recording below.
+                                {iframeBanner.message}
                             </LemonBanner>
                             {displayUrl && !displayUrlIsPattern ? <HeatmapRecordingFallback url={displayUrl} /> : null}
                         </div>

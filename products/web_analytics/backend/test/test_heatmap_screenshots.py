@@ -12,6 +12,7 @@ from rest_framework.test import APIClient
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Team
 
+from products.web_analytics.backend.heatmap_preflight import PreflightResult
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 
@@ -56,6 +57,33 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertTrue(resp.data["block_consent_modals"])
         saved = SavedHeatmap.objects.get(id=resp.data["id"])
         self.assertTrue(saved.block_consent_modals)
+
+    @patch("products.web_analytics.backend.api.heatmaps_api.preflight_page")
+    def test_preflight_returns_the_verdict_for_the_requested_url(self, mock_preflight):
+        mock_preflight.return_value = PreflightResult(
+            framing="blocked",
+            blocked_by="frame_ancestors",
+            http_status=200,
+            body_excerpt=None,
+        )
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/preflight/",
+            {"url": "https://example.com/page"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["framing"], "blocked")
+        self.assertEqual(resp.data["blocked_by"], "frame_ancestors")
+        mock_preflight.assert_called_once_with("https://example.com/page")
+
+    def test_preflight_rejects_a_wildcard_url(self):
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/saved/preflight/",
+            {"url": "https://example.com/*"},
+        )
+
+        self.assertEqual(resp.status_code, 400)
 
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay")
     def test_prewarm_starts_single_width_render_hidden_from_list(self, mock_delay):

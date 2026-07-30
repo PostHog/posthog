@@ -480,6 +480,22 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "300/hour"
 
 
+# The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
+# holding a web worker for as long as that page takes to answer, so its budget is about worker
+# occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
+# heatmap view or per capture-method switch in the wizard, and settled verdicts are cached, so
+# single digits per minute is generous.
+# PersonalApiKeyOrUserRateThrottle so a session-authenticated browser is bounded too.
+class HeatmapPreflightBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "heatmap_preflight_burst"
+    rate = "10/minute"
+
+
+class HeatmapPreflightSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "heatmap_preflight_sustained"
+    rate = "100/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the

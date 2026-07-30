@@ -19,6 +19,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     BrowserlessError,
     BrowserlessPermanentError,
     BrowserlessTransientError,
+    PageHttpStatusError,
     _browserless_screenshot,
     _build_browserless_screenshot_url,
     _classify_failure,
@@ -86,6 +87,25 @@ class TestHeatmapScreenshotTask(APIBaseTest):
             status=SavedHeatmap.Status.PROCESSING,
             block_consent_modals=block_consent_modals,
         )
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_a_captured_error_page_fails_the_heatmap_instead_of_being_stored(self, mock_requests: MagicMock) -> None:
+        # The render is a valid JPEG of the host's error page, so without the page status this looked
+        # like a healthy heatmap and the user was shown a picture of a 429.
+        resp = _make_response(_jpeg(b"err"))
+        resp.headers = {"content-type": "image/png", "x-response-code": "429"}
+        mock_requests.post.return_value = resp
+
+        heatmap = self._make_heatmap()
+        with self.assertRaises(PageHttpStatusError):
+            generate_heatmap_screenshot(heatmap.id)
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.FAILED
+        assert "429" in (heatmap.exception or "")
+        assert "example.com" in (heatmap.exception or "")
+        assert not HeatmapSnapshot.objects.filter(heatmap=heatmap).exists()
 
     @parameterized.expand([("blocking_on", True), ("blocking_off", False)])
     @override_settings(**BROWSERLESS_SETTINGS, HEATMAP_BROWSERLESS_BLOCK_ADS=False)
@@ -246,6 +266,32 @@ class TestHeatmapScreenshotTask(APIBaseTest):
 
 # Pure-function tests for the Browserless REST helper — no DB, so they run on SimpleTestCase.
 class TestBrowserlessScreenshotRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("rate_limited", {"x-response-code": "429"}, 429),
+            ("healthy", {"x-response-code": "200"}, 200),
+            ("header_absent", {}, None),
+            ("header_unparseable", {"x-response-code": "nope"}, None),
+        ]
+    )
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_reports_the_pages_own_status_from_the_response_header(
+        self, _name: str, headers: dict[str, str], expected: int | None, mock_requests: MagicMock
+    ) -> None:
+        # Browserless answers 200 with a valid JPEG even when the page it rendered returned 429, so
+        # this header is the only thing that distinguishes a heatmap from a picture of an error page.
+        resp = _make_response(_jpeg(b"img"))
+        resp.headers = {"content-type": "image/png", **headers}
+        mock_requests.post.return_value = resp
+
+        content, page_status = _browserless_screenshot(
+            "https://host/screenshot?token=t", "https://ex.com", 1024, block_consent_modals=False
+        )
+
+        assert content == _jpeg(b"img")
+        assert page_status == expected
+
     @parameterized.expand([("desktop", 1024, False), ("mobile", 320, True)])
     @override_settings(
         HEATMAP_BROWSERLESS_TIMEOUT_MS=180000,
@@ -258,7 +304,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     ) -> None:
         mock_requests.post.return_value = _make_response(_jpeg(b"img"))
 
-        content = _browserless_screenshot(
+        content, _ = _browserless_screenshot(
             "https://host/screenshot?token=t", "https://example.com", width, block_consent_modals=True
         )
 
@@ -447,6 +493,7 @@ class TestClassifyFailure(SimpleTestCase):
             ("http_429", BrowserlessTransientError("x", status_code=429, cause="http_status"), "browserless_4xx"),
             ("http_404", BrowserlessPermanentError("x", status_code=404, cause="http_status"), "browserless_4xx"),
             ("http_503", BrowserlessTransientError("x", status_code=503, cause="http_status"), "browserless_5xx"),
+            ("page_http_status", PageHttpStatusError("x", cause="page_http_status"), "page_http_status"),
             ("unknown", ValueError("x"), "unknown"),
         ]
     )

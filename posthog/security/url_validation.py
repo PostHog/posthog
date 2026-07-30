@@ -168,6 +168,22 @@ def has_authority_bypass_chars(url: str) -> bool:
     return False
 
 
+def strip_userinfo(url: str) -> str:
+    """
+    Remove `user:pass@` from the authority. Userinfo in URLs is a known SSRF
+    smuggling vector (some libraries interpret it as the host when stricter
+    parsers don't), and a customer-supplied URL can carry a credential or a
+    signed token that must not reach an outbound request or a log line.
+    """
+    parsed = urlparse.urlparse(url)
+    if parsed.username is None and parsed.password is None:
+        return url
+    netloc = parsed.hostname or ""
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlparse.urlunparse(parsed._replace(netloc=netloc))
+
+
 def _dev_bypass_enabled() -> bool:
     """Dev mode short-circuits is_url_allowed.
 

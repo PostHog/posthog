@@ -150,6 +150,9 @@ export interface heatmapLogicActions {
     setWindowWidthOverride: (widthOverride: number | null) => {
         widthOverride: number | null
     } // heatmapDataLogic
+    checkPagePreflight: (url: string | null) => {
+        url: string | null
+    } // heatmapsBrowserLogic
     onIframeLoad: () => {
         value: true
     } // heatmapsBrowserLogic
@@ -290,7 +293,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         ],
         actions: [
             heatmapsBrowserLogic,
-            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'setDataUrlUserTouched'],
+            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'setDataUrlUserTouched', 'checkPagePreflight'],
             heatmapsSceneLogic,
             ['loadSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
@@ -407,6 +410,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         actions.setScreenshotError(null)
                         actions.pollScreenshotStatus(desiredWidth)
                     }
+                } else if (item.type === 'iframe') {
+                    actions.checkPagePreflight(item.url)
                 }
             } finally {
                 actions.setLoading(false)
