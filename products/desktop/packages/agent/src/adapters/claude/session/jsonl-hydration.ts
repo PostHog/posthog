@@ -687,6 +687,10 @@ export async function sanitizeSessionJsonl(
   let renamed = false;
   try {
     await fs.writeFile(tmpPath, sanitized.join("\n"));
+    // Memoize the tmp file's stat: rename preserves it, so recording it after
+    // the rename leaves no window where bytes appended by a concurrent writer
+    // could be certified clean (they would already mismatch this stat).
+    const statTmp = await fs.stat(tmpPath);
     // A concurrent writer may still own the file; abort rather than clobber
     // lines appended since the read. The next resume retries.
     const statNow = await fs.stat(jsonlPath);
@@ -698,8 +702,7 @@ export async function sanitizeSessionJsonl(
     }
     await fs.rename(tmpPath, jsonlPath);
     renamed = true;
-    const statAfter = await fs.stat(jsonlPath).catch(() => null);
-    if (statAfter) recordSanitized(jsonlPath, statAfter);
+    recordSanitized(jsonlPath, statTmp);
     return true;
   } finally {
     if (!renamed) {

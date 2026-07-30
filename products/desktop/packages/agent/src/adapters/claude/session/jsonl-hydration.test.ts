@@ -1455,6 +1455,41 @@ describe("sanitizeSessionJsonl", () => {
     ]);
   });
 
+  it("re-sanitizes after the file grows past a healed pass", async () => {
+    // The heal path memoizes too; a dirty line appended after a heal must
+    // still be caught on the next pass.
+    const file = await writeJsonl([
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: null,
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "" }],
+        },
+      },
+    ]);
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+
+    await fs.appendFile(
+      file,
+      `${JSON.stringify({
+        type: "assistant",
+        uuid: "a2",
+        parentUuid: "a1",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "" }],
+        },
+      })}\n`,
+    );
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+    const lines = await readJsonl(file);
+    expect((lines[1].message as { content: unknown[] }).content).toEqual([
+      { type: "text", text: " " },
+    ]);
+  });
+
   it("neutralizes an oversized image nested in a tool_result", async () => {
     // A Read on a big image file lands its bytes inside a tool_result; on
     // resume that block 400s every turn until it is replaced.
