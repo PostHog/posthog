@@ -270,6 +270,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         partial: bool = False,
         serializer_class: type[TaskWriteSerializer] = TaskWriteSerializer,
     ) -> TaskWriteSerializer:
+        logger.info(
+            "task_api_client_attribution",
+            extra={
+                "team_id": self.team.id,
+                "user_id": self._user_id(),
+                "origin_product": data.get("origin_product"),
+                "internal": data.get("internal", False),
+            },
+        )
         serializer = serializer_class(
             data=data,
             partial=partial,
@@ -325,15 +334,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=SignalReportTaskCreateSerializer, responses={201: TaskSerializer})
     @action(detail=False, methods=["post"], url_path="signal_report", required_scopes=["task:write"])
     def create_signal_report_task(self, request, **kwargs):
-        serializer = SignalReportTaskCreateSerializer(
-            data=request.data,
-            context={
-                "team": self.team,
-                "team_id": self.team.id,
-                "request": self.request,
-            },
+        serializer = self._write_serializer(
+            request.data,
+            serializer_class=SignalReportTaskCreateSerializer,
         )
-        serializer.is_valid(raise_exception=True)
         task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=dict(serializer.validated_data))
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
 

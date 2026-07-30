@@ -13,6 +13,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
 )
+from products.tasks.backend.presentation.views.api import TaskViewSet
 
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
@@ -33,35 +34,36 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
                 "Update the PostHog app to create Signal Report tasks, then try again."
             )
 
-    @parameterized.expand(
-        [
-            ("support_reply", False),
-            ("error_tracking", False),
-            ("user_created", True),
-            ("user_created", False),
-        ]
-    )
-    @patch("products.tasks.backend.presentation.serializers.logger.info")
-    def test_logs_client_attribution(self, origin_product: str, internal: bool, info: MagicMock) -> None:
-        serializer = TaskWriteSerializer(
-            data={"origin_product": origin_product, "internal": internal},
-            context={"team_id": 123, "request": SimpleNamespace(user=SimpleNamespace(id=456))},
+    def test_signal_report_serializer_assigns_origin(self) -> None:
+        serializer = SignalReportTaskCreateSerializer()
+        assert serializer.fields["origin_product"].default == "signal_report"
+
+
+class TestTaskWriteTelemetry(SimpleTestCase):
+    @patch("products.tasks.backend.presentation.views.api.logger.info")
+    def test_logs_client_attribution_before_validation(self, info: MagicMock) -> None:
+        view = TaskViewSet()
+        view.team = SimpleNamespace(id=123)
+        view.request = SimpleNamespace(user=SimpleNamespace(id=456))
+        serializer = MagicMock()
+        serializer_class = MagicMock(return_value=serializer)
+
+        result = view._write_serializer(
+            {"origin_product": "signal_report", "internal": True},
+            serializer_class=serializer_class,
         )
 
-        assert serializer.is_valid(), serializer.errors
+        assert result is serializer
         info.assert_called_once_with(
             "task_api_client_attribution",
             extra={
                 "team_id": 123,
                 "user_id": 456,
-                "origin_product": origin_product,
-                "internal": internal,
+                "origin_product": "signal_report",
+                "internal": True,
             },
         )
-
-    def test_signal_report_serializer_assigns_origin(self) -> None:
-        serializer = SignalReportTaskCreateSerializer()
-        assert serializer.fields["origin_product"].default == "signal_report"
+        serializer.is_valid.assert_called_once_with(raise_exception=True)
 
 
 class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):

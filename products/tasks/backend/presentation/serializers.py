@@ -646,16 +646,6 @@ class TaskWriteSerializer(serializers.Serializer):
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
-        logger.info(
-            "task_api_client_attribution",
-            extra={
-                "team_id": self.context.get("team_id"),
-                "user_id": getattr(getattr(self.context.get("request"), "user", None), "id", None),
-                "origin_product": attrs.get("origin_product"),
-                "internal": attrs.get("internal", False),
-            },
-        )
-
         if ("signal_report" in attrs or "signal_report_task_relationship" in attrs) and attrs.get(
             "origin_product"
         ) != tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
