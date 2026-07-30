@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from unittest import TestCase
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -14,11 +13,9 @@ from posthog.schema import QueryTiming, RetentionResult, RetentionValue
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     CellDiff,
-    Command as CompareCommand,
     CorrectnessDiff,
     InsightFinding,
     ResourceStats,
-    VariantRun,
     _cell_is_trailing,
     _clickhouse_seconds,
     _frozen_date_range,
@@ -36,9 +33,6 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     referenced_ids,
     summarize_samples,
 )
-from posthog.models import Team
-
-from products.product_analytics.backend.models.insight import Insight
 
 _DT = datetime(2024, 1, 1, tzinfo=UTC)
 
@@ -67,15 +61,7 @@ def _retention_query(retention_filter):
 class TestClassifyInsight(TestCase):
     @parameterized.expand(
         [
-            ("rolling_24h", {"timeWindowMode": "24_hour_windows"}, "single", "24h"),
-            # The 24h route must win over the data-warehouse skip: a 24h DWH series is the newly
-            # supported shape a sweep should exercise, not classify as fixed-interval new-path-only.
-            (
-                "rolling_24h_dwh_series",
-                {"timeWindowMode": "24_hour_windows", "targetEntity": {"type": "data_warehouse"}},
-                "single",
-                "24h",
-            ),
+            ("rolling_24h", {"timeWindowMode": "24_hour_windows"}, "skip", "24h"),
             ("dwh_target", {"targetEntity": {"type": "data_warehouse"}}, "skip", "data_warehouse"),
             ("dwh_returning", {"returningEntity": {"type": "data_warehouse"}}, "skip", "data_warehouse"),
             ("plain_events", {"targetEntity": {"type": "events"}}, "compare", ""),
@@ -98,65 +84,6 @@ class TestClassifyInsight(TestCase):
     def test_error_classification(self, _name, query):
         action, _reason = classify_insight(_insight(query))
         self.assertEqual(action, "error")
-
-
-def _rolling_24h_insight():
-    # Unsaved team; personsOnEventsMode pinned so modifier defaulting needs no DB or flag lookups.
-    team = Team(pk=1, timezone="UTC", modifiers={"personsOnEventsMode": "person_id_no_override_properties_on_events"})
-    return Insight(
-        id=7,
-        short_id="abc123",
-        team=team,
-        query={
-            "kind": "InsightVizNode",
-            "source": {
-                "kind": "RetentionQuery",
-                "retentionFilter": {
-                    "period": "Day",
-                    "timeWindowMode": "24_hour_windows",
-                    "targetEntity": {"id": "start", "type": "events"},
-                    "returningEntity": {"id": "start", "type": "events"},
-                },
-            },
-        },
-    )
-
-
-_SINGLE_PATH_OPTIONS = {
-    "base_url": "https://us.posthog.com",
-    "max_source_json_chars": 4000,
-    "no_perf": False,
-    "clickhouse_stats": True,
-}
-
-
-class TestProcessInsightSinglePath(TestCase):
-    # A 24h insight misrouted into the A/B comparison doubles its ClickHouse cost for a vacuous
-    # parity verdict; misrouted to skip it loses coverage. The returned status pins the route.
-    def test_clean_run_reports_ok_single(self):
-        run = VariantRun(results=[], hogql="SELECT 1", wall_s=0.1, ch_s=0.05, query_ids=["qid1"])
-        with patch(
-            "posthog.management.commands.compare_retention_legacy_vs_dwh._attempt_variant",
-            return_value=(run, None),
-        ):
-            finding = CompareCommand()._process_insight(_rolling_24h_insight(), "runid", _SINGLE_PATH_OPTIONS)
-        self.assertEqual(finding.status, "OK_SINGLE")
-        self.assertIn("24h", finding.single_path_reason or "")
-        self.assertEqual(finding.dwh_query_ids, ["qid1"])
-        self.assertEqual(finding.legacy_query_ids, [])
-        self.assertIsNone(finding.correctness)
-
-    def test_failed_run_is_error_without_persisted_sql(self):
-        with patch(
-            "posthog.management.commands.compare_retention_legacy_vs_dwh._attempt_variant",
-            return_value=(None, ValueError("rejected by validation")),
-        ):
-            finding = CompareCommand()._process_insight(_rolling_24h_insight(), "runid", _SINGLE_PATH_OPTIONS)
-        self.assertEqual(finding.status, "ERROR")
-        self.assertEqual(finding.error_type, "ValueError")
-        self.assertIn("single-path", finding.error_detail or "")
-        self.assertIsNone(finding.source_json)
-        self.assertIsNone(finding.dwh_hogql)
 
 
 class TestAttributeVariantErrors(TestCase):
@@ -662,23 +589,6 @@ class TestProgressState(TestCase):
             )
         restored = finding_from_dict(json.loads(finding_to_json_line(finding)))
         self.assertEqual(restored, finding)
-
-    def test_single_path_round_trip_and_pre_field_line_still_loads(self):
-        # A progress file written before single_path_reason existed must keep resuming cleanly.
-        finding = InsightFinding(
-            insight_id=9,
-            short_id="s9",
-            team_id=1,
-            name="",
-            url="",
-            status="OK_SINGLE",
-            single_path_reason="24h rolling window",
-            dwh_query_ids=["q1"],
-        )
-        self.assertEqual(finding_from_dict(json.loads(finding_to_json_line(finding))), finding)
-        pre_field_payload = json.loads(finding_to_json_line(finding))
-        del pre_field_payload["single_path_reason"]
-        self.assertIsNone(finding_from_dict(pre_field_payload).single_path_reason)
 
     def test_load_keeps_last_record_per_insight_id(self):
         # A crash between the per-insight append and the end-of-run rewrite leaves an id twice;

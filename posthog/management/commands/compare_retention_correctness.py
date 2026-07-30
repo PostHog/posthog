@@ -23,11 +23,7 @@ as ERROR_DWH (legacy succeeded, the variant failed — a regression candidate th
 ERROR_LEGACY (the variant fixes an insight that is broken today), or ERROR_BOTH (parity-in-failure:
 broken regardless of the toggle). Plain ERROR is reserved for failures outside the two variant runs.
 Insights whose referenced actions/cohorts were deleted are SKIPPED up front by ``classify_insight``
-instead of erroring on both sides. 24h rolling window insights have no legacy/new split to diff
-(their builder routes by series type, not by the flag), so they get one health-check run and are
-reported OK_SINGLE, or an ERROR if the single run fails.
-
-A first-pass mismatch is re-run once and only the differences
+instead of erroring on both sides. A first-pass mismatch is re-run once and only the differences
 that reproduce are kept (``--no-recheck-mismatches`` to disable): late-arriving events and person
 merges move *historical* buckets between the two sequential runs, so a single pass can report live
 drift as a parity bug. The recheck runs the variants in reversed order (dwh before legacy) so that
@@ -118,7 +114,7 @@ from products.product_analytics.backend.models.insight import Insight
 _use_dwh_var: contextvars.ContextVar[bool] = contextvars.ContextVar("retention_use_dwh", default=False)
 
 
-PROGRESS_STATUSES = ("OK", "OK_SINGLE", "MISMATCH", "ERROR", "ERROR_LEGACY", "ERROR_DWH", "ERROR_BOTH", "SKIPPED")
+PROGRESS_STATUSES = ("OK", "MISMATCH", "ERROR", "ERROR_LEGACY", "ERROR_DWH", "ERROR_BOTH", "SKIPPED")
 
 
 @dataclasses.dataclass
@@ -225,7 +221,7 @@ def revalidate_mismatches(
     sets) has converged by then and stops reproducing; a genuine query-semantics difference keeps
     reproducing. Returns (still_mismatched, resolved, adjusted_counts):
 
-    - re-checks OK (or OK_SINGLE), or SKIPPED, or the insight is gone → resolved, annotated with a "resolution"
+    - re-checks OK, or SKIPPED, or the insight is gone → resolved, annotated with a "resolution"
     - still MISMATCH → kept, with the detail refreshed to the latest verdict
     - re-check errored → kept untouched (no evidence either way; the next run retries)
 
@@ -247,8 +243,6 @@ def revalidate_mismatches(
             resolve(rec, "SKIPPED", "insight no longer exists")
         elif row.status == "OK":
             resolve(rec, "OK", "no longer reproduces (data settled)")
-        elif row.status == "OK_SINGLE":
-            resolve(rec, "OK_SINGLE", f"now single-path, runs cleanly: {row.detail}")
         elif row.status == "SKIPPED":
             resolve(rec, "SKIPPED", f"now skipped: {row.detail}")
         elif row.status == "MISMATCH":
@@ -321,22 +315,6 @@ def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool) -> Row:
             return Row(insight.id, insight.short_id, insight.team_id, url, "ERROR", reason)
         if action == "skip":
             return Row(insight.id, insight.short_id, insight.team_id, url, "SKIPPED", reason)
-
-        if action == "single":
-            # No legacy/new split (24h rolling window): both flag arms compile the same query, so
-            # run it once as a health check instead of diffing the code against itself.
-            modifiers = create_default_modifiers_for_team(insight.team, HogQLQueryModifiers())
-            _results, exc = _try_variant(insight, True, modifiers, None)
-            if exc is not None:
-                return Row(
-                    insight.id,
-                    insight.short_id,
-                    insight.team_id,
-                    url,
-                    "ERROR",
-                    f"single-path run failed ({reason}): {type(exc).__name__}: {exc}",
-                )
-            return Row(insight.id, insight.short_id, insight.team_id, url, "OK_SINGLE", reason)
 
         modifiers = create_default_modifiers_for_team(insight.team, HogQLQueryModifiers())
         ctx = compute_interval_context(insight, modifiers, freeze=freeze)
@@ -667,7 +645,7 @@ class Command(BaseCommand):
         return list(queryset.order_by("id")[: options["limit"]])
 
     def _print_progress(self, done: int, total: int, row: Row) -> None:
-        if row.status in ("OK", "OK_SINGLE"):
+        if row.status == "OK":
             return  # keep the stream quiet; only surface the interesting outcomes
         is_bad = row.status == "MISMATCH" or row.status.startswith("ERROR")
         style = self.style.ERROR if is_bad else self.style.WARNING
