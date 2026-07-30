@@ -136,9 +136,9 @@ export interface mcpClusteringLogicMeta {
         sortedClusters: (clusters: readonly MCPIntentClusterApi[], sortKey: ClusterSortKey) => MCPIntentClusterApi[]
         visibleClusters: (sortedClusters: MCPIntentClusterApi[], allClustersShown: boolean) => MCPIntentClusterApi[]
         hiddenClusterCount: (sortedClusters: MCPIntentClusterApi[], visibleClusters: MCPIntentClusterApi[]) => number
-        totalClusterCount: (snapshot: MCPIntentClusterSnapshotApi) => number
         longTail: (snapshot: MCPIntentClusterSnapshotApi) => MCPIntentClusterLongTailApi | null
         recurring: (snapshot: MCPIntentClusterSnapshotApi) => readonly MCPRecurringIntentApi[]
+        totalClusterCount: (snapshot: MCPIntentClusterSnapshotApi) => number
         selectedCluster: (
             clusters: readonly MCPIntentClusterApi[],
             selectedClusterId: number | null
