@@ -61,6 +61,8 @@ export type NotebookComponentShellProps = {
     componentPanels: ComponentPanelVisibility
     rememberedComponentPanels?: ComponentPanelVisibility
     persistComponentPanelVisibility: boolean
+    /** Surface-level opt-in for definitions with `viewModeFilters` (read-only canvases). */
+    allowViewModeFilters?: boolean
     isSelected: boolean
     registry: NotebookComponentRegistry
     toggleComponentPanel: (panel: ComponentPanel) => void
@@ -80,6 +82,7 @@ export function NotebookComponentShell({
     componentPanels,
     rememberedComponentPanels,
     persistComponentPanelVisibility,
+    allowViewModeFilters,
     isSelected,
     registry,
     toggleComponentPanel,
@@ -97,7 +100,11 @@ export function NotebookComponentShell({
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
-    const showEditPanel = mode === 'edit' && componentPanels.filters
+    // Read-only canvases (e.g. customer profiles) keep the filters toggle: it's the only way to
+    // configure nodes there, matching the legacy notebook's canvas behavior.
+    const showViewModeFilters =
+        mode === 'view' && !!allowViewModeFilters && !!definition?.viewModeFilters && !definition.hideModeActions
+    const showEditPanel = (mode === 'edit' || showViewModeFilters) && componentPanels.filters
     const showViewPanel =
         (mode === 'view' || componentPanels.results) && !(showEditPanel && definition?.exclusiveEditPanel)
     const showModeActions = mode === 'edit' && !!definition && !definition.hideModeActions
@@ -319,7 +326,7 @@ export function NotebookComponentShell({
                     ) : (
                         <div className={titleClassName}>{titleContent}</div>
                     )}
-                    {showModeActions ? (
+                    {showModeActions || showViewModeFilters ? (
                         <div className="MarkdownNotebook__component-mode-actions">
                             <LemonButton
                                 aria-label={filtersLabel}
@@ -329,14 +336,16 @@ export function NotebookComponentShell({
                                 tooltip={filtersLabel}
                                 onClick={() => toggleComponentPanel('filters')}
                             />
-                            <LemonButton
-                                aria-label={resultsLabel}
-                                size="xsmall"
-                                icon={componentPanels.results ? <IconEye /> : <IconHide />}
-                                active={componentPanels.results}
-                                tooltip={resultsLabel}
-                                onClick={() => toggleComponentPanel('results')}
-                            />
+                            {showModeActions ? (
+                                <LemonButton
+                                    aria-label={resultsLabel}
+                                    size="xsmall"
+                                    icon={componentPanels.results ? <IconEye /> : <IconHide />}
+                                    active={componentPanels.results}
+                                    tooltip={resultsLabel}
+                                    onClick={() => toggleComponentPanel('results')}
+                                />
+                            ) : null}
                         </div>
                     ) : null}
                 </div>
@@ -576,6 +585,7 @@ export function areNotebookComponentShellPropsEqual(
 
     return (
         previousProps.mode === nextProps.mode &&
+        previousProps.allowViewModeFilters === nextProps.allowViewModeFilters &&
         previousProps.updateNode === nextProps.updateNode &&
         previousProps.deleteSelectedNotebookBlocks === nextProps.deleteSelectedNotebookBlocks &&
         previousProps.moveFocusToAdjacentNode === nextProps.moveFocusToAdjacentNode &&

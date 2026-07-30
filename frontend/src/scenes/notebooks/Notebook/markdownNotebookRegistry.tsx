@@ -249,6 +249,9 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
             exclusiveEditPanel: definition.exclusiveEditPanel,
+            // Nodes with a Settings panel keep their filters toggle on read-only canvases
+            // (customer profiles), where the panel is the only way to configure them.
+            viewModeFilters: !!options?.Settings,
             insertCommand: definition.insertCommand,
             getTitle: (node: NotebookComponentBlockNode) =>
                 getMarkdownNotebookNodeTitle(node, nodeType, options, label),
