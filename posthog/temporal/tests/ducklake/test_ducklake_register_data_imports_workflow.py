@@ -3,6 +3,7 @@ import contextlib
 import pytest
 from unittest.mock import MagicMock
 
+from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.ducklake import cp_teams
@@ -14,6 +15,7 @@ from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
     DuckLakeRegisterDataImportsGateInputs,
     DuckLakeRegisterDataImportsInputs,
     DuckLakeRegisterDataImportsMetadata,
+    build_register_data_imports_workflow_id,
     copy_and_register_ducklake_data_imports_activity,
     ducklake_register_data_imports_gate_activity,
     prepare_ducklake_data_imports_registration_activity,
@@ -258,3 +260,40 @@ def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
             ducklake_table_name="postgres_customers",
         ),
     )
+
+
+_WORKFLOW_ID_SCOPE = {
+    "team_id": 473662,
+    "schema_id": "019ef5df-e4c7-0000-b543-8ef7f13b5f15",
+    "job_id": "019fb012-26e7-0000-2959-704b254131bd",
+}
+
+
+@parameterized.expand(
+    [
+        (
+            "timestamped",
+            "customer_balance_transaction__query_1785365519_02076d94",
+            "customer_balance_transaction__query_1785365530_d3277966",
+        ),
+        (
+            "untimestamped",
+            "customer_balance_transaction__query",
+            "customer_balance_transaction__query_legacy",
+        ),
+    ]
+)
+def test_workflow_id_differs_per_prepared_generation(_name, earlier_folder, later_folder):
+    earlier = build_register_data_imports_workflow_id(**_WORKFLOW_ID_SCOPE, prepared_queryable_folder=earlier_folder)
+    later = build_register_data_imports_workflow_id(**_WORKFLOW_ID_SCOPE, prepared_queryable_folder=later_folder)
+
+    assert earlier != later
+
+
+def test_workflow_id_is_stable_for_one_prepared_generation():
+    folder = "customer_balance_transaction__query_1785365530_d3277966"
+
+    first = build_register_data_imports_workflow_id(**_WORKFLOW_ID_SCOPE, prepared_queryable_folder=folder)
+    second = build_register_data_imports_workflow_id(**_WORKFLOW_ID_SCOPE, prepared_queryable_folder=folder)
+
+    assert first == second

@@ -470,6 +470,7 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
             DuckLakeRegisterDataImportsInputs,
             DuckLakeRegisterDataImportsWorkflow,
+            build_register_data_imports_workflow_id,
         )
 
         # Connect and start inside one event loop: sync_connect() builds the client in
@@ -485,9 +486,11 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
                     schema_id=uuid.UUID(export_signal.schema_id),
                     prepared_queryable_folder=prepared_queryable_folder,
                 ),
-                id=(
-                    f"ducklake-register-data-imports-{export_signal.team_id}-"
-                    f"{export_signal.schema_id}-{export_signal.job_id}"
+                id=build_register_data_imports_workflow_id(
+                    team_id=export_signal.team_id,
+                    schema_id=export_signal.schema_id,
+                    job_id=export_signal.job_id,
+                    prepared_queryable_folder=prepared_queryable_folder,
                 ),
                 task_queue=settings.DUCKLAKE_TASK_QUEUE,
             )
@@ -500,8 +503,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             external_data_job_id=export_signal.job_id,
         )
     except WorkflowAlreadyStartedError:
-        # Same job already has a registration in flight (e.g. a V2 child, or a duplicate
-        # final-batch redelivery) — registration is already handled, nothing to do.
+        # The id is scoped to this prepared generation, so a collision means this exact
+        # generation is already being registered and dropping the duplicate is correct.
         logger.info(
             "ducklake_registration_workflow_already_started",
             team_id=export_signal.team_id,
