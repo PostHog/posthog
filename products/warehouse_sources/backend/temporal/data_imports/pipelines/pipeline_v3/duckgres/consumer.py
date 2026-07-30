@@ -13,6 +13,7 @@ import structlog
 from asgiref.sync import sync_to_async
 from prometheus_client import Gauge
 
+from posthog.ducklake.team_state import CPUnavailableError
 from posthog.exceptions_capture import capture_exception
 from posthog.models import DuckgresSinkSchemaState
 from posthog.sync import database_sync_to_async_pool
@@ -177,13 +178,24 @@ class DuckgresBatchConsumerAdapter:
                     team_count=None if self._team_ids is None else len(self._team_ids),
                     org_count=len({org_id for _, org_id, _ in self._team_org_budgets}),
                 )
+        except CPUnavailableError:
+            # A brief control-plane blip is expected and self-healing: we keep the
+            # previously cached team set so the sink keeps serving. Log-only — this
+            # is not an error-tracking-worthy failure. Advance the refresh clock on
+            # the way out (below) so we don't re-poll the struggling control plane
+            # every ~2s cycle across the fleet during an outage.
+            logger.warning("duckgres_sink_enablement_control_plane_unreachable")
+            if self._team_ids_fetched_at is None:
+                # Never had a set: claim nothing rather than everything.
+                self._team_ids = []
+            self._team_ids_fetched_at = now
         except Exception as e:
             logger.exception("duckgres_sink_enablement_refresh_failed")
             capture_exception(e)
             if self._team_ids_fetched_at is None:
                 # Never had a set: claim nothing rather than everything.
                 self._team_ids = []
-                self._team_ids_fetched_at = now
+            self._team_ids_fetched_at = now
         return self._team_ids
 
     async def _run_maintenance(self, conn: psycopg.AsyncConnection[Any], team_ids: list[int] | None) -> None:
