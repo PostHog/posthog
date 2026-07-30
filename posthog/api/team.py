@@ -26,10 +26,16 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.schema import (
     AttributionMode,
     CampaignFieldPreference,
+    CohortPropertyFilter,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
+    DataWarehousePropertyFilter,
+    ElementPropertyFilter,
+    EventPropertyFilter,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
+    PersonPropertyFilter,
     SourceMap,
 )
 
@@ -433,6 +439,24 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
+# The filters a conversion goal can carry, rather than every filter HogQL knows about. The goal
+# runtime resolves these through `property_to_expr` with an event scope, where `revenue_analytics`
+# and `account_custom_property` raise and `metric_attribute` is unimplemented, and the goal editor
+# only offers these six. Narrowing here follows `WebAnalyticsPropertyFilter`.
+MarketingAnalyticsConversionGoalPropertyFilter = (
+    EventPropertyFilter
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | ElementPropertyFilter
+    | HogQLPropertyFilter
+    | DataWarehousePropertyFilter
+)
+
+
+# Subclassing the canonical goal schemas rather than redeclaring their ~25 fields keeps this write
+# surface from drifting when the query schema changes. The cost is that narrowing a field's type in
+# a subclass is not assignment-compatible, hence the ignores below: each one marks a deliberate
+# divergence from the query schema, not an oversight.
 class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
     """A conversion goal counted from events."""
 
@@ -440,7 +464,9 @@ class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
     # documented schema has to require both. `conversion_goal_id` is server-assigned on create.
     kind: Literal["EventsNode"]
     name: str
-    conversion_goal_id: str | None = None
+    conversion_goal_id: str | None = None  # type: ignore[assignment]
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
 
 
 class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
@@ -448,7 +474,9 @@ class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
 
     kind: Literal["ActionsNode"]
     name: str
-    conversion_goal_id: str | None = None
+    conversion_goal_id: str | None = None  # type: ignore[assignment]
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
 
 
 class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
@@ -456,7 +484,9 @@ class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
 
     kind: Literal["DataWarehouseNode"]
     name: str
-    conversion_goal_id: str | None = None
+    conversion_goal_id: str | None = None  # type: ignore[assignment]
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
 
 
 class MarketingAnalyticsConversionGoalList(PydanticRootModel):
