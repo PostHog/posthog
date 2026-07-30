@@ -1,5 +1,7 @@
 import pytest
 
+import psycopg
+from packaging import version
 from psycopg import postgres
 from psycopg.adapt import AdaptersMap, PyFormat
 
@@ -41,3 +43,10 @@ class TestPrewarmLazyDumpers:
         # numpy's dumpers are deliberately skipped. Anything else here is a type psycopg
         # registers lazily that LAZILY_REGISTERED_TYPES needs to cover.
         assert {key for key in uncovered if not key.startswith("numpy.")} == set()
+
+    def test_workaround_is_still_needed(self) -> None:
+        assert version.parse(psycopg.__version__) < version.parse("3.3.2"), (
+            "psycopg 3.3.2+ inserts the class key before popping the name, so the race this"
+            " works around is gone. Delete posthog/helpers/psycopg_dumpers.py, its tests, and"
+            " the PostHogConfig.ready() call."
+        )
