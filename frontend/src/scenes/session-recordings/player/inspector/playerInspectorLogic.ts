@@ -924,14 +924,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 setItemExpanded: () => true,
             },
         ],
+        // Once set, the auto-skip is consumed for this recording and never re-arms: matching
+        // events can reload without user intent (playlist filters changing under an open
+        // recording, e.g. an async session-id list resolving), and a reload-triggered reset
+        // would yank the playhead mid-playback.
         hasSkippedToFirstMatchingEvent: [
             false,
             {
-                loadMatchingEvents: () => false,
                 markSkippedToFirstMatchingEvent: () => true,
-                // A seek or scrub consumes any pending auto-skip: the matching-events query can
-                // resolve seconds into playback, and yanking the playhead after the viewer has
-                // already navigated is worse than not skipping at all.
+                // A seek or scrub also consumes a pending auto-skip: the matching-events query
+                // can resolve seconds into playback, and yanking the playhead after the viewer
+                // has already navigated is worse than not skipping at all.
                 seekToTime: () => true,
                 startScrub: () => true,
             },

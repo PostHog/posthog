@@ -376,6 +376,51 @@ describe('playerInspectorLogic', () => {
             playerLogic.unmount()
         })
 
+        it('does not skip again when matching events reload after the skip has fired', async () => {
+            // Playlist filters can change under an open recording without user intent (e.g. an
+            // async session-id list resolving into the filters), which reloads matching events —
+            // that reload must not re-arm the auto-skip and yank the playhead mid-playback.
+            const matchingProps = {
+                sessionRecordingId: '1',
+                playerKey: 'reload-after-skip',
+                skipToFirstMatchingEvent: true,
+                matchingEventsMatchType: {
+                    matchType: 'uuid' as const,
+                    matchedEvents: [
+                        {
+                            uuid: 'matching-event',
+                            timestamp: '2025-01-01T00:00:10.000Z',
+                            session_id: '1',
+                            window_id: '1',
+                        },
+                    ],
+                },
+            }
+            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
+            const matchingLogic = playerInspectorLogic(matchingProps)
+            playerLogic.mount()
+            matchingLogic.mount()
+
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            dataLogic.actions.loadRecordingMetaSuccess({
+                id: '1',
+                start_time: '2025-01-01T00:00:00.000Z',
+                end_time: '2025-01-01T00:01:00.000Z',
+                recording_duration: 60,
+            } as SessionRecordingType)
+            await expectLogic(playerLogic).toDispatchActions([playerLogic.actionCreators.seekToTime(9000)])
+
+            // What propsChanged dispatches when the playlist filters change under the recording
+            matchingLogic.actions.loadMatchingEvents()
+            await expectLogic(matchingLogic)
+                .toDispatchActions(['loadMatchingEventsSuccess', 'trySkipToFirstMatchingEvent'])
+                .delay(25)
+            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
         it('does not seek when the earliest match falls after the recording ends', async () => {
             // The matching-events query has slack past the recording window; seeking there would
             // pin the player to its final frame and trigger end-reached.
