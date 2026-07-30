@@ -297,9 +297,11 @@ its IAM role.
 _Prerequisites for flipping the flag (per environment, on top of the phase-1 list):_
 
 - Set `NOTEBOOKS_FRAME_STORE_S3_ENDPOINT` to a host the **ClickHouse cluster** can reach (or leave empty on
-  cloud AWS to use the virtual-hosted URL + instance role). Frames always live in `OBJECT_STORAGE_BUCKET` (the
-  bucket the app presigns and the kernel fetches from), so only the CH-reachable endpoint differs.
-- Credentials: keyless in cloud (the CH instance role, write-scoped to the `notebooks/frames/` prefix);
+  cloud AWS to use the virtual-hosted URL + instance role). Frames live in `NOTEBOOKS_FRAME_STORE_S3_BUCKET`
+  (cloud: a dedicated bucket with its own 1-day TTL and a least-privilege CH-node grant; defaults to
+  `OBJECT_STORAGE_BUCKET` for dev/CI/self-hosted). Writer and reader agree on the bucket — the app presigns
+  and the kernel fetches from the same one — so only the CH-reachable endpoint differs.
+- Credentials: keyless in cloud (the CH instance role, write-scoped to the frames bucket);
   where `OBJECT_STORAGE_ACCESS_KEY_ID`/`SECRET` are set they ride inline in the statement and land in
   `system.query_log` — acceptable for dev/self-hosted, not for cloud. Verify the deployed CH version masks
   `s3(url, key, secret, ...)` credential arguments as `[HIDDEN]` in `query_log` (masking is signature-based).
@@ -413,11 +415,13 @@ into the key.
 
 ## Open questions
 
-- ~~Bucket choice~~ — resolved in phase 1: `OBJECT_STORAGE_BUCKET` under the `notebooks/frames/` prefix
-  (a dedicated bucket stays an option if lifecycle/IAM scoping demands it). The lifecycle TTL (~24h) on
-  the frames prefix is an infra ticket — a bucket rule, not app code.
-- Does cloud CH's instance role already permit writes to the chosen bucket, or does that need infra work
-  (batch exports suggests the pattern is established)?
+- ~~Bucket choice~~ — resolved in phase 1 as `OBJECT_STORAGE_BUCKET` under the `notebooks/frames/` prefix,
+  then superseded for cloud: `NOTEBOOKS_FRAME_STORE_S3_BUCKET` points at a dedicated frames bucket
+  (1-day lifecycle TTL, least-privilege CH-node grant), falling back to `OBJECT_STORAGE_BUCKET` for
+  dev/CI/self-hosted. The lifecycle TTL is a bucket rule owned by infra, not app code.
+- ~~Does cloud CH's instance role already permit writes to the chosen bucket?~~ — infra work, in flight for
+  dev: the dedicated bucket grants the CH node role Put/Get/List/Abort (no Delete), mirrored in the CH
+  identity policy's allowed-bucket list; prod-us/prod-eu follow after dev verification.
 - Presign from SeaweedFS in local dev: verify the presigned host is reachable from the locally-run kernel.
 - Whether phase 1 should also carry SQLV2 (hogql-node) first pages, or stay materialization-only
   (recommendation: materialization-only — envelopes are small and the current path serves them well).
