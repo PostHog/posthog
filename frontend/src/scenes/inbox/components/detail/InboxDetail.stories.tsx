@@ -18,6 +18,7 @@ import {
 } from '../../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
+import { PrMergeControl } from './PrMergeControl'
 import { PullRequestDetail } from './PullRequestDetail'
 import { ReportDetail } from './ReportDetail'
 
@@ -263,6 +264,84 @@ export const PullRequestInlineReview: Story = {
     render: () => (
         <Frame>
             <PullRequestDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+// Every branch of the merge control in one place. Its shape is driven entirely by GitHub's merge
+// readiness, and most of these states need a repo in a condition that's awkward to reproduce by hand
+// (behind base, conflicted, blocked on a required review), so they're only ever seen here.
+const mergeStates: { label: string; readiness: Record<string, unknown> }[] = [
+    { label: 'Checks green', readiness: { merge_state_status: 'clean', ci_status: 'passing' } },
+    {
+        label: 'Checks pending, auto-merge available',
+        readiness: { merge_state_status: 'blocked', ci_status: 'pending', auto_merge_allowed: true },
+    },
+    { label: 'Auto-merge armed', readiness: { merge_state_status: 'blocked', auto_merge_enabled: true } },
+    {
+        label: 'Review required',
+        readiness: { merge_state_status: 'blocked', ci_status: 'passing', review_decision: 'review_required' },
+    },
+    {
+        label: 'Changes requested',
+        readiness: { merge_state_status: 'blocked', ci_status: 'passing', review_decision: 'changes_requested' },
+    },
+    { label: 'Required checks failing', readiness: { merge_state_status: 'blocked', ci_status: 'failing' } },
+    { label: 'Conflicts', readiness: { merge_state_status: 'dirty', mergeable: false } },
+    { label: 'Behind base', readiness: { merge_state_status: 'behind' } },
+    { label: 'Draft', readiness: { pr_state: 'draft' } },
+    { label: 'Already merged', readiness: { pr_state: 'merged' } },
+]
+
+const mergeStateReports = mergeStates.map((state) =>
+    makeReport({
+        title: state.label,
+        implementation_pr_url: 'https://github.com/PostHog/posthog/pull/12001',
+    })
+)
+
+const mergeControlMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/pr_merge_readiness/': (req) => {
+            const index = mergeStateReports.findIndex((report) => report.id === req.params.reportId)
+            return [
+                200,
+                {
+                    readiness: {
+                        node_id: 'PR_node',
+                        pr_state: 'open',
+                        mergeable: true,
+                        merge_state_status: 'unknown',
+                        ci_status: 'passing',
+                        review_decision: null,
+                        auto_merge_enabled: false,
+                        auto_merge_allowed: false,
+                        head_sha: 'a1b2c3d',
+                        ...mergeStates[index].readiness,
+                    },
+                },
+            ]
+        },
+        '/api/users/@me/integrations/': () => [200, { results: [{ id: 1, github_login: 'twixes' }] }],
+    },
+})
+
+export const PullRequestMergeStates: Story = {
+    decorators: [mergeControlMocks],
+    render: () => (
+        <Frame>
+            <div className="max-w-2xl mx-auto deprecated-space-y-2">
+                {mergeStateReports.map((report, index) => (
+                    <div key={report.id} className="flex items-center justify-between gap-4 bg-surface-primary p-3">
+                        <span className="text-secondary">{mergeStates[index].label}</span>
+                        <PrMergeControl
+                            report={report}
+                            githubUrl="https://github.com/PostHog/posthog/pull/12001/files"
+                            githubTooltip="Open PostHog/posthog#12001 on GitHub"
+                        />
+                    </div>
+                ))}
+            </div>
         </Frame>
     ),
 }
