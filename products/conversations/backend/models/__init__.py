@@ -11,6 +11,7 @@ from .team_conversations_teams_config import TeamConversationsTeamsConfig
 from .ticket import Ticket
 from .ticket_view import TicketView
 from .ticket_view_favorite import TicketViewFavorite
+from .widget_submission_failure import WidgetSubmissionFailure
 from .zendesk_import_job import ZendeskImportJob
 
 __all__ = [
@@ -31,5 +32,6 @@ __all__ = [
     "TicketAssignment",
     "TicketView",
     "TicketViewFavorite",
+    "WidgetSubmissionFailure",
     "ZendeskImportJob",
 ]

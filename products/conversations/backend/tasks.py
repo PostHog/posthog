@@ -52,6 +52,7 @@ from products.conversations.backend.models import (
     TeamConversationsSlackConfig,
     TeamConversationsTeamsChannelSync,
     TeamConversationsTeamsConfig,
+    WidgetSubmissionFailure,
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
@@ -2093,3 +2094,29 @@ def create_github_issue(
 
     logger.info("github_issue_created", ticket_id=str(ticket.id), repo=repo, issue_number=issue_number)
     return {"ticket_id": str(ticket.id), "issue_number": issue_number}
+
+
+WIDGET_SUBMISSION_FAILURE_RETENTION_DAYS = 90
+WIDGET_SUBMISSION_FAILURE_PRUNE_BATCH_SIZE = 1000
+
+
+@shared_task(ignore_result=True)
+def prune_widget_submission_failures() -> None:
+    """Drop retained widget submission failures past their follow-up window."""
+
+    cutoff = timezone.now() - timedelta(days=WIDGET_SUBMISSION_FAILURE_RETENTION_DAYS)
+    total = 0
+
+    while True:
+        ids = list(
+            WidgetSubmissionFailure.objects.unscoped()
+            .filter(created_at__lt=cutoff)
+            .values_list("id", flat=True)[:WIDGET_SUBMISSION_FAILURE_PRUNE_BATCH_SIZE]
+        )
+        if not ids:
+            break
+        deleted, _ = WidgetSubmissionFailure.objects.unscoped().filter(id__in=ids).delete()
+        total += deleted
+
+    if total:
+        logger.info("widget_submission_failures_pruned", count=total)

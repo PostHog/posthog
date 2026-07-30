@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import Ticket, WidgetSubmissionFailure
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
 
@@ -218,13 +218,22 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def _post_rejected_message(self, payload: dict[str, str]) -> dict:
+        with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
+            response = self.client.post("/api/conversations/v1/widget/message", payload, **self._get_headers())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_report.assert_called_once()
+        _, event, properties = mock_report.call_args.args
+        self.assertEqual(event, "support ticket send failed")
+        return properties
+
     @parameterized.expand(
         [
             ("widget_session", False),
             ("verified_identity", True),
         ]
     )
-    def test_failed_send_telemetry_identifies_team_and_submitter(self, _name: str, use_identity: bool) -> None:
+    def test_rejected_send_retains_submitter_and_points_the_event_at_it(self, _name: str, use_identity: bool) -> None:
         payload: dict[str, str] = {"message": ""}
         if use_identity:
             secret = "test_secret_key_for_hmac"
@@ -236,22 +245,53 @@ class TestWidgetAPI(BaseTest):
             payload["widget_session_id"] = self.widget_session_id
             payload["distinct_id"] = self.distinct_id
 
-        with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
-            response = self.client.post("/api/conversations/v1/widget/message", payload, **self._get_headers())
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        properties = self._post_rejected_message(payload)
 
-        mock_report.assert_called_once()
-        _, event, properties = mock_report.call_args.args
-        self.assertEqual(event, "support ticket send failed")
-        self.assertEqual(properties["reason"], "validation_error")
+        failure = WidgetSubmissionFailure.objects.for_team(self.team.id).get()
+        self.assertEqual(failure.distinct_id, self.distinct_id)
+        self.assertEqual(failure.widget_session_id, None if use_identity else self.widget_session_id)
+        self.assertEqual(failure.identity_attempted, use_identity)
+        self.assertEqual(failure.error_fields, ["message"])
+
         self.assertEqual(properties["team_id"], self.team.id)
-        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
-        self.assertEqual(properties["identity_attempted"], use_identity)
-        self.assertEqual(properties["submitted_widget_session_id"], None if use_identity else self.widget_session_id)
+        self.assertEqual(properties["submission_failure_id"], str(failure.id))
 
-        submitter = properties["submitted_distinct_id_hash"]
-        self.assertNotIn(self.distinct_id, str(submitter))
-        self.assertRegex(submitter, r"^[0-9a-f]{16}$")
+        # The submitter is the customer's own end user, so nothing identifying them, and no
+        # widget_session_id (a live access-control credential), may ride along on the event.
+        for value in properties.values():
+            self.assertNotIn(self.distinct_id, str(value))
+            self.assertNotIn(self.widget_session_id, str(value))
+
+    def test_rejected_send_with_nobody_to_follow_up_records_nothing(self) -> None:
+        properties = self._post_rejected_message({"message": "Hello"})
+
+        self.assertFalse(WidgetSubmissionFailure.objects.for_team(self.team.id).exists())
+        self.assertEqual(properties["team_id"], self.team.id)
+        self.assertIsNone(properties["submission_failure_id"])
+
+    @parameterized.expand(
+        [
+            ("non_uuid_session", "not-a-uuid", "abc", "user-123", "user-123"),
+            ("overlong_distinct_id", "not-a-uuid", "abc", "u" * 500, "u" * 400),
+        ]
+    )
+    def test_rejected_send_drops_untrusted_values_that_dont_fit_their_columns(
+        self, _name: str, widget_session_id: str, ticket_id: str, distinct_id: str, expected_distinct_id: str
+    ) -> None:
+        properties = self._post_rejected_message(
+            {
+                "message": "Hello",
+                "widget_session_id": widget_session_id,
+                "ticket_id": ticket_id,
+                "distinct_id": distinct_id,
+            }
+        )
+
+        failure = WidgetSubmissionFailure.objects.for_team(self.team.id).get()
+        self.assertEqual(failure.distinct_id, expected_distinct_id)
+        self.assertIsNone(failure.widget_session_id)
+        self.assertIsNone(failure.ticket_id)
+        self.assertEqual(properties["submission_failure_id"], str(failure.id))
 
     def test_create_message_with_traits(self):
         response = self.client.post(

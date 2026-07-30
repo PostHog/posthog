@@ -12,7 +12,6 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 """
 
 import uuid
-import hashlib
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -50,35 +49,51 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import Ticket, WidgetSubmissionFailure
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
 
 logger = logging.getLogger(__name__)
 
 
-def _bounded_identifier(value: object, max_length: int = 200) -> str | None:
-    """Coerce an untrusted request identifier to a bounded string for telemetry, or None.
-
-    The widget message endpoint is public and unauthenticated, so request identifiers are
-    attacker-controlled. Cap the length so a stuffed value can't inflate the event payload.
-    """
+def _bounded_text(value: object, max_length: int) -> str | None:
+    """Coerce an untrusted request value to a string within a column's limit, or None."""
     if not isinstance(value, str) or not value:
         return None
     return value[:max_length]
 
 
-def _pseudonymized_distinct_id(value: object) -> str | None:
-    """Reduce a submitter's distinct_id to a short opaque digest, or None.
-
-    A widget submitter is the customer's own end user and their distinct_id is often an email
-    address, so it must not be copied verbatim into PostHog's internal analytics. The digest is
-    stable per distinct_id, which is all the telemetry needs: counting affected users and
-    spotting one user retrying versus many users failing.
-    """
+def _parsed_uuid(value: object) -> str | None:
+    """Return an untrusted request value as a canonical UUID string, or None if it isn't one."""
     if not isinstance(value, str) or not value:
         return None
-    return hashlib.sha256(value.encode()).hexdigest()[:16]
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
+def _record_failed_send(team: Team, request_data: Mapping[str, Any], error_fields: list[str]) -> str | None:
+    """Retain a rejected submission so its submitter can be followed up with.
+
+    Returns the record id, or None when the request identified nobody to follow up with.
+    The submitter is a customer's own end user, so their identifiers stay in the customer's
+    team-scoped data here rather than being copied into PostHog's internal analytics.
+    """
+    distinct_id = _bounded_text(request_data.get("distinct_id") or request_data.get("identity_distinct_id"), 400)
+    widget_session_id = _parsed_uuid(request_data.get("widget_session_id"))
+    if not distinct_id and not widget_session_id:
+        return None
+
+    failure = WidgetSubmissionFailure.objects.for_team(team.id).create(
+        team=team,
+        distinct_id=distinct_id,
+        widget_session_id=widget_session_id,
+        ticket_id=_parsed_uuid(request_data.get("ticket_id")),
+        error_fields=error_fields,
+        identity_attempted=bool(request_data.get("identity_distinct_id") and request_data.get("identity_hash")),
+    )
+    return str(failure.id)
 
 
 def _report_failed_send(team: Team, request_data: Mapping[str, Any], errors: Mapping[str, Any]) -> None:
@@ -97,24 +112,26 @@ def _report_failed_send(team: Team, request_data: Mapping[str, Any], errors: Map
             if isinstance(key, str) and isinstance(value, str):
                 session_context_field_lengths[key[:100]] = len(value)
 
-    identity_distinct_id = request_data.get("identity_distinct_id")
+    error_fields = sorted(errors.keys())
+
+    # A failed record must not cost us the counter, so it's caught separately.
+    failure_id = None
+    try:
+        failure_id = _record_failed_send(team, request_data, error_fields)
+    except Exception as e:
+        capture_exception(e)
+
     report_team_action(
         team,
         "support ticket send failed",
         {
             "channel_source": "widget",
             "reason": "validation_error",
-            "error_fields": sorted(errors.keys()),
+            "error_fields": error_fields,
             "session_context_field_count": session_context_field_count,
             "session_context_field_lengths": session_context_field_lengths,
             "team_id": team.id,
-            "organization_id": str(team.organization_id),
-            "submitted_distinct_id_hash": _pseudonymized_distinct_id(
-                request_data.get("distinct_id") or identity_distinct_id
-            ),
-            "submitted_widget_session_id": _bounded_identifier(request_data.get("widget_session_id")),
-            "submitted_ticket_id": _bounded_identifier(request_data.get("ticket_id")),
-            "identity_attempted": bool(identity_distinct_id and request_data.get("identity_hash")),
+            "submission_failure_id": failure_id,
         },
     )
 
