@@ -10,9 +10,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { RecordingSnapshot, SessionRecordingType } from '~/types'
 
-import { setupSessionRecordingTest } from '../__mocks__/test-setup'
-import { markLoaded } from '../snapshot-store/test-utils'
-import { snapshotDataLogic } from '../snapshotDataLogic'
+import { blobSourcesFrom, seedLoadedSources, setupSessionRecordingTest } from '../__mocks__/test-setup'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -250,12 +248,7 @@ describe('playerInspectorLogic', () => {
         const START = new Date('2025-01-01T00:00:00.000Z').valueOf()
         const MATCHING_EVENT_TS = START + 10000
         // Two one-minute blob sources, so a target inside the first one can be left unloaded
-        const SOURCES = ['8', '9'].map((blobKey, index) => ({
-            source: 'blob_v2',
-            blob_key: blobKey,
-            start_timestamp: new Date(START + index * 60000).toISOString(),
-            end_timestamp: new Date(START + (index + 1) * 60000).toISOString(),
-        }))
+        const SOURCES = blobSourcesFrom(START, ['8', '9'])
 
         const inc = (timestamp: number): RecordingSnapshot =>
             ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 1, data: {} }) as unknown as RecordingSnapshot
@@ -275,20 +268,6 @@ describe('playerInspectorLogic', () => {
                     },
                 ],
             },
-        }
-
-        // Seeds the snapshot store and the processed snapshots segments derive from, bypassing the
-        // network loading machinery.
-        const seedSources = (loaded: Record<number, RecordingSnapshot[]>): void => {
-            const snapshotLogic = snapshotDataLogic({ sessionRecordingId: '1' })
-            snapshotLogic.actions.loadSnapshotSourcesSuccess(SOURCES as any)
-            const processed: RecordingSnapshot[] = []
-            for (const [index, snapshots] of Object.entries(loaded)) {
-                markLoaded(snapshotLogic.cache.store, Number(index), snapshots)
-                processed.push(...snapshots)
-            }
-            snapshotLogic.actions.storeUpdated()
-            dataLogic.actions.setProcessedSnapshots(processed)
         }
 
         const announceRecordingMeta = (): void => {
@@ -319,7 +298,7 @@ describe('playerInspectorLogic', () => {
 
         it('does not seek to a matching event that can never be rendered', async () => {
             // everything is loaded and no full snapshot exists anywhere, so no position is renderable
-            seedSources({ 0: [inc(START), inc(MATCHING_EVENT_TS)], 1: [inc(START + 61000)] })
+            seedLoadedSources('1', SOURCES, { 0: [inc(START), inc(MATCHING_EVENT_TS)], 1: [inc(START + 61000)] })
 
             const playerLogic = sessionRecordingPlayerLogic(matchingProps)
             const matchingLogic = playerInspectorLogic(matchingProps)

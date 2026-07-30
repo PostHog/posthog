@@ -7,22 +7,15 @@ import { EventType } from 'posthog-js/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingType } from '~/types'
 
-import { setupSessionRecordingTest } from './__mocks__/test-setup'
+import { blobSourcesFrom, seedLoadedSources, setupSessionRecordingTest } from './__mocks__/test-setup'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
-import { markLoaded } from './snapshot-store/test-utils'
-import { snapshotDataLogic } from './snapshotDataLogic'
 
 jest.mock('./snapshot-processing/DecompressionWorkerManager')
 
 const START = new Date('2025-01-01T00:00:00.000Z').valueOf()
-const SOURCES = ['8', '9'].map((blobKey, index) => ({
-    source: 'blob_v2',
-    blob_key: blobKey,
-    start_timestamp: new Date(START + index * 60000).toISOString(),
-    end_timestamp: new Date(START + (index + 1) * 60000).toISOString(),
-}))
+const SOURCES = blobSourcesFrom(START, ['8', '9'])
 
 const inc = (timestamp: number): RecordingSnapshot =>
     ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 1, data: {} }) as unknown as RecordingSnapshot
@@ -40,11 +33,7 @@ describe('PlayerFrameOverlay', () => {
         setupSessionRecordingTest()
         const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '1' })
         coordinator.mount()
-        const snapshotLogic = snapshotDataLogic({ sessionRecordingId: '1' })
-        snapshotLogic.actions.loadSnapshotSourcesSuccess(SOURCES as any)
-        markLoaded(snapshotLogic.cache.store, 0, [inc(START), inc(START + 1000)])
-        snapshotLogic.actions.storeUpdated()
-        coordinator.actions.setProcessedSnapshots([inc(START), inc(START + 1000)])
+        seedLoadedSources('1', SOURCES, { 0: [inc(START), inc(START + 1000)] })
         coordinator.actions.loadRecordingMetaSuccess({
             id: '1',
             start_time: new Date(START).toISOString(),

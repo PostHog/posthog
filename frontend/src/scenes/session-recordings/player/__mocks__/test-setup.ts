@@ -4,11 +4,14 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, SessionRecordingSnapshotSource } from '~/types'
+import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../../__mocks__/recording_snapshots'
+import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
+import { markLoaded } from '../snapshot-store/test-utils'
+import { snapshotDataLogic } from '../snapshotDataLogic'
 
 jest.mock('../snapshot-processing/DecompressionWorkerManager')
 
@@ -122,6 +125,37 @@ export function overrideSessionRecordingMocks(options: Omit<SessionRecordingTest
         patch: { ...defaults.patch, ...patchMocks },
         delete: { ...defaults.delete, ...deleteMocks },
     })
+}
+
+/** One-minute-per-source blob fixtures, for tests that need more than one source to seed. */
+export function blobSourcesFrom(startTimestamp: number, blobKeys: string[]): SessionRecordingSnapshotSource[] {
+    return blobKeys.map((blobKey, index) => ({
+        source: 'blob_v2',
+        blob_key: blobKey,
+        start_timestamp: new Date(startTimestamp + index * 60000).toISOString(),
+        end_timestamp: new Date(startTimestamp + (index + 1) * 60000).toISOString(),
+    }))
+}
+
+/**
+ * Seeds the snapshot store and the processed snapshots segments derive from, bypassing the network
+ * loading machinery. Source indices absent from `loaded` stay unfetched, which is how a test puts a
+ * seek target in a segment the player can't render yet.
+ */
+export function seedLoadedSources(
+    sessionRecordingId: string,
+    sources: SessionRecordingSnapshotSource[],
+    loaded: Record<number, RecordingSnapshot[]>
+): void {
+    const snapshotLogic = snapshotDataLogic({ sessionRecordingId })
+    snapshotLogic.actions.loadSnapshotSourcesSuccess(sources)
+    const processed: RecordingSnapshot[] = []
+    for (const [index, snapshots] of Object.entries(loaded)) {
+        markLoaded(snapshotLogic.cache.store, Number(index), snapshots)
+        processed.push(...snapshots)
+    }
+    snapshotLogic.actions.storeUpdated()
+    sessionRecordingDataCoordinatorLogic({ sessionRecordingId }).actions.setProcessedSnapshots(processed)
 }
 
 export function createDifferentiatedQueryHandler(
