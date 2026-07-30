@@ -11,6 +11,7 @@ import {
     BreakdownColorConfig,
     computeTileFallbackTokens,
     findBreakdownColorConfig,
+    getBreakdownPropertyKey,
 } from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
@@ -657,6 +658,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 dashboardDataColorTheme: DataColorTheme | null,
                 autoBreakdownColorsEnabled: boolean
             ) => {
+                const breakdownPropertyKey = getBreakdownPropertyKey(breakdownFilter)
                 // On dashboards with auto colors, series without a value override fill the
                 // palette slots the tile's overrides don't use, because the plain
                 // position-based fallback can land on the same slot as an override shown on
@@ -674,7 +676,8 @@ export const retentionLogic = kea<retentionLogicType>([
                                       findBreakdownColorConfig(
                                           dashboardBreakdownColors,
                                           breakdownValue,
-                                          breakdownFilter?.breakdown_type
+                                          breakdownFilter?.breakdown_type,
+                                          breakdownPropertyKey
                                       )?.colorToken ?? null,
                               })),
                               Object.keys(fallbackTheme).length
@@ -689,7 +692,8 @@ export const retentionLogic = kea<retentionLogicType>([
                     const colorOverride = findBreakdownColorConfig(
                         dashboardBreakdownColors,
                         rawBreakdownValue,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter?.breakdown_type,
+                        breakdownPropertyKey
                     )
 
                     if (colorOverride?.colorToken) {

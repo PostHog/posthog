@@ -3,6 +3,7 @@ import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, Query
 
 import {
     BreakdownColorConfig,
+    BreakdownValueAndType,
     MULTI_BREAKDOWN_SEPARATOR,
     applyAutoBreakdownColors,
     buildSharedBreakdownValueLookup,
@@ -10,6 +11,7 @@ import {
     extractBreakdownValues,
     extractBreakdownValuesByTile,
     findBreakdownColorConfig,
+    getBreakdownPropertyKey,
     hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
@@ -44,14 +46,67 @@ describe('dashboardBreakdownColors', () => {
         },
     })
 
-    const trendsTile = (result: any[]): DashboardTile<QueryBasedInsightModel> =>
+    const trendsTile = (result: any[], breakdownFilter?: Record<string, any>): DashboardTile<QueryBasedInsightModel> =>
         createTestTile({
             result,
             query: {
                 kind: NodeKind.InsightVizNode,
-                source: { kind: NodeKind.TrendsQuery },
+                source: { kind: NodeKind.TrendsQuery, ...(breakdownFilter ? { breakdownFilter } : {}) },
             } as InsightVizNode<InsightQueryNode>,
         })
+
+    describe('getBreakdownPropertyKey', () => {
+        it.each([
+            ['no filter', undefined, null],
+            ['a filter without a breakdown', { breakdown_type: 'event' }, null],
+            ['a single event breakdown', { breakdown: '$browser', breakdown_type: 'event' }, 'event::$browser'],
+            ['a single breakdown with the type defaulted', { breakdown: '$browser' }, 'event::$browser'],
+            [
+                'a one-entry multi breakdown',
+                { breakdowns: [{ property: '$browser', type: 'event' }] },
+                'event::$browser',
+            ],
+            [
+                'a one-entry multi breakdown with the type defaulted',
+                { breakdowns: [{ property: '$browser' }] },
+                'event::$browser',
+            ],
+            ['a person property', { breakdown: '$browser', breakdown_type: 'person' }, 'person::$browser'],
+            [
+                'a group property, keyed by its group type index',
+                { breakdown: 'industry', breakdown_type: 'group', breakdown_group_type_index: 2 },
+                'group:2:industry',
+            ],
+            [
+                'a stale group type index on a non-group breakdown',
+                { breakdown: '$browser', breakdown_type: 'event', breakdown_group_type_index: 2 },
+                'event::$browser',
+            ],
+            [
+                'a cohort breakdown, regardless of its cohort ids',
+                { breakdown: [1, 2], breakdown_type: 'cohort' },
+                'cohort',
+            ],
+            [
+                'display options, which stay out of the key',
+                {
+                    breakdown: '$current_url',
+                    breakdown_type: 'event',
+                    breakdown_normalize_url: true,
+                    breakdown_histogram_bin_count: 10,
+                    breakdown_limit: 25,
+                },
+                'event::$current_url',
+            ],
+            [
+                'a multi breakdown, joining parts in order',
+                { breakdowns: [{ property: '$browser' }, { property: '$os', type: 'person' }] },
+                `event::$browser${MULTI_BREAKDOWN_SEPARATOR}person::$os`,
+            ],
+        ] as const)('normalizes %s', (_name, breakdownFilter, expected) => {
+            expect(getBreakdownPropertyKey(breakdownFilter as any)).toEqual(expected)
+        })
+    })
 
     describe('extractBreakdownValues', () => {
         it('returns empty array for null input', () => {
@@ -213,9 +268,13 @@ describe('dashboardBreakdownColors', () => {
             ]
 
             expect(extractBreakdownValues(tiles)).toEqual([
-                { breakdownValue: 'Chrome', breakdownType: 'event' },
-                { breakdownValue: 'Firefox', breakdownType: 'event' },
-                { breakdownValue: '$$_posthog_breakdown_other_$$', breakdownType: 'event' },
+                { breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+                { breakdownValue: 'Firefox', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+                {
+                    breakdownValue: '$$_posthog_breakdown_other_$$',
+                    breakdownType: 'event',
+                    breakdownProperty: 'event::$browser',
+                },
             ])
         })
 
@@ -257,7 +316,7 @@ describe('dashboardBreakdownColors', () => {
             expect(extractBreakdownValues([tile])).toEqual([])
         })
 
-        it('handles cohort breakdowns', () => {
+        it('handles cohort breakdowns, keying them all to the shared cohort property', () => {
             const cohortTile = (values: number[][]): DashboardTile<QueryBasedInsightModel> =>
                 createTestTile({
                     result: values.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value })),
@@ -265,16 +324,56 @@ describe('dashboardBreakdownColors', () => {
                         kind: NodeKind.InsightVizNode,
                         source: {
                             kind: NodeKind.TrendsQuery,
-                            breakdownFilter: { breakdown_type: 'cohort' },
+                            breakdownFilter: {
+                                breakdown: values.flat(),
+                                breakdown_type: 'cohort',
+                            },
                         },
                     } as InsightVizNode<InsightQueryNode>,
                 })
 
             // cohorts 1 and 3 lead their charts and tie, so value order decides; 2 trails its chart
             expect(extractBreakdownValues([cohortTile([[1], [2]]), cohortTile([[3]])])).toEqual([
-                { breakdownValue: '1', breakdownType: 'cohort' },
-                { breakdownValue: '3', breakdownType: 'cohort' },
-                { breakdownValue: '2', breakdownType: 'cohort' },
+                { breakdownValue: '1', breakdownType: 'cohort', breakdownProperty: 'cohort' },
+                { breakdownValue: '3', breakdownType: 'cohort', breakdownProperty: 'cohort' },
+                { breakdownValue: '2', breakdownType: 'cohort', breakdownProperty: 'cohort' },
+            ])
+        })
+
+        it('unifies single and multi form of one property into one scoped entry', () => {
+            const tiles = [
+                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], {
+                    breakdown: '$browser',
+                    breakdown_type: 'event',
+                }),
+                trendsTile(
+                    [
+                        { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                        { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                    ],
+                    { breakdowns: [{ property: '$browser' }] }
+                ),
+            ]
+
+            expect(extractBreakdownValues(tiles)).toEqual([
+                { breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+                { breakdownValue: 'Firefox', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+            ])
+        })
+
+        it('clusters values by property in tile order before ranking within each property', () => {
+            const tiles = [
+                trendsTile([{ action: { order: 0 }, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
+                trendsTile([{ action: { order: 0 }, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
+                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+                trendsTile([{ action: { order: 0 }, breakdown_value: ['Chrome'] }], { breakdown: '$browser' }),
+            ]
+
+            // Chrome is on more tiles, but $os tiles come first on the dashboard
+            expect(extractBreakdownValues(tiles)).toEqual([
+                { breakdownValue: 'Mac OS X', breakdownType: 'event', breakdownProperty: 'event::$os' },
+                { breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' },
             ])
         })
     })
@@ -298,6 +397,28 @@ describe('dashboardBreakdownColors', () => {
                     { breakdownValue: 'Firefox', breakdownType: 'event' },
                 ],
                 [{ breakdownValue: 'Chrome', breakdownType: 'event' }],
+            ])
+        })
+
+        it('keeps the funnel baseline property-less while the funnel values are scoped', () => {
+            const tile = createTestTile({
+                result: [{ breakdown_value: ['Chrome'] }],
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        funnelsFilter: { funnelVizType: FunnelVizType.Steps },
+                        breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    },
+                } as InsightVizNode<InsightQueryNode>,
+            })
+
+            // one baseline pin must keep covering every funnel tile, whatever it breaks down by
+            expect(extractBreakdownValuesByTile([tile])).toEqual([
+                [
+                    { breakdownValue: 'Baseline', breakdownType: 'event' },
+                    { breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+                ],
             ])
         })
     })
@@ -559,6 +680,117 @@ describe('dashboardBreakdownColors', () => {
 
             expect(result).toEqual([...pins, autoConfig('Three', 'preset-1')])
         })
+
+        const scopedValue = (breakdownValue: string, breakdownProperty: string): BreakdownValueAndType => ({
+            breakdownValue,
+            breakdownType: 'event',
+            breakdownProperty,
+        })
+        const scopedTiles = (breakdownProperty: string, ...breakdownValues: string[]): BreakdownValueAndType[][] => [
+            breakdownValues.map((v) => scopedValue(v, breakdownProperty)),
+            breakdownValues.map((v) => scopedValue(v, breakdownProperty)),
+        ]
+        const scopedAutoConfig = (
+            breakdownValue: string,
+            breakdownProperty: string,
+            colorToken: BreakdownColorConfig['colorToken']
+        ): BreakdownColorConfig => ({
+            breakdownValue,
+            breakdownType: 'event',
+            breakdownProperty,
+            colorToken,
+            source: 'auto',
+        })
+
+        it('starts each property over from the first palette slot', () => {
+            const result = applyAutoBreakdownColors(
+                [
+                    ...scopedTiles('event::$browser', 'Chrome', 'Firefox'),
+                    ...scopedTiles('event::$os', 'Mac OS X', 'Windows'),
+                ],
+                []
+            )
+
+            // properties are independent color worlds like standalone insights: their tiles
+            // never meet, so reusing slots across them is invisible and stretches the palette
+            expect(result).toEqual([
+                scopedAutoConfig('Chrome', 'event::$browser', 'preset-1'),
+                scopedAutoConfig('Mac OS X', 'event::$os', 'preset-1'),
+                scopedAutoConfig('Firefox', 'event::$browser', 'preset-2'),
+                scopedAutoConfig('Windows', 'event::$os', 'preset-2'),
+            ])
+        })
+
+        it('keeps one value under different properties apart', () => {
+            const result = applyAutoBreakdownColors(
+                [...scopedTiles('event::is_admin', 'true'), ...scopedTiles('event::is_mobile', 'true')],
+                []
+            )
+
+            // "true" under two boolean properties is a coincidence of names, not one series:
+            // each property gets its own entry, free to diverge via pinning
+            expect(result).toEqual([
+                scopedAutoConfig('true', 'event::is_admin', 'preset-1'),
+                scopedAutoConfig('true', 'event::is_mobile', 'preset-1'),
+            ])
+        })
+
+        it('does not treat a value on single tiles of two different properties as shared', () => {
+            const result = applyAutoBreakdownColors(
+                [[scopedValue('true', 'event::is_admin')], [scopedValue('true', 'event::is_mobile')]],
+                []
+            )
+
+            expect(result).toEqual([])
+        })
+
+        it('lets a property-less pin cover its value and claim its slot under every property', () => {
+            const pin: BreakdownColorConfig = {
+                breakdownValue: 'Chrome',
+                breakdownType: 'event',
+                colorToken: 'preset-1',
+                source: 'manual',
+            }
+
+            const result = applyAutoBreakdownColors(
+                [
+                    ...scopedTiles('event::$browser', 'Chrome', 'Firefox'),
+                    ...scopedTiles('event::browser_name', 'Chrome', 'Opera'),
+                ],
+                [pin]
+            )
+
+            // the legacy pin matches Chrome under both properties, so neither property
+            // assigns Chrome again and both hand out slots around the pinned one
+            expect(result).toEqual([
+                pin,
+                scopedAutoConfig('Firefox', 'event::$browser', 'preset-2'),
+                scopedAutoConfig('Opera', 'event::browser_name', 'preset-2'),
+            ])
+        })
+
+        it('keeps a property-less auto entry covering its value, without a scoped duplicate', () => {
+            const legacy = autoConfig('Chrome', 'preset-2')
+
+            const result = applyAutoBreakdownColors(scopedTiles('event::$browser', 'Chrome'), [legacy])
+
+            // dashboards saved before property scoping keep their colors byte-for-byte
+            expect(result).toHaveLength(1)
+            expect(result[0]).toBe(legacy)
+        })
+
+        it('re-slots a displaced property-less auto entry off the slots its tiles already show', () => {
+            const existing: BreakdownColorConfig[] = [
+                scopedAutoConfig('Alpha', 'event::$browser', 'preset-1'),
+                autoConfig('Zulu', 'preset-1'),
+            ]
+
+            const result = applyAutoBreakdownColors(scopedTiles('event::$browser', 'Alpha', 'Zulu'), existing)
+
+            // the displaced legacy entry has no property of its own, but its tiles belong to
+            // $browser, whose used slots it must avoid to stay distinct on those charts
+            expect(result).toEqual([existing[0], autoConfig('Zulu', 'preset-2')])
+        })
     })
 
     describe('buildSharedBreakdownValueLookup', () => {
@@ -574,6 +806,31 @@ describe('dashboardBreakdownColors', () => {
             expect(isShared({ breakdownValue: 'Chrome', breakdownType: 'event' })).toBe(true)
             expect(isShared({ breakdownValue: 'Firefox', breakdownType: 'event' })).toBe(false)
             expect(isShared({ breakdownValue: 'Chrome', breakdownType: 'person' })).toBe(false)
+        })
+
+        it('scopes sharing to one property', () => {
+            const isShared = buildSharedBreakdownValueLookup([
+                [
+                    { breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+                    { breakdownValue: 'true', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+                ],
+                [{ breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' }],
+                [{ breakdownValue: 'true', breakdownType: 'event', breakdownProperty: 'event::is_admin' }],
+            ])
+
+            expect(
+                isShared({ breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' })
+            ).toBe(true)
+            // "true" is on two tiles, but of different properties, so neither side is shared
+            expect(
+                isShared({ breakdownValue: 'true', breakdownType: 'event', breakdownProperty: 'event::$browser' })
+            ).toBe(false)
+            expect(
+                isShared({ breakdownValue: 'true', breakdownType: 'event', breakdownProperty: 'event::is_admin' })
+            ).toBe(false)
+            // property-less legacy entries follow the value's best single-property tile count
+            expect(isShared({ breakdownValue: 'true', breakdownType: 'event' })).toBe(false)
+            expect(isShared({ breakdownValue: 'Chrome', breakdownType: 'event' })).toBe(true)
         })
     })
 
@@ -683,6 +940,31 @@ describe('dashboardBreakdownColors', () => {
 
             expect(merged).toEqual([{ breakdownValue: '123', breakdownType: 'event', colorToken: 'preset-1' }])
         })
+
+        it('keeps scoped and property-less entries for one value separate, deduplicating within each scope', () => {
+            const scopedPin: BreakdownColorConfig = {
+                breakdownValue: 'Chrome',
+                breakdownType: 'event',
+                breakdownProperty: 'event::$browser',
+                colorToken: 'preset-2',
+                source: 'manual',
+            }
+
+            const merged = mergeBreakdownColorConfigs(
+                [scopedPin],
+                [
+                    { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' },
+                    { ...scopedPin, colorToken: 'preset-3' },
+                ]
+            )
+
+            // the scoped pin shadows its persisted version but not the legacy one, which
+            // still colors Chrome under other properties
+            expect(merged).toEqual([
+                scopedPin,
+                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' },
+            ])
+        })
     })
 
     describe('findBreakdownColorConfig', () => {
@@ -717,6 +999,28 @@ describe('dashboardBreakdownColors', () => {
         it('returns undefined for null or undefined dataset values', () => {
             expect(findBreakdownColorConfig(configs, undefined, 'event')).toBeUndefined()
             expect(findBreakdownColorConfig(configs, null, 'event')).toBeUndefined()
+        })
+
+        it('prefers a property-scoped entry and falls back to a property-less one', () => {
+            const scopedConfigs: BreakdownColorConfig[] = [
+                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' },
+                {
+                    breakdownValue: 'Chrome',
+                    breakdownType: 'event',
+                    breakdownProperty: 'event::$browser',
+                    colorToken: 'preset-2',
+                },
+            ]
+
+            // the scoped entry wins for its own property even though the legacy one is listed first
+            expect(findBreakdownColorConfig(scopedConfigs, 'Chrome', 'event', 'event::$browser')?.colorToken).toBe(
+                'preset-2'
+            )
+            // under any other property, and without property context, the legacy entry applies
+            expect(findBreakdownColorConfig(scopedConfigs, 'Chrome', 'event', 'event::browser_name')?.colorToken).toBe(
+                'preset-1'
+            )
+            expect(findBreakdownColorConfig(scopedConfigs, 'Chrome', 'event')?.colorToken).toBe('preset-1')
         })
     })
 })

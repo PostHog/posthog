@@ -9,6 +9,7 @@ import {
     BreakdownColorConfig,
     computeTileFallbackTokens,
     findBreakdownColorConfig,
+    getBreakdownPropertyKey,
 } from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
@@ -1265,6 +1266,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
                 disableFunnelBreakdownBaseline: boolean
             ) => {
+                const breakdownPropertyKey = getBreakdownPropertyKey(breakdownFilter)
                 // The dashboard's colors live in another logic and are read at call time, so the
                 // per-tile fallback map is memoized here on the identity of what it derives from.
                 let fallbackSource: { overrides: BreakdownColorConfig[]; theme: DataColorTheme } | null = null
@@ -1285,7 +1287,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                                 findBreakdownColorConfig(
                                     overrides,
                                     JSON.parse(getFunnelDatasetKey(breakdown))['breakdown_value'],
-                                    breakdownFilter?.breakdown_type
+                                    breakdownFilter?.breakdown_type,
+                                    breakdownPropertyKey
                                 )?.colorToken ?? null
                             hasDashboardOverride = hasDashboardOverride || !!overrideToken
                             return {
@@ -1313,7 +1316,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     const colorOverride = findBreakdownColorConfig(
                         logic?.values.effectiveBreakdownColors,
                         breakdownValue,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter?.breakdown_type,
+                        breakdownPropertyKey
                     )
 
                     if (colorOverride?.colorToken) {

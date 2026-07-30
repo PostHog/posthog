@@ -11,11 +11,15 @@ export type BreakdownColorConfig = {
     colorToken: DataColorToken | null
     breakdownValue: string
     breakdownType: BreakdownFilter['breakdown_type']
+    /** Normalized breakdown property the value belongs to (see getBreakdownPropertyKey).
+     * Scopes the color to tiles breaking down by that property. Entries without one predate
+     * property scoping and match their value under any property. */
+    breakdownProperty?: string
     /** Entries without a source predate auto-assignment and are treated as manual pins. */
     source?: BreakdownColorSource
 }
 
-export type BreakdownValueAndType = Pick<BreakdownColorConfig, 'breakdownValue' | 'breakdownType'>
+export type BreakdownValueAndType = Pick<BreakdownColorConfig, 'breakdownValue' | 'breakdownType' | 'breakdownProperty'>
 
 /** Label of the synthetic baseline row funnel insights contribute to the colors table. */
 export const FUNNEL_BASELINE_BREAKDOWN_LABEL = 'Baseline'
@@ -24,6 +28,11 @@ export const FUNNEL_BASELINE_BREAKDOWN_LABEL = 'Baseline'
  * values can't realistically contain, so an array like ["a", "b"] never collides with a scalar
  * value like "a::b" (the display separator, which does occur in real property values). */
 export const MULTI_BREAKDOWN_SEPARATOR = '\u001f'
+
+/** Property key of every cohort breakdown. Cohort ids identify globally rather than per
+ * property, so all cohort breakdowns form one color group, matching their pre-scoping
+ * behavior of one identity per cohort id. */
+export const COHORT_BREAKDOWN_PROPERTY_KEY = 'cohort'
 
 /** Breakdown values arrive as string | number | boolean | array depending on insight type and
  * persistence round-trips, while configs compare with strict equality. One canonical string form
@@ -40,32 +49,113 @@ export function denormalizeBreakdownValue(value: string): string | string[] {
     return value.includes(MULTI_BREAKDOWN_SEPARATOR) ? value.split(MULTI_BREAKDOWN_SEPARATOR) : value
 }
 
+// The group type index only means something for group breakdowns; other types can carry a
+// stale one, which must not split a property into two groups.
+function breakdownPropertyPart(
+    type: string,
+    groupTypeIndex: number | null | undefined,
+    property: string | number
+): string {
+    return `${type}:${type === 'group' ? (groupTypeIndex ?? '') : ''}:${property}`
+}
+
+/** Normalized identity of what a query breaks down by: type, group index, and property of
+ * each part, multi parts joined in order. A single breakdown and a one-entry multi breakdown
+ * of the same property produce the same key, so their values share colors. Display options
+ * (URL normalization, histogram bins, limits) stay out of the key because they change how
+ * values render, not which property they come from. Returns null without a breakdown. */
+export function getBreakdownPropertyKey(breakdownFilter: BreakdownFilter | null | undefined): string | null {
+    if (breakdownFilter?.breakdowns?.length) {
+        return breakdownFilter.breakdowns
+            .map((breakdown) =>
+                breakdownPropertyPart(breakdown.type ?? 'event', breakdown.group_type_index, breakdown.property)
+            )
+            .join(MULTI_BREAKDOWN_SEPARATOR)
+    }
+    if (breakdownFilter?.breakdown == null) {
+        return null
+    }
+    const breakdownType = breakdownFilter.breakdown_type ?? 'event'
+    if (breakdownType === 'cohort') {
+        return COHORT_BREAKDOWN_PROPERTY_KEY
+    }
+    return breakdownPropertyPart(
+        breakdownType,
+        breakdownFilter.breakdown_group_type_index,
+        Array.isArray(breakdownFilter.breakdown)
+            ? breakdownFilter.breakdown.join(MULTI_BREAKDOWN_SEPARATOR)
+            : breakdownFilter.breakdown
+    )
+}
+
+/** Property names of a key's parts, for display. Not meaningful for the cohort key. */
+export function breakdownPropertyKeyParts(key: string): string[] {
+    // The first two colon-separated fields are type and group index; the property itself may
+    // contain colons, so everything past the second one belongs to it.
+    return key.split(MULTI_BREAKDOWN_SEPARATOR).map((part) => part.split(':').slice(2).join(':'))
+}
+
 export function breakdownConfigMatches(
     config: BreakdownValueAndType,
     breakdownValue: unknown,
-    breakdownType: BreakdownFilter['breakdown_type'] | null | undefined
+    breakdownType: BreakdownFilter['breakdown_type'] | null | undefined,
+    breakdownPropertyKey?: string | null
 ): boolean {
     const normalized = normalizeBreakdownValue(breakdownValue)
+    if (normalized == null || normalizeBreakdownValue(config.breakdownValue) !== normalized) {
+        return false
+    }
+    // A property key already encodes each part's type, so scoped entries match on it alone;
+    // property-less entries keep the legacy value-and-type match under any property.
+    return config.breakdownProperty != null
+        ? config.breakdownProperty === breakdownPropertyKey
+        : config.breakdownType === (breakdownType ?? 'event')
+}
+
+/** True when two configs denote the same entry: same normalized value, type, and property
+ * scope. Unlike breakdownConfigMatches, a property-less entry only equals another
+ * property-less one, so scoped and legacy entries for one value can coexist. */
+export function breakdownConfigIdentityMatches(a: BreakdownValueAndType, b: BreakdownValueAndType): boolean {
     return (
-        normalized != null &&
-        normalizeBreakdownValue(config.breakdownValue) === normalized &&
-        config.breakdownType === (breakdownType ?? 'event')
+        normalizeBreakdownValue(a.breakdownValue) === normalizeBreakdownValue(b.breakdownValue) &&
+        (a.breakdownType ?? 'event') === (b.breakdownType ?? 'event') &&
+        (a.breakdownProperty ?? null) === (b.breakdownProperty ?? null)
     )
 }
 
 export function findBreakdownColorConfig(
     configs: BreakdownColorConfig[] | undefined | null,
     breakdownValue: unknown,
-    breakdownType: BreakdownFilter['breakdown_type'] | null | undefined
+    breakdownType: BreakdownFilter['breakdown_type'] | null | undefined,
+    breakdownPropertyKey?: string | null
 ): BreakdownColorConfig | undefined {
     if (normalizeBreakdownValue(breakdownValue) == null) {
         return undefined
     }
-    return configs?.find((config) => breakdownConfigMatches(config, breakdownValue, breakdownType))
+    // A property-scoped entry beats a property-less one, which acts as a fallback pin
+    // across all properties.
+    const scoped =
+        breakdownPropertyKey != null
+            ? configs?.find(
+                  (config) =>
+                      config.breakdownProperty != null &&
+                      breakdownConfigMatches(config, breakdownValue, breakdownType, breakdownPropertyKey)
+              )
+            : undefined
+    return (
+        scoped ??
+        configs?.find(
+            (config) =>
+                config.breakdownProperty == null &&
+                breakdownConfigMatches(config, breakdownValue, breakdownType, breakdownPropertyKey)
+        )
+    )
 }
 
-/** Merge configs by (breakdownValue, breakdownType), earlier lists winning over later ones.
- * Values are normalized on the way out, migrating legacy non-string entries on the next save. */
+/** Merge configs by (breakdownValue, breakdownType, breakdownProperty), earlier lists winning
+ * over later ones. Scoped and property-less entries for the same value stay separate, so a
+ * scoped pin can shadow a legacy one per property without erasing it elsewhere. Values are
+ * normalized on the way out, migrating legacy non-string entries on the next save. */
 export function mergeBreakdownColorConfigs(...configLists: BreakdownColorConfig[][]): BreakdownColorConfig[] {
     const merged: BreakdownColorConfig[] = []
     for (const configs of configLists) {
@@ -74,7 +164,7 @@ export function mergeBreakdownColorConfigs(...configLists: BreakdownColorConfig[
             if (breakdownValue == null) {
                 continue
             }
-            if (!merged.some((c) => breakdownConfigMatches(c, breakdownValue, config.breakdownType))) {
+            if (!merged.some((c) => breakdownConfigIdentityMatches(c, config))) {
                 merged.push({ ...config, breakdownValue })
             }
         }
@@ -87,6 +177,16 @@ function funnelVizRendersBreakdownSeries(funnelVizType: FunnelVizType | undefine
     return (
         funnelVizType === undefined || funnelVizType === FunnelVizType.Steps || funnelVizType === FunnelVizType.Trends
     )
+}
+
+function makeBreakdownValue(
+    breakdownValue: string,
+    breakdownType: BreakdownFilter['breakdown_type'],
+    breakdownPropertyKey: string | null
+): BreakdownValueAndType {
+    return breakdownPropertyKey == null
+        ? { breakdownValue, breakdownType }
+        : { breakdownValue, breakdownType, breakdownProperty: breakdownPropertyKey }
 }
 
 function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>): BreakdownValueAndType[] {
@@ -103,7 +203,10 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
         }
         const isStepsViz = funnelVizType === undefined || funnelVizType === FunnelVizType.Steps
         const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
-        // Only the steps visualization renders a baseline series.
+        const propertyKey = getBreakdownPropertyKey(querySource.breakdownFilter)
+        // Only the steps visualization renders a baseline series. The baseline is a funnel
+        // sentinel rather than a value of the breakdown property, so it stays property-less
+        // and one pin covers it on every funnel tile.
         breakdownValues = isStepsViz
             ? [
                   {
@@ -115,25 +218,29 @@ function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>)
         tile.insight?.result?.forEach((result: any) => {
             const key = getFunnelDatasetKey(result)
             const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
-            breakdownValues.push(breakdownValue == null ? null : { breakdownValue, breakdownType })
+            breakdownValues.push(
+                breakdownValue == null ? null : makeBreakdownValue(breakdownValue, breakdownType, propertyKey)
+            )
         })
     } else if (isTrendsQuery(querySource)) {
         const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
+        const propertyKey = getBreakdownPropertyKey(querySource.breakdownFilter)
         breakdownValues =
             tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
                 const key = getTrendDatasetKey(result)
                 const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
-                return breakdownValue == null ? null : { breakdownValue, breakdownType }
+                return breakdownValue == null ? null : makeBreakdownValue(breakdownValue, breakdownType, propertyKey)
             }) || []
     } else if (isRetentionQuery(querySource) && hasBreakdownFilter(querySource.breakdownFilter)) {
         const breakdownType = querySource.breakdownFilter.breakdown_type || 'event'
+        const propertyKey = getBreakdownPropertyKey(querySource.breakdownFilter)
         // Retention results carry breakdown_value directly. There is no dataset-key helper
         // like trends/funnels have, because retention has no resultCustomizations whose
         // persisted keys the extraction would need to stay in sync with.
         breakdownValues =
             tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
                 const breakdownValue = normalizeBreakdownValue(result.breakdown_value)
-                return breakdownValue == null ? null : { breakdownValue, breakdownType }
+                return breakdownValue == null ? null : makeBreakdownValue(breakdownValue, breakdownType, propertyKey)
             }) || []
     }
 
@@ -182,21 +289,35 @@ export function hasUnresolvedBreakdownTiles(insightTiles: DashboardTile<QueryBas
     })
 }
 
-/** Deduplicated breakdown values across all tiles, ordered the way auto-assignment ranks
- * them, so the colors modal lists values in the order their colors are handed out. */
+/** Deduplicated breakdown values across all tiles, clustered by breakdown property in the
+ * order properties first appear on the dashboard, then ordered within each property the way
+ * auto-assignment ranks them, so the colors modal lists values the way colors are handed out. */
 export function extractBreakdownValues(
     insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
 ): BreakdownValueAndType[] {
     const tileBreakdownValues = extractBreakdownValuesByTile(insightTiles)
+    const stats = collectValueTileStats(tileBreakdownValues)
+    const compareAssignmentRank = buildAssignmentRankComparator(stats)
+    const propertyOrder = new Map<string | null, number>()
+    stats.tileProperties.forEach((property, tileIndex) => {
+        if (!propertyOrder.has(property)) {
+            propertyOrder.set(property, tileIndex)
+        }
+    })
     return tileBreakdownValues
         .flat()
         .reduce<BreakdownValueAndType[]>((acc, curr) => {
-            if (!acc.some((x) => x.breakdownValue === curr.breakdownValue && x.breakdownType === curr.breakdownType)) {
+            if (!acc.some((x) => breakdownConfigIdentityMatches(x, curr))) {
                 acc.push(curr)
             }
             return acc
         }, [])
-        .sort(buildAssignmentRankComparator(collectValueTileStats(tileBreakdownValues)))
+        .sort(
+            (a, b) =>
+                // Property-less rows (like the funnel baseline) sort ahead of the clusters.
+                (propertyOrder.get(a.breakdownProperty ?? null) ?? -1) -
+                    (propertyOrder.get(b.breakdownProperty ?? null) ?? -1) || compareAssignmentRank(a, b)
+        )
 }
 
 /** Sentinel rows keep their built-in muted/fixed treatment instead of an assigned palette color. */
@@ -221,35 +342,78 @@ function slotToPresetToken(slot: number): DataColorToken {
 
 // code-unit comparison, not localeCompare — assignment order must not depend on the client locale
 function compareAssignmentOrder(a: BreakdownValueAndType, b: BreakdownValueAndType): number {
+    const propertyA = a.breakdownProperty ?? ''
+    const propertyB = b.breakdownProperty ?? ''
     return (
         (a.breakdownType ?? 'event').localeCompare(b.breakdownType ?? 'event') ||
+        (propertyA < propertyB ? -1 : propertyA > propertyB ? 1 : 0) ||
         (a.breakdownValue < b.breakdownValue ? -1 : a.breakdownValue > b.breakdownValue ? 1 : 0)
     )
 }
 
-// A NUL escape cannot appear in a normalized value (the multi-breakdown separator is
-// \u001f), so value/type pairs cannot collide in this key space.
-function breakdownValueTileKey(value: BreakdownValueAndType): string {
+// NUL separators keep the fields from colliding: normalized values can't contain NUL, and
+// property keys join their parts with \u001f.
+function breakdownIdentityKey(value: BreakdownValueAndType): string {
+    return `${value.breakdownProperty ?? ''}\u0000${value.breakdownType ?? 'event'}\u0000${value.breakdownValue}`
+}
+
+function breakdownValueKey(value: BreakdownValueAndType): string {
     return `${value.breakdownType ?? 'event'}\u0000${value.breakdownValue}`
 }
 
-type ValueTileStats = Map<string, { value: BreakdownValueAndType; tiles: number[]; positionSum: number }>
+type TileStats = { tiles: number[]; positionSum: number }
+
+type ValueTileStats = {
+    /** Keyed by property, type, and value: the unit colors are assigned to. */
+    byIdentity: Map<string, TileStats & { value: BreakdownValueAndType }>
+    /** Keyed by type and value across all properties, for property-less legacy configs,
+     * which match their value wherever it appears. maxIdentityTiles is the largest tile
+     * count the value reaches under a single property, deciding sharing for such configs. */
+    byValue: Map<string, TileStats & { maxIdentityTiles: number }>
+    /** Property key of each tile, for per-property slot bookkeeping. */
+    tileProperties: (string | null)[]
+}
 
 function collectValueTileStats(tileBreakdownValues: BreakdownValueAndType[][]): ValueTileStats {
-    const valueTiles: ValueTileStats = new Map()
+    const byIdentity: ValueTileStats['byIdentity'] = new Map()
+    const byValue: ValueTileStats['byValue'] = new Map()
+    const tileProperties: (string | null)[] = []
     tileBreakdownValues.forEach((values, tileIndex) => {
+        // All real values of a tile share the tile's breakdown property; only sentinel rows
+        // (the funnel baseline) are property-less.
+        tileProperties.push(values.find((value) => value.breakdownProperty != null)?.breakdownProperty ?? null)
         values.forEach((value, position) => {
-            const key = breakdownValueTileKey(value)
-            const entry = valueTiles.get(key)
-            if (entry) {
-                entry.tiles.push(tileIndex)
-                entry.positionSum += position
+            const identityEntry = byIdentity.get(breakdownIdentityKey(value))
+            if (identityEntry) {
+                identityEntry.tiles.push(tileIndex)
+                identityEntry.positionSum += position
             } else {
-                valueTiles.set(key, { value, tiles: [tileIndex], positionSum: position })
+                byIdentity.set(breakdownIdentityKey(value), { value, tiles: [tileIndex], positionSum: position })
+            }
+            const valueEntry = byValue.get(breakdownValueKey(value))
+            if (valueEntry) {
+                valueEntry.tiles.push(tileIndex)
+                valueEntry.positionSum += position
+            } else {
+                byValue.set(breakdownValueKey(value), {
+                    tiles: [tileIndex],
+                    positionSum: position,
+                    maxIdentityTiles: 0,
+                })
             }
         })
     })
-    return valueTiles
+    for (const { value, tiles } of byIdentity.values()) {
+        const valueEntry = byValue.get(breakdownValueKey(value))!
+        valueEntry.maxIdentityTiles = Math.max(valueEntry.maxIdentityTiles, tiles.length)
+    }
+    return { byIdentity, byValue, tileProperties }
+}
+
+function statsOf(stats: ValueTileStats, value: BreakdownValueAndType): TileStats | undefined {
+    return value.breakdownProperty != null
+        ? stats.byIdentity.get(breakdownIdentityKey(value))
+        : stats.byValue.get(breakdownValueKey(value))
 }
 
 // Rank by re-use first, so the values shared by the most charts claim the earliest
@@ -258,11 +422,11 @@ function collectValueTileStats(tileBreakdownValues: BreakdownValueAndType[][]): 
 // which compares like the average because tile counts are equal whenever the sum is
 // reached. Plain value order settles full ties (e.g. values leading disjoint tiles).
 function buildAssignmentRankComparator(
-    valueTiles: ValueTileStats
+    stats: ValueTileStats
 ): (a: BreakdownValueAndType, b: BreakdownValueAndType) => number {
     return (a, b) => {
-        const entryA = valueTiles.get(breakdownValueTileKey(a))
-        const entryB = valueTiles.get(breakdownValueTileKey(b))
+        const entryA = statsOf(stats, a)
+        const entryB = statsOf(stats, b)
         return (
             (entryB?.tiles.length ?? 0) - (entryA?.tiles.length ?? 0) ||
             (entryA?.positionSum ?? 0) - (entryB?.positionSum ?? 0) ||
@@ -271,34 +435,41 @@ function buildAssignmentRankComparator(
     }
 }
 
-/** Membership test for values that appear on two or more tiles. Only those receive a
- * dashboard-wide auto color: cross-tile consistency is what the feature buys, and a value
- * unique to one tile would burn a palette slot every other tile then has to avoid. */
+/** Membership test for values that appear on two or more tiles of one breakdown property.
+ * Only those receive a dashboard-wide auto color: cross-tile consistency is what the feature
+ * buys, and it only means something between tiles breaking down by the same property. A
+ * value spread across different properties (say "true" under two boolean properties) is a
+ * coincidence of names, not one series to keep consistent. Property-less entries count the
+ * value's best tile count under any single property, so legacy configs prune the same way. */
 export function buildSharedBreakdownValueLookup(
     tileBreakdownValues: BreakdownValueAndType[][]
 ): (value: BreakdownValueAndType) => boolean {
-    const tileCounts = new Map<string, number>()
-    for (const values of tileBreakdownValues) {
-        for (const value of values) {
-            const key = breakdownValueTileKey(value)
-            tileCounts.set(key, (tileCounts.get(key) ?? 0) + 1)
-        }
-    }
-    return (value) => (tileCounts.get(breakdownValueTileKey(value)) ?? 0) >= 2
+    const stats = collectValueTileStats(tileBreakdownValues)
+    return (value) =>
+        value.breakdownProperty != null
+            ? (stats.byIdentity.get(breakdownIdentityKey(value))?.tiles.length ?? 0) >= 2
+            : (stats.byValue.get(breakdownValueKey(value))?.maxIdentityTiles ?? 0) >= 2
 }
 
-/** Complete existing configs with palette slots for breakdown values shared by 2+ tiles.
+/** Complete existing configs with palette slots for breakdown values shared by 2+ tiles of
+ * the same breakdown property.
+ *
+ * Each property is its own color world: slot exclusivity is tracked per property, so a
+ * dashboard breaking down by several properties reuses the palette from the first slot for
+ * each of them, the way standalone insights do, instead of exhausting it across the union of
+ * all values. Values under different properties may share a color; they never meet on one
+ * tile, since a tile breaks down by exactly one property. Property-less legacy entries keep
+ * matching their value everywhere and claim their slot in every property they appear under.
  *
  * Stability comes from persistence, not from the algorithm: manual pins never move, and
  * persisted auto entries keep their slots unless two of them meet on one tile with the same
  * slot (a new tile landed, or the entry predates collision-aware assignment); of such a
  * pair, the lower-ranked entry moves. Uncovered shared values and displaced entries are
- * ranked by how many charts re-use them, most first: cross-tile consistency is what an
- * auto color buys, so the values shared by the most charts claim the first palette slots.
- * Re-use ties break by the values' ranking within their own charts, then by a
- * locale-independent value order. Each value takes the lowest globally-unused slot while
- * slots last, then a slot its own tiles don't show yet, then the slot least used on those
- * tiles: a duplicate color on two different charts is invisible, on one chart it isn't.
+ * ranked by how many charts re-use them, most first. Re-use ties break by the values'
+ * ranking within their own charts, then by a locale-independent value order. Each value
+ * takes the lowest slot unused within its property while slots last, then a slot its own
+ * tiles don't show yet, then the slot least used on those tiles: a duplicate color on two
+ * different charts is invisible, on one chart it isn't.
  *
  * Returns the full config list: existing entries in their original order (re-slotted ones
  * replaced in place, so an unchanged dashboard round-trips deep-equal for the save diff),
@@ -313,20 +484,39 @@ export function applyAutoBreakdownColors(
         return [...existingConfigs]
     }
 
-    const valueTiles = collectValueTileStats(tileBreakdownValues)
-    const tilesOf = (value: BreakdownValueAndType): number[] =>
-        valueTiles.get(breakdownValueTileKey(value))?.tiles ?? []
-    const compareAssignmentRank = buildAssignmentRankComparator(valueTiles)
+    const stats = collectValueTileStats(tileBreakdownValues)
+    const tilesOf = (value: BreakdownValueAndType): number[] => statsOf(stats, value)?.tiles ?? []
+    const compareAssignmentRank = buildAssignmentRankComparator(stats)
 
-    // Per-tile slot usage drives collision checks; global usage keeps distinct values on
-    // distinct colors while free slots last.
+    // Per-tile slot usage drives collision checks; per-property usage keeps distinct values
+    // of one property on distinct colors while slots last.
     const tileSlotCounts: Map<number, number>[] = tileBreakdownValues.map(() => new Map())
-    const globalUsed = new Set<number>()
-    const claimSlot = (slot: number, tiles: number[]): void => {
-        globalUsed.add(slot)
+    const usedByProperty = new Map<string | null, Set<number>>()
+    const markUsed = (property: string | null, slot: number): void => {
+        let used = usedByProperty.get(property)
+        if (!used) {
+            used = new Set()
+            usedByProperty.set(property, used)
+        }
+        used.add(slot)
+    }
+    const claimSlot = (slot: number, tiles: number[], ownProperty: string | null): void => {
+        // Claiming for the entry's own property even without visible tiles keeps a
+        // temporarily hidden value's slot reserved within its property.
+        markUsed(ownProperty, slot)
         for (const tile of tiles) {
+            markUsed(stats.tileProperties[tile] ?? null, slot)
             tileSlotCounts[tile].set(slot, (tileSlotCounts[tile].get(slot) ?? 0) + 1)
         }
+    }
+    // The slots an entry must treat as taken: its own property's plus, for property-less
+    // entries spanning several properties, those of every property its tiles belong to.
+    const usedFor = (value: BreakdownValueAndType): Set<number> => {
+        const used = new Set(usedByProperty.get(value.breakdownProperty ?? null) ?? [])
+        for (const tile of tilesOf(value)) {
+            usedByProperty.get(stats.tileProperties[tile] ?? null)?.forEach((slot) => used.add(slot))
+        }
+        return used
     }
 
     // Manual pins are user intent and never move; they claim their slots first.
@@ -339,7 +529,7 @@ export function applyAutoBreakdownColors(
         if (config.source === 'auto') {
             autoConfigs.push(config)
         } else {
-            claimSlot(slot, tilesOf(config))
+            claimSlot(slot, tilesOf(config), config.breakdownProperty ?? null)
         }
     }
 
@@ -351,44 +541,55 @@ export function applyAutoBreakdownColors(
         const tiles = tilesOf(config)
         const collidesWithinTile = tiles.some((tile) => (tileSlotCounts[tile].get(slot) ?? 0) > 0)
         if (collidesWithinTile) {
-            displaced.push({ breakdownValue: config.breakdownValue, breakdownType: config.breakdownType })
+            displaced.push(
+                makeBreakdownValue(config.breakdownValue, config.breakdownType, config.breakdownProperty ?? null)
+            )
         } else {
-            claimSlot(slot, tiles)
+            claimSlot(slot, tiles, config.breakdownProperty ?? null)
         }
     }
 
-    const uncovered = [...valueTiles.values()]
+    const uncovered = [...stats.byIdentity.values()]
         .filter(({ tiles }) => tiles.length >= 2)
         .map(({ value }) => value)
         .filter(
             (value) =>
                 isAutoAssignableBreakdownValue(value.breakdownValue) &&
-                !findBreakdownColorConfig(existingConfigs, value.breakdownValue, value.breakdownType)?.colorToken
+                !findBreakdownColorConfig(
+                    existingConfigs,
+                    value.breakdownValue,
+                    value.breakdownType,
+                    value.breakdownProperty
+                )?.colorToken
         )
 
     const allSlots = Array.from({ length: paletteSize }, (_, slot) => slot)
     const assignments = new Map<string, BreakdownColorConfig>()
     for (const candidate of [...uncovered, ...displaced].sort(compareAssignmentRank)) {
         const tiles = tilesOf(candidate)
+        const used = usedFor(candidate)
         const usedOnOwnTiles = (slot: number): number =>
             tiles.reduce((sum, tile) => sum + (tileSlotCounts[tile].get(slot) ?? 0), 0)
         const slot =
-            allSlots.find((slot) => !globalUsed.has(slot)) ??
+            allSlots.find((slot) => !used.has(slot)) ??
             allSlots.find((slot) => usedOnOwnTiles(slot) === 0) ??
             allSlots.reduce((best, slot) => (usedOnOwnTiles(slot) < usedOnOwnTiles(best) ? slot : best))
-        claimSlot(slot, tiles)
-        assignments.set(breakdownValueTileKey(candidate), {
-            breakdownValue: candidate.breakdownValue,
-            breakdownType: candidate.breakdownType,
+        claimSlot(slot, tiles, candidate.breakdownProperty ?? null)
+        assignments.set(breakdownIdentityKey(candidate), {
+            ...makeBreakdownValue(
+                candidate.breakdownValue,
+                candidate.breakdownType,
+                candidate.breakdownProperty ?? null
+            ),
             colorToken: slotToPresetToken(slot),
             source: 'auto',
         })
     }
 
     const result = existingConfigs.map((config) => {
-        const replacement = assignments.get(breakdownValueTileKey(config))
+        const replacement = assignments.get(breakdownIdentityKey(config))
         if (replacement) {
-            assignments.delete(breakdownValueTileKey(config))
+            assignments.delete(breakdownIdentityKey(config))
             return replacement
         }
         return config

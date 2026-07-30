@@ -118,6 +118,7 @@ import { teamLogic } from '../teamLogic'
 import {
     BreakdownColorConfig,
     applyAutoBreakdownColors,
+    breakdownConfigIdentityMatches,
     buildSharedBreakdownValueLookup,
     extractBreakdownValuesByTile,
     findBreakdownColorConfig,
@@ -1798,11 +1799,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             [] as BreakdownColorConfig[],
             {
                 setBreakdownColorConfig: (state, { config }) => {
-                    const existingConfigIndex = state.findIndex(
-                        (c) =>
-                            String(c.breakdownValue) === String(config.breakdownValue) &&
-                            c.breakdownType === config.breakdownType
-                    )
+                    const existingConfigIndex = state.findIndex((c) => breakdownConfigIdentityMatches(c, config))
                     if (existingConfigIndex >= 0) {
                         return [...state.slice(0, existingConfigIndex), config, ...state.slice(existingConfigIndex + 1)]
                     }
@@ -2986,7 +2983,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const persistedConfig = findBreakdownColorConfig(
                         persisted,
                         config.breakdownValue,
-                        config.breakdownType
+                        config.breakdownType,
+                        config.breakdownProperty
                     )
                     return config.colorToken
                         ? persistedConfig?.colorToken !== config.colorToken
