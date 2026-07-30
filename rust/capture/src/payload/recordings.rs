@@ -16,6 +16,7 @@ use crate::{
     debug_or_info,
     events::recordings::RawRecording,
     extractors::extract_body_with_timeout,
+    ingestion_warnings::SdkAttribution,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     token::validate_token,
@@ -127,6 +128,10 @@ pub async fn handle_recording_payload(
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
+        // Replay emits no ingestion warnings yet. Snapshot events report `$lib`
+        // in their own envelope shape, so wiring this up is a real conversion,
+        // not a field copy — left for whoever adds replay warnings.
+        sdk_attribution: SdkAttribution::default(),
     };
 
     // Apply all billing limit quotas and drop partial or whole

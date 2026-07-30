@@ -13,7 +13,7 @@
  * importers are unaffected.
  */
 
-export type IngestionWarningCategory = 'size' | 'merge' | 'event' | 'transformation' | 'replay'
+export type IngestionWarningCategory = 'size' | 'merge' | 'event' | 'transformation' | 'replay' | 'quota'
 export type IngestionWarningSeverity = 'info' | 'warning' | 'error'
 
 /**
@@ -83,6 +83,12 @@ export const INGESTION_WARNING_TYPES = {
     // Error tracking — exception event processing
     error_tracking_exception_processing_errors: { category: 'event', severity: 'warning' },
 
+    // Quota and rate limiting — platform-imposed limits, not team-configured ones.
+    // Severity is 'warning' rather than 'error' because nothing is dropped: the
+    // event is ingested with person profile processing turned off and rerouted to
+    // overflow. See `apply_token_distinct_id_limits` in rust/capture.
+    high_volume_distinct_id: { category: 'quota', severity: 'warning', captureProduced: true },
+
     // Transformations — user-configured hog transformations
     event_dropped_by_transformation: { category: 'transformation', severity: 'info' },
 
@@ -113,9 +119,12 @@ export type IngestionWarningType = keyof typeof INGESTION_WARNING_TYPES
  *
  * Derived from the `captureProduced` flag above rather than hand-listed, so this
  * allowlist can never skew from the registry. The flag is also exported in the
- * generated Rust artifact, where a test welds capture's `from_tag` emit
- * allowlist to exactly this set — skew in either direction silently drops
- * warnings (never emitted, or emitted and rejected here at the consumer).
+ * generated Rust artifact, where a test welds this set to the union of capture's
+ * two emit routes: types derived from an error tag (`from_tag`) and types capture
+ * emits directly, with no tag behind them (`DIRECT_EMIT`). Skew in either
+ * direction silently drops warnings — a flagged type on neither route is never
+ * emitted, and a type on a route without the flag is emitted and then rejected
+ * here at the consumer.
  */
 export const CAPTURE_PRODUCED_WARNING_TYPES: ReadonlySet<IngestionWarningType> = new Set(
     (Object.entries(INGESTION_WARNING_TYPES) as [IngestionWarningType, { captureProduced?: boolean }][])

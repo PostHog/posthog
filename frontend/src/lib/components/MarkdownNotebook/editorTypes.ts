@@ -58,6 +58,9 @@ export type InsertMenuState = {
     mode?: 'tools' | 'ai'
     detached?: boolean
     removeNodeOnClose?: boolean
+    /** Set with `removeNodeOnClose`: the block pushed onto its own card to make room for the
+     * inserted one. Closing the menu without inserting rejoins it to the card it came from. */
+    rejoinNodeIdOnClose?: string
     source?: 'slash' | 'selection'
     selectedMarkdown?: string
     selectedRefId?: string
