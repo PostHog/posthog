@@ -63,6 +63,8 @@ logger = structlog.get_logger(__name__)
 
 ARTIFACT_HASH_BATCH_SIZE = 500
 
+MERGE_QUEUE_BRANCH_PREFIX = "trunk-merge/"
+
 
 def _iter_batches(values: Iterable[str], batch_size: int) -> Iterator[list[str]]:
     batch: list[str] = []
@@ -543,6 +545,8 @@ def _resolve_baselines_with_merge_base(
     tip.  This prevents a race where a newer commit updates the
     baseline file before an older commit's VR run completes.
 
+    Merge-queue branches are exempt: see _is_merge_queue_branch.
+
     Returns (merged_baseline, healed_count).
     """
     try:
@@ -558,7 +562,7 @@ def _resolve_baselines_with_merge_base(
     baseline_ref = commit_sha if (commit_sha and branch == default_branch) else branch
     branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, baseline_ref)
 
-    if branch == default_branch:
+    if branch == default_branch or _is_merge_queue_branch(branch):
         return branch_baseline, 0
 
     merge_base_sha = _get_merge_base_sha(github, repo.repo_full_name, default_branch, branch)
@@ -597,6 +601,24 @@ def _resolve_baselines_with_merge_base(
         )
 
     return merged, len(healed)
+
+
+def _is_merge_queue_branch(branch: str) -> bool:
+    """Whether this branch is one of Trunk's ephemeral merge-queue batch branches.
+
+    Healing exists to repair a baseline that a rebase replayed destructively,
+    and tombstones (below) keep it from resurrecting approved removals. Both
+    are keyed to a durable branch. A batch branch is created fresh per attempt,
+    so it carries no run history and therefore no tombstones, which means
+    healing resurrects every removal the batched PRs already approved on their
+    own branches and re-flags it as REMOVED, failing the gate. Nobody can
+    approve it away either, because the branch is gone before a human could
+    review the run.
+
+    A batch branch is master with the batched PR heads merged in, so its
+    baseline file is exactly what is about to land. Trust it as written.
+    """
+    return branch.startswith(MERGE_QUEUE_BRANCH_PREFIX)
 
 
 def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:

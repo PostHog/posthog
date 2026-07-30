@@ -1976,6 +1976,7 @@ class TestMergeBaseBaselineHealing:
         merge_base_sha="abc123",
         default_branch="master",
         commit_sha_baselines=None,
+        branch_name="my-branch",
     ):
         mock_github = mocker.MagicMock()
         mock_github.integration.sensitive_config = {"access_token": "fake"}
@@ -1987,7 +1988,7 @@ class TestMergeBaseBaselineHealing:
         def fake_fetch(github, repo_full_name, file_path, ref):
             if ref in _commit_sha_baselines:
                 return {k: {"hash": v} for k, v in _commit_sha_baselines[ref].items()}, f"sha-{ref}"
-            if ref in ("my-branch", default_branch):
+            if ref in (branch_name, default_branch):
                 return {k: {"hash": v} for k, v in branch_baseline.items()}, "sha1"
             if ref == merge_base_sha:
                 baselines = merge_base_baseline if merge_base_baseline is not None else branch_baseline
@@ -2041,6 +2042,22 @@ class TestMergeBaseBaselineHealing:
 
         assert "NewStory" in merged
         assert merged["NewStory"] == "new_hash"
+        assert healed == 0
+
+    def test_skips_merge_base_for_merge_queue_branch(self, repo, mocker):
+        branch = "trunk-merge/pr-1234/e86d4a18-8453-4018-992c-2adc2a0f8d4d"
+        branch_baseline = {"A": "h1"}
+        merge_base_baseline = {"A": "h1", "DeletedStory": "h2"}
+        self._mock_github(
+            mocker,
+            branch_baseline=branch_baseline,
+            merge_base_baseline=merge_base_baseline,
+            branch_name=branch,
+        )
+
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, "storybook", branch)
+
+        assert merged == branch_baseline
         assert healed == 0
 
     def test_skips_merge_base_for_default_branch(self, repo, mocker):
