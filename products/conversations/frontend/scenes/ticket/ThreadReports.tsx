@@ -46,7 +46,10 @@ function FixOrStatus({ report }: { report: SignalReportApi }): JSX.Element {
         return (
             <div className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold">{FIX_LABEL[state]}</span>
-                <PrBadge prNumber={prNumber} prUrl={prUrl} state={state} />
+                {/* Sits above the row's overlay link so the pull request still opens the pull request. */}
+                <span className="relative z-10">
+                    <PrBadge prNumber={prNumber} prUrl={prUrl} state={state} />
+                </span>
             </div>
         )
     }
@@ -70,6 +73,7 @@ function FixOrStatus({ report }: { report: SignalReportApi }): JSX.Element {
  */
 export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.Element {
     const headline = deriveHeadline(report.summary)
+    const title = capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))
     // Full width, unlike a message: messages are inset because they belong to one side of the
     // conversation, and this belongs to neither.
     return (
@@ -100,18 +104,20 @@ export function ThreadReportEntry({ report }: { report: SignalReportApi }): JSX.
                 The edge is a pseudo-element so it can run the full height without fighting the border
                 radius the way a left border does. */}
             <div className="relative flex items-start justify-between gap-3 overflow-hidden rounded border border-primary bg-surface-primary transition-colors hover:border-secondary py-2 pl-4 pr-3 after:content-[''] after:absolute after:inset-y-0 after:left-0 after:w-1 after:bg-accent">
-                {/* The link takes the whole left column so the entry reads as one target, while the
-                    state stays a sibling: an anchor can't contain another, and clicking the pull
-                    request should open the pull request. */}
+                {/* The whole row is the target, not just the title: the status cluster is the most
+                    eye-catching thing in the entry and it's what people reach for, so it has to lead
+                    somewhere. An anchor can't contain another, so the link is stretched over the row
+                    rather than wrapping it, and the pull request badge is lifted above it so clicking
+                    the pull request still opens the pull request. */}
                 <Link
                     to={urls.inboxReport('reports', report.id)}
-                    className="block min-w-0 flex-1 text-inherit no-underline hover:text-inherit"
-                >
-                    <div className="text-sm font-semibold leading-snug">
-                        {capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))}
-                    </div>
+                    className="absolute inset-0 z-[1]"
+                    aria-label={`Open report: ${title}`}
+                />
+                <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold leading-snug">{title}</div>
                     {headline && <p className="mt-0.5 mb-0 text-xs text-muted leading-snug">{headline}</p>}
-                </Link>
+                </div>
                 <div className="shrink-0">
                     <FixOrStatus report={report} />
                 </div>
