@@ -166,13 +166,18 @@ class TestConfigurableOutputFields(SimpleTestCase):
 
     def test_stored_inputs_are_the_bounded_ones_sent_to_the_model(self):
         config = self._config([{"key": "is_enterprise", "type": "boolean", "description": ""}])
-        config.input_fields = ["description", "tags"]
+        config.input_fields = ["description", "tags", "investors"]
         client = MagicMock()
         response = MagicMock()
         response.choices[0].message.content = json.dumps({"is_enterprise": True})
         response.usage = None
         client.chat.completions.create.return_value = response
-        payload = {"description": "x" * (MAX_INPUT_VALUE_CHARS + 500), "tags": list(range(MAX_INPUT_LIST_ITEMS + 20))}
+        payload = {
+            "description": "x" * (MAX_INPUT_VALUE_CHARS + 500),
+            "tags": list(range(MAX_INPUT_LIST_ITEMS + 20)),
+            # Provider fields hold lists of objects, so the cap has to reach inside them.
+            "investors": [{"name": "y" * (MAX_INPUT_VALUE_CHARS + 500)}],
+        }
 
         output = classify_payload(config, payload, None, client)
 
@@ -180,6 +185,7 @@ class TestConfigurableOutputFields(SimpleTestCase):
         sent = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
         assert len(stored["description"]) == MAX_INPUT_VALUE_CHARS + 1
         assert len(stored["tags"]) == MAX_INPUT_LIST_ITEMS
+        assert len(stored["investors"][0]["name"]) == MAX_INPUT_VALUE_CHARS + 1
         assert json.dumps(stored, indent=2) in sent
 
     def test_parses_and_coerces_exactly_the_configured_keys(self):

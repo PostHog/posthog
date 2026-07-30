@@ -62,5 +62,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(seed_config, unseed_config, elidable=True),
+        # Not elidable: this is the only path that creates a config, so a squash dropping it
+        # would leave a fresh database with no active label for the commands to run.
+        migrations.RunPython(seed_config, unseed_config),
     ]
