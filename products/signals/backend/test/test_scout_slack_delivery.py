@@ -55,7 +55,7 @@ class TestScoutSlackDelivery(BaseTest):
             source_id=f"run:{run.id}:finding:checkout-500s",
         )
 
-    def test_posts_safe_slack_mrkdwn_through_project_integration_with_stable_delivery_id(self) -> None:
+    def test_posts_safe_mrkdwn_but_does_not_invite_followup_for_child_environment(self) -> None:
         emission = self._make_emission(
             "**Checkout** failures [trace](https://example.com/trace) <!channel> [ping](!here)"
         )
@@ -67,6 +67,7 @@ class TestScoutSlackDelivery(BaseTest):
         )
         integration = Integration.objects.create(team=child_team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000100"}
 
         with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
             slack_integration.return_value.client = fake_client
@@ -76,9 +77,10 @@ class TestScoutSlackDelivery(BaseTest):
                 channel="CSCOUTS|#scout-findings",
             )
 
-        call = fake_client.chat_postMessage.call_args.kwargs
+        call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["channel"] == "CSCOUTS"
         assert call["client_msg_id"] == str(emission.id)
+        assert "thread_ts" not in call
         section = call["blocks"][1]["text"]["text"]
         assert "*Checkout*" in section
         assert "<https://example.com/trace|trace>" in section
@@ -88,6 +90,7 @@ class TestScoutSlackDelivery(BaseTest):
         assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
+        assert fake_client.chat_postMessage.call_count == 1
 
     def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
         emission = self._make_emission()
@@ -99,6 +102,7 @@ class TestScoutSlackDelivery(BaseTest):
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200"}
         delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
 
         with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
@@ -113,9 +117,10 @@ class TestScoutSlackDelivery(BaseTest):
                 "CSCOUTS|#scout-findings",
             )
 
-        call = fake_client.chat_postMessage.call_args.kwargs
+        call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["channel"] == "CSCOUTS"
         assert call["client_msg_id"] == delivery_id
+        assert "thread_ts" not in call
         section = call["blocks"][2]["text"]["text"]
         assert "*Checkout*" in section
         assert "<!channel>" not in section
@@ -124,6 +129,58 @@ class TestScoutSlackDelivery(BaseTest):
         assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
         )
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
+        assert reply["thread_ts"] == "1785418710.000200"
+        assert reply["blocks"][0]["type"] == "context"
+
+    def test_reply_posted_regardless_of_ai_approval(self) -> None:
+        # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000400"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        assert fake_client.chat_postMessage.call_count == 2
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
+        assert reply["thread_ts"] == "1785418710.000400"
+
+    def test_reply_transport_failure_does_not_fail_delivery(self) -> None:
+        # The parent message already landed, so a failing follow-up reply — even a non-SlackApiError
+        # transport error — must be swallowed rather than fail the task and retry the whole delivery.
+        emission = self._make_emission()
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.side_effect = [{"ts": "1785418710.000500"}, ConnectionError("boom")]
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            post_scout_emission_to_slack(
+                emission,
+                integration_id=integration.id,
+                channel="CSCOUTS|#scout-findings",
+            )
+
+        assert fake_client.chat_postMessage.call_count == 2
 
     def test_task_skips_report_suppressed_before_delivery(self) -> None:
         emission = self._make_emission()

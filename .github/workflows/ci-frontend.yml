@@ -457,8 +457,10 @@ jobs:
             # After the base build the tree is on the BASE branch, so guard for the scripts'
             # absence (also covers branches predating a check). Budgets are surfaced
             # warn-only further down.
+            # Comment steps skip trunk-merge/**: merge-queue draft PRs are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
             - name: Clean up legacy per-check CI comments
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -469,7 +471,7 @@ jobs:
                   fi
 
             - name: Post CI report — eager graph
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -480,7 +482,7 @@ jobs:
                   fi
 
             - name: Post CI report — bundle size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -491,7 +493,7 @@ jobs:
                   fi
 
             - name: Post CI report — dist size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -502,7 +504,7 @@ jobs:
                   fi
 
             - name: Post CI report — toolbar bundle
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |

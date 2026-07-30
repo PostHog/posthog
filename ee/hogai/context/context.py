@@ -456,6 +456,11 @@ class AssistantContextManager(AssistantContextMixin):
                     "Preserve unrelated content only when the request's scope is local."
                 ),
                 (
+                    "- Component tags such as `<Query … />`, `<SQLV2 … />`, and `<PythonV2 … />` render a `title` "
+                    "prop in their block header. Keep the titles already there, and give any tag you add a short "
+                    "one saying what it shows, so a reader can skim the notebook without opening each block."
+                ),
+                (
                     "When the current user asks you to change broad notebook content, use notebook tools against "
                     "the current notebook instead of explaining how the user could do it. "
                     "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "
