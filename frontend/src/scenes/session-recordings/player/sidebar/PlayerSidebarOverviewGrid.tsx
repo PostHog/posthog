@@ -29,6 +29,7 @@ const SNAPSHOT_SCOPE: string[] = [
     'session_recording_event_trigger_config',
     'session_recording_retention_period',
     'session_recording_trigger_match_type_config',
+    'session_recording_trigger_groups',
     'session_replay_config',
     'recording_domains',
 ]

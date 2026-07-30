@@ -61,6 +61,17 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Google Ads API v21 sunsets 2026-08-05 (VERSION_SUNSET). Bump the pinned version in
+            # existing destinations to v24 (current major, sunsets ~2027-05). Covers the whole stale
+            # range v18-v23 since destinations carry whatever version the template pinned when created;
+            # only one matches per destination, and a v24 no-op is skipped.
+            "google-ads-api-version-update": {
+                "template_id": "template-google-ads",
+                "replacements": [
+                    {"from_string": f"googleads.googleapis.com/v{v}/", "to_string": "googleads.googleapis.com/v24/"}
+                    for v in range(18, 24)
+                ],
+            },
             # Microsoft migrated Teams/Power Automate HTTP triggers to environment.api.powerplatform.com.
             # The current template accepts that host, but functions created earlier keep their frozen code
             # and reject the new URL. These swap the stale validation block for the current one: the

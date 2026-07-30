@@ -853,6 +853,11 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
+class DatabaseSchemaTableCertificationStatus(StrEnum):
+    CERTIFIED = "certified"
+    DEPRECATED = "deprecated"
+
+
 class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
     SYSTEM = "system"
@@ -2830,6 +2835,7 @@ class IntegrationKind(StrEnum):
     FIREBASE = "firebase"
     JIRA = "jira"
     PINTEREST_ADS = "pinterest-ads"
+    PARDOT = "pardot"
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
@@ -3386,6 +3392,7 @@ class ProductKey(StrEnum):
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DATA_CATALOG = "data_catalog"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
     EARLY_ACCESS_FEATURES = "early_access_features"
