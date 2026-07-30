@@ -101,8 +101,13 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
 
     @property
     def update_commands(self):
+        # The person_id inequality lets ClickHouse skip rewriting parts whose matching rows
+        # already carry the correct person id (post-merge traffic on merged distinct ids).
+        # Mutation rewrites dominate the job's runtime, so no-op rewrites are pure waste.
         return {
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) "
+            "WHERE dictHas(%(name)s, (team_id, distinct_id)) "
+            "AND person_id != dictGet(%(name)s, 'person_id', (team_id, distinct_id))"
         }
 
     @property
