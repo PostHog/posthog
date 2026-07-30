@@ -292,6 +292,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             heartbeat_interval: config.heartbeat_interval(),
             participant_stall_threshold: config.participant_stall_threshold(),
             reconcile_failure_budget: config.router_reconcile_failure_budget,
+            run_retry_budget: config.router_run_retry_budget,
+            run_retry_backoff: Duration::from_millis(config.router_run_retry_backoff_ms),
             reconcile_interval: config.router_reconcile_interval(),
         };
 
