@@ -268,12 +268,14 @@ export function buildSharedBreakdownValueLookup(
  *
  * Stability comes from persistence, not from the algorithm: manual pins never move, and
  * persisted auto entries keep their slots unless two of them meet on one tile with the same
- * slot (a new tile landed, or the entry predates collision-aware assignment). Uncovered
- * shared values and collision-displaced auto entries are then assigned in deterministic
- * order: the lowest globally-unused slot while slots last, then a slot the value's own
- * tiles don't show yet, then the slot least used on those tiles. A duplicate color on two
- * different charts is invisible; on one chart it isn't, so exhaustion prefers cross-tile
- * reuse over within-tile reuse.
+ * slot (a new tile landed, or the entry predates collision-aware assignment); of such a
+ * pair, the lower-ranked entry moves. Uncovered shared values and displaced entries are
+ * ranked by how many charts re-use them, most first: cross-tile consistency is what an
+ * auto color buys, so the values shared by the most charts claim the first palette slots.
+ * Re-use ties break by the values' ranking within their own charts, then by a
+ * locale-independent value order. Each value takes the lowest globally-unused slot while
+ * slots last, then a slot its own tiles don't show yet, then the slot least used on those
+ * tiles: a duplicate color on two different charts is invisible, on one chart it isn't.
  *
  * Returns the full config list: existing entries in their original order (re-slotted ones
  * replaced in place, so an unchanged dashboard round-trips deep-equal for the save diff),
@@ -288,20 +290,35 @@ export function applyAutoBreakdownColors(
         return [...existingConfigs]
     }
 
-    const valueTiles = new Map<string, { value: BreakdownValueAndType; tiles: number[] }>()
+    const valueTiles = new Map<string, { value: BreakdownValueAndType; tiles: number[]; positionSum: number }>()
     tileBreakdownValues.forEach((values, tileIndex) => {
-        for (const value of values) {
+        values.forEach((value, position) => {
             const key = breakdownValueTileKey(value)
             const entry = valueTiles.get(key)
             if (entry) {
                 entry.tiles.push(tileIndex)
+                entry.positionSum += position
             } else {
-                valueTiles.set(key, { value, tiles: [tileIndex] })
+                valueTiles.set(key, { value, tiles: [tileIndex], positionSum: position })
             }
-        }
+        })
     })
     const tilesOf = (value: BreakdownValueAndType): number[] =>
         valueTiles.get(breakdownValueTileKey(value))?.tiles ?? []
+    // Rank by re-use first, so the values shared by the most charts claim the earliest
+    // slots. Ties break by the values' ranking within their own charts: each tile's value
+    // list is in chart series order, and positions are summed across a value's tiles,
+    // which compares like the average because tile counts are equal whenever the sum is
+    // reached. Plain value order settles full ties (e.g. values leading disjoint tiles).
+    const compareAssignmentRank = (a: BreakdownValueAndType, b: BreakdownValueAndType): number => {
+        const entryA = valueTiles.get(breakdownValueTileKey(a))
+        const entryB = valueTiles.get(breakdownValueTileKey(b))
+        return (
+            (entryB?.tiles.length ?? 0) - (entryA?.tiles.length ?? 0) ||
+            (entryA?.positionSum ?? 0) - (entryB?.positionSum ?? 0) ||
+            compareAssignmentOrder(a, b)
+        )
+    }
 
     // Per-tile slot usage drives collision checks; global usage keeps distinct values on
     // distinct colors while free slots last.
@@ -328,10 +345,10 @@ export function applyAutoBreakdownColors(
         }
     }
 
-    // Walking persisted auto entries in assignment order means that of a colliding pair,
-    // the later-sorted value is the one that moves.
+    // Walking persisted auto entries in rank order means that of a colliding pair, the
+    // lower-ranked value (re-used by fewer charts, or trailing in chart order) moves.
     const displaced: BreakdownValueAndType[] = []
-    for (const config of [...autoConfigs].sort(compareAssignmentOrder)) {
+    for (const config of [...autoConfigs].sort(compareAssignmentRank)) {
         const slot = presetTokenToSlot(config.colorToken, paletteSize)!
         const tiles = tilesOf(config)
         const collidesWithinTile = tiles.some((tile) => (tileSlotCounts[tile].get(slot) ?? 0) > 0)
@@ -353,7 +370,7 @@ export function applyAutoBreakdownColors(
 
     const allSlots = Array.from({ length: paletteSize }, (_, slot) => slot)
     const assignments = new Map<string, BreakdownColorConfig>()
-    for (const candidate of [...uncovered, ...displaced].sort(compareAssignmentOrder)) {
+    for (const candidate of [...uncovered, ...displaced].sort(compareAssignmentRank)) {
         const tiles = tilesOf(candidate)
         const usedOnOwnTiles = (slot: number): number =>
             tiles.reduce((sum, tile) => sum + (tileSlotCounts[tile].get(slot) ?? 0), 0)
