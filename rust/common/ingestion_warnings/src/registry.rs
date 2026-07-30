@@ -56,6 +56,7 @@ impl WarningType {
             "missing_event_uuid" => Some(Self::MissingEventUuid),
             "invalid_event_uuid" => Some(Self::InvalidEventUuid),
             "duplicate_event_uuid" => Some(Self::DuplicateEventUuid),
+            "message_size_too_large" => Some(Self::MessageSizeTooLarge),
             _ => None,
         }
     }

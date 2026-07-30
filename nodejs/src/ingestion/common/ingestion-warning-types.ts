@@ -29,7 +29,9 @@ export type IngestionWarningSeverity = 'info' | 'warning' | 'error'
  */
 export const INGESTION_WARNING_TYPES = {
     // Size limits — payload or property blobs exceeding Kafka/Postgres limits
-    message_size_too_large: { category: 'size', severity: 'error' },
+    // captureProduced: capture's Kafka sink hits the same MessageSizeTooLarge
+    // limit this pipeline reports at emit time, so both producers share the type.
+    message_size_too_large: { category: 'size', severity: 'error', captureProduced: true },
     // The personhog leader trimmed or rejected a person property update at
     // admission to fit the Postgres size constraint.
     person_properties_size_violation: { category: 'size', severity: 'error' },

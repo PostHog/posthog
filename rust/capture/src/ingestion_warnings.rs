@@ -158,6 +158,12 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
     match err {
         CaptureError::MissingEventName => Some(WarningType::MissingEventName),
         CaptureError::MissingDistinctId => Some(WarningType::MissingDistinctId),
+        // Only the Kafka sink raises EventTooBig during processing; the
+        // transport-level size limits fail at the parsing stage, before a
+        // verified token exists, and so never reach the abort path. This is
+        // the same drop the nodejs pipeline reports as message_size_too_large
+        // when its own produce hits the broker limit.
+        CaptureError::EventTooBig(_) => Some(WarningType::MessageSizeTooLarge),
 
         // Transport and parse failures surface before a verified token
         // exists, so there is no team to attribute a warning to.
@@ -179,7 +185,6 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
         // mapper never sees.
         CaptureError::InvalidCookielessMode
         | CaptureError::InvalidTimestamp
-        | CaptureError::EventTooBig(_)
         | CaptureError::MissingSnapshotData
         | CaptureError::MissingSessionId
         | CaptureError::MissingWindowId
@@ -360,8 +365,11 @@ mod tests {
                 CaptureError::MissingDistinctId,
                 Some(WarningType::MissingDistinctId),
             ),
+            (
+                CaptureError::EventTooBig("too big".to_string()),
+                Some(WarningType::MessageSizeTooLarge),
+            ),
             // Excluded on purpose; see warning_for_capture_error's doc.
-            (CaptureError::EventTooBig("too big".to_string()), None),
             (CaptureError::InvalidCookielessMode, None),
             (CaptureError::EmptyBatch, None),
             (CaptureError::EmptyPayload, None),
@@ -393,12 +401,12 @@ mod tests {
     // so pin them here like the common crate's weld test does for from_tag.
     #[test]
     fn mapped_abort_warnings_ride_the_capture_produced_tag_route() {
-        let mapped = [
+        let mapping_errors = [
             CaptureError::MissingEventName,
             CaptureError::MissingDistinctId,
-        ]
-        .iter()
-        .filter_map(warning_for_capture_error);
+            CaptureError::EventTooBig("too big".to_string()),
+        ];
+        let mapped = mapping_errors.iter().filter_map(warning_for_capture_error);
 
         for warning in mapped {
             assert!(
