@@ -188,7 +188,7 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
 
             {/* Footer — run/finding identifiers and an optional trace link-out. */}
             <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
-                <MonoId label="Finding" value={extra.finding_id} />
+                <MonoId label="Signal" value={extra.finding_id} />
                 <MonoId label="Scout run" value={extra.scout_run_id} />
                 {extra.task_id && <MonoId label="Task" value={extra.task_id} to={taskRunUrl} />}
                 <MonoId label="Task run" value={extra.task_run_id} to={taskRunUrl} />

@@ -122,7 +122,7 @@ function RunOutputWidget({ report }: { report: SignalReport }): JSX.Element {
             ) : (
                 <p className="text-sm text-tertiary m-0">
                     {report.status === SignalReportStatus.IN_PROGRESS
-                        ? 'The agent is investigating – partial findings will appear here as they land.'
+                        ? 'The agent is investigating – partial signals will appear here as they land.'
                         : 'Queued for research.'}
                 </p>
             )}
@@ -354,14 +354,14 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                             title="Evidence so far"
                             rightSlot={
                                 <span className="text-[0.6875rem] text-tertiary tabular-nums">
-                                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                                    {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                                 </span>
                             }
                         >
                             {reportSignalsLoading && reportSignals === null ? (
                                 <div className="flex items-center gap-2 text-xs text-tertiary py-1">
                                     <Spinner className="size-3" />
-                                    Loading findings…
+                                    Loading signals…
                                 </div>
                             ) : (
                                 <div className="flex flex-col gap-3">

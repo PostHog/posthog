@@ -287,7 +287,7 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             content: {
                 actionability: 'immediately_actionable',
                 already_addressed: false,
-                explanation: 'The failing endpoint and validation gap are clearly identified in the findings.',
+                explanation: 'The failing endpoint and validation gap are clearly identified in the report.',
             },
             created_at: BASE_DATE,
         },

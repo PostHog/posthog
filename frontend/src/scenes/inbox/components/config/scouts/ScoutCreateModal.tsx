@@ -178,14 +178,14 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                                 <LemonSwitch
                                     checked={value}
                                     onChange={onChange}
-                                    label="Write findings to the inbox"
+                                    label="Write signals to the inbox"
                                     bordered
                                     fullWidth
                                 />
                             )}
                         </LemonField>
                         <span className="text-xs text-muted">
-                            Turn off inbox findings to run the scout in dry-run mode.
+                            Turn off inbox signals to run the scout in dry-run mode.
                         </span>
                         <LemonField name="config.output_destinations">
                             {({ value, onChange }) => (
