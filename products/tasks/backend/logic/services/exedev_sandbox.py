@@ -23,8 +23,8 @@ boot uses the configured image only (no warm snapshot restore).
 from __future__ import annotations
 
 import json
-import shlex
 import uuid
+import shlex
 import base64
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Optional

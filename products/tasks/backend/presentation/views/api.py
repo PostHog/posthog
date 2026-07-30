@@ -1898,9 +1898,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # exe.dev: X-Exedev-Authorization header).
         params: dict[str, str] = {}
         if sandbox_connect_token:
-            from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
-                apply_sandbox_connect_token,
-            )
+            # Routed through the facade: presentation must not import product
+            # internals (logic.services.*) directly.
+            from products.tasks.backend.facade.sandbox import apply_sandbox_connect_token
 
             apply_sandbox_connect_token(
                 sandbox_url=sandbox_url,

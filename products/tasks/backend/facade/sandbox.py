@@ -7,6 +7,7 @@ cross the boundary as objects, per the wiring pattern. Kept out of ``facade/api.
 heavy docker/modal dependencies stay off the light data-surface import path.
 """
 
+from products.tasks.backend.logic.services.connection_token import apply_sandbox_connect_token
 from products.tasks.backend.logic.services.sandbox import (
     SandboxBase,
     SandboxClass,
@@ -26,6 +27,7 @@ __all__ = [
     "SandboxResources",
     "SandboxStatus",
     "SandboxTemplate",
+    "apply_sandbox_connect_token",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
     "is_public_sandbox_repo",

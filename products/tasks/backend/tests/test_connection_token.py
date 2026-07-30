@@ -13,12 +13,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from products.tasks.backend.logic.services.connection_token import (
-    apply_sandbox_connect_token,
     SANDBOX_CONNECTION_AUDIENCE,
     SANDBOX_EVENT_INGEST_AUDIENCE,
     SANDBOX_JWT_STATE_KID_KEY,
     _compute_kid,
     _derive_public_key_pem,
+    apply_sandbox_connect_token,
     create_sandbox_connection_token,
     create_sandbox_event_ingest_token,
     create_stream_read_token,
