@@ -208,6 +208,18 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     ]
                 },
             ),
+            (
+                # Same property name, event-level semantics — per-event avg, not
+                # per-session; the buckets would silently serve the wrong number.
+                "event_property_is_bounce",
+                {
+                    "series": [
+                        EventsNode(
+                            event="$pageview", math="avg", math_property="$is_bounce", math_property_type="event"
+                        )
+                    ]
+                },
+            ),
             ("breakdown", {"breakdownFilter": BreakdownFilter(breakdown="$browser", breakdown_type="event")}),
             (
                 "world_map_display",

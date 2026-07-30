@@ -173,10 +173,14 @@ def trends_precompute_metric(query: TrendsQuery) -> Optional[WebTrendsMetric]:
         return WebTrendsMetric.VIEWS
     if math == "unique_session":
         return WebTrendsMetric.UNIQUE_SESSIONS
-    if math == "avg" and math_property == "$session_duration":
-        return WebTrendsMetric.AVG_DURATION
-    if math == "avg" and math_property == "$is_bounce":
-        return WebTrendsMetric.BOUNCE_RATE
+    # Session-property averages only: an avg over an event-property with the
+    # same name aggregates per event, not per deduped session, and the live
+    # path treats those differently — the buckets can't reproduce that.
+    if math == "avg" and getattr(series, "math_property_type", None) == "session_properties":
+        if math_property == "$session_duration":
+            return WebTrendsMetric.AVG_DURATION
+        if math_property == "$is_bounce":
+            return WebTrendsMetric.BOUNCE_RATE
     return None
 
 
