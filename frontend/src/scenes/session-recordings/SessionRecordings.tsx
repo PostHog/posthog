@@ -124,12 +124,9 @@ function Header(): JSX.Element {
     )
 }
 
-// New key for launch so users who dismissed the waitlist promo see this one
 const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
 
 function ReplayVisionPromoBanner(): JSX.Element | null {
-    // The scene is still flag-gated, so unflagged users get the website instead of a dead link
-    const hasReplayVision = useFeatureFlag('REPLAY_VISION')
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
 
     // A dismissed LemonBanner renders null but the viewed tracker would still fire, skewing impressions
@@ -142,22 +139,12 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
             <LemonBanner
                 type="ai"
                 dismissKey={REPLAY_VISION_PROMO_DISMISS_KEY}
-                action={
-                    hasReplayVision
-                        ? {
-                              children: 'Try Replay vision',
-                              to: urls.replayVision(),
-                              center: true,
-                              'data-attr': 'replay-vision-launch-banner-cta',
-                          }
-                        : {
-                              children: 'Learn more',
-                              to: 'https://posthog.com/replay-vision?utm_medium=in-product&utm_campaign=replay-vision-launch-banner',
-                              targetBlank: true,
-                              center: true,
-                              'data-attr': 'replay-vision-launch-banner-cta',
-                          }
-                }
+                action={{
+                    children: 'Try Replay vision',
+                    to: urls.replayVision(),
+                    center: true,
+                    'data-attr': 'replay-vision-launch-banner-cta',
+                }}
             >
                 Replay vision is here. Scanners watch your recordings for you and surface what matters.
             </LemonBanner>

@@ -20,6 +20,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -51,6 +52,9 @@ const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIO
     value,
     label,
 }))
+
+// The day credits billing went live and every closed-beta scanner was force-disabled.
+const VISION_BILLING_LAUNCH_DAY = '2026-08-03'
 
 /**
  * "Create scanner" CTA that requires the organization to have approved AI data processing first.
@@ -285,8 +289,9 @@ export function ReplayScannersScene(): JSX.Element {
 
             <IngestionLimitBanner />
 
-            {/* Beta scanners were disabled when billing went live at launch; only beta teams have disabled scanners to re-enable. */}
-            {scanners.some((scanner) => !scanner.enabled) && (
+            {scanners.some(
+                (scanner) => !scanner.enabled && dayjs(scanner.created_at).isBefore(VISION_BILLING_LAUNCH_DAY)
+            ) && (
                 <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
                     Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
                     launch, so re-enable the ones you want to keep running. Check your email for billing details, or see
