@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1250_duckgresserver_sink_max_concurrency"),
+        ("posthog", "1276_untrack_legacy_provisioning_columns"),
     ]
 
     operations = [
