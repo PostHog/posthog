@@ -342,15 +342,15 @@ test('cross-domain tools are tripwires rather than backend-only', () => {
     assert.equal(computeTargets(['tools/owners/owners/__init__.py'], CONTEXT), ALL)
 })
 
-// Prose claims no lane, so a docs-only PR overlaps nothing and merges beside
-// anything. The empty array has to survive the size-0 guard rather than being
-// widened to ALL with the unclassified paths.
-test('markdown yields an empty target set regardless of which tree it sits in', () => {
-    assert.deepEqual(computeTargets(['posthog/README.md', 'docs/guide.mdx', 'CHANGELOG.md'], CONTEXT), [])
+// Prose overlaps only other prose, and has to reach that lane through the
+// size-0 guard rather than being widened to ALL with the unclassified paths.
+test('a change set of nothing but markdown reports the prose lane', () => {
+    assert.deepEqual(computeTargets(['posthog/README.md', 'docs/guide.mdx', 'CHANGELOG.md'], CONTEXT), ['prose'])
 })
 
 // The old shared docs lane serialized two PRs whose only overlap was having
-// touched a markdown file, even with their code in unrelated trees.
+// touched a markdown file, even with their code in unrelated trees. The prose
+// lane must not reintroduce that by riding along with real lanes.
 test('markdown alongside code contributes no lane of its own', () => {
     assert.deepEqual(computeTargets(['rust/unrelated/src/main.rs', 'README.md'], CONTEXT), ['rust:crate:unrelated'])
 })

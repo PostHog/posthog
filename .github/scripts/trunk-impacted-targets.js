@@ -62,8 +62,8 @@
 //
 // Input:  changed file paths, one per line, on stdin
 // Output: JSON on stdout, either the string "ALL" or an array of target names.
-//         The array is empty when every changed file is inert (prose), which
-//         tells Trunk the PR overlaps nothing and can merge beside anything.
+//         A change set of nothing but prose reports the single "prose" lane,
+//         which overlaps only other prose-only PRs.
 //         Diagnostics on stderr
 
 const fs = require('fs')
@@ -700,12 +700,18 @@ function computeTargets(changedFiles, context) {
     }
 
     if (targets.size === 0) {
-        // An empty target set tells Trunk this PR overlaps nothing, so it
-        // merges in parallel with everything. That is correct only when every
-        // file was recognized as inert. A change set that got here any other
-        // way contains something no rule claimed, which is the failure mode
-        // that silently breaks master, so it still widens to ALL.
-        return inertFiles === changedFiles.length ? [] : ALL
+        // A change set of nothing but prose overlaps only other prose. Trunk
+        // does not document what it does with an empty target list, and the one
+        // documented rule is that a PR is not processed until its targets are
+        // uploaded, so a lane of its own avoids betting a docs PR's ability to
+        // enter the queue on undocumented behavior. This is deliberately not
+        // added per file: emitting it alongside real lanes is what made the old
+        // docs target serialize two PRs whose only overlap was a README.
+        //
+        // Anything else that reaches an empty set contains a path no rule
+        // claimed, which is the failure mode that silently breaks master, so it
+        // still widens to ALL.
+        return inertFiles === changedFiles.length ? ['prose'] : ALL
     }
     return [...targets].sort()
 }
