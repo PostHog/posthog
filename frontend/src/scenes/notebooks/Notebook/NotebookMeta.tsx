@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { IconSparkles, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -13,6 +12,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { NotebookSyncStatus } from '../types'
+import { isKernelUiEnabled } from '../utils'
+import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { NOTEBOOK_AI_PRESENCE_COLOR, type NotebookPresenceParticipant } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
@@ -215,10 +216,12 @@ export const NotebookKernelInfoButton = ({
     ...props
 }: NotebookKernelInfoButtonProps): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { content } = useValues(notebookLogic)
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
+    // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
+    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content)) {
         return null
     }
 

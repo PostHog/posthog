@@ -8,7 +8,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.tasks.alerts.utils import send_notifications_for_breaches
+from posthog.tasks.alerts.utils import send_notifications_for_breaches, send_notifications_for_disabled
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 from products.alerts.backend.models import AlertConfiguration, AlertSubscription
@@ -65,7 +65,7 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
         assert not AlertSubscription.objects.filter(alert_configuration=alert, user=self.other_user).exists()
         assert AlertSubscription.objects.filter(alert_configuration=alert, user=self.user).exists()
 
-    @patch("posthog.tasks.alerts.utils.EmailMessage")
+    @patch("products.alerts.backend.email_notifications.EmailMessage")
     def test_send_notifications_excludes_removed_members(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
@@ -180,7 +180,7 @@ class TestAlertEmailNotifications(APIBaseTest):
             },
         ).json()
 
-    @patch("posthog.tasks.alerts.utils.EmailMessage")
+    @patch("products.alerts.backend.email_notifications.EmailMessage")
     def test_send_emails(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
@@ -194,3 +194,16 @@ class TestAlertEmailNotifications(APIBaseTest):
         assert email.to[0]["recipient"] == "user1@posthog.com"
         assert "first anomaly description" in email.html_body
         assert "second anomaly description" in email.html_body
+
+    @patch("products.alerts.backend.email_notifications.EmailMessage")
+    def test_send_disabled_email(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        alert = AlertConfiguration.objects.get(pk=self.alert["id"])
+
+        send_notifications_for_disabled(alert, "Insight query is invalid", [self.user.email])
+
+        assert len(mocked_email_messages) == 1
+        email = mocked_email_messages[0]
+        assert email.template_name == "alert_disabled"
+        assert email.to[0]["recipient"] == "user1@posthog.com"
+        assert "Insight query is invalid" in email.html_body

@@ -42,7 +42,7 @@ Options:
       --no-fail                  Disable non-zero exit codes on errors. Use with caution
       --skip-ssl-verification    Skip SSL certificate verification when talking to the PostHog API. Use only with self-signed certificates
       --rate-limit <RATE_LIMIT>  Set the number of requests per minute for the Posthog API Client [env: POSTHOG_CLIENT_RATE_LIMIT=]
-      --dotenv-file <PATH>       Load PostHog credentials from this dotenv-style file when not present in the process environment. Prefer this over the `--env-file` alias: the npm package runs the binary through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling
+      --dotenv-file <PATH>       Load PostHog credentials from this dotenv-style file when not present in the process environment. Prefer this over the `--env-file` alias: the npm package runs the binary through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling. Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh) [env: POSTHOG_CLI_DOTENV_FILE=]
       --dry-run[=<DRY_RUN>]      Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but must not (or cannot) upload. Not for release builds. Pass it before the subcommand (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is distinct from the `exp endpoints` `--dry-run`, which previews endpoint changes [env: POSTHOG_CLI_DRY_RUN=] [default: false] [possible values: true, false]
   -h, --help                     Print help
   -V, --version                  Print version
@@ -56,7 +56,7 @@ You can authenticate with PostHog interactively for using the CLI locally, but i
 - `POSTHOG_CLI_API_KEY`: [A posthog personal API key.](https://posthog.com/docs/api#private-endpoint-authentication) (also accepts `POSTHOG_CLI_TOKEN` for backward compatibility)
 - `POSTHOG_CLI_PROJECT_ID`: The ID number of the project/environment to connect to. E.g. the "2" in `https://us.posthog.com/project/2` (also accepts `POSTHOG_CLI_ENV_ID` for backward compatibility)
 
-These variables can also be loaded from a dotenv-style file via `--dotenv-file <PATH>` (e.g. `posthog-cli --dotenv-file .env query ...`). The process environment always wins; the file is only consulted if the required variables aren't set. `POSTHOG_CLI_HOST` is only read from the same source that supplied the rest, so a stray host in the file cannot redirect a key supplied by the process env.
+These variables can also be loaded from a dotenv-style file via `--dotenv-file <PATH>` (e.g. `posthog-cli --dotenv-file .env query ...`) or the `POSTHOG_CLI_DOTENV_FILE` environment variable. The process environment always wins; the file is only consulted if the required variables aren't set. `POSTHOG_CLI_HOST` is only read from the same source that supplied the rest, so a stray host in the file cannot redirect a key supplied by the process env.
 
 Full precedence: CLI args → process env → `--dotenv-file` → `~/.posthog/credentials.json` (from `posthog-cli login`).
 
@@ -67,6 +67,7 @@ A single command handles both desktop/server formats:
 
 - **Linux (ELF):** executables, shared libraries, and `objcopy --only-keep-debug` companions that carry a GNU build id. This branch is cross-platform.
 - **macOS (Apple `.dSYM`):** dSYM bundles are packaged through the same path as `posthog-cli dsym upload`. That path shells out to `dwarfdump` (bundled with Xcode), so it only runs on macOS — if `dwarfdump` is missing, the bundle is reported and skipped while any ELF symbols in the same directory still upload.
+- **macOS (Mach-O executables):** binaries that embed their own DWARF upload directly, keyed by their `LC_UUID`; universal (fat) binaries upload one symbol set per architecture slice. This branch is cross-platform. It exists mainly for Go, which never produces a dSYM (`dsymutil` reports "no debug symbols in executable") — but note Go compresses the embedded DWARF by default, which symbolication can't read yet, so build with `-ldflags=-compressdwarf=false`. C/Swift/Rust executables normally carry no embedded DWARF; upload their dSYMs instead.
 
 Pass `--include-source` to bundle the referenced source files for richer context around frames.
 

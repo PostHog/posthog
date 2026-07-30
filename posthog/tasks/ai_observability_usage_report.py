@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
 from cachetools import cached
-from celery import shared_task
+from celery import Task, shared_task
 from dateutil import parser
 from posthoganalytics.client import Client as PostHogClient
 from retry import retry
@@ -14,6 +14,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.schema_enums import AIEventType
@@ -62,6 +63,20 @@ QUERY_RETRY_BACKOFF = 2
 CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports"
 
 
+def _ai_property_expr(property_name: str, use_new_events_schema: bool) -> str:
+    """A String read of an AI event property: the `properties_group_ai` map on the legacy schema.
+
+    events_json has no property-group columns, so read the property from the JSON `properties`
+    there instead, coalescing NULL to '' to keep the map-read semantics (missing key reads '').
+    """
+    if not use_new_events_schema:
+        return f"properties_group_ai['{property_name}']"
+    expr, is_denormalized = get_property_string_expr(
+        "events", property_name, f"'{property_name}'", "properties", use_new_events_schema=True
+    )
+    return expr if is_denormalized else f"ifNull({expr}, '')"
+
+
 @dataclass
 class TeamMetrics:
     """All metrics for a single team from the combined query."""
@@ -77,7 +92,6 @@ class TeamMetrics:
     ai_feedback_count: int = 0
     ai_evaluation_count: int = 0
     ai_is_error_count: int = 0
-    ai_trial_evaluation_count: int = 0
     ai_llm_judge_evaluation_count: int = 0
     ai_hog_evaluation_count: int = 0
     ai_sentiment_evaluation_count: int = 0
@@ -239,9 +253,9 @@ def get_teams_with_ai_events(
     This is a fast query that returns only distinct team_ids, allowing subsequent
     queries to filter by team_id and use the primary key index efficiently.
     """
-    query = """
+    query = f"""
         SELECT DISTINCT team_id
-        FROM events
+        FROM {events_read_table(use_new_events_schema(None))}
         WHERE event IN %(ai_observability_report_trigger_events)s
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
@@ -326,13 +340,10 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             # Error count (index 26)
             metrics.ai_is_error_count += row[26] or 0
 
-            # Trial evaluation count (index 27)
-            metrics.ai_trial_evaluation_count += row[27] or 0
-
-            # Evaluation runtime counts (indices 28-30)
-            metrics.ai_llm_judge_evaluation_count += row[28] or 0
-            metrics.ai_hog_evaluation_count += row[29] or 0
-            metrics.ai_sentiment_evaluation_count += row[30] or 0
+            # Evaluation runtime counts (indices 27-29)
+            metrics.ai_llm_judge_evaluation_count += row[27] or 0
+            metrics.ai_hog_evaluation_count += row[28] or 0
+            metrics.ai_sentiment_evaluation_count += row[29] or 0
 
     return team_metrics
 
@@ -353,8 +364,12 @@ def get_all_ai_metrics(
     Returns:
         dict mapping team_id to TeamMetrics dataclass
     """
+    use_new = use_new_events_schema(None)
 
-    query_template = """
+    def prop(name: str) -> str:
+        return _ai_property_expr(name, use_new)
+
+    query_template = f"""
         SELECT
             team_id,
             -- Event counts by type
@@ -370,30 +385,29 @@ def get_all_ai_metrics(
             countIf(event = '$ai_trace_clusters') as ai_trace_clusters_count,
             countIf(event = '$ai_generation_clusters') as ai_generation_clusters_count,
             -- Cost metrics
-            SUM(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd'])) as total_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_input_cost_usd'])) as input_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_output_cost_usd'])) as output_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_request_cost_usd'])) as request_cost,
-            SUM(toFloat64OrNull(properties_group_ai['$ai_web_search_cost_usd'])) as web_search_cost,
+            SUM(toFloat64OrNull({prop("$ai_total_cost_usd")})) as total_cost,
+            SUM(toFloat64OrNull({prop("$ai_input_cost_usd")})) as input_cost,
+            SUM(toFloat64OrNull({prop("$ai_output_cost_usd")})) as output_cost,
+            SUM(toFloat64OrNull({prop("$ai_request_cost_usd")})) as request_cost,
+            SUM(toFloat64OrNull({prop("$ai_web_search_cost_usd")})) as web_search_cost,
             -- Token metrics
-            SUM(toInt64OrNull(properties_group_ai['$ai_input_tokens'])) as prompt_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_output_tokens'])) as completion_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_total_tokens'])) as total_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_reasoning_tokens'])) as reasoning_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_cache_read_input_tokens'])) as cache_read_tokens,
-            SUM(toInt64OrNull(properties_group_ai['$ai_cache_creation_input_tokens'])) as cache_creation_tokens,
+            SUM(toInt64OrNull({prop("$ai_input_tokens")})) as prompt_tokens,
+            SUM(toInt64OrNull({prop("$ai_output_tokens")})) as completion_tokens,
+            SUM(toInt64OrNull({prop("$ai_total_tokens")})) as total_tokens,
+            SUM(toInt64OrNull({prop("$ai_reasoning_tokens")})) as reasoning_tokens,
+            SUM(toInt64OrNull({prop("$ai_cache_read_input_tokens")})) as cache_read_tokens,
+            SUM(toInt64OrNull({prop("$ai_cache_creation_input_tokens")})) as cache_creation_tokens,
             -- Cost anomaly counts
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) IS NOT NULL) as total_cost_count,
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) < 0) as total_cost_negative_count,
-            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) = 0) as total_cost_zero_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) IS NOT NULL) as total_cost_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) < 0) as total_cost_negative_count,
+            countIf(toFloat64OrNull({prop("$ai_total_cost_usd")}) = 0) as total_cost_zero_count,
             -- Error count
-            countIf(properties_group_ai['$ai_is_error'] = 'true') as ai_is_error_count,
+            countIf({prop("$ai_is_error")} = 'true') as ai_is_error_count,
             -- Evaluation counts
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_key_type'] = 'posthog') as ai_trial_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'llm_judge') as ai_llm_judge_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'hog') as ai_hog_evaluation_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'sentiment') as ai_sentiment_evaluation_count
-        FROM events
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'llm_judge') as ai_llm_judge_evaluation_count,
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'hog') as ai_hog_evaluation_count,
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
           AND timestamp >= %(begin)s
@@ -426,11 +440,11 @@ def get_llm_prompt_fetched_counts(
     Returns:
         dict mapping team_id to prompt fetched count
     """
-    query_template = """
+    query_template = f"""
         SELECT
             team_id,
             count() as llm_prompt_fetched_count
-        FROM events
+        FROM {events_read_table(use_new_events_schema(None))}
         WHERE team_id IN %(team_ids)s
           AND event = %(llm_prompt_fetched_event)s
           AND timestamp >= %(begin)s
@@ -536,19 +550,25 @@ def get_all_ai_dimension_breakdowns(
         dict mapping team_id to TeamDimensionBreakdowns dataclass
     """
 
-    lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
+    use_new = use_new_events_schema(None)
+    lib_expression, _ = get_property_string_expr(
+        "events", "$lib", "'$lib'", "properties", use_new_events_schema=use_new
+    )
+
+    def prop(name: str) -> str:
+        return _ai_property_expr(name, use_new)
 
     query_template = f"""
         SELECT
             team_id,
-            sumMap(map(properties_group_ai['$ai_model'], toUInt64(1))) as model_breakdown,
-            sumMap(map(properties_group_ai['$ai_provider'], toUInt64(1))) as provider_breakdown,
-            sumMap(map(properties_group_ai['$ai_framework'], toUInt64(1))) as framework_breakdown,
+            sumMap(map({prop("$ai_model")}, toUInt64(1))) as model_breakdown,
+            sumMap(map({prop("$ai_provider")}, toUInt64(1))) as provider_breakdown,
+            sumMap(map({prop("$ai_framework")}, toUInt64(1))) as framework_breakdown,
             sumMap(map({lib_expression}, toUInt64(1))) as library_breakdown,
-            sumMap(map(properties_group_ai['$ai_model_cost_used'], toUInt64(1))) as cost_model_used_breakdown,
-            sumMap(map(properties_group_ai['$ai_cost_model_source'], toUInt64(1))) as cost_model_source_breakdown,
-            sumMap(map(properties_group_ai['$ai_cost_model_provider'], toUInt64(1))) as cost_model_provider_breakdown
-        FROM events
+            sumMap(map({prop("$ai_model_cost_used")}, toUInt64(1))) as cost_model_used_breakdown,
+            sumMap(map({prop("$ai_cost_model_source")}, toUInt64(1))) as cost_model_source_breakdown,
+            sumMap(map({prop("$ai_cost_model_provider")}, toUInt64(1))) as cost_model_provider_breakdown
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
           AND timestamp >= %(begin)s
@@ -621,15 +641,20 @@ def get_llm_feedback_survey_metrics(
     Returns:
         dict mapping team_id to TeamLLMSurveyMetrics
     """
-    ai_trace_id_expr, _ = get_property_string_expr("events", "$ai_trace_id", "'$ai_trace_id'", "properties")
-    survey_id_expr, _ = get_property_string_expr("events", "$survey_id", "'$survey_id'", "properties")
+    use_new = use_new_events_schema(None)
+    ai_trace_id_expr, _ = get_property_string_expr(
+        "events", "$ai_trace_id", "'$ai_trace_id'", "properties", use_new_events_schema=use_new
+    )
+    survey_id_expr, _ = get_property_string_expr(
+        "events", "$survey_id", "'$survey_id'", "properties", use_new_events_schema=use_new
+    )
 
     query_template = f"""
         SELECT
             team_id,
             {survey_id_expr} as survey_id,
             countIf(event = 'survey sent') as response_count
-        FROM events
+        FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND event IN ('survey sent', 'survey shown')
           AND {ai_trace_id_expr} != ''
@@ -649,6 +674,14 @@ def get_llm_feedback_survey_metrics(
         team_ids=team_ids,
         query_name="Get LLM feedback survey metrics",
     )
+
+
+def _is_final_attempt(task: Task) -> bool:
+    """Whether a failure now is permanent: a direct (synchronous) call never retries, and the
+    last autoretry attempt runs with retries >= max_retries."""
+    if task.request.called_directly:
+        return True
+    return task.max_retries is not None and task.request.retries >= task.max_retries
 
 
 # Celery task configuration
@@ -686,8 +719,11 @@ def _get_all_ai_observability_reports(
     try:
         team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] teams query failed", phase="teams", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] teams query failed",
+            phase="teams",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -703,8 +739,11 @@ def _get_all_ai_observability_reports(
     try:
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] metrics query failed", phase="metrics", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] metrics query failed",
+            phase="metrics",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -717,7 +756,9 @@ def _get_all_ai_observability_reports(
         llm_prompt_fetched_counts = get_llm_prompt_fetched_counts(period_start, period_end, team_ids)
         logger.info(f"Retrieved prompt fetched counts for {len(llm_prompt_fetched_counts)} teams")
     except Exception as err:
-        logger.exception("Failed to query LLM prompt fetched counts, continuing without prompt fetch metrics")
+        logger.warning(
+            "Failed to query LLM prompt fetched counts, continuing without prompt fetch metrics", exc_info=True
+        )
         capture_exception(err)
 
     # Phase 4: Get all dimension breakdowns in a single combined query
@@ -725,10 +766,11 @@ def _get_all_ai_observability_reports(
     try:
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
     except Exception:
-        logger.exception(
+        logger.warning(
             "[AIO Usage Error] breakdowns query failed",
             phase="breakdowns",
             event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -739,8 +781,11 @@ def _get_all_ai_observability_reports(
     try:
         survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception(
-            "[AIO Usage Error] surveys query failed", phase="surveys", event_source="ai_observability_usage_report"
+        logger.warning(
+            "[AIO Usage Error] surveys query failed",
+            phase="surveys",
+            event_source="ai_observability_usage_report",
+            exc_info=True,
         )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
@@ -769,7 +814,6 @@ def _get_all_ai_observability_reports(
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
                 "ai_is_error_count": 0,
-                "ai_trial_evaluation_count": 0,
                 "ai_llm_judge_evaluation_count": 0,
                 "ai_hog_evaluation_count": 0,
                 "ai_sentiment_evaluation_count": 0,
@@ -817,7 +861,6 @@ def _get_all_ai_observability_reports(
             report["ai_feedback_count"] += metrics.ai_feedback_count
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
             report["ai_is_error_count"] += metrics.ai_is_error_count
-            report["ai_trial_evaluation_count"] += metrics.ai_trial_evaluation_count
             report["ai_llm_judge_evaluation_count"] += metrics.ai_llm_judge_evaluation_count
             report["ai_hog_evaluation_count"] += metrics.ai_hog_evaluation_count
             report["ai_sentiment_evaluation_count"] += metrics.ai_sentiment_evaluation_count
@@ -886,9 +929,11 @@ def _get_all_ai_observability_reports(
 @shared_task(
     name="posthog.tasks.llm_analytics_usage_report.capture_llm_analytics_report",
     max_retries=3,
+    bind=True,
     **AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS,
 )
 def capture_ai_observability_report(
+    self: Task,
     *,
     organization_id: str | None = None,
     report_dict: dict[str, Any],
@@ -917,11 +962,13 @@ def capture_ai_observability_report(
         )
         logger.info(f"Captured AI observability usage report for organization {organization_id}")
     except Exception as err:
-        logger.exception(
+        log = logger.error if _is_final_attempt(self) else logger.warning
+        log(
             "[AIO Usage Error] AI observability usage report sent to PostHog for organization failed",
             organization_id=organization_id,
             error=str(err),
             event_source="ai_observability_usage_report",
+            exc_info=True,
         )
 
         try:
@@ -933,11 +980,12 @@ def capture_ai_observability_report(
                 properties={"error": str(err)},
             )
         except Exception as capture_err:
-            logger.exception(
+            log(
                 "[AIO Usage Error] Failed to capture error event",
                 organization_id=organization_id,
                 error=str(capture_err),
                 event_source="ai_observability_usage_report",
+                exc_info=True,
             )
 
         raise
@@ -946,9 +994,11 @@ def capture_ai_observability_report(
 @shared_task(
     name="posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports",
     max_retries=3,
+    bind=True,
     **AI_OBSERVABILITY_USAGE_REPORT_TASK_KWARGS,
 )
 def send_ai_observability_usage_reports(
+    self: Task,
     dry_run: bool = False,
     at: str | None = None,
     organization_ids: list[str] | None = None,
@@ -986,7 +1036,22 @@ def send_ai_observability_usage_reports(
     logger.info("Gathering AI observability usage data")
     query_time_start = datetime.now(UTC)
 
-    org_reports = _get_all_ai_observability_reports(period_start, period_end)
+    try:
+        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+    except Exception as err:
+        # The log alert keys on error severity: retryable attempts stay warnings, only the
+        # exhausted final attempt may page.
+        if _is_final_attempt(self):
+            logger.error(
+                "[AIO Usage Error] usage report run failed permanently",
+                error=str(err),
+                period_start=period_start.isoformat(),
+                period_end=period_end.isoformat(),
+                retries=self.request.retries,
+                event_source="ai_observability_usage_report",
+                exc_info=True,
+            )
+        raise
 
     if organization_ids:
         original_count = len(org_reports)
@@ -1013,14 +1078,19 @@ def send_ai_observability_usage_reports(
 
     logger.info("Sending AI observability usage reports")
 
-    at_date_str = at_date.isoformat() if at_date else None
+    # Deterministic nominal stamp (midnight after the covered day): keeps daily bucketing stable
+    # in UTC and project timezones, and stops retry stragglers landing on the wrong chart day.
+    # Actual arrival time remains queryable via events.created_at.
+    report_timestamp = (period_start + timedelta(days=1)).isoformat()
+    triggered_by = "manual" if (at or organization_ids) else "scheduled"
 
     for org_id, report in org_reports.items():
+        report["triggered_by"] = triggered_by
         try:
             capture_ai_observability_report.delay(
                 organization_id=org_id,
                 report_dict=report,
-                at_date=at_date_str,
+                at_date=report_timestamp,
             )
             total_orgs_sent += 1
 

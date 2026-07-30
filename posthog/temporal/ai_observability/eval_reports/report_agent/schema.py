@@ -1,11 +1,12 @@
 """Dataclasses for evaluation report content, metrics, and citations.
 
 The v2 schema splits the report into:
+- `evaluation_target`: the evaluated unit (`generation` or `trace`)
 - `metrics`: structured numeric data computed mechanically from ClickHouse,
   the agent cannot fabricate these
 - `title`: the agent's punchline headline (required, one line)
 - `sections`: 1-6 agent-chosen titled markdown sections
-- `citations`: structured trace references (generation_id + trace_id + reason)
+- `citations`: structured target references (generation_id + trace_id + reason)
 
 This separation lets downstream consumers (signals, inbox, coding agents) query
 `metrics` and `citations` without parsing prose, and lets the agent focus on
@@ -13,15 +14,28 @@ analysis rather than number formatting.
 """
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Literal, overload
 
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TARGET, resolve_evaluation_target
 
 # Hard cap on the number of agent-chosen sections. Prevents section sprawl and
 # keeps reports scannable. The agent is also instructed to lean lean — quality
 # over quantity, merge related findings rather than fragmenting.
 MAX_REPORT_SECTIONS = 6
 MIN_REPORT_SECTIONS = 1
+
+
+class EvalReportGenerationStatus(StrEnum):
+    COMPLETED = "completed"
+    METRICS_UNAVAILABLE = "metrics_unavailable"
+
+
+METRICS_UNAVAILABLE_MESSAGE = (
+    "Metrics could not be calculated for this period because evaluation data was temporarily unavailable. "
+    "This does not mean that no evaluations ran."
+)
 
 
 def normalize_result_counts(output_type: str, counts: dict[str, int] | None) -> dict[str, int]:
@@ -65,12 +79,12 @@ def calculate_boolean_pass_rate(counts: dict[str, int], *, empty_as_none: bool =
 
 @dataclass
 class Citation:
-    """A trace reference cited by the agent to ground a specific finding.
+    """An inspected example cited by the agent to ground a specific finding.
 
-    Stores both generation_id and trace_id up front so the viewer can construct
-    correct trace URLs without a runtime lookup. `reason` is short free-form
-    text (e.g. "high_cost", "refusal", "regression_14:00") the agent uses to
-    categorize why the trace is interesting.
+    Generation reports store both IDs so viewers can link to the generation
+    without a runtime lookup. Trace reports leave `generation_id` empty and use
+    `trace_id` as the reference. `reason` is a short free-form category for why
+    the example is interesting.
     """
 
     generation_id: str
@@ -276,7 +290,14 @@ def normalize_report_content_payload(data: dict) -> dict:
     """Upgrade a stored report at the read/write boundary without mutating it."""
     normalized = dict(data)
     metrics = data.get("metrics")
-    if isinstance(metrics, dict):
+    try:
+        status = EvalReportGenerationStatus(data.get("generation_status", ""))
+    except ValueError:
+        status = EvalReportGenerationStatus.COMPLETED
+    normalized["generation_status"] = status.value
+    if status == EvalReportGenerationStatus.METRICS_UNAVAILABLE:
+        normalized["metrics"] = None
+    elif isinstance(metrics, dict):
         normalized["metrics"] = normalize_metrics_payload(metrics)
     return normalized
 
@@ -285,24 +306,42 @@ def normalize_report_content_payload(data: dict) -> dict:
 class EvalReportContent:
     """Top-level report content. Stored in EvaluationReportRun.content JSONField."""
 
+    evaluation_target: str = GENERATION_TARGET
     title: str = ""
     sections: list[ReportSection] = field(default_factory=list)
     citations: list[Citation] = field(default_factory=list)
-    metrics: EvalReportMetrics = field(default_factory=EvalReportMetrics)
+    metrics: EvalReportMetrics | None = field(default_factory=EvalReportMetrics)
+    generation_status: EvalReportGenerationStatus = EvalReportGenerationStatus.COMPLETED
+
+    def __post_init__(self) -> None:
+        self.evaluation_target = resolve_evaluation_target(self.evaluation_target)
+        if self.generation_status == EvalReportGenerationStatus.METRICS_UNAVAILABLE:
+            self.metrics = None
 
     def to_dict(self) -> dict:
         return {
+            "evaluation_target": self.evaluation_target,
             "title": self.title,
             "sections": [s.to_dict() for s in self.sections],
             "citations": [c.to_dict() for c in self.citations],
-            "metrics": self.metrics.to_dict(),
+            "metrics": self.metrics.to_dict() if self.metrics is not None else None,
+            "generation_status": self.generation_status.value,
         }
 
     @staticmethod
     def from_dict(data: dict) -> "EvalReportContent":
+        normalized = normalize_report_content_payload(data)
+        generation_status = EvalReportGenerationStatus(normalized["generation_status"])
+        metrics = normalized.get("metrics")
         return EvalReportContent(
-            title=data.get("title", ""),
-            sections=[ReportSection.from_dict(s) for s in data.get("sections", [])],
-            citations=[Citation.from_dict(c) for c in data.get("citations", [])],
-            metrics=EvalReportMetrics.from_dict(data.get("metrics", {})),
+            evaluation_target=normalized.get("evaluation_target", GENERATION_TARGET),
+            title=normalized.get("title", ""),
+            sections=[ReportSection.from_dict(s) for s in normalized.get("sections", [])],
+            citations=[Citation.from_dict(c) for c in normalized.get("citations", [])],
+            metrics=(
+                None
+                if generation_status == EvalReportGenerationStatus.METRICS_UNAVAILABLE
+                else EvalReportMetrics.from_dict(metrics if isinstance(metrics, dict) else {})
+            ),
+            generation_status=generation_status,
         )

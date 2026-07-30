@@ -23,7 +23,12 @@ import express from 'ultimate-express'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES, KAFKA_MESSAGE_ASSETS } from '~/common/config/kafka-topics'
+import {
+    KAFKA_APP_METRICS_2,
+    KAFKA_HOG_INVOCATION_RESULTS,
+    KAFKA_LOG_ENTRIES,
+    KAFKA_MESSAGE_ASSETS,
+} from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
@@ -50,7 +55,13 @@ import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogf
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
-import { CyclotronV2Janitor, CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
+import { createCdpOutputsRegistry } from './outputs/registry'
+import {
+    CyclotronV2Janitor,
+    CyclotronV2Manager,
+    CyclotronV2Worker,
+    JANITOR_POISON_PILL_ERROR_KIND,
+} from './services/cyclotron-v2'
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
     MAX_RESOLVER_ATTEMPTS,
@@ -62,6 +73,7 @@ import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgr
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
+import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
@@ -575,6 +587,168 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
+    describe('live edit while a run is parked (follow-live contract)', () => {
+        // The runs park on a 2m delay so they cannot wake before the edit lands; the tests then
+        // pull the wake forward explicitly (the same scheduled-time update the subscription
+        // matcher performs), so there is no race between the park deadline and the edit.
+
+        /** Wait until a job is parked in the future (a delay/wait step was hit) */
+        async function waitForParkedJob(): Promise<void> {
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 5000)
+        }
+
+        /** Persist an edited actions/edges graph and bust the worker's config cache, like Django's save + pub/sub would */
+        async function applyLiveEdit(flow: HogFlow): Promise<void> {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET actions = $2, edges = $3, updated_at = NOW() WHERE id = $1`,
+                [flow.id, JSON.stringify(flow.actions), JSON.stringify(flow.edges)],
+                'liveEditHogFlow'
+            )
+            ;(hogflowWorker as any).hogFlowManager.lazyLoader.markForRefresh(flow.id)
+        }
+
+        /** Pull parked jobs' scheduled time forward so the worker picks them up now */
+        async function wakeParkedJobsNow(): Promise<void> {
+            await cyclotronPool.query(
+                `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available' AND scheduled > NOW()`
+            )
+        }
+
+        /** Shorten the flow's delay so the woken run advances instead of re-parking */
+        function shortenDelay(flow: HogFlow, actionId: string): void {
+            const delay = flow.actions.find((a) => a.id === actionId)!
+            ;(delay.config as any).delay_duration = '1s'
+        }
+
+        it('a content edit made while parked on an upstream delay is honored on wake', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('2m'),
+                    function_1: fetchAction('https://example.com/content-v1'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForParkedJob()
+
+            const functionAction = flow.actions.find((a) => a.id === 'function_1')!
+            ;(functionAction.config as any).inputs.url.value = 'https://example.com/content-v2'
+            shortenDelay(flow, 'delay_1')
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/content-v2', expect.anything())
+        })
+
+        it("rerouting the parked step's edge does not re-run earlier steps or run the old target", async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    function_a: fetchAction('https://example.com/step-a'),
+                    delay_1: delayAction('2m'),
+                    function_b: fetchAction('https://example.com/step-b'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_a', type: 'continue' },
+                    { from: 'function_a', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_b', type: 'continue' },
+                    { from: 'function_b', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-a', expect.anything())
+            }, 10000)
+            await waitForParkedJob()
+
+            // Reroute the delay's continue edge onto a newly added step
+            const functionB = flow.actions.find((a) => a.id === 'function_b')!
+            flow.actions.push({
+                ...functionB,
+                id: 'function_c',
+                config: {
+                    ...(functionB.config as any),
+                    inputs: { url: { value: 'https://example.com/step-c' }, method: { value: 'POST' } },
+                },
+            })
+            flow.edges = [
+                { from: 'trigger', to: 'function_a', type: 'continue' },
+                { from: 'function_a', to: 'delay_1', type: 'continue' },
+                { from: 'delay_1', to: 'function_c', type: 'continue' },
+                { from: 'function_c', to: 'exit', type: 'continue' },
+            ]
+            shortenDelay(flow, 'delay_1')
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/step-c', expect.anything())
+            }, 10000)
+
+            // Exactly one send per executed step: the step behind the run did not re-run, the old
+            // target never ran, the new target ran once
+            const urls = mockFetch.mock.calls.map((call) => call[0])
+            expect(urls.filter((u) => u === 'https://example.com/step-a')).toHaveLength(1)
+            expect(urls.filter((u) => u === 'https://example.com/step-b')).toHaveLength(0)
+            expect(urls.filter((u) => u === 'https://example.com/step-c')).toHaveLength(1)
+        })
+
+        it('deleting the step a run is parked on exits the run gracefully on wake', async () => {
+            const flow = await createWorkflowFlow({
+                actions: {
+                    trigger: trigger(),
+                    delay_1: delayAction('2m'),
+                    function_1: fetchAction('https://example.com/should-not-fire'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await waitForParkedJob()
+
+            flow.actions = flow.actions.filter((a) => a.id !== 'delay_1')
+            flow.edges = [
+                { from: 'trigger', to: 'function_1', type: 'continue' },
+                { from: 'function_1', to: 'exit', type: 'continue' },
+            ]
+            await applyLiveEdit(flow)
+            await wakeParkedJobsNow()
+
+            // The parked run wakes, finds its step gone, and finishes as a deliberate exit
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.filter((j: any) => j.status === 'completed')).toHaveLength(1)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            await waitForExpect(() => {
+                const metricNames = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .map((m: any) => m.value.metric_name)
+                expect(metricNames).toContain('exited_workflow_changed')
+                expect(metricNames).not.toContain('failed')
+            }, 5000)
+        })
+    })
+
     describe('multiple workflows matching same event', () => {
         const simpleFetchWorkflow = (url: string) => ({
             actions: {
@@ -1085,6 +1259,243 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }
             const personGlobals = await matcher._parsePersonBatch([personMessage as any])
             await matcher.processBatch(personGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        // Wait conditions authored as HogQL expressions must be woken by the streams, not only by the
+        // 10-minute poll — otherwise removing the poll would silently strand them. These three cover
+        // the distinct HogQL condition shapes real production flows use; each bytecode is exactly what
+        // the Django serializer compiles for that expression (verified via compile_filters_bytecode).
+        // If HogQL compilation changes, or a stream stops carrying what the bytecode reads (e.g. the
+        // person wake dropping properties), one of these fails.
+        it('wakes a HogQL event-name wait condition via the events stream', async () => {
+            // HogQL: event = 'billing_added'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: ['_H', 1, 32, 'billing_added', 32, 'event', 1, 1, 11],
+                        properties: [{ type: 'hogql', key: "event = 'billing_added'" }],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
+            await expectParked()
+            await matcher.processBatch([createGlobals({ event: 'billing_added', properties: {} })])
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a HogQL event+property wait condition only on the matching event and property', async () => {
+            // HogQL: event = 'cal_booking' and properties.trigger_event = 'BOOKING_CREATED'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: [
+                            '_H',
+                            1,
+                            32,
+                            'cal_booking',
+                            32,
+                            'event',
+                            1,
+                            1,
+                            11,
+                            32,
+                            'BOOKING_CREATED',
+                            32,
+                            'trigger_event',
+                            32,
+                            'properties',
+                            1,
+                            2,
+                            11,
+                            3,
+                            2,
+                        ],
+                        properties: [
+                            {
+                                type: 'hogql',
+                                key: "event = 'cal_booking' and properties.trigger_event = 'BOOKING_CREATED'",
+                            },
+                        ],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
+            await expectParked()
+            // Right event, wrong property — must not wake.
+            await matcher.processBatch([
+                createGlobals({ event: 'cal_booking', properties: { trigger_event: 'OTHER' } }),
+            ])
+            await new Promise((r) => setTimeout(r, 500))
+            expect(mockFetch).not.toHaveBeenCalled()
+            // Right event and property — wakes.
+            await matcher.processBatch([
+                createGlobals({ event: 'cal_booking', properties: { trigger_event: 'BOOKING_CREATED' } }),
+            ])
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a HogQL dynamic-key person-property wait condition via the person stream', async () => {
+            // HogQL: person.properties[concat(toString(person.properties.shop_id), '_billing_status')] = 'active'
+            await createWaitUntilWorkflow({
+                condition: {
+                    filters: {
+                        bytecode: [
+                            '_H',
+                            1,
+                            32,
+                            'active',
+                            32,
+                            'properties',
+                            32,
+                            'person',
+                            1,
+                            2,
+                            32,
+                            'shop_id',
+                            32,
+                            'properties',
+                            32,
+                            'person',
+                            1,
+                            3,
+                            2,
+                            'toString',
+                            1,
+                            32,
+                            '_billing_status',
+                            2,
+                            'concat',
+                            2,
+                            45,
+                            11,
+                        ],
+                        properties: [
+                            {
+                                type: 'hogql',
+                                key: "person.properties[concat(toString(person.properties.shop_id), '_billing_status')] = 'active'",
+                            },
+                        ],
+                    },
+                },
+                max_wait_duration: '5m',
+            })
+            // Parked person has shop_id but no billing status yet, so the condition is false and it parks.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'uuid',
+                    team_id: team.id,
+                    properties: { shop_id: '42' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+            // clickhouse_person mutation sets 42_billing_status = 'active' with no analytics event.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ shop_id: '42', '42_billing_status': 'active' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 2,
+                    })
+                ),
+            }
+            const personGlobals = await matcher._parsePersonBatch([personMessage as any])
+            await matcher.processBatch(personGlobals)
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        // A parked wait keyed on an anonymous person can't be woken by the survivor's updates after a
+        // merge — the survivor's person/event updates arrive under a new person_id the wait doesn't
+        // reference. The matcher re-keys the wait off the clickhouse_person_distinct_id repoint so it
+        // follows the survivor. These two tests cover the re-key and the wake it enables.
+        // Factories (not eager consts): they read `team`, which is only assigned in beforeEach.
+        const anonPersonRow = (): any => ({
+            id: '1',
+            uuid: 'old-uuid',
+            team_id: team.id,
+            properties: { email: 'test@posthog.com' },
+            properties_last_updated_at: {},
+            properties_last_operation: null,
+            created_at: DateTime.utc(),
+            version: 1,
+            is_identified: true,
+            is_user_id: null,
+            last_seen_at: null,
+            distinct_id: 'distinct_id',
+        })
+        const distinctIdMoveMessage = (): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: team.id,
+                    distinct_id: 'distinct_id',
+                    person_id: 'new-uuid',
+                    version: 2,
+                    is_deleted: 0,
+                })
+            ),
+        })
+        // The post-merge survivor the repoint points at, now carrying the merged plan=enterprise. The
+        // re-keyed job resolves by this survivor personId (personIdRepointed), not the repointed distinct_id.
+        const survivorPersonRow = (): any => ({
+            id: '2',
+            uuid: 'new-uuid',
+            team_id: team.id,
+            properties: { email: 'test@posthog.com', plan: 'enterprise' },
+            properties_last_updated_at: {},
+            properties_last_operation: null,
+            created_at: DateTime.utc(),
+            version: 2,
+            is_identified: true,
+            is_user_id: null,
+            last_seen_at: null,
+        })
+
+        it('re-keys a wait onto the survivor after a merge repoints its distinct_id, so the survivor wakes it', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            // Parked keyed on the anon person ('old-uuid'), which has no `plan`, so the wait parks on entry.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([anonPersonRow()])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The merge repoints 'distinct_id' onto survivor 'new-uuid' (version > 0). The matcher re-keys the
+            // parked wait onto the survivor and wakes it (scheduled = now). The worker then resolves the job by
+            // the survivor personId — not the repointed distinct_id — re-checks the condition against the
+            // survivor's plan=enterprise, and advances down the matched branch, firing the fetch.
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
+            await matcher.processMoveBatch(matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage() as any]))
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -3844,5 +4255,146 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(0)
+    })
+})
+
+// Janitor poison-pill recovery (postgres-v2). Exercises the REAL results service
+// + real Kafka produce — the seam the mocked unit tests can't cover: an isolated
+// poison pill is recorded as a failed, replayable result on hog_invocation_results
+// BEFORE its cyclotron row is deleted, and with recovery disabled the janitor
+// reverts to master's legacy path (marks the pill failed, no recovery record).
+describe('Workflows E2E (janitor poison-pill recovery, postgres-v2)', () => {
+    jest.setTimeout(30000)
+
+    let hub: Hub
+    let kafkaProducer: KafkaProducerWrapper
+    let mockProducerObserver: KafkaProducerObserver
+    let team: Team
+    let cyclotronPool: Pool
+    let invocationResults: HogInvocationResultsService
+    let janitor: CyclotronV2Janitor | undefined
+
+    beforeAll(() => {
+        cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
+    })
+
+    afterAll(async () => {
+        await cyclotronPool.end()
+    })
+
+    beforeEach(async () => {
+        MockKafkaProducerWrapper.create = jest.fn((...args) => ActualKafkaProducerWrapper.create(...args))
+
+        // KAFKA_HOG_INVOCATION_RESULTS isn't in TEST_KAFKA_TOPICS — the janitor
+        // produces the give-up record there, so it must exist or the produce
+        // fails and the row is (correctly) never deleted.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
+        await resetTestDatabase()
+        await cyclotronPool.query('DELETE FROM cyclotron_jobs')
+
+        hub = await createHub()
+        // The give-up record path is gated on this flag (off by default outside dev).
+        hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+        kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+        team = await getFirstTeam(hub.postgres)
+        mockProducerObserver.resetKafkaProducer()
+
+        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, hub)
+        invocationResults = new HogInvocationResultsService(outputs, hub)
+    })
+
+    afterEach(async () => {
+        await janitor?.stop().catch(() => {})
+        janitor = undefined
+        await kafkaProducer.disconnect()
+        await closeHub(hub)
+        mockProducerObserver.resetKafkaProducer()
+    })
+
+    function createJanitor(overrides: Record<string, unknown> = {}): CyclotronV2Janitor {
+        return new CyclotronV2Janitor(
+            {
+                pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                cleanupGraceMs: 0,
+                stallTimeoutMs: 1000,
+                maxTouchCount: 3,
+                ...overrides,
+            },
+            invocationResults
+        )
+    }
+
+    // A hogflow job stuck 'running' with a long-stale heartbeat and a touch count
+    // over the budget. The serialized state mirrors a wait_until_condition that
+    // had already advanced past earlier actions.
+    async function insertPoisonedHogflowJob(): Promise<string> {
+        const id = new UUIDT().toString()
+        const state = Buffer.from(
+            JSON.stringify({
+                state: {
+                    event: { uuid: 'evt-poison', distinct_id: 'd-poison' },
+                    actionStepCount: 2,
+                    variables: {},
+                    currentAction: { id: 'wait_condition', startedAtTimestamp: 1 },
+                },
+            })
+        )
+        await cyclotronPool.query(
+            `INSERT INTO cyclotron_jobs
+                (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+                 lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition, state)
+             VALUES ($1, $2, $3, 'hogflow', 'running'::CyclotronJobStatus, 0, NOW(), NOW(),
+                     $4, NOW() - INTERVAL '5 minutes', 5, 10, NOW(), $5)`,
+            [id, team.id, new UUIDT().toString(), new UUIDT().toString(), state]
+        )
+        return id
+    }
+
+    it('records an isolated poison pill as a failed, replayable result and only then deletes it', async () => {
+        const id = await insertPoisonedHogflowJob()
+
+        janitor = createJanitor()
+        const result = await janitor.runOnce()
+
+        expect(result.poisonedIds).toEqual([id])
+
+        // A failed lifecycle row reached the hog_invocation_results topic so the
+        // run is discoverable in the Invocations UI and replayable by rerun.
+        await waitForExpect(() => {
+            const rows = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+            expect(rows.some((m: any) => m.value.invocation_id === id)).toBe(true)
+        }, 10000)
+
+        const row = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+            .find((m: any) => m.value.invocation_id === id)!.value
+        expect(row.status).toBe('failed')
+        expect(row.function_kind).toBe('hog_flow')
+        expect(row.function_id).toBeTruthy()
+        expect(row.error_kind).toBe(JANITOR_POISON_PILL_ERROR_KIND)
+
+        // The cyclotron row is gone — but only because the record exists first.
+        const remaining = await cyclotronPool.query('SELECT 1 FROM cyclotron_jobs WHERE id = $1', [id])
+        expect(remaining.rowCount).toBe(0)
+    })
+
+    it('reverts to legacy mark-failed (records nothing) when recovery is disabled', async () => {
+        const id = await insertPoisonedHogflowJob()
+
+        janitor = createJanitor({ poisonRecoveryEnabled: false })
+        const result = await janitor.runOnce()
+
+        // Kill-switch off → master's legacy path: mark the pill failed and produce
+        // no recovery record. The give-up is terminal (no infinite retry) but not
+        // replayable — exactly master's pre-recovery behavior.
+        expect(result.poisonedIds).toEqual([id])
+        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toHaveLength(0)
+
+        const rows = await cyclotronPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [id])
+        expect(rows.rowCount).toBe(1)
+        expect(rows.rows[0].status).toBe('failed')
     })
 })

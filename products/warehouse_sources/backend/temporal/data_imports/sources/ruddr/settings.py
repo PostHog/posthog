@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class RuddrEndpointConfig:
@@ -22,4 +24,4 @@ RUDDR_ENDPOINTS: dict[str, RuddrEndpointConfig] = {
 
 ENDPOINTS = tuple(RUDDR_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

@@ -225,7 +225,7 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/insights?tab=alerts')
+        return await withPostHogUrl(context, result, '/alerts')
     },
 })
 

@@ -36,6 +36,14 @@ for env in $envs; do
     set --
   fi
 
-  "$HCLEXP" load -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" "$@" -out "$GOLDEN" >/dev/null
-  for role in $roles; do echo "wrote $GOLDEN/$env-$role.hcl"; done
+  # -out-name writes the per-env layout golden/<env>/<role>.hcl directly, creating
+  # subdirs for us (chschema#146). hclexp names files by the raw role, so rename any
+  # Windows-reserved output to its safe golden_name afterward.
+  "$HCLEXP" load -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" "$@" \
+    -out-name '{env}/{role}' -out "$GOLDEN" >/dev/null
+  for role in $roles; do
+    safe="$(golden_name "$role")"
+    [ "$safe" != "$role" ] && mv -f "$GOLDEN/$env/$role.hcl" "$GOLDEN/$env/$safe.hcl"
+    echo "wrote $GOLDEN/$env/$safe.hcl"
+  done
 done

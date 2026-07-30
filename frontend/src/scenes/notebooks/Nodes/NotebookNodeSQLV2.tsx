@@ -1,11 +1,12 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconCornerDownRight } from '@posthog/icons'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -18,6 +19,7 @@ import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamB
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { outputHeightForShape } from './notebookNodeOutputHeight'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
@@ -41,12 +43,38 @@ export type NotebookNodeSQLV2Attributes = {
     returnVariable: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
+    // How the run that produced `result` ended. An interrupt persists a partial result just
+    // like a completed run does, so the result alone can't tell the two apart on a reload.
+    runStatus?: NotebookNodeRunTerminalStatus | null
     outputTab?: OutputTab | null
     vizQuery?: DataVisualizationNode | null
 }
 
 // Matches the SQL editor output pane's default so charts land at v1-node size.
 const VIZ_MIN_HEIGHT = 350
+
+// The dataframe name is referenced as a bare SQL table name and becomes a Python variable
+// when a python cell reads the frame, so it must be a plain identifier. Empty is fine —
+// the cell is then display-only.
+const VALID_RETURN_VARIABLE = /^[A-Za-z_][A-Za-z0-9_]*$/
+const returnVariableValidationError = (returnVariable: string): string | null => {
+    if (!returnVariable || VALID_RETURN_VARIABLE.test(returnVariable)) {
+        return null
+    }
+    const suggestion = returnVariable.replace(/[^A-Za-z0-9_]/g, '_').replace(/^(?=\d)/, '_')
+    const hint = VALID_RETURN_VARIABLE.test(suggestion) ? ` Try ${suggestion}.` : ''
+    // Call out only the rule that was actually broken so a name like `people-df` isn't told it
+    // "can't start with a number" when the real problem is the hyphen.
+    const startsWithDigit = /^\d/.test(returnVariable)
+    const hasInvalidChars = /[^A-Za-z0-9_]/.test(returnVariable)
+    const reason =
+        startsWithDigit && hasInvalidChars
+            ? "Use letters, numbers, and underscores, and don't start with a number."
+            : startsWithDigit
+              ? "The name can't start with a number."
+              : 'Use letters, numbers, and underscores.'
+    return `${reason}${hint}`
+}
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
@@ -101,6 +129,7 @@ const Component = ({
         isStale,
         isChainRunning,
         staleDownstreamCount,
+        pendingKernelStart,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
@@ -108,6 +137,7 @@ const Component = ({
         title.trim() || getCellLabel(nodeIndex, nodeType) || 'SQL'
 
     const result = attributes.result ?? null
+    const returnVariableError = returnVariableValidationError(attributes.returnVariable ?? '')
     // Page 1 at the default size comes straight from the envelope; other pages re-query CH.
     const dataframeResult = useMemo(() => {
         if (pageResult) {
@@ -136,6 +166,27 @@ const Component = ({
         [attributes.vizQuery, attributes.code]
     )
 
+    // Grow a still-too-short node to fit the result each run lands, so output is readable without
+    // a manual resize. Sized to the rows that came back — a scalar stays compact, a wide result
+    // grows up to a cap. Only grows, and only for a run we haven't sized yet, so a deliberate
+    // resize (or a reload of an already-sized cell) is left untouched.
+    const sizedRunIdRef = useRef<string | null | undefined>(result ? (attributes.runId ?? null) : undefined)
+    useEffect(() => {
+        const runId = attributes.runId ?? null
+        if (!result || runId === sizedRunIdRef.current) {
+            return
+        }
+        sizedRunIdRef.current = runId
+        const target =
+            activeTab === OutputTab.Visualization
+                ? VIZ_MIN_HEIGHT
+                : outputHeightForShape({ rowCount: (result.first_page ?? []).length })
+        if (target !== null && (typeof attributes.height !== 'number' || attributes.height < target)) {
+            updateAttributes({ height: target })
+        }
+        // oxlint-disable-next-line exhaustive-deps
+    }, [result, attributes.runId])
+
     if (!expanded) {
         return null
     }
@@ -159,6 +210,9 @@ const Component = ({
                             disabledReason={isRunning ? 'This cell is running' : (operationBlockReason ?? undefined)}
                         />
                     </div>
+                ) : null}
+                {isRunning && pendingKernelStart ? (
+                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
@@ -192,6 +246,9 @@ const Component = ({
                                     page={page}
                                     pageSize={pageSize}
                                     hasMore={hasMorePages}
+                                    // Wide text columns (long strings, JSON blobs) shouldn't make every
+                                    // row tall; clamp to one line here and let the user open a cell.
+                                    truncateCells
                                     // Serialize page fetches: no new page while one is in flight, a run
                                     // is replacing this result, or another cell's operation is running.
                                     paginationDisabledReason={
@@ -250,11 +307,14 @@ const Component = ({
                 <input
                     type="text"
                     // A dataframe name other SQL nodes reference by table name (`from sql_df`).
+                    // Optional: left empty, the cell is display-only and exports nothing.
                     className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                    placeholder="Dataframe name (optional)"
                     spellCheck={false}
                 />
+                {returnVariableError ? <span className="text-danger">{returnVariableError}</span> : null}
                 {sqlV2ReturnVariableUsage.length > 0 ? (
                     <span className="text-muted">
                         Used in{' '}
@@ -304,7 +364,7 @@ const Settings = ({
             onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId))}
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
-            runQueryTooltip="Run SQL (v2) query"
+            runQueryTooltip="Run SQL query"
             onCancelQuery={interruptRun}
             cancelQueryLoading={isInterrupting}
         />
@@ -313,7 +373,7 @@ const Settings = ({
 
 export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attributes>({
     nodeType: NotebookNodeType.SQLV2,
-    titlePlaceholder: 'SQL (v2)',
+    titlePlaceholder: 'SQL',
     Component,
     heightEstimate: 120,
     minHeight: 80,
@@ -323,13 +383,18 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
         code: {
             default: '',
         },
+        // Optional: empty means the cell binds no dataframe (display-only). Existing cells
+        // carry their persisted name ('sql_df' was the old default) and keep exporting it.
         returnVariable: {
-            default: 'sql_df',
+            default: '',
         },
         runId: {
             default: null,
         },
         result: {
+            default: null,
+        },
+        runStatus: {
             default: null,
         },
         outputTab: {

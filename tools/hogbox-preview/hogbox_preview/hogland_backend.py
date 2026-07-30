@@ -56,6 +56,27 @@ _WRITE_CHUNK = 48 * 1024 * 1024
 _CREATE_5XX_ATTEMPTS = 3
 _CREATE_5XX_BACKOFF_SECONDS = (5, 15)  # slept BEFORE attempts 2 and 3
 
+# A capacity 503 is NOT a "retry me" 5xx like the placement failures above: the
+# server already burned ~4 minutes internally (auction retry budget, see
+# hogplane's discovery.ErrNoCapacity / orchestrator.retryAuction) before giving
+# up, so 3 client-side retries would tie up the CI runner for 12+ minutes and
+# leave 3 failed boxes behind. The preview workflow's sticky comment already
+# tells the user it'll retry on the next push, so fail fast here instead.
+# Match on hogplane's stable error text (see discovery.ErrNoCapacity in the
+# hogland repo) rather than only the 503 status, since other transient 5xx
+# (placement EOF, etc.) also come back as 503-or-500 and must keep retrying.
+_NO_CAPACITY_MESSAGE_SUBSTRING = "no hogd has capacity"
+
+
+def _is_no_capacity_error(exc: ServerError) -> bool:
+    """True if `exc` is hogland's "no capacity right now" 503, not some other
+    transient 5xx. Defensive: any introspection failure here just falls back to
+    the existing retry-every-5xx behaviour."""
+    try:
+        return _NO_CAPACITY_MESSAGE_SUBSTRING in str(exc)
+    except Exception:
+        return False
+
 
 def _ephemeral_ssh_pubkey() -> str:
     """A throwaway ed25519 public key.
@@ -202,11 +223,24 @@ class HoglandBackend(PreviewBackend):
         immediately. Each attempt draws a fresh unique box name via
         _create_kwargs, so a 5xx-failed attempt — which leaves a failed box
         holding its name for up to an hour — can't make the retry 409 against its
-        own corpse."""
+        own corpse.
+
+        A "no capacity" 503 is the one 5xx that must NOT be retried here: the
+        server already spent ~4 minutes on an auction retry budget before
+        raising it, so retrying 3x would burn 12+ minutes of runner time and
+        leave 3 failed boxes for one doomed run. Fail immediately with a clear
+        message — the caller already tells the user this'll retry on the next
+        push."""
         for attempt in range(_CREATE_5XX_ATTEMPTS):
             try:
                 return self._client.create(**self._create_kwargs())
-            except ServerError:
+            except ServerError as exc:
+                if _is_no_capacity_error(exc):
+                    raise ServerError(
+                        "hogland has no capacity right now; will retry on the next push",
+                        status_code=exc.status_code,
+                        body=exc.body,
+                    ) from exc
                 if attempt == _CREATE_5XX_ATTEMPTS - 1:
                     raise  # out of retries — surface the 5xx
                 time.sleep(_CREATE_5XX_BACKOFF_SECONDS[attempt])

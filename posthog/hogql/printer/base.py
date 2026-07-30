@@ -34,9 +34,9 @@ from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
-from posthog.models.team.team import WeekStartDay
-from posthog.models.utils import UUIDT
 from posthog.schema_enums import PersonsOnEventsMode
+from posthog.uuidt import UUIDT
+from posthog.week_start_day import WeekStartDay
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
@@ -107,6 +107,10 @@ class BasePrinter(Visitor[str]):
             raise QueryError(f"Invalid set operator: {set_operator!r}")
         if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
             raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
+        if set_operator.endswith(" BY NAME"):
+            # The resolver lowers BY NAME for ClickHouse; reaching the printer means this dialect has
+            # neither native support nor a lowering, so refuse rather than emit SQL the engine rejects.
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
     def _assert_recursive_cte_supported(self) -> None:
         """Raise if this dialect does not support recursive CTEs. Postgres overrides to permit."""

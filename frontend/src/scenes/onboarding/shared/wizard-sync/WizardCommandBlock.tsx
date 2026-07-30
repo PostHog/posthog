@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
+import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { WizardModeShell } from './WizardModeShell'
 

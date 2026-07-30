@@ -1,5 +1,8 @@
+use std::time::Duration;
+
 use etcd_client::{
-    Client, DeleteOptions, GetOptions, PutOptions, Txn, TxnResponse, WatchOptions, WatchStream,
+    Client, ConnectOptions, DeleteOptions, GetOptions, PutOptions, Txn, TxnResponse, WatchOptions,
+    WatchStream,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -28,7 +31,27 @@ pub struct EtcdStore {
 
 impl EtcdStore {
     pub async fn connect(config: StoreConfig) -> Result<Self> {
-        let client = Client::connect(&config.endpoints, None).await?;
+        // Transport-level liveness so a silent network partition fails
+        // fast instead of hanging until TCP retransmission gives up
+        // (minutes — far past any lease TTL): HTTP/2 pings ride every
+        // connection, including idle ones and long-lived watch streams,
+        // and error all in-flight requests within roughly one ping
+        // interval plus its timeout of the peer going dark. Deliberately
+        // no per-request timeout — it would apply to the whole lifetime
+        // of a watch stream and kill healthy watches.
+        // The ping interval must clear etcd's server-side gRPC keepalive
+        // enforcement (--grpc-keepalive-min-time, default 5s): pings at or
+        // under the floor are strikes, and two strikes close the
+        // connection with GOAWAY. Idle pings are likewise strikes unless
+        // the server permits them, so they stay off — every component
+        // that matters holds an active watch or keepalive stream, and an
+        // idle channel is revalidated on next use within the connect
+        // timeout.
+        let options = ConnectOptions::new()
+            .with_connect_timeout(Duration::from_secs(5))
+            .with_keep_alive(Duration::from_secs(10), Duration::from_secs(5))
+            .with_keep_alive_while_idle(false);
+        let client = Client::connect(&config.endpoints, Some(options)).await?;
         Ok(Self { client, config })
     }
 
@@ -120,6 +143,21 @@ impl EtcdStore {
             .map(|kv| serde_json::from_slice(kv.value()).map_err(Error::from))
             .collect::<Result<Vec<T>>>()?;
         Ok((items, revision))
+    }
+
+    /// Like `list`, but pairs each value with its key's `mod_revision` —
+    /// the per-key version an optimistic transaction compares against to
+    /// assert the record is unchanged since this read.
+    pub async fn list_with_mod_revisions<T: DeserializeOwned>(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<(T, i64)>> {
+        let options = GetOptions::new().with_prefix();
+        let resp = self.client.clone().get(prefix, Some(options)).await?;
+        resp.kvs()
+            .iter()
+            .map(|kv| Ok((serde_json::from_slice(kv.value())?, kv.mod_revision())))
+            .collect()
     }
 
     /// The current etcd store revision, for anchoring watches when no

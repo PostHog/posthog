@@ -1,4 +1,19 @@
+import type { PermissionRequestRecord } from '../types/streamTypes'
 import type { PermissionOption } from '../types/wireTypes'
+
+/**
+ * An `ExitPlanMode` approval — the plan-review card, not a generic tool approval. On the wire the
+ * agent-server's plan request carries no top-level tool name and `kind: 'switch_mode'`; the reliable
+ * signal is the `toolName` it embeds in the tool input (`rawInput: { plan, planFilePath, toolName }`).
+ * The top-level name and `kind === 'plan'` cover adapters that tag the request directly.
+ */
+export function isPlanPermissionRequest(request: PermissionRequestRecord): boolean {
+    return (
+        request.toolName === 'ExitPlanMode' ||
+        request.rawToolCall.input?.toolName === 'ExitPlanMode' ||
+        request.rawToolCall.kind === 'plan'
+    )
+}
 
 /**
  * The card-facing decision a user can take on a sandbox ACP `permission_request` option. The

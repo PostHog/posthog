@@ -21,7 +21,7 @@ import { ScoutRunHistorySection } from './ScoutRunHistorySection'
  * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, rollups, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { scoutConfigs, rollups, runsWindowComplete, updatingScoutIds } = useValues(scoutFleetLogic)
     const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
 
@@ -57,7 +57,13 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 <div className="flex flex-1 items-center justify-center text-sm text-tertiary">Scout not found.</div>
             ) : (
                 <>
-                    <ScoutRowCard config={config} rollup={rollup} onUpdate={updateScoutConfig} asHeader />
+                    <ScoutRowCard
+                        config={config}
+                        rollup={rollup}
+                        onUpdate={updateScoutConfig}
+                        updating={updatingScoutIds.includes(config.id)}
+                        asHeader
+                    />
 
                     {config.description ? (
                         <p className="text-sm text-secondary leading-snug mb-0">{config.description}</p>

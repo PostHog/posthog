@@ -11,7 +11,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
-from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS
+from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE,
@@ -26,6 +26,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     _resolve_widths,
     _sanitize_browserless_error,
     generate_heatmap_screenshot,
+    reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
 
@@ -159,6 +160,46 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         # Each width's bytes land on the matching row (the width→image mapping must be preserved)
         snaps = {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)}
         assert snaps == {320: _jpeg(b"320"), 768: _jpeg(b"768"), 1024: _jpeg(b"1024")}
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_skips_widths_that_are_already_rendered(self, mock_requests: MagicMock) -> None:
+        # A promoted prewarm arrives with its preview width already captured — only the missing widths
+        # should render, and the reused bytes must be left untouched.
+        mock_requests.post.return_value = _make_response(_jpeg(b"768"))
+        heatmap = self._make_heatmap(target_widths=[768, 1024])
+        HeatmapSnapshot.objects.create(heatmap=heatmap, width=1024, content=_jpeg(b"preview"))
+
+        generate_heatmap_screenshot(heatmap.id)
+
+        mock_requests.post.assert_called_once()
+        assert mock_requests.post.call_args.kwargs["json"]["viewport"]["width"] == 768
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.COMPLETED
+        snaps = {s.width: s.content for s in HeatmapSnapshot.objects.filter(heatmap=heatmap)}
+        assert snaps == {768: _jpeg(b"768"), 1024: _jpeg(b"preview")}
+
+    @override_settings(**BROWSERLESS_SETTINGS)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_reenqueues_followup_when_widths_grow_during_render(self, mock_requests: MagicMock) -> None:
+        # A create can promote this prewarm to more widths while its single preview width renders. The
+        # task must not mark 'completed' with widths still owed — it finishes them in a follow-up run.
+        heatmap = self._make_heatmap(target_widths=[1024])
+
+        def render_then_grow(*args: object, **kwargs: object) -> MagicMock:
+            SavedHeatmap.objects.filter(id=heatmap.id).update(target_widths=[768, 1024])
+            return _make_response(_jpeg(b"1024"))
+
+        mock_requests.post.side_effect = render_then_grow
+
+        with patch(
+            "products.web_analytics.backend.tasks.heatmap_screenshot.generate_heatmap_screenshot.delay"
+        ) as mock_delay:
+            generate_heatmap_screenshot(heatmap.id)
+
+        heatmap.refresh_from_db()
+        assert heatmap.status == SavedHeatmap.Status.PROCESSING  # 768 still owed, so not completed
+        mock_delay.assert_called_once_with(heatmap.id)
 
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
@@ -477,3 +518,58 @@ class TestReportStuckHeatmapScreenshots(APIBaseTest):
         _args, kwargs = mock_logger.warning.call_args
         assert kwargs["stuck_count"] == over_cap
         assert len(kwargs["sample"]) == HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE
+
+
+class TestReapStalePrewarmHeatmaps(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.captured_events: list[dict] = []
+
+        @contextmanager
+        def _fake_scoped_capture():
+            def _capture(**kwargs: object) -> None:
+                self.captured_events.append(kwargs)
+
+            yield _capture
+
+        patcher = patch(
+            "products.web_analytics.backend.tasks.heatmap_screenshot.ph_scoped_capture",
+            _fake_scoped_capture,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _make_prewarm(self, *, is_prewarm: bool, age: timedelta, rendered: bool = False) -> SavedHeatmap:
+        heatmap = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://example.com",
+            created_by=self.user,
+            target_widths=[1024],
+            status=SavedHeatmap.Status.PROCESSING,
+            is_prewarm=is_prewarm,
+        )
+        if rendered:
+            HeatmapSnapshot.objects.create(heatmap=heatmap, width=1024, content=_jpeg())
+        # created_at is auto_now_add, so backdate it after creation to simulate age.
+        SavedHeatmap.objects.filter(id=heatmap.id).update(created_at=timezone.now() - age)
+        return heatmap
+
+    def test_reaps_only_stale_unpromoted_prewarms_and_emits_the_miss(self) -> None:
+        old = PREWARM_TTL + timedelta(minutes=1)
+        stale_rendered = self._make_prewarm(is_prewarm=True, age=old, rendered=True)
+        stale_unrendered = self._make_prewarm(is_prewarm=True, age=old, rendered=False)
+        fresh = self._make_prewarm(is_prewarm=True, age=timedelta(minutes=1))
+        promoted = self._make_prewarm(is_prewarm=False, age=old)
+
+        count = reap_stale_prewarm_heatmaps()
+
+        assert count == 2
+        assert not SavedHeatmap.objects.filter(id__in=[stale_rendered.id, stale_unrendered.id]).exists()
+        assert SavedHeatmap.objects.filter(id=fresh.id).exists()
+        assert SavedHeatmap.objects.filter(id=promoted.id).exists()
+
+        # A "wasted" miss event fires only for the reaped rows, and `rendered` reflects whether the
+        # speculative render actually paid the Browserless cost.
+        wasted = {e["properties"]["screenshot_id"]: e["properties"]["rendered"] for e in self.captured_events}
+        assert all(e["event"] == "heatmap prewarm wasted" for e in self.captured_events)
+        assert wasted == {str(stale_rendered.id): True, str(stale_unrendered.id): False}

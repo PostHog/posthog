@@ -9,17 +9,16 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenWeatherSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openweather import (
+    OpenWeatherSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather import (
     openweather_source,
     validate_credentials as validate_openweather_credentials,
@@ -34,6 +33,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenWeatherSource(SimpleSource[OpenWeatherSourceConfig]):
+    supported_versions = ("2.5",)
+    default_version = "2.5"
+    api_docs_url = "https://openweathermap.org/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.OPENWEATHER
@@ -104,6 +107,7 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -125,7 +129,11 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
         return schemas
 
     def validate_credentials(
-        self, config: OpenWeatherSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpenWeatherSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_openweather_credentials(config.api_key, config.locations)
 

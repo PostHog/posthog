@@ -22,13 +22,17 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import groups
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
-from products.experiments.backend.hogql_queries.error_handling import classify_experiment_query_error
+from products.experiments.backend.hogql_queries.error_handling import (
+    classify_experiment_query_error,
+    get_user_friendly_message,
+)
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -40,7 +44,12 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
     CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    MAX_METRIC_ATTEMPTS,
     METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+    NON_RETRYABLE_ERROR_TYPES,
+    RECALCULATION_RETRY_BACKOFF_COEFFICIENT,
+    RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS,
+    RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -88,6 +97,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
         # Non-retryable so Temporal terminates promptly instead of burning retries on each activity.
         raise ApplicationError(
             f"ExperimentMetricsRecalculation {recalculation_id} not found",
+            type="recalculation_not_found",
             non_retryable=True,
         )
     return _RecalcState(
@@ -172,6 +182,7 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # workflow bug — fail non-retryable so Temporal terminates promptly.
         raise ApplicationError(
             "RecalculationProgressUpdate must set exactly one of mark_started or mark_completed",
+            type="invalid_input",
             non_retryable=True,
         )
 
@@ -212,6 +223,9 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
             ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
                 completed_at=timezone.now(),
                 status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
+                # The run is terminal, so no retry can be pending. Sweeps entries orphaned by a hard-killed
+                # final attempt, which never reaches the activity-local cleanup branches.
+                metric_retries={},
             )
             == 1
         )
@@ -326,6 +340,61 @@ def _record_failure(recalculation_id: str, metric_uuid: str, step: str, message:
         recalc.save(update_fields=["metric_errors"])
 
 
+def _estimated_retry_delay_seconds(attempt: int) -> float:
+    """Mirror of the workflow's RetryPolicy backoff for the attempt that just failed."""
+    return min(
+        RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS * RECALCULATION_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1),
+        RECALCULATION_RETRY_MAX_INTERVAL_SECONDS,
+    )
+
+
+_RETRY_SAFE_MESSAGES: dict[str, str] = {
+    "rate_limited": "The query was deferred because the cluster is at capacity.",
+    "timeout": "The query timed out.",
+    "out_of_memory": "The query ran out of memory.",
+    "byte_limit": "The query read too much data.",
+    "server_error": "The query failed with a server error.",
+}
+
+
+def _safe_retry_message(error: Exception, error_type: str) -> str:
+    """Raw exception text can embed the executed query, including substituted warehouse credentials
+    (this path runs the runner with user_facing=False, which keeps exceptions raw), and metric_retries
+    is visible to anyone with experiment read access. Persist only type-derived copy; the raw error
+    stays in logs and error tracking."""
+    return get_user_friendly_message(error) or _RETRY_SAFE_MESSAGES.get(
+        error_type, _RETRY_SAFE_MESSAGES["server_error"]
+    )
+
+
+def _record_retry(
+    recalculation_id: str, metric_uuid: str, attempt: int, error_type: str, message: str, delay_seconds: float
+) -> None:
+    """Transient attempt state for the UI, keyed by metric_uuid; overwritten per attempt, removed by the
+    metric's terminal write. Carries a user-safe description of the error that triggered the retry;
+    next_retry_at is an estimate (worker pickup adds slack after it passes)."""
+    with transaction.atomic():
+        recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
+        metric_retries = recalc.metric_retries or {}
+        metric_retries[metric_uuid] = {
+            "attempt": attempt,
+            "max_attempts": MAX_METRIC_ATTEMPTS,
+            "error_type": error_type,
+            "message": message[:_MAX_ERROR_MESSAGE_LENGTH],
+            "next_retry_at": (timezone.now() + timedelta(seconds=delay_seconds)).isoformat(),
+        }
+        recalc.metric_retries = metric_retries
+        recalc.save(update_fields=["metric_retries"])
+
+
+def _clear_retry(recalculation_id: str, metric_uuid: str) -> None:
+    with transaction.atomic():
+        recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
+        if metric_uuid in (recalc.metric_retries or {}):
+            recalc.metric_retries.pop(metric_uuid)
+            recalc.save(update_fields=["metric_retries"])
+
+
 def _store_result(
     *,
     experiment_id: int,
@@ -360,6 +429,7 @@ def _store_result(
 def _fail(recalculation_id: str, metric_uuid: str, step: str, message: str) -> MetricRecalculationResult:
     """Record a failure on the job (lookup step: job-only; calculation step: also persists a result row upstream)."""
     _record_failure(recalculation_id, metric_uuid, step, message)
+    _clear_retry(recalculation_id, metric_uuid)
     return MetricRecalculationResult(
         metric_uuid=metric_uuid, success=False, error_step=step, error_message=message[:_MAX_ERROR_MESSAGE_LENGTH]
     )
@@ -440,6 +510,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     query_to: str,
     metric_type: str = "primary",
     is_final_attempt: bool = True,
+    attempt: int = 1,
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -448,6 +519,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     except ValueError as e:
         raise ApplicationError(
             f"query_to {query_to!r} is not a valid ISO datetime string: {e}",
+            type="invalid_input",
             non_retryable=True,
         )
     state = _get_recalc_state(recalculation_id)
@@ -458,21 +530,25 @@ def _calculate_experiment_metric_for_recalculation_sync(
     if experiment_id != state.experiment_id:
         raise ApplicationError(
             f"experiment_id {experiment_id} does not match recalc.experiment_id {state.experiment_id}",
+            type="input_mismatch",
             non_retryable=True,
         )
     if metric_uuid not in state.metric_uuids:
         raise ApplicationError(
             f"metric_uuid {metric_uuid} is not in recalc {recalculation_id}'s metric set",
+            type="input_mismatch",
             non_retryable=True,
         )
     if state.query_to is None:
         raise ApplicationError(
             f"recalc {recalculation_id} has no query_to set — calculate activity ran before start activity",
+            type="invalid_state",
             non_retryable=True,
         )
     if query_to_dt != state.query_to:
         raise ApplicationError(
             f"query_to {query_to_dt.isoformat()} does not match recalc.query_to {state.query_to.isoformat()}",
+            type="input_mismatch",
             non_retryable=True,
         )
 
@@ -513,20 +589,15 @@ def _calculate_experiment_metric_for_recalculation_sync(
             status=ExperimentMetricResult.Status.COMPLETED,
         ).exists()
         if already_computed:
+            # A crash between the result write and the retry cleanup on a prior attempt lands here on the
+            # next one; clear so a completed metric can't keep reporting as retrying.
+            _clear_retry(recalculation_id, metric_uuid)
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
-        # Deterministic per-metric-per-run id. ClickHouse stamps it into the query_id as
-        # `{team_id}_{client_query_id}_{random}`, so the stored value is a greppable prefix for
-        # `system.query_log` (covers every attempt, including Temporal retries). Bound before the try so the
-        # failure paths can always persist it.
         client_query_id = f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}"
 
         calc_started_at = time.perf_counter()
         try:
-            # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
-            # as_of pins the run's shared query_to as the window's evaluation instant (the runner caps it at
-            # end_date). Without it each metric defaults to its own now(), giving slightly different windows —
-            # defeating the "one query_to for the whole run" guarantee.
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
@@ -576,6 +647,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 {"duration_ms": round((time.perf_counter() - calc_started_at) * 1000)},
                 trigger=state.trigger,
             )
+            _clear_retry(recalculation_id, metric_uuid)
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
         except (StatisticError, ZeroDivisionError) as e:
@@ -613,11 +685,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             )
             return _fail(recalculation_id, metric_uuid, "calculation", message)
 
-        except ConcurrencyLimitExceeded as e:
-            # The org's ClickHouse app-query quota is saturated: backpressure, not a fault. No exception
-            # capture, and the exponential retry schedule is overridden with a flat delay long enough for the
-            # org's earlier runs to release query slots. Persisted only on the final attempt, so the metric
-            # stays in its loading state while it waits for quota.
+        except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             if is_final_attempt:
                 _store_result(
@@ -646,24 +714,35 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     trigger=state.trigger,
                 )
             logger.warning(
-                "Experiment metric recalculation deferred by org concurrency limit",
+                "Experiment metric recalculation deferred by ClickHouse backpressure",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
                 is_final_attempt=is_final_attempt,
+                error_class=type(e).__name__,
             )
+            if is_final_attempt:
+                _clear_retry(recalculation_id, metric_uuid)
+            else:
+                # Exact, not estimated: this branch sets the delay explicitly via next_retry_delay.
+                error_type = classify_experiment_query_error(e)
+                _record_retry(
+                    recalculation_id,
+                    metric_uuid,
+                    attempt,
+                    error_type,
+                    _safe_retry_message(e, error_type),
+                    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+                )
             raise ApplicationError(
                 message,
-                type="ConcurrencyLimitExceeded",
+                type=type(e).__name__,
                 next_retry_delay=timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS),
             ) from e
 
         except Exception as e:
-            # Could be transient (ClickHouse connection blip, network glitch, or other infrastructure issue).
-            # Persist the failure ONLY on the final attempt, then re-raise; on earlier attempts we re-raise
-            # without persisting so Temporal retries while the metric stays in its loading/dim state on the
-            # frontend, rather than flashing an error for a failure that may yet succeed on the next attempt.
-            # StatisticError and ZeroDivisionError are handled above as permanent and return success=False.
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
+            error_type = classify_experiment_query_error(e)
+            is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
             capture_exception(
                 e,
                 additional_properties={
@@ -672,7 +751,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     "recalculation_id": recalculation_id,
                 },
             )
-            if is_final_attempt:
+            if is_final_attempt or is_permanent:
                 _store_result(
                     experiment_id=experiment_id,
                     metric_uuid=metric_uuid,
@@ -685,9 +764,6 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     query_id=client_query_id,
                 )
                 _record_failure(recalculation_id, metric_uuid, "calculation", message)
-                # Emit only on the terminal failure (retries exhausted) — the error the user actually
-                # sees. error_type mirrors the client taxonomy so it lands on the same dashboards.
-                # Earlier attempts re-raise silently to avoid double-counting a failure that may still succeed.
                 _capture_experiment_metric_event(
                     experiment,
                     metric_uuid,
@@ -696,7 +772,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     "experiment metric error",
                     {
                         "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
-                        "error_type": classify_experiment_query_error(e),
+                        "error_type": error_type,
                         "error_message": message,
                     },
                     trigger=state.trigger,
@@ -706,5 +782,19 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
                 is_final_attempt=is_final_attempt,
+                error_type=error_type,
             )
+            if is_final_attempt or is_permanent:
+                _clear_retry(recalculation_id, metric_uuid)
+            else:
+                _record_retry(
+                    recalculation_id,
+                    metric_uuid,
+                    attempt,
+                    error_type,
+                    _safe_retry_message(e, error_type),
+                    _estimated_retry_delay_seconds(attempt),
+                )
+            if is_permanent:
+                raise ApplicationError(message, type=error_type, non_retryable=True) from e
             raise

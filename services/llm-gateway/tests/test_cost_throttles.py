@@ -1413,7 +1413,7 @@ class TestPlanAwareThrottling:
     @pytest.mark.parametrize(
         ("seat_missing", "code_usage_billed", "expected_allowed"),
         [
-            # Seatless + org-billed Code usage: bills to the org - no per-user cap.
+            # Seatless + org-billed Desktop usage: bills to the org - no per-user cap.
             # $600 spent clears both the $20 free cap and the $500/day default.
             (True, True, True),
             # Seatless + not billed: the free cap holds (this pair pins that the

@@ -96,7 +96,7 @@ threshold aren't recorded, so there is no honest denominator.
   arrive via webhook sync and can lag. During a live incident, start from `ci_failures` and check
   the warehouse's `max(created_at)` before trusting a boundary (query 5). A boundary computed
   against a stale warehouse names the wrong commit.
-- **A run's `conclusion` can be stale** until the `workflow_run` webhook settles it (SPEC §9) —
+- **A run's `conclusion` can be stale** until the `workflow_run` webhook settles it (SPEC §7) —
   treat a very recent "failure-free" tail with suspicion.
 - **Retries:** `run_attempt > 1` rows are the same job re-run. A failure that clears on attempt 2
   is flake signal; one that fails through attempt 5+ is deterministic.

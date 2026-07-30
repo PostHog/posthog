@@ -82,11 +82,46 @@ def manifest_roles(env: str) -> list[str]:
     return [r["role"] for r in json.loads(out)["roles"]]
 
 
+def golden_name(role: str) -> str:
+    """Windows-safe on-disk basename for a role's golden/sql files (mirrors lib.sh).
+
+    `aux` is a reserved DOS device name that can't be a path component on Windows, so
+    its files are stored as `auxiliary`. The role identity itself is unchanged.
+    """
+    return {"aux": "auxiliary"}.get(role, role)
+
+
+def golden_at_ref(ref: str, env: str, role: str) -> str:
+    """Read the composed golden for (env, role) at `ref`.
+
+    Tolerates historical layouts so a migration can still be generated across the name
+    and layout changes: the current tree uses golden/<env>/<golden_name>.hcl (aux is
+    stored as auxiliary.hcl); the pre-rename tree used golden/<env>/<role>.hcl; older
+    refs still use flat golden/<env>-<role>.hcl with env "local" where the manifest now
+    says "local-multi".
+    """
+    legacy_env = "local" if env == "local-multi" else env
+    candidates = [
+        f"{HCL_REL}/golden/{env}/{golden_name(role)}.hcl",
+        f"{HCL_REL}/golden/{env}/{role}.hcl",
+        f"{HCL_REL}/golden/{legacy_env}-{role}.hcl",
+    ]
+    for path in dict.fromkeys(candidates):  # de-dupe, keep order
+        try:
+            return run(["git", "show", f"{ref}:{path}"])
+        except subprocess.CalledProcessError:
+            continue
+    raise SystemExit(f"no golden for {env}/{role} at {ref} (tried current, pre-rename, and legacy layouts)")
+
+
 def write_dump(env: str, roles: list[str], ref: str, dump_dir: str) -> None:
     """Build plan's -dump for one env from the committed goldens, tagged by role."""
     os.makedirs(dump_dir)
     for role in roles:
-        golden = run(["git", "show", f"{ref}:{HCL_REL}/golden/{env}-{role}.hcl"])
+        golden = golden_at_ref(ref, env, role)
+        # Scratch dump, not committed; plan keys on the hostClusterRole macro, not the
+        # filename, so the raw role name is fine here (golden_name aliasing is only for
+        # the committed golden/sql files).
         with open(os.path.join(dump_dir, f"{role}.hcl"), "w") as f:
             f.write(f'node "{role}" {{\n  macros = {{ hostClusterRole = "{role}" }}\n}}\n')
             f.write(golden)

@@ -20,7 +20,9 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
+import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../services/managers/team-workflows-config.service'
+import { EmailSuppressionService } from '../services/messaging/email-suppression.service'
 import { EmailService } from '../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../services/messaging/helpers/tracking-code'
 import { PushNotificationService } from '../services/messaging/push-notification.service'
@@ -509,18 +511,26 @@ export function createHogTransformerService(
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
+    const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
+        transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+    })
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
             sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
             sesRegion: config.SES_REGION,
             sesEndpoint: config.SES_ENDPOINT,
+            sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+            sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
+            sesTenantAttributionEnabled: config.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
-        trackingCodeSigner
+        trackingCodeSigner,
+        emailSuppressionService,
+        new RecipientsManagerService(deps.postgres)
     )
     const pushNotificationService = new PushNotificationService(
         deps.integrationManager,
@@ -528,6 +538,9 @@ export function createHogTransformerService(
         {
             trackedFetch: cdpTrackedFetch,
             maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+            maxRetries: config.CDP_FETCH_RETRIES,
+            backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+            backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
         redis
     )

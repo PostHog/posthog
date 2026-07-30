@@ -6,10 +6,9 @@ import {
     SpanPropertyFilter,
 } from '~/types'
 
-export interface DurationRange {
-    minNs: number
-    maxNs: number
-}
+import type { DurationRange } from './durationBuckets'
+
+export type { DurationRange } from './durationBuckets'
 
 const NS_PER_MS = 1_000_000
 

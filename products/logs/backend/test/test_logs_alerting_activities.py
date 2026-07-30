@@ -20,6 +20,7 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import QueryErrorCategory
+from posthog.slo.types import SloOperation, SloOutcome
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_signal_emitter import NotifiedAlert
@@ -2028,8 +2029,12 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     @freeze_time("2026-05-05T10:05:00Z")
+    @patch("posthog.slo.context.emit_slo_completed")
+    @patch("posthog.slo.context.emit_slo_started")
     @patch("products.logs.backend.temporal.activities._run_cohort_query")
-    def test_loads_alerts_by_id_and_processes_each_cohort(self, mock_run_cohort_query):
+    def test_loads_alerts_by_id_and_processes_each_cohort(
+        self, mock_run_cohort_query, mock_emit_slo_started, mock_emit_slo_completed
+    ):
         from products.logs.backend.temporal.activities import (
             CohortManifest,
             EvaluateCohortBatchInput,
@@ -2073,6 +2078,17 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.alerts_checked == 2
         # _run_cohort_query was invoked exactly once (one cohort in this batch).
         assert mock_run_cohort_query.call_count == 1
+        assert mock_emit_slo_started.call_count == 2
+        assert mock_emit_slo_completed.call_count == 2
+
+        started_alert_ids = {call.kwargs["properties"].resource_id for call in mock_emit_slo_started.call_args_list}
+        assert started_alert_ids == {str(alert.id) for alert in alerts}
+        for call in mock_emit_slo_started.call_args_list:
+            assert call.kwargs["properties"].operation == SloOperation.ALERT_CHECK
+            assert call.kwargs["extra_properties"]["alert_type"] == "logs"
+        for call in mock_emit_slo_completed.call_args_list:
+            assert call.kwargs["properties"].outcome == SloOutcome.SUCCESS
+            assert call.kwargs["extra_properties"]["alert_state"] == AlertState.NOT_FIRING
 
     @freeze_time("2026-05-05T10:05:00Z")
     @patch("products.logs.backend.temporal.activities._run_cohort_query")
@@ -2138,11 +2154,18 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.alerts_checked == 1
 
     @freeze_time("2025-01-01T00:01:00Z")
+    @patch("posthog.slo.context.emit_slo_completed")
+    @patch("posthog.slo.context.emit_slo_started")
     @patch("products.alerts.backend.destinations.flush_internal_events_producer", return_value=0)
     @patch("products.alerts.backend.destinations.produce_internal_event")
     @patch("products.logs.backend.temporal.activities._run_cohort_query")
     def test_undelivered_notification_rolls_back_state_before_save(
-        self, mock_run_cohort_query, mock_produce, _mock_flush
+        self,
+        mock_run_cohort_query,
+        mock_produce,
+        _mock_flush,
+        mock_emit_slo_started,
+        mock_emit_slo_completed,
     ):
         from products.logs.backend.temporal.activities import (
             CohortManifest,
@@ -2194,3 +2217,15 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.notified == []
         # The cycle still advances so the next cycle re-evaluates and retries the notification.
         assert alert.next_check_at is not None
+        mock_emit_slo_started.assert_called_once()
+        mock_emit_slo_completed.assert_called_once()
+        assert mock_emit_slo_completed.call_args.kwargs["properties"].outcome == SloOutcome.FAILURE
+        assert mock_emit_slo_completed.call_args.kwargs["extra_properties"] == {
+            "alert_type": "logs",
+            "check_interval_minutes": alert.check_interval_minutes,
+            "window_minutes": alert.window_minutes,
+            "correlation_id": mock_emit_slo_started.call_args.kwargs["extra_properties"]["correlation_id"],
+            "alert_state": AlertState.NOT_FIRING,
+            "notification_action": NotificationAction.FIRE.value,
+            "failure_phase": "notification_delivery",
+        }

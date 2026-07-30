@@ -381,8 +381,6 @@ export const EvaluationStatusEnumApi = {
 
 /**
  * * `provider_key_required` - No provider API key configured
- * * `trial_limit_reached` - Trial evaluation limit reached
- * * `model_not_allowed` - Model not available on the trial plan
  * * `provider_key_deleted` - Provider API key was deleted
  * * `no_default_model` - No default model available for the selected provider
  * * `provider_key_invalid` - Provider API key is invalid
@@ -396,8 +394,6 @@ export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof Stat
 
 export const StatusReasonEnumApi = {
     ProviderKeyRequired: 'provider_key_required',
-    TrialLimitReached: 'trial_limit_reached',
-    ModelNotAllowed: 'model_not_allowed',
     ProviderKeyDeleted: 'provider_key_deleted',
     NoDefaultModel: 'no_default_model',
     ProviderKeyInvalid: 'provider_key_invalid',
@@ -537,16 +533,35 @@ export type EvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+ * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
  */
-export type EvaluationApiTargetConfig = {
-    /**
-     * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
-     * @minimum 10
-     * @maximum 7200
-     */
-    window_seconds?: number
-}
+export type EvaluationApiTargetConfig =
+    | {
+          /** Wait a fixed window after the first matching generation, then evaluate. */
+          strategy?: 'fixed_window'
+          /**
+           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * @minimum 10
+           * @maximum 7200
+           */
+          window_seconds?: number
+      }
+    | {
+          /** Evaluate once the trace has had no new activity for the quiet period. */
+          strategy: 'inactivity'
+          /**
+           * Seconds without new trace activity before the trace counts as settled.
+           * @minimum 10
+           * @maximum 1800
+           */
+          quiet_period_seconds?: number
+          /**
+           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * @minimum 60
+           * @maximum 7200
+           */
+          max_age_seconds?: number
+      }
 
 export interface EvaluationApi {
     readonly id: string
@@ -583,12 +598,12 @@ export interface EvaluationApi {
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
      * * `trace` - Trace */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -640,16 +655,35 @@ export type PatchedEvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+ * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
  */
-export type PatchedEvaluationApiTargetConfig = {
-    /**
-     * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
-     * @minimum 10
-     * @maximum 7200
-     */
-    window_seconds?: number
-}
+export type PatchedEvaluationApiTargetConfig =
+    | {
+          /** Wait a fixed window after the first matching generation, then evaluate. */
+          strategy?: 'fixed_window'
+          /**
+           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * @minimum 10
+           * @maximum 7200
+           */
+          window_seconds?: number
+      }
+    | {
+          /** Evaluate once the trace has had no new activity for the quiet period. */
+          strategy: 'inactivity'
+          /**
+           * Seconds without new trace activity before the trace counts as settled.
+           * @minimum 10
+           * @maximum 1800
+           */
+          quiet_period_seconds?: number
+          /**
+           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * @minimum 60
+           * @maximum 7200
+           */
+          max_age_seconds?: number
+      }
 
 export interface PatchedEvaluationApi {
     readonly id?: string
@@ -686,12 +720,12 @@ export interface PatchedEvaluationApi {
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
      * * `trace` - Trace */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -703,6 +737,15 @@ export interface PatchedEvaluationApi {
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
+
+export interface TestHogTargetConfigApi {
+    /**
+     * Aggregation window for trace samples, in seconds.
+     * @minimum 10
+     * @maximum 7200
+     */
+    window_seconds?: number
+}
 
 export interface TestHogRequestApi {
     /**
@@ -720,19 +763,36 @@ export interface TestHogRequestApi {
     allows_na?: boolean
     /** Optional trigger conditions to filter which events are sampled. */
     conditions?: TestHogRequestApiConditionsItem[]
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
 }
 
 export interface TestHogResultItemApi {
-    /** UUID of the $ai_generation event. */
-    event_uuid: string
+    /** Stable identifier for the sampled generation or trace. */
+    sample_id: string
+    /** Type of sampled unit: generation or trace.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    sample_type: EvaluationTargetEnumApi
+    /**
+     * UUID of the sampled $ai_generation event, or null for a trace sample.
+     * @nullable
+     */
+    event_uuid: string | null
     /**
      * Trace ID if available.
      * @nullable
      */
-    trace_id?: string | null
-    /** First 200 chars of the generation input. */
+    trace_id: string | null
+    /** First 200 characters of input from the sampled unit. */
     input_preview: string
-    /** First 200 chars of the generation output. */
+    /** First 200 characters of output from the sampled unit. */
     output_preview: string
     /**
      * True = pass, False = fail, null = N/A or error.
@@ -1001,16 +1061,6 @@ export interface LLMProviderKeyApi {
 }
 
 export interface EvaluationConfigApi {
-    /** Cap on trial runs — a getting-started affordance only, not for ongoing evals (use the team's own key). */
-    readonly trial_eval_limit: number
-    /** Trial runs consumed (getting-started affordance only). */
-    readonly trial_evals_used: number
-    /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
-    readonly trial_evals_remaining: number
-    /** True while this team keeps PostHog-funded trial inference during the deprecation window (i.e. it is mid-trial and the cutoff has not passed). False means the team must use its own provider key. */
-    readonly trial_grandfathered: boolean
-    /** Timestamp after which trial evaluations are fully removed and every team must use its own provider key. */
-    readonly trial_deprecation_date: string
     /** Provider key used to run llm_judge evals; null if none configured yet. */
     readonly active_provider_key: LLMProviderKeyApi | null
     /** Timestamp when the evaluation config row was created. */
@@ -1233,13 +1283,24 @@ export interface EvaluationReportSectionApi {
 }
 
 export interface EvaluationReportCitationApi {
-    /** Generation UUID referenced by this citation. */
+    /** Optional generation UUID for generation-target report citations. */
     generation_id?: string
-    /** Trace identifier containing the referenced generation. */
+    /** Identifier of the trace cited by this report. */
     trace_id?: string
-    /** Short explanation of why the generation is cited. */
+    /** Short explanation of why this example is cited. */
     reason?: string
 }
+
+/**
+ * * `completed` - completed
+ * * `metrics_unavailable` - metrics_unavailable
+ */
+export type GenerationStatusEnumApi = (typeof GenerationStatusEnumApi)[keyof typeof GenerationStatusEnumApi]
+
+export const GenerationStatusEnumApi = {
+    Completed: 'completed',
+    MetricsUnavailable: 'metrics_unavailable',
+} as const
 
 /**
  * Count by output-specific result label, such as pass/fail/N/A or positive/neutral/negative.
@@ -1304,13 +1365,23 @@ export interface EvaluationReportMetricsApi {
 }
 
 export interface EvaluationReportRunContentApi {
+    /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace */
+    evaluation_target?: EvaluationTargetEnumApi
     /** Agent-generated report headline. */
     title?: string
     /** Ordered narrative sections in the report. */
     sections?: EvaluationReportSectionApi[]
-    /** Trace references grounding findings in the report. */
+    /** References grounding findings in the report. */
     citations?: EvaluationReportCitationApi[]
-    /** Structured metrics computed for the report period. */
+    /** Whether report generation completed or metrics were temporarily unavailable. Legacy runs without this field completed normally.
+     *
+     * * `completed` - completed
+     * * `metrics_unavailable` - metrics_unavailable */
+    generation_status?: GenerationStatusEnumApi
+    /** Structured metrics for completed reports, or null when metrics were temporarily unavailable. */
     metrics?: EvaluationReportMetricsApi | null
 }
 
@@ -1427,11 +1498,23 @@ export interface EvaluationSummaryResponseApi {
     statistics: EvaluationSummaryStatisticsApi
 }
 
+export interface EvaluationSummaryThrottleResponseApi {
+    /** Error category */
+    type: string
+    /** Machine-readable error code */
+    code: string
+    /** Why the request was throttled */
+    detail: string
+    /**
+     * Related request field, when applicable
+     * @nullable
+     */
+    attr: string | null
+}
+
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
-    /** True if the model can run without a provider key on PostHog-funded trial credits. Only true for teams still grandfathered into the deprecating trial; every other team must use its own key. */
-    posthog_available: boolean
 }
 
 export interface LLMModelsListResponseApi {
@@ -2138,12 +2221,30 @@ export interface LLMPromptOutlineEntryApi {
     text: string
 }
 
+export interface LLMPromptLabelSummaryApi {
+    /** Label name, e.g. 'production'. */
+    name: string
+    /** Prompt version this label currently points to. */
+    version: number
+}
+
+/**
+ * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+ * @nullable
+ */
+export type LLMPromptListApiConfig = { [key: string]: unknown } | null
+
 export interface LLMPromptListApi {
     readonly id: string
     /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
     readonly name: string
     /** Prompt payload as JSON or string data. */
     readonly prompt: unknown
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    config?: LLMPromptListApiConfig
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -2159,8 +2260,13 @@ export interface LLMPromptListApi {
     readonly version_count: number
     readonly first_version_created_at: string
     readonly outline: readonly LLMPromptOutlineEntryApi[]
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
+    /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+    readonly activity_item_id: string
     readonly prompt_preview: string
     readonly prompt_size_bytes: number
+    readonly all_labels: readonly LLMPromptLabelSummaryApi[]
 }
 
 export interface PaginatedLLMPromptListListApi {
@@ -2172,6 +2278,12 @@ export interface PaginatedLLMPromptListListApi {
     results: LLMPromptListApi[]
 }
 
+/**
+ * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+ * @nullable
+ */
+export type LLMPromptApiConfig = { [key: string]: unknown } | null
+
 export interface LLMPromptApi {
     readonly id: string
     /**
@@ -2181,6 +2293,11 @@ export interface LLMPromptApi {
     name: string
     /** Prompt payload as JSON or string data. */
     prompt: unknown
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    config?: LLMPromptApiConfig
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -2197,18 +2314,35 @@ export interface LLMPromptApi {
     readonly version_count: number
     readonly first_version_created_at: string
     readonly outline: readonly LLMPromptOutlineEntryApi[]
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
+    /** Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters. */
+    readonly activity_item_id: string
 }
+
+/**
+ * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+ * @nullable
+ */
+export type LLMPromptPublicApiConfig = { [key: string]: unknown } | null
 
 export interface LLMPromptPublicApi {
     id: string
     name: string
     /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
     prompt?: unknown
+    /**
+     * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+     * @nullable
+     */
+    config?: LLMPromptPublicApiConfig
     /** First 160 characters of the prompt. Only present when 'content=preview'. */
     prompt_preview?: string
     /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
     outline: LLMPromptOutlineEntryApi[]
     version: number
+    /** The label this prompt was fetched by. Only present when fetching with the label parameter. */
+    label?: string
     created_at: string
     updated_at: string
     deleted: boolean
@@ -2217,6 +2351,12 @@ export interface LLMPromptPublicApi {
     version_count: number
     first_version_created_at: string
 }
+
+/**
+ * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+ * @nullable
+ */
+export type PatchedLLMPromptPublishApiConfig = { [key: string]: unknown } | null
 
 export interface LLMPromptEditOperationApi {
     /** Text to find in the current prompt. Must match exactly once. */
@@ -2230,6 +2370,11 @@ export interface PatchedLLMPromptPublishApi {
     prompt?: unknown
     /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
     edits?: LLMPromptEditOperationApi[]
+    /**
+     * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    config?: PatchedLLMPromptPublishApiConfig
     /**
      * Latest version you are editing from. Used for optimistic concurrency checks.
      * @minimum 1
@@ -2250,6 +2395,26 @@ export interface LLMPromptDuplicateApi {
     new_name: string
 }
 
+export interface LLMPromptSetLabelApi {
+    /**
+     * Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.
+     * @minimum 1
+     */
+    version: number
+}
+
+export interface LLMPromptLabelApi {
+    readonly id: string
+    /** Label name, e.g. 'production'. Points to exactly one version of the prompt. */
+    readonly name: string
+    /** Name of the prompt this label belongs to. */
+    readonly prompt_name: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+}
+
 export interface LLMPromptVersionSummaryApi {
     readonly id: string
     readonly version: number
@@ -2258,12 +2423,16 @@ export interface LLMPromptVersionSummaryApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly is_latest: boolean
+    /** Names of the labels currently pointing at this version. */
+    readonly labels: readonly string[]
 }
 
 export interface LLMPromptResolveResponseApi {
     prompt: LLMPromptApi
     versions: LLMPromptVersionSummaryApi[]
     has_more: boolean
+    /** All labels on this prompt with the version each one currently points to, across all versions (not just the returned page). */
+    labels: LLMPromptLabelApi[]
 }
 
 /**
@@ -2901,7 +3070,7 @@ export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
 
 export type LlmPromptsListParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview
@@ -2922,6 +3091,28 @@ export type LlmPromptsListParams = {
      */
     offset?: number
     /**
+     * Field to sort the prompt list by. Prefix with '-' for descending order.
+     *
+     * * `name` - name
+     * * `-name` - -name
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * * `version` - version
+     * * `-version` - -version
+     * * `latest_version` - latest_version
+     * * `-latest_version` - -latest_version
+     * * `version_count` - version_count
+     * * `-version_count` - -version_count
+     * * `first_version_created_at` - first_version_created_at
+     * * `-first_version_created_at` - -first_version_created_at
+     * * `prompt_size_bytes` - prompt_size_bytes
+     * * `-prompt_size_bytes` - -prompt_size_bytes
+     * @minLength 1
+     */
+    order_by?: string
+    /**
      * Optional substring filter applied to prompt names and prompt content.
      */
     search?: string
@@ -2937,7 +3128,7 @@ export const LlmPromptsListContent = {
 
 export type LlmPromptsNameRetrieveParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview
@@ -2945,6 +3136,12 @@ export type LlmPromptsNameRetrieveParams = {
      * @minLength 1
      */
     content?: LlmPromptsNameRetrieveContent
+    /**
+     * Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version.
+     * @minLength 1
+     * @maxLength 128
+     */
+    label?: string
     /**
      * Specific prompt version to fetch. If omitted, the latest version is returned.
      * @minimum 1

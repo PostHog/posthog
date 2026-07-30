@@ -272,7 +272,7 @@ mod test {
             sourcemap::SourcemapProvider,
             Catalog, MockS3Client,
         },
-        types::RawErrProps,
+        types::RawExceptionProperties,
     };
 
     const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
@@ -362,7 +362,8 @@ mod test {
 
     fn get_test_frame(server: &MockServer) -> RawFrame {
         let exception: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
-        let mut props: RawErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
+        let mut props: RawExceptionProperties =
+            serde_json::from_str(&exception.properties.unwrap()).unwrap();
         let Stacktrace::Raw {
             frames: mut test_stack,
         } = props.exception_list.swap_remove(0).stack.unwrap()

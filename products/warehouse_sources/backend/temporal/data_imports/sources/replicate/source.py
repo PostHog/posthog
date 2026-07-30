@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ReplicateSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replicate import (
+    ReplicateSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.replicate.replicate import (
     ReplicateResumeConfig,
     replicate_source,
@@ -37,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class ReplicateSource(ResumableSource[ReplicateSourceConfig, ReplicateResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://replicate.com/docs/reference/http"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -93,6 +93,7 @@ You can create an API token in your [Replicate account settings](https://replica
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "predictions":
@@ -124,7 +125,11 @@ You can create an API token in your [Replicate account settings](https://replica
         return schemas
 
     def validate_credentials(
-        self, config: ReplicateSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ReplicateSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_replicate_credentials(config.api_key):
             return True, None

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from django.db.models import Q
 
-from common.alerting.scheduling import (
+from products.alerts.backend.scheduling import (
     advance_next_check_at,
     compute_shard_offset_seconds as shared_compute_shard_offset_seconds,
 )

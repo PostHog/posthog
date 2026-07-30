@@ -4,6 +4,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import psycopg.errors
+from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
     PostgresCDCAdapter,
@@ -361,3 +363,18 @@ class TestGetStatus:
         status = PostgresCDCAdapter().get_status(source)
         assert status["published_tables"] == []
         mock_tables.assert_not_called()
+
+
+class TestIsConnectionError:
+    # A connect-time timeout to an unreachable source DB is the failure `cdc_status` reports as a
+    # degraded state; it must classify as a connection error so the endpoint doesn't capture it.
+    @parameterized.expand(
+        [
+            ("connect_timeout", psycopg.errors.ConnectionTimeout("connection timeout expired"), True),
+            ("operational", psycopg.OperationalError("connection refused"), True),
+            ("ssh_tunnel", BaseSSHTunnelForwarderError("could not open tunnel"), True),
+            ("programming_bug", ValueError("unexpected status shape"), False),
+        ]
+    )
+    def test_classifies_connection_errors(self, _name: str, exc: BaseException, expected: bool) -> None:
+        assert PostgresCDCAdapter().is_connection_error(exc) is expected

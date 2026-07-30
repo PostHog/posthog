@@ -8,7 +8,11 @@
                 "backend/routes.py",
                 "backend/sql.py",
                 "backend/embedding.py",
-                "backend/indexed_embedding.py"
+                "backend/indexed_embedding.py",
+                "backend/hogql_queries/**",
+                "backend/max_tools.py",
+                "backend/temporal/**",
+                "backend/tasks/**"
             ],
             "outputs": [],
             "cache": true

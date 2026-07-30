@@ -49,6 +49,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
+from products.batch_exports.backend.models import BatchExport, BatchExportDestination
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
@@ -1996,6 +1997,21 @@ class TestIntegrationAPIKeyAccess:
         assert results[0]["kind"] == "twilio"
 
 
+class TestGithubAccountTypeHelper:
+    @parameterized.expand(
+        [
+            ("organization", "Organization", "organization"),
+            ("user", "User", "personal"),
+            ("missing", None, None),
+            ("unknown", "Bot", None),
+        ]
+    )
+    def test_github_account_type(self, _name, owner_type, expected):
+        from posthog.api.integration import _github_account_type
+
+        assert _github_account_type(owner_type) == expected
+
+
 class TestGitHubIntegrationStateValidation:
     @pytest.fixture(autouse=True)
     def setup_environment(self, db):
@@ -2160,6 +2176,63 @@ class TestGitHubIntegrationStateValidation:
         # Token consumed — cannot be reused
         assert cache.get(f"github_authorize:{state_token}") is None
         assert cache.get(f"github_authorize_pending:{self.user.id}") is None
+
+    @patch("posthog.api.integration.report_user_action")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.models.user_integration.user_github_integration_from_installation")
+    def test_create_github_integration_reports_account_type(
+        self,
+        mock_user_integration,
+        mock_from_install,
+        mock_from_code,
+        mock_verify,
+        mock_report,
+        client: HttpClient,
+    ):
+        from posthog.models.integration import GitHubUserAuthorization
+
+        client.force_login(self.user)
+        state_token = "account-type-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=None,
+            ),
+        )
+        mock_from_code.return_value = GitHubUserAuthorization(
+            gh_id=42,
+            gh_login="testuser",
+            access_token="ghu_test",
+            refresh_token=None,
+            access_token_expires_in=None,
+            refresh_token_expires_in=None,
+        )
+        mock_verify.return_value = True
+        mock_from_install.return_value = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345", "account": {"type": "Organization", "name": "acme"}},
+            sensitive_config={"access_token": "ghs_test"},
+        )
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "github", "config": self._github_config(state=state_token)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        mock_report.assert_called_once()
+        props = mock_report.call_args.args[2]
+        assert props["integration_kind"] == "github"
+        assert props["repo_owner_type"] == "Organization"
+        assert props["account_type"] == "organization"
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
@@ -4779,6 +4852,19 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert "Slack notifier" in content
         assert Integration.objects.filter(id=self.integration.id).exists()
 
+    def test_destroy_blocked_message_includes_batch_exports(self, client: HttpClient):
+        dest = BatchExportDestination.objects.create(
+            config={}, type=BatchExportDestination.Destination.AWS_S3, integration=self.integration
+        )
+        BatchExport.objects.create(name="Test batch export", destination=dest, team=self.team, interval="hour")
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "Test batch export" in content
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
 
 class TestIntegrationRequestAccessAPI(APIBaseTest):
     def setUp(self):
@@ -4852,6 +4938,41 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
+class TestPushIdentityVerificationAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Setting the policy requires admin, and the base test user is a plain member.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @patch("posthog.models.integration.GoogleRequest")
+    @patch("posthog.models.integration.service_account.Credentials.from_service_account_info")
+    def test_setting_the_mode_reaches_the_integration(self, mock_from_sa, _mock_google_request):
+        # The serializer builds each provider's arguments from named config fields, so a key it doesn't
+        # know about is dropped before it ever reaches the integration. That silently made the setup
+        # UI's toggle inert; this covers the plumbing rather than just the model helper underneath it.
+        credentials = MagicMock()
+        credentials.token = "access-token"
+        credentials.expiry.timestamp.return_value = time.time() + 3600
+        mock_from_sa.return_value = credentials
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "firebase",
+                "config": {
+                    "key_info": {"type": "service_account", "project_id": "my-firebase-project"},
+                    "push_identity_verification": "required",
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        integration = Integration.objects.get(team=self.team, kind="firebase")
+        assert integration.config["push_identity_verification"] == "required"
+
+
 class TestIntegrationMembershipPermissions(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -4880,6 +5001,42 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
+
+    @parameterized.expand(["required", "disabled"])
+    def test_member_cannot_set_push_identity_verification(self, mode):
+        # Creating a *new* APNs integration sidesteps the overwrite check below, because a different
+        # Apple team id makes a different integration_id. But the push endpoint resolves the strictest
+        # verification mode across every integration sharing a bundle_id, so a member could otherwise
+        # set `required` on a lookalike and block the real app's device registrations.
+        #
+        # `disabled` is rejected too: the overwrite check reads existing ids before the write, so a
+        # member racing the first setup would look like a create and could land `disabled` over a
+        # policy an admin had just written.
+        Integration.objects.create(
+            team=self.team,
+            kind="apns",
+            integration_id="REALTEAM.com.example.app",
+            config={"bundle_id": "com.example.app", "team_id": "REALTEAM", "key_id": "KEY1"},
+            sensitive_config={},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "apns",
+                "config": {
+                    "signing_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+                    "key_id": "KEY2",
+                    "team_id_apple": "ATTACKER",
+                    "bundle_id": "com.example.app",
+                    "push_identity_verification": mode,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not Integration.objects.filter(team=self.team, integration_id="ATTACKER.com.example.app").exists()
 
     def test_member_cannot_overwrite_existing_integration(self):
         # POST is an upsert (update_or_create keyed on team/kind/integration_id), so re-submitting the

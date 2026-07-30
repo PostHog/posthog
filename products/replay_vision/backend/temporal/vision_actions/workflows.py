@@ -96,6 +96,12 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                     # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
                     error_info = {"skip_reason": alert.status.value}
                     return
+                if alert.status == AlertStatus.RECOVERED:
+                    # The recovery bookend is visible run history but not a notification: complete the
+                    # run without delivering. Replay-safe unguarded: the branch is decided by recorded
+                    # activity output, and no pre-RECOVERED history contains this status.
+                    final_status = VisionActionRunStatus.COMPLETED.value
+                    return
             else:
                 synth = await wf.execute_activity(
                     synthesize_group_summary_activity,

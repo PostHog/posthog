@@ -20,12 +20,9 @@ import {
     IconFlask,
     IconFolder,
     IconFolderOpen,
-    IconFunnels,
     IconGear,
     IconGraph,
-    IconHogQL,
     IconHome,
-    IconLifecycle,
     IconList,
     IconListCheck,
     IconListTree,
@@ -46,7 +43,6 @@ import {
     IconPlug,
     IconPullRequest,
     IconReceipt,
-    IconRetention,
     IconRewindPlay,
     IconRocket,
     IconScatter,
@@ -54,17 +50,24 @@ import {
     IconServer,
     IconSpotlight,
     IconStethoscope,
-    IconStickiness,
     IconSupport,
     IconToggle,
     IconToggleOff,
     IconToolbar,
-    IconTrends,
     IconUser,
-    IconUserPaths,
     IconWarning,
 } from '@posthog/icons'
 
+import {
+    IconBracketsChart,
+    IconInsightFunnels,
+    IconInsightLifecycle,
+    IconInsightRetention,
+    IconInsightStickiness,
+    IconInsightTrends,
+    IconInsightUserPaths,
+    IconStamphog,
+} from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import {
@@ -255,33 +258,28 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     group: {
         icon: <IconPeople />,
     },
+    // The IconInsight* glyphs carry their own multi-color palette (--insight-icon-*);
+    // structural parts follow currentColor, so no iconColor override here.
     'insight/funnels': {
-        icon: <IconFunnels />,
-        iconColor: ['var(--color-insight-funnel-light)'],
+        icon: <IconInsightFunnels />,
     },
     'insight/trends': {
-        icon: <IconTrends />,
-        iconColor: ['var(--color-insight-trends-light)'],
+        icon: <IconInsightTrends />,
     },
     'insight/retention': {
-        icon: <IconRetention />,
-        iconColor: ['var(--color-insight-retention-light)'],
+        icon: <IconInsightRetention />,
     },
     'insight/paths': {
-        icon: <IconUserPaths />,
-        iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'],
+        icon: <IconInsightUserPaths />,
     },
     'insight/lifecycle': {
-        icon: <IconLifecycle />,
-        iconColor: ['var(--color-insight-lifecycle-light)'],
+        icon: <IconInsightLifecycle />,
     },
     'insight/stickiness': {
-        icon: <IconStickiness />,
-        iconColor: ['var(--color-insight-stickiness-light)'],
+        icon: <IconInsightStickiness />,
     },
     'insight/hog': {
-        icon: <IconHogQL />,
-        iconColor: ['var(--color-insight-sql-light)'],
+        icon: <IconBracketsChart />,
     },
     team_activity: {
         icon: <IconNotification />,
@@ -360,6 +358,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     code_review: {
         icon: <IconPullRequest />,
+    },
+    stamphog: {
+        icon: <IconStamphog />,
     },
     exports: {
         icon: <IconDownload />,

@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -18,7 +21,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         request.user = self.user
         return request
 
-    def _running_experiment(self) -> Experiment:
+    def _running_experiment(self, repository: str | None = None) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="cleanup-test-flag",
@@ -38,6 +41,7 @@ class TestExperimentCleanupPr(APIBaseTest):
             name="Cleanup test",
             created_by=self.user,
             start_date=timezone.now(),
+            repository=repository,
         )
 
     @parameterized.expand(
@@ -52,6 +56,7 @@ class TestExperimentCleanupPr(APIBaseTest):
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
     def test_cleanup_pr_fires_only_when_flag_on_and_opted_in(
         self,
         _name,
@@ -59,12 +64,18 @@ class TestExperimentCleanupPr(APIBaseTest):
         open_cleanup_pr,
         conclusion,
         expect_task_created,
+        mock_resolve_github,
         mock_create_task,
         mock_feature_enabled,
         _mock_report,
     ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "posthog/posthog"}]
+        )
         mock_feature_enabled.return_value = flag_enabled
-        experiment = self._running_experiment()
+        task_id = uuid4()
+        mock_create_task.return_value = SimpleNamespace(task_id=task_id)
+        experiment = self._running_experiment(repository="posthog/posthog")
 
         with self.captureOnCommitCallbacks(execute=True):
             ExperimentService(team=self.team, user=self.user).end_experiment(
@@ -74,11 +85,71 @@ class TestExperimentCleanupPr(APIBaseTest):
                 request=self._make_request(),
             )
 
+        experiment.refresh_from_db()
         if expect_task_created:
             mock_create_task.assert_called_once()
             kwargs = mock_create_task.call_args.kwargs
             self.assertEqual(kwargs["origin_product"], tasks_facade.TaskOriginProduct.EXPERIMENTS)
-            self.assertEqual(kwargs["repository"], "PostHog/posthog")
+            self.assertEqual(kwargs["repository"], "posthog/posthog")
             self.assertTrue(kwargs["create_pr"])
+            self.assertEqual(experiment.flag_cleanup_task_id, task_id)
         else:
             mock_create_task.assert_not_called()
+            self.assertIsNone(experiment.flag_cleanup_task_id)
+
+    @parameterized.expand(
+        [
+            # (name, experiment_repository, cached_repos, expected_repository or None for skip)
+            (
+                "explicit_field_wins",
+                "acme/monorepo",
+                [{"full_name": "acme/monorepo"}, {"full_name": "acme/web"}],
+                "acme/monorepo",
+            ),
+            ("explicit_case_insensitive", "acme/monorepo", [{"full_name": "Acme/Monorepo"}], "acme/monorepo"),
+            ("explicit_not_in_installation_skips", "evil/other", [{"full_name": "acme/web"}], None),
+            ("single_cached_repo", None, [{"full_name": "acme/web"}], "acme/web"),
+            ("multiple_repos_skips", None, [{"full_name": "acme/web"}, {"full_name": "acme/api"}], None),
+            ("no_github_integration", None, None, None),
+            ("explicit_but_no_integration_skips", "acme/monorepo", None, None),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_cleanup_repository_resolution(
+        self,
+        _name,
+        experiment_repository,
+        cached_repos,
+        expected_repository,
+        mock_resolve_github,
+        mock_create_task,
+        _mock_feature_enabled,
+        _mock_report,
+    ):
+        if cached_repos is None:
+            mock_resolve_github.return_value = None
+        else:
+            mock_resolve_github.return_value = SimpleNamespace(
+                list_all_cached_repositories=lambda max_repos: cached_repos
+            )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        experiment = self._running_experiment(repository=experiment_repository)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            ExperimentService(team=self.team, user=self.user).end_experiment(
+                experiment,
+                conclusion="won",
+                open_cleanup_pr=True,
+                request=self._make_request(),
+            )
+
+        experiment.refresh_from_db()
+        if expected_repository is None:
+            mock_create_task.assert_not_called()
+            self.assertIsNone(experiment.flag_cleanup_task_id)
+        else:
+            self.assertEqual(mock_create_task.call_args.kwargs["repository"], expected_repository)
+            self.assertIsNotNone(experiment.flag_cleanup_task_id)

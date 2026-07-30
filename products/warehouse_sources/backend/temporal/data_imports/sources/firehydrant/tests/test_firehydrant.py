@@ -1,177 +1,194 @@
+import json
 from typing import Any
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant import firehydrant
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.firehydrant import (
     PAGE_SIZE,
     FireHydrantResumeConfig,
-    _build_url,
-    _extract_items,
     base_url_for_region,
     firehydrant_source,
-    get_rows,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.settings import (
     ENDPOINTS,
     FIREHYDRANT_ENDPOINTS,
 )
 
-
-class _FakeResumableManager:
-    def __init__(self, state: FireHydrantResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[FireHydrantResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> FireHydrantResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: FireHydrantResumeConfig) -> None:
-        self.saved.append(data)
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
-def _collect(
-    manager: _FakeResumableManager,
-    monkeypatch: Any,
-    pages: dict[str, Any],
-    endpoint: str,
-    region: str | None = None,
-) -> list[dict]:
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-        result = pages[url]
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    monkeypatch.setattr(firehydrant, "_fetch_page", fake_fetch)
-
-    rows: list[dict] = []
-    for batch in get_rows(
-        api_key="fhb_test",
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        region=region,
-    ):
-        rows.extend(batch)
-    return rows
+def _response(
+    items: list[dict[str, Any]] | None, *, next_page: int | None = None, drop_pagination: bool = False
+) -> Response:
+    body: dict[str, Any] = {"data": items or []}
+    if not drop_pagination:
+        body["pagination"] = {"next": next_page}
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-class TestBuildUrl:
-    @parameterized.expand(
-        [
-            # region -> host: EU accounts are pinned to the data-residency host, so an unknown or
-            # missing region must fall back to the US default rather than a wrong host.
-            ("default_us", None, "https://api.firehydrant.io"),
-            ("us", "us", "https://api.firehydrant.io"),
-            ("eu", "eu", "https://api.eu.firehydrant.io"),
-            ("unknown_falls_back", "apac", "https://api.firehydrant.io"),
-        ]
-    )
-    def test_includes_page_and_per_page(self, _name: str, region: str | None, base_host: str) -> None:
-        url = _build_url(base_url_for_region(region), "/v1/incidents", 3)
-        assert url == f"{base_host}/v1/incidents?page=3&per_page={PAGE_SIZE}"
+def _make_manager(resume_state: FireHydrantResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-class TestExtractItems:
-    @parameterized.expand(
-        [
-            ("wrapped_data", {"data": [{"id": "1"}], "pagination": {}}, [{"id": "1"}]),
-            ("bare_list", [{"id": "1"}, {"id": "2"}], [{"id": "1"}, {"id": "2"}]),
-            ("missing_data_key", {"pagination": {}}, []),
-            ("data_not_a_list", {"data": {"id": "1"}}, []),
-        ]
-    )
-    def test_extract_items(self, _name: str, payload: Any, expected: list[dict]) -> None:
-        assert _extract_items(payload) == expected
+def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Wire a mock session; capture each request's params AND url AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+    url_snapshots: list[str] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        url_snapshots.append(request.url)
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots, url_snapshots
 
 
-class TestGetRows:
-    def test_follows_page_pagination(self, monkeypatch: Any) -> None:
-        pages = {
-            "https://api.firehydrant.io/v1/incidents?page=1&per_page=100": {
-                "data": [{"id": "i1"}, {"id": "i2"}],
-                "pagination": {"page": 1, "next": 2, "last": 2},
-            },
-            "https://api.firehydrant.io/v1/incidents?page=2&per_page=100": {
-                "data": [{"id": "i3"}],
-                "pagination": {"page": 2, "next": None, "last": 2},
-            },
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "incidents")
-        assert rows == [{"id": "i1"}, {"id": "i2"}, {"id": "i3"}]
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
-    def test_single_unpaginated_response_terminates(self, monkeypatch: Any) -> None:
-        # signals_on_call and similar endpoints may return a single page with no `next`.
-        pages = {
-            "https://api.firehydrant.io/v1/signals_on_call?page=1&per_page=100": {
-                "data": [{"id": "s1"}],
-            },
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "signals_on_call")
-        assert rows == [{"id": "s1"}]
 
-    def test_state_saved_after_each_page_with_next(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            "https://api.firehydrant.io/v1/services?page=1&per_page=100": {
-                "data": [{"id": "a"}],
-                "pagination": {"next": 2},
-            },
-            "https://api.firehydrant.io/v1/services?page=2&per_page=100": {
-                "data": [{"id": "b"}],
-                "pagination": {"next": 3},
-            },
-            "https://api.firehydrant.io/v1/services?page=3&per_page=100": {
-                "data": [{"id": "c"}],
-                "pagination": {"next": None},
-            },
-        }
-        _collect(manager, monkeypatch, pages, "services")
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_page_pagination(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(
+            session,
+            [
+                _response([{"id": "i1"}, {"id": "i2"}], next_page=2),
+                _response([{"id": "i3"}], next_page=None),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(
+            firehydrant_source("fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
+
+        assert [r["id"] for r in rows] == ["i1", "i2", "i3"]
+        # First request carries per_page but no explicit page (FireHydrant defaults to page 1);
+        # the second request injects the `page` cursor from `pagination.next`.
+        assert params[0]["per_page"] == PAGE_SIZE
+        assert "page" not in params[0]
+        assert params[1]["page"] == 2
+        assert params[1]["per_page"] == PAGE_SIZE
+        # Checkpoint saved once, pointing at the next page; the final (next=None) page saves nothing.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == FireHydrantResumeConfig(next_page=2)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_unpaginated_response_terminates(self, MockSession) -> None:
+        # signals_on_call and similar endpoints may return a single page with no `pagination` object.
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "s1"}], drop_pagination=True)])
+
+        manager = _make_manager()
+        rows = _rows(
+            firehydrant_source("fhb_test", "signals_on_call", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
+
+        assert [r["id"] for r in rows] == ["s1"]
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_state_saved_after_each_page_with_next(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "a"}], next_page=2),
+                _response([{"id": "b"}], next_page=3),
+                _response([{"id": "c"}], next_page=None),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(firehydrant_source("fhb_test", "services", team_id=1, job_id="j", resumable_source_manager=manager))
+
         # State saved only when a next page exists — not after the final page.
-        assert [s.next_page for s in manager.saved] == [2, 3]
+        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2, 3]
 
-    def test_region_routes_requests_to_eu_host(self, monkeypatch: Any) -> None:
-        # EU accounts only answer on the data-residency host; if get_rows ignored region it would hit
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_region_routes_requests_to_eu_host(self, MockSession) -> None:
+        # EU accounts only answer on the data-residency host; if the source ignored region it would hit
         # the US host and every EU sync would fail.
-        pages = {
-            "https://api.eu.firehydrant.io/v1/incidents?page=1&per_page=100": {
-                "data": [{"id": "eu1"}],
-                "pagination": {"next": None},
-            },
-        }
-        rows = _collect(_FakeResumableManager(), monkeypatch, pages, "incidents", region="eu")
-        assert rows == [{"id": "eu1"}]
+        session = MockSession.return_value
+        _params, urls = _wire(session, [_response([{"id": "eu1"}], next_page=None)])
 
-    def test_resume_from_saved_state(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(FireHydrantResumeConfig(next_page=2))
-        pages = {
-            "https://api.firehydrant.io/v1/services?page=2&per_page=100": {
-                "data": [{"id": "b"}],
-                "pagination": {"next": None},
-            },
-        }
-        rows = _collect(manager, monkeypatch, pages, "services")
+        manager = _make_manager()
+        rows = _rows(
+            firehydrant_source(
+                "fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager, region="eu"
+            )
+        )
+
+        assert [r["id"] for r in rows] == ["eu1"]
+        assert urls[0].startswith("https://api.eu.firehydrant.io/v1/incidents")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_from_saved_state(self, MockSession) -> None:
+        session = MockSession.return_value
+        params, _urls = _wire(session, [_response([{"id": "b"}], next_page=None)])
+
+        manager = _make_manager(FireHydrantResumeConfig(next_page=2))
+        rows = _rows(
+            firehydrant_source("fhb_test", "services", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
+
         # Resumes at page 2 (page 1 is never requested), proving the saved cursor is honored.
-        assert rows == [{"id": "b"}]
+        assert [r["id"] for r in rows] == ["b"]
+        assert params[0]["page"] == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rate_limit_then_success_is_retried(self, MockSession, monkeypatch: Any) -> None:
+        # 429 must be classified retryable (not fatal): a 429 followed by a 200 recovers and yields rows.
+        import tenacity.nap
+
+        monkeypatch.setattr(tenacity.nap.time, "sleep", lambda _s: None)
+
+        session = MockSession.return_value
+        throttled = Response()
+        throttled.status_code = 429
+        throttled.headers["Retry-After"] = "1"
+        _wire(session, [throttled, _response([{"id": "ok"}], next_page=None)])
+
+        manager = _make_manager()
+        rows = _rows(
+            firehydrant_source("fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager)
+        )
+        assert [r["id"] for r in rows] == ["ok"]
 
 
-class TestFireHydrantSource:
+class TestSourceResponse:
     @parameterized.expand(list(ENDPOINTS))
     def test_source_response_matches_endpoint_config(self, endpoint: str) -> None:
         config = FIREHYDRANT_ENDPOINTS[endpoint]
         response = firehydrant_source(
             api_key="fhb_test",
             endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
         )
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -215,19 +232,19 @@ class TestValidateCredentials:
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
         response = requests.Response()
         response.status_code = status_code
-        session = MagicMock()
+        session = mock.MagicMock()
         session.get.return_value = response
 
-        with patch.object(firehydrant, "make_tracked_session", lambda *a, **k: session):
-            valid, _error = firehydrant.validate_credentials("fhb_test")
+        with mock.patch.object(firehydrant, "make_tracked_session", lambda *a, **k: session):
+            valid, _error = validate_credentials("fhb_test")
         assert valid is expected_valid
 
     def test_network_error_is_invalid(self, monkeypatch: Any) -> None:
-        session = MagicMock()
+        session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         monkeypatch.setattr(firehydrant, "make_tracked_session", lambda *a, **k: session)
 
-        valid, error = firehydrant.validate_credentials("fhb_test")
+        valid, error = validate_credentials("fhb_test")
         assert valid is False
         assert error is not None
 
@@ -241,12 +258,25 @@ class TestValidateCredentials:
         # The key is only valid against its own region's host, so validation must probe there.
         response = requests.Response()
         response.status_code = 200
-        session = MagicMock()
+        session = mock.MagicMock()
         session.get.return_value = response
 
-        with patch.object(firehydrant, "make_tracked_session", lambda *a, **k: session):
-            firehydrant.validate_credentials("fhb_test", region=region)
+        with mock.patch.object(firehydrant, "make_tracked_session", lambda *a, **k: session):
+            validate_credentials("fhb_test", region=region)
         assert session.get.call_args.args[0] == expected_url
+
+    @parameterized.expand(
+        [
+            ("default_us", None, "https://api.firehydrant.io"),
+            ("us", "us", "https://api.firehydrant.io"),
+            ("eu", "eu", "https://api.eu.firehydrant.io"),
+            ("unknown_falls_back", "apac", "https://api.firehydrant.io"),
+        ]
+    )
+    def test_base_url_for_region(self, _name: str, region: str | None, expected_host: str) -> None:
+        # EU accounts are pinned to the data-residency host; an unknown or missing region must fall
+        # back to the US default rather than a wrong host.
+        assert base_url_for_region(region) == expected_host
 
 
 class TestCredentialRedaction:
@@ -255,62 +285,27 @@ class TestCredentialRedaction:
     def test_validate_credentials_redacts_api_key(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
 
-        def fake_session(*args: Any, **kwargs: Any) -> MagicMock:
+        def fake_session(*args: Any, **kwargs: Any) -> mock.MagicMock:
             captured.update(kwargs)
             response = requests.Response()
             response.status_code = 200
-            session = MagicMock()
+            session = mock.MagicMock()
             session.get.return_value = response
             return session
 
         monkeypatch.setattr(firehydrant, "make_tracked_session", fake_session)
-        firehydrant.validate_credentials("fhb_secret")
+        validate_credentials("fhb_secret")
         assert captured.get("redact_values") == ("fhb_secret",)
 
-    def test_get_rows_redacts_api_key(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_transport_redacts_api_key(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([], next_page=None)])
 
-        def fake_session(*args: Any, **kwargs: Any) -> MagicMock:
-            captured.update(kwargs)
-            return MagicMock()
-
-        monkeypatch.setattr(firehydrant, "make_tracked_session", fake_session)
-        monkeypatch.setattr(firehydrant, "_fetch_page", lambda *a, **k: {"data": [], "pagination": {}})
-
-        list(
-            get_rows(
-                api_key="fhb_secret",
-                endpoint="incidents",
-                logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+        _rows(
+            firehydrant_source(
+                "fhb_secret", "incidents", team_id=1, job_id="j", resumable_source_manager=_make_manager()
             )
         )
-        assert captured.get("redact_values") == ("fhb_secret",)
-
-
-class TestFetchPageRetries:
-    def _session_returning(self, status_code: int, headers: dict[str, str] | None = None) -> MagicMock:
-        response = requests.Response()
-        response.status_code = status_code
-        response.headers.update(headers or {})
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
-    # Tested through `_fetch_page_once` (the undecorated core) so tenacity's waits don't run.
-    _URL = "https://api.firehydrant.io/v1/incidents?page=1&per_page=100"
-
-    def test_rate_limit_honors_retry_after_then_raises_retryable(self, monkeypatch: Any) -> None:
-        slept: list[int] = []
-        monkeypatch.setattr(firehydrant.time, "sleep", lambda s: slept.append(s))
-        session = self._session_returning(429, {"Retry-After": "7"})
-
-        with pytest.raises(firehydrant.FireHydrantRetryableError):
-            firehydrant._fetch_page_once(session, self._URL, {}, MagicMock())
-
-        assert slept == [7]
-
-    def test_server_error_is_retryable(self) -> None:
-        session = self._session_returning(503)
-        with pytest.raises(firehydrant.FireHydrantRetryableError):
-            firehydrant._fetch_page_once(session, self._URL, {}, MagicMock())
+        # The bearer token is registered for value-based redaction when the tracked session is built.
+        assert "fhb_secret" in MockSession.call_args.kwargs.get("redact_values", ())

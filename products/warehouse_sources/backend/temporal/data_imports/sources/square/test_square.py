@@ -205,10 +205,12 @@ class TestGetRowsPagination:
         ]
         sent_params = self._drive("payments", manager, responses)
 
-        # First request carries the query params; subsequent pages carry cursor only.
-        assert "cursor" not in sent_params[0]
-        assert sent_params[1] == {"cursor": "cur-1"}
-        assert sent_params[2] == {"cursor": "cur-2"}
+        # First request carries the query params; follow-up pages repeat them unchanged
+        # and add the cursor. Square rejects a cursor sent with a changed parameter set.
+        base = {"sort_order": "ASC", "limit": "50"}
+        assert sent_params[0] == base
+        assert sent_params[1] == {**base, "cursor": "cur-1"}
+        assert sent_params[2] == {**base, "cursor": "cur-2"}
 
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [SquareResumeConfig(cursor="cur-1"), SquareResumeConfig(cursor="cur-2")]
@@ -221,7 +223,7 @@ class TestGetRowsPagination:
         responses = [_make_response({"payments": [{"id": "p9"}]})]
         sent_params = self._drive("payments", manager, responses)
 
-        assert sent_params == [{"cursor": "cur-resumed"}]
+        assert sent_params == [{"sort_order": "ASC", "limit": "50", "cursor": "cur-resumed"}]
         manager.load_state.assert_called_once()
 
     def test_terminal_single_page_does_not_save_state(self) -> None:
@@ -264,10 +266,12 @@ class TestGetRowsPagination:
         sent_params = self._drive("customers", manager, responses)
 
         # First request uses the stale cursor and is rejected; the retry drops the
-        # cursor and re-issues the original query, then pages normally.
-        assert sent_params[0] == {"cursor": "stale-cursor"}
-        assert "cursor" not in sent_params[1]
-        assert sent_params[2] == {"cursor": "cur-1"}
+        # cursor and re-issues the original query, then pages normally. Every request
+        # carries the original query params, with the cursor added on follow-ups.
+        base = {"sort_field": "CREATED_AT", "sort_order": "ASC", "limit": "50"}
+        assert sent_params[0] == {**base, "cursor": "stale-cursor"}
+        assert sent_params[1] == base
+        assert sent_params[2] == {**base, "cursor": "cur-1"}
 
     def test_invalid_cursor_restart_evicts_stale_cursor_within_single_page(self) -> None:
         # When the restart finishes within a single page there's no fresh next_cursor
@@ -301,7 +305,7 @@ class TestGetRowsPagination:
         sent_params = self._drive("payments", manager, responses)
 
         assert "cursor" not in sent_params[0]
-        assert sent_params[1] == {"cursor": "cur-1"}
+        assert sent_params[1] == {"sort_order": "ASC", "limit": "50", "cursor": "cur-1"}
         # The restart drops the cursor and seeds begin_time from the last seen created_at
         # rather than issuing a bare full restart.
         assert "cursor" not in sent_params[2]
@@ -325,9 +329,10 @@ class TestGetRowsPagination:
         sent_params = self._drive("customers", manager, responses)
 
         # stale cursor rejected -> restart -> page (cur-1) -> cur-1 rejected -> restart -> final page.
-        assert sent_params[0] == {"cursor": "stale-cursor"}
+        base = {"sort_field": "CREATED_AT", "sort_order": "ASC", "limit": "50"}
+        assert sent_params[0] == {**base, "cursor": "stale-cursor"}
         assert "cursor" not in sent_params[1]
-        assert sent_params[2] == {"cursor": "cur-1"}
+        assert sent_params[2] == {**base, "cursor": "cur-1"}
         assert "cursor" not in sent_params[3]
 
     def test_invalid_cursor_gives_up_after_restart_budget_exhausted(self) -> None:

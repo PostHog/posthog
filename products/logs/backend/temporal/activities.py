@@ -22,6 +22,8 @@ from posthog.schema import PropertyGroupFilter
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.models import Team
+from posthog.slo.context import SloHandle, SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async_pool
 
 from products.alerts.backend.destinations import (
@@ -586,85 +588,129 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
 
             _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
 
-            try:
-                query_result = await cohort_query_async(cohort)
-            except Exception:
-                logger.exception(
-                    "Cohort CH query failed unrecoverably",
-                    team_id=cohort.team_id,
-                    cohort_size=len(cohort.alerts),
-                )
-                local_stats["errored"] += len(cohort.alerts)
-                return local_stats, local_notified
-
-            evaluations: list[_AlertEvaluation] = []
-            eval_starts: list[float] = []
-            for alert in cohort.alerts:
-                eval_start = time.perf_counter()
-                try:
-                    evaluations.append(
-                        _evaluate_single_alert(
-                            alert,
-                            now,
-                            checkpoint=None,
-                            prefetched=query_result.for_alert(alert),
+            with contextlib.ExitStack() as slo_stack:
+                slo_handles: dict[str, SloHandle] = {
+                    str(alert.id): slo_stack.enter_context(
+                        slo_operation(
+                            spec=SloSpec(
+                                distinct_id=str(alert.id),
+                                area=SloArea.ANALYTIC_PLATFORM,
+                                operation=SloOperation.ALERT_CHECK,
+                                team_id=alert.team_id,
+                                resource_id=str(alert.id),
+                            ),
+                            properties={
+                                "alert_type": "logs",
+                                "check_interval_minutes": alert.check_interval_minutes,
+                                "window_minutes": alert.window_minutes,
+                            },
                         )
                     )
-                    eval_starts.append(eval_start)
+                    for alert in cohort.alerts
+                }
+
+                try:
+                    query_result = await cohort_query_async(cohort)
                 except Exception:
                     logger.exception(
-                        "Unexpected error evaluating alert",
-                        alert_id=str(alert.id),
-                        team_id=alert.team_id,
+                        "Cohort CH query failed unrecoverably",
+                        team_id=cohort.team_id,
+                        cohort_size=len(cohort.alerts),
                     )
+                    for slo_handle in slo_handles.values():
+                        slo_handle.fail(failure_phase="cohort_query")
+                    local_stats["errored"] += len(cohort.alerts)
+                    return local_stats, local_notified
+
+                evaluations: list[_AlertEvaluation] = []
+                eval_starts: list[float] = []
+                for alert in cohort.alerts:
+                    alert_id = str(alert.id)
+                    eval_start = time.perf_counter()
+                    try:
+                        evaluations.append(
+                            _evaluate_single_alert(
+                                alert,
+                                now,
+                                checkpoint=None,
+                                prefetched=query_result.for_alert(alert),
+                            )
+                        )
+                        eval_starts.append(eval_start)
+                    except Exception:
+                        logger.exception(
+                            "Unexpected error evaluating alert",
+                            alert_id=alert_id,
+                            team_id=alert.team_id,
+                        )
+                        slo_handles[alert_id].fail(failure_phase="evaluation")
+                        local_stats["errored"] += 1
+
+                dispatched_or_errors = await asyncio.gather(
+                    *(dispatch_async(ev, now) for ev in evaluations),
+                    return_exceptions=True,
+                )
+                phase_2_end = time.perf_counter()
+                dispatched: list[_DispatchedAlert] = []
+                elapsed_ms_per_alert: list[int] = []
+                for ev, result, eval_start in zip(evaluations, dispatched_or_errors, eval_starts):
+                    alert_id = str(ev.alert.id)
+                    if isinstance(result, BaseException):
+                        logger.exception(
+                            "Unexpected error dispatching alert",
+                            alert_id=alert_id,
+                            team_id=ev.alert.team_id,
+                            exc_info=result,
+                        )
+                        slo_handles[alert_id].fail(failure_phase="dispatch")
+                        local_stats["errored"] += 1
+                    else:
+                        dispatched.append(result)
+                        elapsed_ms_per_alert.append(int((phase_2_end - eval_start) * 1000))
+
+                # Delivery barrier: block until Kafka acks (or the flush deadline
+                # passes) BEFORE the save, so undelivered notifications roll state
+                # back and get retried next cycle. flush() blocks, so run it off
+                # the event loop, and only when something was actually produced,
+                # sparing quiet cohorts the thread hop.
+                if any(d.produce_result is not None for d in dispatched):
+                    dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
+
+                try:
+                    saved, failed = (await save_cohort_async(dispatched, now)) if dispatched else ([], [])
+                except Exception as e:
+                    logger.exception("Cohort bulk save failed (non-recoverable)", team_id=cohort.team_id)
+                    capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
+                    for dispatched_alert in dispatched:
+                        slo_handles[str(dispatched_alert.evaluation.alert.id)].fail(failure_phase="save")
+                    local_stats["errored"] += len(dispatched)
+                    local_stats["checked"] += len(dispatched)
+                    return local_stats, local_notified
+
+                elapsed_by_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
+                for dispatched_alert in saved:
+                    alert_id = str(dispatched_alert.evaluation.alert.id)
+                    _finalize_alert(dispatched_alert, elapsed_by_id[alert_id], local_stats)
+                    committed_state = dispatched_alert.committed_outcome.new_state.value
+                    notification_action = dispatched_alert.evaluation.outcome.notification.value
+                    if dispatched_alert.notification_failed:
+                        slo_handles[alert_id].fail(
+                            alert_state=committed_state,
+                            notification_action=notification_action,
+                            failure_phase="notification_delivery",
+                        )
+                    else:
+                        slo_handles[alert_id].succeed(
+                            alert_state=committed_state,
+                            notification_action=notification_action,
+                        )
+                for dispatched_alert in failed:
+                    slo_handles[str(dispatched_alert.evaluation.alert.id)].fail(failure_phase="save")
+                    local_stats["checked"] += 1
                     local_stats["errored"] += 1
 
-            dispatched_or_errors = await asyncio.gather(
-                *(dispatch_async(ev, now) for ev in evaluations),
-                return_exceptions=True,
-            )
-            phase_2_end = time.perf_counter()
-            dispatched: list[_DispatchedAlert] = []
-            elapsed_ms_per_alert: list[int] = []
-            for ev, result, eval_start in zip(evaluations, dispatched_or_errors, eval_starts):
-                if isinstance(result, BaseException):
-                    logger.exception(
-                        "Unexpected error dispatching alert",
-                        alert_id=str(ev.alert.id),
-                        team_id=ev.alert.team_id,
-                        exc_info=result,
-                    )
-                    local_stats["errored"] += 1
-                else:
-                    dispatched.append(result)
-                    elapsed_ms_per_alert.append(int((phase_2_end - eval_start) * 1000))
-
-            # Delivery barrier: block until Kafka acks (or the flush deadline
-            # passes) BEFORE the save, so undelivered notifications roll state
-            # back and get retried next cycle. flush() blocks, so run it off
-            # the event loop — and only when something was actually produced,
-            # sparing quiet cohorts the thread hop.
-            if any(d.produce_result is not None for d in dispatched):
-                dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
-
-            try:
-                saved, failed = (await save_cohort_async(dispatched, now)) if dispatched else ([], [])
-            except Exception as e:
-                logger.exception("Cohort bulk save failed (non-recoverable)", team_id=cohort.team_id)
-                capture_exception(e, {"team_id": cohort.team_id, "phase": "bulk_save"})
-                local_stats["errored"] += len(dispatched)
-                local_stats["checked"] += len(dispatched)
+                local_notified.extend(_build_notified_from_saved(saved))
                 return local_stats, local_notified
-
-            elapsed_by_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
-            for d in saved:
-                _finalize_alert(d, elapsed_by_id[str(d.evaluation.alert.id)], local_stats)
-            for _ in failed:
-                local_stats["checked"] += 1
-                local_stats["errored"] += 1
-
-            local_notified.extend(_build_notified_from_saved(saved))
-            return local_stats, local_notified
 
     cohort_results = await asyncio.gather(
         *(_run_one_cohort(m) for m in input.manifests),

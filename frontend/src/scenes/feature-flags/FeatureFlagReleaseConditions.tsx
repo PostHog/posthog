@@ -50,6 +50,7 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
     isDistinctIdFilter,
+    withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
 import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
 
@@ -367,7 +368,7 @@ export function FeatureFlagReleaseConditions({
                                 pageKey={`feature-flag-${id}-${group.sort_key}-${filterGroups.length}-${
                                     filters.aggregation_group_type_index ?? ''
                                 }`}
-                                propertyFilters={group?.properties}
+                                propertyFilters={withResolvedFlagLabels(group?.properties, getFlagKey)}
                                 logicalRowDivider
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}

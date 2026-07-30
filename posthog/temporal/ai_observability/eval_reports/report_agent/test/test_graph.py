@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.report_agent import graph
 from posthog.temporal.ai_observability.eval_reports.report_agent.graph import (
     _append_references_section,
@@ -23,12 +24,15 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 
 
 class TestSystemPromptFormat(SimpleTestCase):
-    def _build_prompt(self, output_type: str = "boolean", guidance: str = "") -> str:
+    def _build_prompt(
+        self, output_type: str = "boolean", guidance: str = "", evaluation_target: str = "generation"
+    ) -> str:
         return build_eval_report_system_prompt(
             evaluation_name="Test Eval",
             evaluation_description="foo",
             evaluation_type="llm_judge",
             evaluation_prompt="criteria",
+            evaluation_target=evaluation_target,
             output_type=output_type,
             period_start="2026-04-08T14:00:00+00:00",
             period_end="2026-04-08T15:00:00+00:00",
@@ -54,6 +58,33 @@ class TestSystemPromptFormat(SimpleTestCase):
         self.assertIn('outcome="all"|"positive"|"neutral"|"negative"', formatted)
         self.assertNotIn("pass rate", formatted.lower())
 
+    def test_sentiment_prompt_directs_agent_to_user_message_not_reasoning(self):
+        formatted = self._build_prompt(output_type="sentiment")
+
+        self.assertIn("Use user messages instead of reasoning", formatted)
+        self.assertIn("last user message", formatted)
+        self.assertIn("frustrated and why", formatted)
+        self.assertIn('sample_eval_results(outcome="negative", order_by="score")', formatted)
+        self.assertNotIn("get_top_outcome_reasons", formatted)
+        self.assertNotIn("Inspect grouped reasons", formatted)
+
+    def test_boolean_prompt_omits_sentiment_guidance(self):
+        formatted = self._build_prompt(output_type="boolean")
+
+        self.assertNotIn("How to analyze sentiment", formatted)
+        self.assertIn("get_top_outcome_reasons", formatted)
+        self.assertIn("Inspect grouped reasons", formatted)
+
+    def test_trace_prompt_uses_only_trace_detail_workflow(self):
+        formatted = self._build_prompt(evaluation_target="trace")
+
+        self.assertIn("Evaluation target: trace", formatted)
+        self.assertIn("sample_trace_details", formatted)
+        self.assertIn("get_trace_detail", formatted)
+        self.assertIn('generation_id=""', formatted)
+        self.assertNotIn("sample_generation_details", formatted)
+        self.assertIn("trace satisfied the configured criteria", formatted)
+
 
 class TestComputeMetrics(SimpleTestCase):
     @patch.object(graph, "_fetch_period_summary")
@@ -72,8 +103,37 @@ class TestComputeMetrics(SimpleTestCase):
             output_type="sentiment",
         )
 
+        self.assertIsNotNone(metrics)
+        assert metrics is not None
         self.assertEqual(metrics.result_rates, {"positive": 50.0, "neutral": 25.0, "negative": 25.0})
         self.assertEqual(metrics.previous_result_rates, {"positive": 50.0, "neutral": 50.0, "negative": 0.0})
+
+    @patch.object(graph, "_fetch_period_summary")
+    def test_transient_query_failure_returns_no_metrics(self, mock_fetch):
+        mock_fetch.side_effect = ClickHouseAtCapacity()
+
+        metrics = graph._compute_metrics(
+            team_id=1,
+            evaluation_id="eval-id",
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+            previous_period_start="2026-04-08T13:00:00+00:00",
+        )
+
+        self.assertIsNone(metrics)
+
+    @patch.object(graph, "_fetch_period_summary")
+    def test_non_transient_query_failure_propagates(self, mock_fetch):
+        mock_fetch.side_effect = ValueError("invalid query result")
+
+        with self.assertRaisesRegex(ValueError, "invalid query result"):
+            graph._compute_metrics(
+                team_id=1,
+                evaluation_id="eval-id",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
 
 
 class TestFallbackContent(SimpleTestCase):
@@ -90,6 +150,15 @@ class TestFallbackContent(SimpleTestCase):
         self.assertIn("No evaluation runs", content.sections[0].content)
         self.assertIn("agent timed out", content.sections[0].content)
         self.assertEqual(content.metrics, metrics)
+
+    def test_trace_zero_runs_uses_trace_specific_ingestion_hint(self):
+        metrics = EvalReportMetrics(total_runs=0)
+
+        content = _fallback_content("Trace quality", metrics, "agent timed out", evaluation_target="trace")
+
+        self.assertIn("trace evaluation results", content.sections[0].content)
+        self.assertNotIn("$ai_generation", content.sections[0].content)
+        self.assertEqual(content.evaluation_target, "trace")
 
     def test_populated_metrics_stable_trend(self):
         metrics = EvalReportMetrics(
@@ -229,6 +298,17 @@ class TestAppendReferencesSection(SimpleTestCase):
         self.assertEqual(content.sections[-1].title, "References")
         self.assertIn("g1", content.sections[-1].content)
 
+    def test_trace_reference_uses_trace_id_when_generation_id_is_empty(self):
+        content = EvalReportContent(
+            title="t",
+            sections=[ReportSection(title="S1", content="c1")],
+            citations=[Citation(generation_id="", trace_id="customer-trace/42", reason="r1")],
+        )
+
+        _append_references_section(content)
+
+        self.assertIn("customer-trace/42", content.sections[-1].content)
+
     def test_references_does_not_displace_content_at_max_sections(self):
         # Regression: previously the auto-appended References section replaced
         # the agent's final section when agent produced MAX_REPORT_SECTIONS.
@@ -290,6 +370,45 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
+
+
+class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
+    @patch.object(graph, "posthoganalytics")
+    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "_compute_metrics")
+    def test_metrics_unavailable_skips_agent_and_returns_fallback(
+        self, mock_metrics, mock_create_agent, mock_build_llm, mock_pha
+    ):
+        mock_pha.default_client = None
+        mock_metrics.return_value = None
+
+        with (
+            patch("posthog.temporal.ai_observability.eval_reports.metrics.increment_errors") as mock_increment_errors,
+            patch(
+                "posthog.temporal.ai_observability.eval_reports.metrics.increment_report_generated"
+            ) as mock_increment_generated,
+        ):
+            content = graph.run_eval_report_agent(
+                team_id=1,
+                evaluation_id="eval-1",
+                evaluation_name="Relevance",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
+
+        mock_create_agent.assert_not_called()
+        mock_build_llm.assert_not_called()
+        mock_increment_generated.assert_called_once_with("fallback_metrics_unavailable")
+        mock_increment_errors.assert_called_once_with("metrics_unavailable")
+        self.assertEqual(content.generation_status, graph.EvalReportGenerationStatus.METRICS_UNAVAILABLE)
+        self.assertEqual(content.title, "Metrics unavailable for this period")
+        self.assertIsNone(content.metrics)
+        self.assertEqual(content.sections, [])
 
 
 class TestRunEvalReportAgentCallbackGating(SimpleTestCase):

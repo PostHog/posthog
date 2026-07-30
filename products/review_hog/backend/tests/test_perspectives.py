@@ -28,9 +28,9 @@ _LOGIC = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness"
 _CUSTOM = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}custom-x"
 
 
-def _author_perspective_skill(team, name: str) -> LLMSkill:
+def _author_perspective_skill(team, name: str, created_by: User | None = None) -> LLMSkill:
     return LLMSkill.objects.create(
-        team=team, name=name, description="custom", body="x" * 250, version=1, is_latest=True
+        team=team, name=name, description="custom", body="x" * 250, version=1, is_latest=True, created_by=created_by
     )
 
 
@@ -209,7 +209,7 @@ class TestLoadPerspectivesForRun(BaseTest):
         # The core "author a custom perspective and run it" path: an enabled custom prefixed skill is
         # loaded alongside the canonicals, with its own pass_number.
         sync_canonical_perspectives(self.team)
-        _author_perspective_skill(self.team, _CUSTOM)
+        _author_perspective_skill(self.team, _CUSTOM, created_by=self.user)
         register_missing_perspective_configs(self.team.id, self.user.id)
         ReviewSkillConfig.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, skill_name=_CUSTOM, enabled=True
@@ -253,6 +253,24 @@ class TestLoadPerspectivesForRun(BaseTest):
         # make a surviving perspective silently reuse the dead one's persisted review on resume.
         # Sorted enabled set: contracts(1), custom-x(2, dead), logic(3), performance(4).
         sync_canonical_perspectives(self.team)
+        register_missing_perspective_configs(self.team.id, self.user.id)
+        ReviewSkillConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, skill_name=_CUSTOM, enabled=True
+        )
+
+        loaded = load_perspectives_for_run(self.team.id, self.user.id)
+
+        assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert [lp.pass_number for lp in loaded] == [1, 3, 4]
+
+    def test_skips_an_enabled_perspective_authored_by_another_user(self) -> None:
+        # A leftover enabled config for a teammate's custom (from before visibility became
+        # author-only) must be skipped, not silently run as an invisible perspective — and like a
+        # dead skill it leaves its pass_number slot as a hole so resume keys stay stable.
+        # Sorted enabled set: contracts(1), custom-x(2, foreign), logic(3), performance(4).
+        sync_canonical_perspectives(self.team)
+        teammate = User.objects.create(email="teammate-loader@example.com")
+        _author_perspective_skill(self.team, _CUSTOM, created_by=teammate)
         register_missing_perspective_configs(self.team.id, self.user.id)
         ReviewSkillConfig.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, skill_name=_CUSTOM, enabled=True

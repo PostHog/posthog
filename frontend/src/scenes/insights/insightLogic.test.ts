@@ -577,6 +577,32 @@ describe('insightLogic', () => {
         await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.updateInsight])
     })
 
+    test('saveInsight clears the browser draft only when saving a new insight', async () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
+
+        const updateProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            cachedInsight: { id: 42, short_id: Insight42, query: examples.FunnelsQuery, result: {} },
+        }
+        logic = insightLogic(updateProps)
+        logic.mount()
+        insightDataLogic(updateProps).mount()
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
+        expect(localStorage.getItem(draftKey)).not.toBeNull()
+
+        const newProps: InsightLogicProps = { dashboardItemId: 'new' }
+        logic = insightLogic(newProps)
+        logic.mount()
+        insightDataLogic(newProps).mount()
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
+        expect(localStorage.getItem(draftKey)).toBeNull()
+    })
+
     test('saveInsight updates dashboards', async () => {
         const dashLogic = dashboardLogic({ id: MOCK_DASHBOARD_ID })
         dashLogic.mount()
@@ -1167,6 +1193,58 @@ describe('insightLogic', () => {
                 .toMatchValues({
                     savedInsight: partial({ favorited: true }),
                 })
+        })
+    })
+
+    describe('updateDashboardInsight query merge', () => {
+        const canonicalQuery = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+                dateRange: { date_from: 'all' },
+            },
+        }
+        const dashboardOverriddenQuery = {
+            ...canonicalQuery,
+            source: {
+                ...canonicalQuery.source,
+                dateRange: { date_from: '-14d' },
+            },
+        }
+
+        beforeEach(() => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                dashboardId: MOCK_DASHBOARD_ID,
+                cachedInsight: insightModelWith({ query: canonicalQuery }),
+            })
+            logic.mount()
+        })
+
+        it('does not overwrite the canonical query on a dashboard-scoped refresh', async () => {
+            dashboardsModel.actions.updateDashboardInsight(
+                insightModelWith({
+                    query: dashboardOverriddenQuery,
+                    dashboards: [MOCK_DASHBOARD_ID],
+                    dashboard_tiles: [{ dashboard_id: MOCK_DASHBOARD_ID }],
+                }),
+                undefined,
+                MOCK_DASHBOARD_ID
+            )
+
+            await expectLogic(logic).toMatchValues({ insight: partial({ query: canonicalQuery }) })
+        })
+
+        it('applies the query from a non-scoped update', async () => {
+            dashboardsModel.actions.updateDashboardInsight(
+                insightModelWith({
+                    query: dashboardOverriddenQuery,
+                    dashboards: [MOCK_DASHBOARD_ID],
+                })
+            )
+
+            await expectLogic(logic).toMatchValues({ insight: partial({ query: dashboardOverriddenQuery }) })
         })
     })
 })

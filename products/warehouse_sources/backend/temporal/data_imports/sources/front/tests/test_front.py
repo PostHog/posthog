@@ -1,39 +1,35 @@
 import json
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import structlog
 from parameterized import parameterized
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.front import front as front_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.front.front import (
     FrontResumeConfig,
-    FrontRetryableError,
     _build_initial_params,
-    _build_url,
-    _parse_retry_after,
     _resolve_after_value,
-    _retry_wait,
     _to_unix_seconds,
     front_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.front.settings import FRONT_ENDPOINTS
 
-logger = structlog.get_logger()
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the front module.
+FRONT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.front.front.make_tracked_session"
+)
 
 
 def _response(
+    json_body: dict[str, Any] | None = None,
+    *,
     status_code: int = 200,
-    json_body: Optional[dict[str, Any]] = None,
-    headers: Optional[dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
 ) -> Response:
     resp = Response()
     resp.status_code = status_code
@@ -44,36 +40,35 @@ def _response(
     return resp
 
 
-class _FakeSession:
-    def __init__(self, responses: list[Response]):
-        self._responses = list(responses)
-        self.requested_urls: list[str] = []
-
-    def get(self, url: str, **kwargs: Any) -> Response:
-        self.requested_urls.append(url)
-        return self._responses.pop(0)
+def _make_manager(resume_state: FrontResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
 
-@contextmanager
-def _patched_session(session: Any) -> Iterator[None]:
-    with patch.object(front_module, "make_tracked_session", return_value=session):
-        yield
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's URL + params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
+    request is prepared instead of inspecting the final state.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
 
 
-class TestBuildUrl:
-    def test_no_params_returns_base(self) -> None:
-        assert _build_url("https://api2.frontapp.com/tags", {}) == "https://api2.frontapp.com/tags"
-
-    def test_encodes_params(self) -> None:
-        url = _build_url("https://api2.frontapp.com/events", {"limit": 15, "sort_order": "asc"})
-        assert url.startswith("https://api2.frontapp.com/events?")
-        assert "limit=15" in url
-        assert "sort_order=asc" in url
-
-    def test_encodes_bracketed_query_filter(self) -> None:
-        url = _build_url("https://api2.frontapp.com/events", {"q[after]": 1700000000})
-        # urlencode percent-encodes brackets; Front decodes them server-side.
-        assert "q%5Bafter%5D=1700000000" in url
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestToUnixSeconds:
@@ -103,7 +98,6 @@ class TestResolveAfterValue:
         assert result < datetime.now(UTC).timestamp()
 
     def test_no_lookback_no_last_value_returns_none(self) -> None:
-        # A config without a lookback (and not incremental) yields no "after" value
         assert _resolve_after_value(FRONT_ENDPOINTS["contacts"], True, None) is None
 
 
@@ -124,31 +118,7 @@ class TestBuildInitialParams:
         assert params == {"limit": 100, "sort_by": "id", "sort_order": "asc"}
 
     def test_teammates_sends_no_params(self) -> None:
-        # teammates takes no documented query params
         assert _build_initial_params(FRONT_ENDPOINTS["teammates"], False, None) == {}
-
-
-class TestParseRetryAfter:
-    @parameterized.expand([("seconds", "5", 5.0), ("none", None, None), ("non_numeric", "abc", None)])
-    def test_parse(self, _name: str, value: Optional[str], expected: Optional[float]) -> None:
-        assert _parse_retry_after(value) == expected
-
-
-class TestRetryWait:
-    def test_honors_retry_after(self) -> None:
-        state = SimpleNamespace(outcome=SimpleNamespace(exception=lambda: FrontRetryableError("x", retry_after=10)))
-        assert _retry_wait(state) == 10.0  # type: ignore[arg-type]
-
-    def test_caps_retry_after(self) -> None:
-        state = SimpleNamespace(outcome=SimpleNamespace(exception=lambda: FrontRetryableError("x", retry_after=120)))
-        assert _retry_wait(state) == 60.0  # type: ignore[arg-type]
-
-    def test_falls_back_to_backoff(self) -> None:
-        state = SimpleNamespace(
-            attempt_number=1,
-            outcome=SimpleNamespace(exception=lambda: FrontRetryableError("x")),
-        )
-        assert _retry_wait(state) >= 0  # type: ignore[arg-type]
 
 
 class TestValidateCredentials:
@@ -161,97 +131,112 @@ class TestValidateCredentials:
             ("not_found_token_valid", 404, False, True),
         ]
     )
-    def test_status_mapping(self, _name: str, status: int, require_scope: bool, expected_ok: bool) -> None:
-        with _patched_session(_FakeSession([_response(status_code=status)])):
-            ok, _msg = validate_credentials("tok", "/teammates", require_scope=require_scope)
+    @mock.patch(FRONT_SESSION_PATCH)
+    def test_status_mapping(
+        self, _name: str, status: int, require_scope: bool, expected_ok: bool, mock_session: mock.MagicMock
+    ) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        ok, _msg = validate_credentials("tok", "/teammates", require_scope=require_scope)
         assert ok is expected_ok
 
-    def test_connection_error_fails(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        with _patched_session(session):
-            ok, msg = validate_credentials("tok", "/teammates", require_scope=False)
+    @mock.patch(FRONT_SESSION_PATCH)
+    def test_connection_error_fails(self, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+        ok, msg = validate_credentials("tok", "/teammates", require_scope=False)
         assert ok is False
         assert msg is not None
 
 
-class TestGetRows:
-    def _manager(self, resume: Optional[FrontResumeConfig] = None) -> MagicMock:
-        manager = MagicMock()
-        manager.can_resume.return_value = resume is not None
-        manager.load_state.return_value = resume
-        return manager
-
-    def test_paginates_and_saves_state(self) -> None:
-        session = _FakeSession(
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_and_saves_state(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        next_url = "https://api2.frontapp.com/events?page_token=p2"
+        snapshots = _wire(
+            session,
             [
-                _response(
-                    json_body={
-                        "_results": [{"id": "evt_1"}],
-                        "_pagination": {"next": "https://api2.frontapp.com/events?page_token=p2"},
-                    }
-                ),
-                _response(json_body={"_results": [{"id": "evt_2"}], "_pagination": {"next": None}}),
-            ]
+                _response({"_results": [{"id": "evt_1"}], "_pagination": {"next": next_url}}),
+                _response({"_results": [{"id": "evt_2"}], "_pagination": {"next": None}}),
+            ],
         )
-        manager = self._manager()
+        manager = _make_manager()
 
-        with _patched_session(session):
-            batches = list(get_rows("tok", "events", logger, manager))
+        rows = _rows(front_source("tok", "events", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert batches == [[{"id": "evt_1"}], [{"id": "evt_2"}]]
-        manager.save_state.assert_called_once_with(
-            FrontResumeConfig(next_url="https://api2.frontapp.com/events?page_token=p2")
-        )
-        assert session.requested_urls[1] == "https://api2.frontapp.com/events?page_token=p2"
+        assert [r["id"] for r in rows] == ["evt_1", "evt_2"]
+        # Checkpoint saved after the first page (points at the next link); the null next ends it.
+        manager.save_state.assert_called_once_with(FrontResumeConfig(next_url=next_url))
+        # The self-contained next link drives page 2 (original query params dropped).
+        assert snapshots[1]["url"] == next_url
 
-    def test_resumes_from_saved_state(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
         resume_url = "https://api2.frontapp.com/events?page_token=resume"
-        session = _FakeSession([_response(json_body={"_results": [{"id": "evt_9"}], "_pagination": {"next": None}})])
-        manager = self._manager(resume=FrontResumeConfig(next_url=resume_url))
+        snapshots = _wire(session, [_response({"_results": [{"id": "evt_9"}], "_pagination": {"next": None}})])
+        manager = _make_manager(FrontResumeConfig(next_url=resume_url))
 
-        with _patched_session(session):
-            batches = list(get_rows("tok", "events", logger, manager))
+        rows = _rows(front_source("tok", "events", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert batches == [[{"id": "evt_9"}]]
-        assert session.requested_urls[0] == resume_url
+        assert [r["id"] for r in rows] == ["evt_9"]
+        assert snapshots[0]["url"] == resume_url
 
-    def test_empty_page_does_not_terminate(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_page_does_not_terminate(self, MockSession: mock.MagicMock) -> None:
         # An empty `_results` page with a next link must keep paginating (deleted resources can
         # leave a page short without it being the last page).
-        session = _FakeSession(
+        session = MockSession.return_value
+        _wire(
+            session,
             [
-                _response(
-                    json_body={
-                        "_results": [],
-                        "_pagination": {"next": "https://api2.frontapp.com/tags?page_token=p2"},
-                    }
-                ),
-                _response(json_body={"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
-            ]
+                _response({"_results": [], "_pagination": {"next": "https://api2.frontapp.com/tags?page_token=p2"}}),
+                _response({"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
+            ],
         )
-        manager = self._manager()
+        manager = _make_manager()
 
-        with _patched_session(session):
-            batches = list(get_rows("tok", "tags", logger, manager))
+        rows = _rows(front_source("tok", "tags", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert batches == [[{"id": "tag_1"}]]
-        assert len(session.requested_urls) == 2
+        assert [r["id"] for r in rows] == ["tag_1"]
+        assert session.send.call_count == 2
 
-    def test_retries_on_429(self) -> None:
-        session = _FakeSession(
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retries_on_429(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
             [
                 _response(status_code=429, headers={"retry-after": "0"}),
-                _response(json_body={"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
-            ]
+                _response({"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
+            ],
         )
-        manager = self._manager()
+        manager = _make_manager()
 
-        with _patched_session(session):
-            batches = list(get_rows("tok", "tags", logger, manager))
+        rows = _rows(front_source("tok", "tags", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert batches == [[{"id": "tag_1"}]]
-        assert len(session.requested_urls) == 2
+        assert [r["id"] for r in rows] == ["tag_1"]
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_events_incremental_sends_q_after(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"_results": [{"id": "evt_1"}], "_pagination": {"next": None}})])
+        manager = _make_manager()
+
+        _rows(
+            front_source(
+                "tok",
+                "events",
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=1700000000,
+            )
+        )
+
+        assert snapshots[0]["params"]["q[after]"] == 1700000000
+        assert snapshots[0]["params"]["limit"] == 15
 
 
 class TestFrontSourceResponse:
@@ -266,7 +251,7 @@ class TestFrontSourceResponse:
     def test_partitioned_endpoints(
         self, endpoint: str, partition_key: str, partition_format: str, sort_mode: str
     ) -> None:
-        response = front_source("tok", endpoint, logger, MagicMock())
+        response = front_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"
@@ -276,7 +261,7 @@ class TestFrontSourceResponse:
 
     @parameterized.expand([("contacts",), ("teammates",), ("inboxes",), ("channels",), ("teams",)])
     def test_non_partitioned_endpoints(self, endpoint: str) -> None:
-        response = front_source("tok", endpoint, logger, MagicMock())
+        response = front_source("tok", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None
         assert response.partition_keys is None

@@ -1,7 +1,9 @@
+from collections.abc import Callable
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, HttpResponseServerError
 from django.template import loader
 from django.urls import include, path, re_path
@@ -33,13 +35,13 @@ from posthog.api.github_callback.views import github_oauth_callback, github_setu
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
-from posthog.api.query import progress
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
 from posthog.constants import PERMITTED_FORUM_DOMAINS
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
@@ -47,7 +49,6 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.cdp.backend.api import hog_function_template
-from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
@@ -71,6 +72,7 @@ from products.slack_app.backend.views import (
     slack_user_link_authorize,
     slack_user_link_callback,
 )
+from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
@@ -78,6 +80,7 @@ from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
+from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from .utils import opt_slash_path, render_template
@@ -109,12 +112,111 @@ else:
     extend_api_router()
 
 
+GithubWebhookHandler = Callable[[HttpRequest, str, dict[str, Any], str], HttpResponse | None]
+
+
+def _dispatch_conversations_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from products.conversations.backend.api.github_events import dispatch_github_event
+
+    return dispatch_github_event(request, event_type, payload)
+
+
+def _dispatch_pull_request_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from products.tasks.backend.facade.webhooks import handle_pull_request_event
+
+    return handle_pull_request_event(payload)
+
+
+def _dispatch_installation_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from posthog.api.github_callback.installation_events import handle_installation_event
+
+    return handle_installation_event(payload)
+
+
+def _dispatch_loop_triggers(request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str) -> None:
+    from products.tasks.backend.facade.webhooks import handle_github_event_for_loops
+
+    handle_github_event_for_loops(event_type, payload, delivery_id)
+    return None
+
+
+# event_type -> ordered list of (handler_name, handler). Order matters only in that
+# the first handler in a bucket to return a non-None HttpResponse determines the
+# response sent back to GitHub; the pre-existing single handler in each bucket keeps
+# that slot so its response is unchanged by additive handlers registered after it.
+GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
+    "issues": [
+        ("conversations", _dispatch_conversations_event),
+        ("loops", _dispatch_loop_triggers),
+    ],
+    "issue_comment": [
+        ("conversations", _dispatch_conversations_event),
+        ("loops", _dispatch_loop_triggers),
+    ],
+    "pull_request": [
+        ("tasks_pr_backstop", _dispatch_pull_request_event),
+        ("loops", _dispatch_loop_triggers),
+    ],
+    "installation": [
+        ("installation_lifecycle", _dispatch_installation_event),
+    ],
+    "push": [
+        ("loops", _dispatch_loop_triggers),
+    ],
+}
+
+GITHUB_WEBHOOK_DELIVERY_DEDUP_TTL_SECONDS = 24 * 60 * 60
+
+
+def _is_duplicate_github_webhook_delivery(handler_name: str, delivery_id: str) -> bool:
+    """Redis-backed per-handler delivery dedup, fail-open when the cache backend errors.
+
+    Keyed per handler, not just per delivery id: one GitHub delivery legitimately fans
+    out to multiple handlers (e.g. a pull_request delivery reaches both the tasks PR
+    backstop and the Loops handler), so a delivery-wide key would starve every handler
+    but the first. This sits alongside each consumer's own dedup (e.g. the conversations
+    Celery task) rather than replacing it.
+    """
+    key = _github_webhook_delivery_key(handler_name, delivery_id)
+    try:
+        return not cache.add(key, True, timeout=GITHUB_WEBHOOK_DELIVERY_DEDUP_TTL_SECONDS)
+    except Exception:
+        logger.warning(
+            "github_webhook_dedup_cache_failed", handler=handler_name, delivery_id=delivery_id, exc_info=True
+        )
+        return False
+
+
+def _github_webhook_delivery_key(handler_name: str, delivery_id: str) -> str:
+    return f"github_webhook_delivery:{handler_name}:{delivery_id}"
+
+
+def _release_github_webhook_delivery(handler_name: str, delivery_id: str) -> None:
+    """Drop the dedup mark after a handler failed, so GitHub's redelivery of the same
+    GUID gets processed instead of silently skipped (the mark is set before the handler
+    runs, so a failure would otherwise burn the delivery for 24h)."""
+    try:
+        cache.delete(_github_webhook_delivery_key(handler_name, delivery_id))
+    except Exception:
+        logger.warning(
+            "github_webhook_dedup_release_failed", handler=handler_name, delivery_id=delivery_id, exc_info=True
+        )
+
+
 @csrf_exempt
 def github_webhook(request: HttpRequest) -> HttpResponse:
     """Unified GitHub App webhook dispatcher.
 
-    Verifies the HMAC-SHA256 signature once, parses JSON once, then routes
-    by ``X-GitHub-Event`` to the appropriate product handler.
+    Verifies the HMAC-SHA256 signature once, parses JSON once, then routes by
+    ``X-GitHub-Event`` to every registered product handler. Each handler runs in
+    isolation: one handler raising is logged and captured but never blocks another
+    handler or the response sent back to GitHub.
     """
     import json
 
@@ -137,23 +239,37 @@ def github_webhook(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Invalid JSON", status=400)
 
     event_type = request.headers.get("X-GitHub-Event", "")
+    delivery_id = request.headers.get("X-GitHub-Delivery", "")
+    handlers = GITHUB_WEBHOOK_HANDLERS.get(event_type, [])
 
-    if event_type in ("issues", "issue_comment"):
-        from products.conversations.backend.api.github_events import dispatch_github_event
+    logger.info(
+        "github_webhook_dispatch",
+        event_type=event_type,
+        delivery_id=delivery_id,
+        handlers_matched=[name for name, _ in handlers],
+    )
 
-        return dispatch_github_event(request, event_type, payload)
+    response: HttpResponse | None = None
+    for name, handler in handlers:
+        if delivery_id and _is_duplicate_github_webhook_delivery(name, delivery_id):
+            logger.info("github_webhook_handler_deduped", event_type=event_type, delivery_id=delivery_id, handler=name)
+            continue
 
-    if event_type == "pull_request":
-        from products.tasks.backend.facade.webhooks import handle_pull_request_event
+        try:
+            handler_response = handler(request, event_type, payload, delivery_id)
+        except Exception as e:
+            logger.exception(
+                "github_webhook_handler_failed", event_type=event_type, delivery_id=delivery_id, handler=name
+            )
+            capture_exception(e)
+            if delivery_id:
+                _release_github_webhook_delivery(name, delivery_id)
+            continue
 
-        return handle_pull_request_event(payload)
+        if response is None and handler_response is not None:
+            response = handler_response
 
-    if event_type == "installation":
-        from posthog.api.github_callback.installation_events import handle_installation_event
-
-        return handle_installation_event(payload)
-
-    return HttpResponse(status=200)
+    return response if response is not None else HttpResponse(status=200)
 
 
 @requires_csrf_token
@@ -266,7 +382,7 @@ def integration_connect_redirect(request: HttpRequest, kind: str) -> HttpRespons
     next_path = "/account-connected/{}-integration?{}".format(
         kind, urlencode({"provider": kind, "project_id": project_id, "connect_from": connect_from})
     )
-    authorize_url = "/api/environments/{}/integrations/authorize/?{}".format(
+    authorize_url = "/api/projects/{}/integrations/authorize/?{}".format(
         project_id, urlencode({"kind": kind, "next": next_path})
     )
     return HttpResponseRedirect(authorize_url)
@@ -358,12 +474,6 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
-    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
-    path("api/environments/<int:team_id>/progress/", progress),
-    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
-    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
-    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
-    path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path(
@@ -376,10 +486,6 @@ urlpatterns = [
         signals_user_autonomy_view.as_view(),
         name="user_signal_autonomy",
     ),
-    # Dual-served on both prefixes while the Customer.io dispatcher is repointed from the
-    # legacy /api/environments/ URL to the canonical /api/projects/ one.
-    # nosemgrep: no-environments-url-path -- customerio posts to this fixed env URL; dispatcher migrating to projects
-    path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path(
         "api/user_interviews/vapi_webhook/",
@@ -394,19 +500,9 @@ urlpatterns = [
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
-    # nosemgrep: no-environments-url-path -- legacy dual-route env alias, pending env-prefix retirement
-    path(
-        "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
-        include("products.mcp_analytics.backend.presentation.urls"),
-    ),
     path(
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
-    ),
-    # nosemgrep: no-environments-url-path -- legacy dual-route env alias, pending env-prefix retirement
-    path(
-        "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
-        include("products.access_control.backend.presentation.urls"),
     ),
     path(
         "api/projects/<int:parent_lookup_team_id>/property_access_controls/",
@@ -577,6 +673,8 @@ urlpatterns = [
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
+    # Stamphog runs as its own GitHub App with a dedicated inbound endpoint (not the fan-out above)
+    opt_slash_path("webhooks/stamphog/github", stamphog_github_webhook),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
@@ -658,7 +756,7 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
-    # Public bridge for desktop-app canvas share links — deep-links into PostHog Code.
+    # Public bridge for desktop-app canvas share links — deep-links into PostHog Desktop.
     r"code/canvas/[^/]+/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",

@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 
-import type { EvaluationReportRun, EvaluationReportStoredMetrics } from '../types'
+import type { EvaluationReportCitation, EvaluationReportRun, EvaluationReportStoredMetrics } from '../types'
 import { EvaluationReportViewer, summarizeEvaluationReportResults } from './EvaluationReportViewer'
 
 function buildMetrics(fields: EvaluationReportStoredMetrics): EvaluationReportStoredMetrics {
@@ -15,11 +15,20 @@ function buildMetrics(fields: EvaluationReportStoredMetrics): EvaluationReportSt
     }
 }
 
-function buildReportRun(metrics: EvaluationReportStoredMetrics): EvaluationReportRun {
+function buildReportRun(
+    metrics: EvaluationReportStoredMetrics | null,
+    generationStatus: 'completed' | 'metrics_unavailable' = 'completed'
+): EvaluationReportRun {
     return {
         id: 'run-id',
         report: 'report-id',
-        content: { title: 'Evaluation report', sections: [], citations: [], metrics },
+        content: {
+            title: 'Evaluation report',
+            sections: [],
+            citations: [],
+            metrics,
+            generation_status: generationStatus,
+        },
         metadata: null,
         period_start: '2026-07-01T00:00:00Z',
         period_end: '2026-07-02T00:00:00Z',
@@ -85,6 +94,13 @@ describe('EvaluationReportViewer', () => {
         expect(screen.queryByText('(80.00%)')).toBeNull()
     })
 
+    it('renders a metrics-unavailable notice instead of a zero-run table', () => {
+        render(<EvaluationReportViewer reportRun={buildReportRun(null, 'metrics_unavailable')} compact />)
+
+        expect(screen.getByText(/could not be calculated/)).toBeTruthy()
+        expect(screen.queryByText('Total runs')).toBeNull()
+    })
+
     it('shows sentiment outcome distribution without boolean pass-rate framing', () => {
         const metrics = buildMetrics({
             output_type: 'sentiment',
@@ -110,4 +126,53 @@ describe('EvaluationReportViewer', () => {
         expect(markdown?.textContent).toContain('# Important context')
         expect(markdown?.textContent).toContain('Keep this detail.')
     })
+
+    it.each<{
+        name: string
+        citedId: string
+        citation: EvaluationReportCitation
+        expectedUrl: string
+        expectedLabel: string
+        content?: string
+        expectedPlainText?: string
+    }>([
+        {
+            name: 'generation citation',
+            citedId: 'generation/id ?',
+            citation: { generation_id: 'generation/id ?', trace_id: 'trace/id ?', reason: 'example' },
+            expectedUrl: '/ai-observability/traces/trace%252Fid%2520%253F?event=generation%2Fid+%3F',
+            expectedLabel: 'generati...',
+        },
+        {
+            name: 'trace citation',
+            citedId: 'foo',
+            citation: { trace_id: 'foo', reason: 'example' },
+            expectedUrl: '/ai-observability/traces/foo',
+            expectedLabel: 'foo...',
+            content: 'See `foo`, but foobar and foo stay plain.',
+            expectedPlainText: 'foobar and foo stay plain',
+        },
+        {
+            name: 'opaque trace citation with Markdown delimiters',
+            citedId: 'trace](id',
+            citation: { trace_id: 'trace](id', reason: 'example' },
+            expectedUrl: '/ai-observability/traces/trace%255D%2528id',
+            expectedLabel: 'trace',
+        },
+    ])(
+        'links a $name to the correct trace view',
+        ({ citedId, citation, expectedUrl, expectedLabel, content, expectedPlainText }) => {
+            const reportRun = buildReportRun(buildMetrics({ pass_rate: 80 }))
+            reportRun.content.sections = [{ title: 'Finding', content: content ?? `See \`${citedId}\`.` }]
+            reportRun.content.citations = [citation]
+
+            render(<EvaluationReportViewer reportRun={reportRun} compact />)
+
+            const markdown = document.querySelector('[data-testid="react-markdown"]')
+            expect(markdown?.textContent).toContain(`[\`${expectedLabel}\`](${expectedUrl})`)
+            if (expectedPlainText) {
+                expect(markdown?.textContent).toContain(expectedPlainText)
+            }
+        }
+    )
 })

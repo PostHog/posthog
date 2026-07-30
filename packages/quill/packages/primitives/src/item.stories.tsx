@@ -97,7 +97,7 @@ export const Tones: Story = {
             { tone: 'destructive' as const, title: 'Destructive', description: 'Failed or removed' },
         ]
         return (
-            <ItemGroup className="max-w-sm">
+            <ItemGroup className="max-w-md">
                 {tones.map(({ tone, title, description }) => (
                     <Item
                         key={title}
@@ -209,7 +209,7 @@ export const DropdownInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -259,7 +259,7 @@ export const DropdownCheckboxesInItem: Story = {
             setChecked((prev) => ({ ...prev, [username]: !prev[username] }))
         }
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -311,7 +311,7 @@ export const DropdownCheckboxesInItemWithSelectAll: Story = {
         }
 
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>
@@ -364,7 +364,7 @@ export const DropdownRadiosInItem: Story = {
         const [radioValue, setRadioValue] = useState('John Doe')
 
         return (
-            <Item variant="outline" className="max-w-sm">
+            <Item variant="outline" className="max-w-md">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -406,7 +406,7 @@ export const SelectInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm mt-32">
+            <Item variant="outline" className="max-w-md mt-32">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>
@@ -453,7 +453,7 @@ export const ComboboxInItem: Story = {
         const [open, setOpen] = useState(true)
 
         return (
-            <Item variant="outline" className="max-w-sm mt-32">
+            <Item variant="outline" className="max-w-md mt-32">
                 <ItemContent>
                     <ItemTitle>Basic Item</ItemTitle>
                     <ItemDescription>A simple item with title and description.</ItemDescription>

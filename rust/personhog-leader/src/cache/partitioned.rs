@@ -84,6 +84,16 @@ impl PartitionedCache {
             cache.put(key, person);
         }
     }
+
+    /// Remove a single person from the partition's cache. Only tests call
+    /// this, to force a deterministic eviction — production evictions come
+    /// from Foyer's capacity policy. Safe regardless: the miss path
+    /// recovers the person from the changelog or PG on next access.
+    pub fn remove(&self, partition: u32, key: &PersonCacheKey) {
+        if let Some(cache) = self.partitions.get(&partition) {
+            cache.remove(key);
+        }
+    }
 }
 
 #[cfg(test)]

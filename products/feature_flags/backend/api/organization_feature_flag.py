@@ -22,6 +22,7 @@ from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
+from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
@@ -100,13 +101,20 @@ class FeatureFlagCopySourceContext:
     schedule_dependency_contexts_by_id: dict[int, ScheduledChangeDependencyContext]
 
 
+# Each target project can create cohorts and a feature flag, so this bounds how much work a
+# single copy_flags call can fan out to. Enforced by CopyFlagsRequestSerializer's max_length
+# (checked via serializer.is_valid()); shared with the frontend's BULK_COPY_MAX_TARGET_PROJECTS
+# in frontend/src/scenes/feature-flags/flagSelectionLogic.ts so the two can't drift apart.
+MAX_COPY_FLAGS_TARGET_PROJECTS = 50
+
+
 class CopyFlagsRequestSerializer(serializers.Serializer):
     feature_flag_key = serializers.CharField(required=True, help_text="Key of the feature flag to copy")
     from_project = serializers.IntegerField(required=True, help_text="Source project ID to copy the flag from")
     target_project_ids = serializers.ListField(
         child=serializers.IntegerField(),
         required=True,
-        max_length=50,
+        max_length=MAX_COPY_FLAGS_TARGET_PROJECTS,
         min_length=1,
         help_text="List of target project IDs to copy the flag to",
     )
@@ -181,7 +189,7 @@ class CopyFlagsDependencyRequirementsRequestSerializer(serializers.Serializer):
     target_project_ids = serializers.ListField(
         child=serializers.IntegerField(),
         required=True,
-        max_length=50,
+        max_length=MAX_COPY_FLAGS_TARGET_PROJECTS,
         min_length=1,
         help_text="List of target project IDs to check dependency copy eligibility for",
     )
@@ -437,7 +445,17 @@ class OrganizationFeatureFlagView(
             403: OpenApiResponse(response=ErrorResponseSerializer),
         },
     )
-    @action(detail=False, methods=["post"], url_path="copy_flags", required_scopes=["feature_flag:write"])
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="copy_flags",
+        required_scopes=["feature_flag:write"],
+        # See CopyFlagsBurstRateThrottle in posthog/rate_limit.py for why this needs its own throttle pair.
+        throttle_classes=[
+            CopyFlagsBurstRateThrottle,
+            CopyFlagsSustainedRateThrottle,
+        ],
+    )
     def copy_flags(self, request, *args, **kwargs):
         serializer = CopyFlagsRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -452,6 +470,7 @@ class OrganizationFeatureFlagView(
         user_permissions = UserPermissions(user=user)
         accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
 
+        # Fetch the flag to copy
         try:
             flag_to_copy = self._get_source_flag(feature_flag_key, from_project, accessible_team_ids)
         except FeatureFlag.DoesNotExist:
@@ -494,7 +513,6 @@ class OrganizationFeatureFlagView(
                     }
                 )
                 continue
-
             try:
                 with transaction.atomic():
                     target_flag_access_context = (
