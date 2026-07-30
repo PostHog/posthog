@@ -9,16 +9,21 @@ regression can be handed to another model to fix.
 The toggle lives in
 ``posthog.hogql_queries.insights.retention.retention_base_query_fixed.retention_fixed_interval_base_query_use_dwh_variant``
 and is forced via ``unittest.mock.patch`` (the patch target is the
-``RETENTION_BASE_QUERY_VARIANT_PATCH_PATH`` constant below). Three insight shapes are NOT affected by the
-toggle and are classified SKIPPED: data-warehouse retention (always routed to the new path), the
-24h rolling window mode (a different builder with no legacy/new split), and insights whose
-referenced actions/cohorts were deleted (both variants fail identically today, so there is no
-parity signal — only broken references to clean up).
+``RETENTION_BASE_QUERY_VARIANT_PATCH_PATH`` constant below). Two insight shapes are NOT affected by the
+toggle and are classified SKIPPED: fixed-interval data-warehouse retention (always routed to the
+new path), and insights whose referenced actions/cohorts were deleted (every run fails the same
+way today, so there is no parity signal — only broken references to clean up).
+
+24h rolling window insights are also toggle-independent (their builder routes by series type, not
+by the flag), but instead of being skipped they get a SINGLE health-check run: the one query each
+runs in production is executed once and reported OK_SINGLE, or ERROR if it fails today (e.g. a
+shape the retention validation rules reject). No A/B diff and no perf ratio — there is no second
+path to compare against.
 
 Run failures are attributed per variant: ERROR_DWH (legacy succeeded, the variant failed — a
 regression candidate that gates rollout), ERROR_LEGACY (the variant fixes an insight that is
 broken today), ERROR_BOTH (parity-in-failure), and plain ERROR for anything outside the two
-attributed correctness runs (classification, diffing, perf iterations).
+attributed correctness runs (classification, diffing, perf iterations, single health-check runs).
 
 This command is strictly read-only: it never saves or mutates insights.
 
@@ -203,9 +208,12 @@ class InsightFinding:
     team_id: int
     name: str
     url: str
-    status: str  # "OK" | "MISMATCH" | "ERROR" | "ERROR_LEGACY" | "ERROR_DWH" | "ERROR_BOTH" | "SKIPPED"
+    status: str  # "OK" | "OK_SINGLE" | "MISMATCH" | "ERROR" | "ERROR_LEGACY" | "ERROR_DWH" | "ERROR_BOTH" | "SKIPPED"
     has_breakdown: bool = False
     skip_reason: Optional[str] = None
+    # Why this insight ran once instead of as a legacy/dwh pair (24h rolling window). The run's
+    # HogQL and query ids live in the dwh_* fields — that is the path production executes.
+    single_path_reason: Optional[str] = None
     error_type: Optional[str] = None
     error_detail: Optional[str] = None
     source_json: Optional[str] = None
@@ -317,14 +325,19 @@ def _missing_reference_reason(insight: Insight, source: dict[str, Any]) -> Optio
             missing_parts.append(f"cohort(s) {sorted(cohort_ids - found)}")
     if not missing_parts:
         return None
-    return f"references missing {' and '.join(missing_parts)} — fails identically on both variants"
+    return f"references missing {' and '.join(missing_parts)} — fails on any variant"
 
 
 def classify_insight(insight: Insight) -> tuple[str, str]:
-    """Return ("compare"|"skip"|"error", reason) without executing any query.
+    """Return ("compare"|"single"|"skip"|"error", reason) without executing any query.
+
+    "single" marks insights with no legacy/new split to A/B (24h rolling window mode — its
+    builder routes by series type, not by the flag): they get one health-check run instead of a
+    variant comparison. The 24h check runs before the data-warehouse skip so a 24h DWH series
+    (a shape that only recently started running at all) is exercised rather than skipped.
 
     Touches Postgres (never ClickHouse) only when the insight references actions or cohorts,
-    to pre-classify dangling references as a skip instead of letting both variants error.
+    to pre-classify dangling references as a skip instead of letting the runs error.
     """
     query = insight.query
     if not isinstance(query, dict):
@@ -335,15 +348,15 @@ def classify_insight(insight: Insight) -> tuple[str, str]:
     retention_filter = source.get("retentionFilter")
     if not isinstance(retention_filter, dict):
         return ("error", "RetentionQuery has no retentionFilter")
+    missing_reason = _missing_reference_reason(insight, source)
+    if missing_reason is not None:
+        return ("skip", missing_reason)
     if retention_filter.get("timeWindowMode") == ROLLING_24H_WINDOW_MODE:
-        return ("skip", "24h rolling window (toggle has no effect)")
+        return ("single", "24h rolling window (no legacy/new split — one health-check run)")
     for entity_key in ("targetEntity", "returningEntity"):
         entity = retention_filter.get(entity_key)
         if isinstance(entity, dict) and entity.get("type") == DATA_WAREHOUSE_ENTITY_TYPE:
             return ("skip", "data_warehouse (new-path only)")
-    missing_reason = _missing_reference_reason(insight, source)
-    if missing_reason is not None:
-        return ("skip", missing_reason)
     return ("compare", "")
 
 
@@ -1190,6 +1203,7 @@ def render_markdown_report(
     out("| --- | --- |")
     out(f"| Compared | {counts['compared']} |")
     out(f"| ✅ OK | {counts['ok']} |")
+    out(f"| 🩺 OK_SINGLE (24h window health check — no legacy/new split, ran once) | {counts.get('ok_single', 0)} |")
     out(f"| ❌ MISMATCH | {counts['mismatch']} |")
     out(f"| 🚨 ERROR_DWH (legacy OK — variant regression candidate) | {counts['error_dwh']} |")
     out(f"| ♻️ ERROR_LEGACY (DWH OK — variant fixes it) | {counts['error_legacy']} |")
@@ -1653,7 +1667,11 @@ class Command(BaseCommand):
                 finding.skip_reason = reason
                 return finding
 
-            self._run_comparison(insight, run_id, options, finding)
+            if action == "single":
+                finding.single_path_reason = reason
+                self._run_single(insight, run_id, options, finding)
+            else:
+                self._run_comparison(insight, run_id, options, finding)
         except Exception as exc:
             finding.status = "ERROR"
             finding.error_type = type(exc).__name__
@@ -1667,6 +1685,35 @@ class Command(BaseCommand):
             finding.legacy_hogql = None
             finding.dwh_hogql = None
         return finding
+
+    def _run_single(self, insight: Insight, run_id: str, options: dict[str, Any], finding: InsightFinding) -> None:
+        """One health-check run for toggle-independent insights (24h rolling window): both flag
+        arms compile the same query, so an A/B run would diff the code against itself and double
+        the ClickHouse cost for no signal. A single run still surfaces insights that fail today
+        (e.g. shapes the retention validation rules reject) and records what the path costs.
+
+        ``use_dwh=True`` is arbitrary — the patched flag is never consulted on this route. The
+        run's HogQL/query ids go into the dwh_* fields: that is the query production executes.
+        """
+        modifiers = create_default_modifiers_for_team(insight.team, HogQLQueryModifiers(timings=True))
+        capture = not options["no_perf"] and options["clickhouse_stats"]
+        run, exc = _attempt_variant(
+            insight,
+            True,
+            modifiers,
+            None,
+            marker=f"rcmp_{run_id}_{insight.id}_single" if capture else None,
+            capture_query_ids=capture,
+        )
+        if run is not None:
+            finding.dwh_hogql = _trim(run.hogql, options["max_source_json_chars"])
+            finding.dwh_query_ids = run.query_ids
+        if exc is not None:
+            finding.status = "ERROR"
+            finding.error_type = type(exc).__name__
+            finding.error_detail = f"single-path run failed: {_fmt_exception(exc)}"
+            return
+        finding.status = "OK_SINGLE"
 
     def _run_comparison(self, insight: Insight, run_id: str, options: dict[str, Any], finding: InsightFinding) -> None:
         modifiers = create_default_modifiers_for_team(insight.team, HogQLQueryModifiers(timings=True))
@@ -1803,6 +1850,7 @@ class Command(BaseCommand):
         counts = {
             "compared": sum(1 for f in findings if f.status in ("OK", "MISMATCH")),
             "ok": sum(1 for f in findings if f.status == "OK"),
+            "ok_single": sum(1 for f in findings if f.status == "OK_SINGLE"),
             "mismatch": sum(1 for f in findings if f.status == "MISMATCH"),
             "error": sum(1 for f in findings if f.status == "ERROR"),
             "error_legacy": sum(1 for f in findings if f.status == "ERROR_LEGACY"),
@@ -1872,13 +1920,14 @@ class Command(BaseCommand):
         errors = sum(count for status, count in counts.items() if status.startswith("ERROR"))
         self.stdout.write(
             f"[{index}/{total}] elapsed={_fmt_duration(elapsed)} eta={_fmt_duration(eta)} — "
-            f"ok={counts['OK']} mismatch={counts['MISMATCH']} errors={errors} skipped={counts['SKIPPED']}"
+            f"ok={counts['OK']} single={counts['OK_SINGLE']} mismatch={counts['MISMATCH']} "
+            f"errors={errors} skipped={counts['SKIPPED']}"
         )
 
     def _print_progress(self, index: int, total: int, finding: InsightFinding, verbosity: int) -> None:
-        if verbosity < 2 and finding.status in ("OK", "SKIPPED"):
+        if verbosity < 2 and finding.status in ("OK", "OK_SINGLE", "SKIPPED"):
             return
-        if finding.status == "OK":
+        if finding.status in ("OK", "OK_SINGLE"):
             style = self.style.SUCCESS
         elif finding.status == "MISMATCH" or finding.status.startswith("ERROR"):
             style = self.style.ERROR
@@ -1889,6 +1938,8 @@ class Command(BaseCommand):
             detail = f" cells={len(finding.correctness.cell_diffs)}"
         elif finding.status == "SKIPPED":
             detail = f" ({finding.skip_reason})"
+        elif finding.status == "OK_SINGLE":
+            detail = f" ({finding.single_path_reason})"
         elif finding.status.startswith("ERROR"):
             detail = f" ({finding.error_type})"
         if finding.correctness and finding.correctness.trailing_cell_diffs:
@@ -1904,7 +1955,8 @@ class Command(BaseCommand):
         self.stdout.write("")
         self.stdout.write(self.style.MIGRATE_HEADING("Summary"))
         self.stdout.write(
-            f"COMPARED={counts['compared']} OK={counts['ok']} MISMATCH={counts['mismatch']} "
+            f"COMPARED={counts['compared']} OK={counts['ok']} OK_SINGLE={counts['ok_single']} "
+            f"MISMATCH={counts['mismatch']} "
             f"ERROR_DWH={counts['error_dwh']} ERROR_LEGACY={counts['error_legacy']} "
             f"ERROR_BOTH={counts['error_both']} ERROR={counts['error']} SKIPPED={counts['skipped']} "
             f"REGRESSIONS={aggregate.n_regressions} TRAILING_DRIFT={counts['trailing_drift']}"

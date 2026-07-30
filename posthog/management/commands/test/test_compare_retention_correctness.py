@@ -31,20 +31,21 @@ class TestMergeProgressState(TestCase):
         )
         second = merge_progress_state(
             first,
-            [_row(3, "ERROR", "e3"), _row(4, "OK"), _row(5, "ERROR_DWH", "e5")],
-            next_cursor=5,
-            limit=3,
+            [_row(3, "ERROR", "e3"), _row(4, "OK"), _row(5, "ERROR_DWH", "e5"), _row(6, "OK_SINGLE", "24h")],
+            next_cursor=6,
+            limit=4,
             scope="S",
         )
-        self.assertEqual(second.processed, 5)
+        self.assertEqual(second.processed, 6)
         self.assertEqual(second.counts["OK"], 2)
+        self.assertEqual(second.counts["OK_SINGLE"], 1)
         self.assertEqual(second.counts["MISMATCH"], 1)
         self.assertEqual(second.counts["ERROR"], 1)
         self.assertEqual(second.counts["ERROR_DWH"], 1)
         self.assertEqual([m["id"] for m in second.mismatches], [2])
         # Attributed errors accumulate alongside plain ones, keeping their status in the record.
         self.assertEqual([(e["id"], e["status"]) for e in second.errors], [(3, "ERROR"), (5, "ERROR_DWH")])
-        self.assertEqual(second.cursor, 5)
+        self.assertEqual(second.cursor, 6)
 
     def test_does_not_mutate_previous_state(self):
         first = merge_progress_state(None, [_row(1, "MISMATCH")], next_cursor=1, limit=10, scope="S")
@@ -136,12 +137,13 @@ class TestRevalidateMismatches(TestCase):
     @parameterized.expand(
         [
             ("recheck_ok", _row(1, "OK"), "OK"),
+            ("now_single_path", _row(1, "OK_SINGLE", "24h rolling window"), "OK_SINGLE"),
             ("references_now_deleted", _row(1, "SKIPPED", "action deleted"), "SKIPPED"),
             ("insight_gone", None, "SKIPPED"),
         ]
     )
     def test_resolves_when_no_longer_reproducing(self, _name, recheck_row, resolved_status):
-        counts = {"MISMATCH": 1, "OK": 5, "SKIPPED": 0}
+        counts = {"MISMATCH": 1, "OK": 5, "OK_SINGLE": 0, "SKIPPED": 0}
         kept, resolved, new_counts = revalidate_mismatches([_mismatch_record(1)], counts, lambda rec: recheck_row)
         self.assertEqual(kept, [])
         self.assertEqual(len(resolved), 1)
@@ -234,3 +236,35 @@ class TestRecheckStabilityClassification(TestCase):
         row = self._check_with_fake_variants(variant_dependent)
         self.assertEqual(row.status, "MISMATCH")
         self.assertIn("value-identical (deterministic)", row.detail)
+
+
+class TestCheckOneSinglePath(TestCase):
+    # A 24h insight must cost one query, not a legacy/dwh pair diffed against itself, and a failure
+    # of that one run must come back as an attributed row instead of crashing the team lane.
+    def _rolling_insight(self):
+        insight = _retention_insight()
+        insight.query["source"]["retentionFilter"]["timeWindowMode"] = "24_hour_windows"
+        return insight
+
+    def test_clean_single_run_reports_ok_single(self):
+        calls = []
+
+        def fake(insight, use_dwh, modifiers, override):
+            calls.append(use_dwh)
+            return [], None
+
+        with patch("posthog.management.commands.compare_retention_correctness._try_variant", side_effect=fake):
+            row = _check_one(self._rolling_insight(), "url", freeze=False, recheck=True)
+        self.assertEqual(row.status, "OK_SINGLE")
+        self.assertIn("24h", row.detail)
+        self.assertEqual(len(calls), 1)
+
+    def test_failed_single_run_reports_error(self):
+        with patch(
+            "posthog.management.commands.compare_retention_correctness._try_variant",
+            return_value=(None, ValueError("rejected")),
+        ):
+            row = _check_one(self._rolling_insight(), "url", freeze=False, recheck=True)
+        self.assertEqual(row.status, "ERROR")
+        self.assertIn("single-path", row.detail)
+        self.assertIn("ValueError", row.detail)
