@@ -140,15 +140,24 @@ class Command(BaseCommand):
                     }
                     for c in preview.clamped
                 ],
-                "invalid_targets": [c.node_id for c in preview.invalid_targets],
+                # pre-existing declared-target drift is common and non-blocking (the effective
+                # cadence wins; floor violations clamp at schedule time), so it is reported for
+                # review rather than halting the batch
+                "invalid_targets": [
+                    {
+                        "node_id": c.node_id,
+                        "declared": _seconds(c.declared),
+                        "source_floor": _seconds(c.source_floor),
+                        "consumer_ceiling": _seconds(c.consumer_ceiling) if c.consumer_ceiling is not None else None,
+                    }
+                    for c in preview.invalid_targets
+                ],
                 "unsupported_tiers": [_seconds(t) for t in preview.unsupported_tiers],
             }
             record["dags"].append(dag_record)
             plans.append((dag, preview, dag_record))
             if preview.unsupported_tiers:
                 raise Anomaly(f"DAG {dag.name}: unsupported tier(s) {[_seconds(t) for t in preview.unsupported_tiers]}")
-            if preview.invalid_targets:
-                raise Anomaly(f"DAG {dag.name}: {len(preview.invalid_targets)} declared target(s) outside their bounds")
 
         if not apply:
             return

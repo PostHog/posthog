@@ -105,6 +105,33 @@ class TestBatchReconcileTeams(BaseTest):
         assert "live schedule set" in report["halt_reason"]
         assert report["teams"][0]["status"] == "anomaly"
 
+    def test_invalid_declared_targets_are_reported_but_do_not_halt(self):
+        # pre-existing declared-target drift is fleet-common (team 2 alone has 18) and does not
+        # affect scheduling correctness; halting on it would block the rollout
+        from products.data_modeling.backend.models.edge import Edge
+
+        dag, parent = self._legacy_dag(self.team)
+        child_query = DataWarehouseSavedQuery.objects.create(
+            name="child",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        child = Node.objects.create(team=self.team, dag=dag, saved_query=child_query, type=NodeType.VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=parent, target=child)
+        set_declared_target(parent, timedelta(days=1))
+        parent.save()
+        set_declared_target(child, timedelta(hours=1))
+        child.save()
+
+        report, _create, _delete = self._run(str(self.team.pk), existing=[str(dag.id)])
+
+        assert report["halted"] is False
+        team_record = report["teams"][0]
+        assert team_record["status"] == "planned"
+        invalid = team_record["dags"][0]["invalid_targets"]
+        assert [t["node_id"] for t in invalid] == [str(parent.id)]
+        assert invalid[0]["consumer_ceiling"] == int(timedelta(hours=1).total_seconds())
+
     def test_plan_only_writes_nothing(self):
         dag, node = self._legacy_dag(self.team)
 
