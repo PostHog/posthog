@@ -23988,7 +23988,15 @@
                 "SideShift",
                 "DuckLake",
                 "Starburst",
-                "Easybill"
+                "Easybill",
+                "Bexio",
+                "Umami",
+                "Manychat",
+                "Kickstarter",
+                "Typesense",
+                "FirstPromoter",
+                "Zero",
+                "Inth"
             ],
             "type": "string"
         },
