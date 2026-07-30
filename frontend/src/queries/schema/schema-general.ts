@@ -4371,6 +4371,7 @@ export type InsightQueryNode =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | WebStatsTableQuery
@@ -5031,6 +5032,7 @@ export type InsightFilterProperty =
     | 'funnelsFilter'
     | 'retentionFilter'
     | 'pathsFilter'
+    | 'pathsV2Filter'
     | 'stickinessFilter'
     | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
@@ -5041,6 +5043,7 @@ export type InsightFilter =
     | FunnelsFilter
     | RetentionFilter
     | PathsFilter
+    | PathsV2Filter
     | StickinessFilter
     | LifecycleFilter
     | CalendarHeatmapFilter

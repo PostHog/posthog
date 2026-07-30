@@ -1208,6 +1208,20 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(len(response.json()["results"]), 2)
 
+    def test_listing_insights_by_journeys_type(self) -> None:
+        journeys_insight_id, _ = self.dashboard_api.create_insight(
+            data={"query": {"kind": "InsightVizNode", "source": {"kind": "PathsV2Query"}}}
+        )
+        paths_insight_id, _ = self.dashboard_api.create_insight(
+            data={"filters": {"insight": "PATHS", "events": [{"id": "$pageview"}]}}
+        )
+
+        journeys_response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=JOURNEYS")
+        assert [insight["id"] for insight in journeys_response.json()["results"]] == [journeys_insight_id]
+
+        paths_response = self.client.get(f"/api/environments/{self.team.pk}/insights/?insight=PATHS")
+        assert [insight["id"] for insight in paths_response.json()["results"]] == [paths_insight_id]
+
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(
             {"name": "insight 1", "filters": {"events": [{"id": "$pageview"}]}}

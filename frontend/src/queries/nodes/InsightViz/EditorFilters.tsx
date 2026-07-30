@@ -39,6 +39,8 @@ import {
     PathType,
 } from '~/types'
 
+import { JourneysStepSourcePicker } from 'products/product_analytics/frontend/insights/journeys/JourneysStepSourcePicker'
+
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
@@ -63,6 +65,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isFunnels,
         isRetention,
         isPaths,
+        isPathsV2,
         isLifecycle,
         isStickiness,
         isTrendsLike,
@@ -149,6 +152,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: visibleFilters([
                 { key: 'query-steps', component: FunnelsQuerySteps, show: isFunnels },
                 { key: 'event-types', label: 'Event Types', component: PathsEventsTypes, show: isPaths },
+                {
+                    key: 'step-source',
+                    label: 'Step source',
+                    tooltip: <>The events that can appear as steps in a journey.</>,
+                    component: JourneysStepSourcePicker,
+                    show: isPathsV2,
+                },
                 {
                     key: 'hogql',
                     label: 'SQL Expression',

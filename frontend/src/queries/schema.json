@@ -27069,6 +27069,9 @@
                     "$ref": "#/definitions/PathsFilter"
                 },
                 {
+                    "$ref": "#/definitions/PathsV2Filter"
+                },
+                {
                     "$ref": "#/definitions/StickinessFilter"
                 },
                 {
@@ -27088,6 +27091,7 @@
                 "funnelsFilter",
                 "retentionFilter",
                 "pathsFilter",
+                "pathsV2Filter",
                 "stickinessFilter",
                 "calendarHeatmapFilter",
                 "lifecycleFilter",
@@ -27101,6 +27105,7 @@
                 "FunnelsQuery",
                 "RetentionQuery",
                 "PathsQuery",
+                "PathsV2Query",
                 "StickinessQuery",
                 "LifecycleQuery",
                 "WebStatsTableQuery",
@@ -27134,6 +27139,9 @@
                 },
                 {
                     "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsV2Query"
                 },
                 {
                     "$ref": "#/definitions/StickinessQuery"
@@ -35298,6 +35306,9 @@
                 },
                 {
                     "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsV2Query"
                 },
                 {
                     "$ref": "#/definitions/StickinessQuery"
