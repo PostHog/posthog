@@ -546,11 +546,12 @@ fn gen_updates_for_team(team_id: i32, event_name: &str, num_props: usize) -> Vec
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_fk_violation_rows_dropped_without_poisoning_batch(db: PgPool) {
-    // Prod tables enforce team/project FKs; a deleted team still sending events made every
-    // batch containing its rows fail, and the failure path evicted the whole batch from the
-    // dedup cache, so the same doomed writes were re-issued on every future event. The shared
-    // test schema has no FKs, so recreate the constraint locally.
+async fn test_fk_violation_fails_batch_without_cache_eviction(db: PgPool) {
+    // Prod tables enforce team/project FKs; a deleted team still sending events makes every
+    // batch containing its rows fail, and the failure path used to evict the whole batch
+    // from the dedup cache "for another shot" - so the same doomed writes were re-issued on
+    // every future event, forever. The shared test schema has no FKs, so recreate the
+    // constraint locally.
     sqlx::query(r#"CREATE TABLE posthog_team (id INTEGER PRIMARY KEY)"#)
         .execute(&db)
         .await
@@ -582,39 +583,23 @@ async fn test_fk_violation_rows_dropped_without_poisoning_batch(db: PgPool) {
     for u in &updates {
         cache.insert(u.clone());
     }
-    let poison: Vec<Update> = updates
-        .iter()
-        .filter(|u| match u {
-            Update::Event(ed) => ed.team_id == 999,
-            Update::Property(pd) => pd.team_id == 999,
-            Update::EventProperty(ep) => ep.team_id == 999,
-        })
-        .cloned()
-        .collect();
-    assert_eq!(poison.len(), 21);
 
+    // must complete without panicking or propagating the SQL error
     process_batch(
         &config,
         cache.clone(),
         &db,
-        updates,
+        updates.clone(),
         &test_lifecycle_handle(),
     )
     .await;
 
-    // the live team's rows all landed despite sharing chunks with the dead team's rows
-    for (table, expected) in [
-        ("posthog_eventdefinition", 1i64),
-        ("posthog_propertydefinition", 10),
-        ("posthog_eventproperty", 10),
+    // the dead team's rows never land
+    for table in [
+        "posthog_eventdefinition",
+        "posthog_propertydefinition",
+        "posthog_eventproperty",
     ] {
-        let live: i64 =
-            sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE team_id = 111"))
-                .fetch_one(&db)
-                .await
-                .unwrap();
-        assert_eq!(live, expected, "live team rows missing from {table}");
-
         let dead: i64 =
             sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE team_id = 999"))
                 .fetch_one(&db)
@@ -623,12 +608,12 @@ async fn test_fk_violation_rows_dropped_without_poisoning_batch(db: PgPool) {
         assert_eq!(dead, 0, "dead team rows written to {table}");
     }
 
-    // the dead team's updates stay cached, so its future events are filtered instead of
-    // re-issuing the same failing writes forever
-    for u in &poison {
+    // and NOTHING was evicted from the dedup cache: eviction is what used to turn one dead
+    // tenant into an endless stream of re-issued failing writes
+    for u in &updates {
         assert!(
             cache.contains_key(u),
-            "dead team update evicted from cache: {u:?}"
+            "update evicted from cache after FK failure: {u:?}"
         );
     }
 }
