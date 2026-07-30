@@ -42,6 +42,14 @@ common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Install a process-wide rustls CryptoProvider before any TLS use. kube's
+    // HTTPS client (controller discovery) uses rustls 0.23, which can't
+    // auto-pick a provider with both aws-lc-rs and ring compiled in — it
+    // panics. Matches personhog-router / cymbal / ingestion-consumer.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring CryptoProvider");
+
     let config = Config::init_from_env().expect("Invalid configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
