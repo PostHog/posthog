@@ -31,12 +31,13 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
     @parameterized.expand(
         [
             ("support_reply", False),
+            ("error_tracking", False),
             ("user_created", True),
         ]
     )
-    @patch("products.tasks.backend.presentation.serializers.logger.warning")
+    @patch("products.tasks.backend.presentation.serializers.logger.info")
     def test_logs_client_writable_server_attribution(
-        self, origin_product: str, internal: bool, warning: MagicMock
+        self, origin_product: str, internal: bool, info: MagicMock
     ) -> None:
         serializer = TaskWriteSerializer(
             data={"origin_product": origin_product, "internal": internal},
@@ -44,8 +45,8 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         )
 
         assert serializer.is_valid(), serializer.errors
-        warning.assert_called_once_with(
-            "Public task API accepted server-attributed task fields",
+        info.assert_called_once_with(
+            "task_api_client_attribution",
             extra={
                 "team_id": 123,
                 "user_id": 456,
