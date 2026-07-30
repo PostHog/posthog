@@ -664,16 +664,6 @@ class TaskWriteSerializer(serializers.Serializer):
                 {"signal_report": "Signal report attribution must use the signal report task endpoint."}
             )
 
-        rel = attrs.get("signal_report_task_relationship")
-        if rel is not None:
-            if not attrs.get("signal_report"):
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": "Requires signal_report when set."}
-                )
-            if attrs.get("origin_product") != tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
-                raise serializers.ValidationError(
-                    {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
-                )
         if (
             attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
             and attrs.get("github_user_integration") is not None
