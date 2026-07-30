@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use common_types::CapturedEvent;
+use limiters::redis::QuotaResource;
 use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
@@ -9,7 +10,7 @@ use crate::event_restrictions::{
     AppliedRestrictions, EventContext, EventRestrictionService, Pipeline,
 };
 use crate::prometheus::report_dropped_events;
-use crate::quota_limiters::{CaptureQuotaLimiter, QuotaResource};
+use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
 
 use super::fan_out::SpanEvent;
