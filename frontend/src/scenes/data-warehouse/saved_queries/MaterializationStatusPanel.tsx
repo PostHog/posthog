@@ -33,6 +33,9 @@ import { materializationJobsLogic } from './materializationJobsLogic'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
+// Matches DataModelingJobEngine.CLICKHOUSE, the engine materialized queries are served from.
+const SERVING_ENGINE = 'clickhouse'
+
 interface MaterializationStatusPanelProps {
     viewId: string
     /**
@@ -182,7 +185,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
 
     // Prefer the serving engine's entry when several engines are suspended.
     const suspension = savedQuery.suspended
-        ? (savedQuery.suspended['clickhouse'] ?? Object.values(savedQuery.suspended)[0])
+        ? (savedQuery.suspended[SERVING_ENGINE] ?? Object.values(savedQuery.suspended)[0])
         : undefined
     const showSuspendedBanner =
         !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
@@ -215,12 +218,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                         >
                             <div data-attr="materialization-suspended-banner">
                                 <div>
-                                    Scheduled runs are paused for this view because materialization kept failing. Fix
-                                    the query, then resume. If runs keep failing, it will pause again.
+                                    Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
+                                    because materialization kept failing. Fix the query, then resume. If runs keep
+                                    failing, it will pause again.
                                 </div>
-                                <div className="mt-1 text-xs font-normal">
-                                    Paused {humanFriendlyDetailedTime(suspension.at)}. Error: {suspension.reason}
-                                </div>
+                                <Tooltip title={suspension.reason} interactive>
+                                    <div className="mt-1 text-xs font-normal line-clamp-2">
+                                        Paused {humanFriendlyDetailedTime(suspension.at)}. Error: {suspension.reason}
+                                    </div>
+                                </Tooltip>
                             </div>
                         </LemonBanner>
                     )}
