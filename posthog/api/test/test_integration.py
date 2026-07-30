@@ -24,6 +24,7 @@ from posthog.api.github_callback.team_services import (
     GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
     authorize_link_existing_installation,
     link_existing_team_github_integration,
+    list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
@@ -3136,6 +3137,62 @@ class TestGitHubTeamIntegrationComplete:
                 source_team_id=None,
                 installation_id_param=None,
             )
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_with_installation_id_disambiguates_multiple(self, mock_from_install):
+        # With more than one org installation, auto-resolve is ambiguous; passing the chosen
+        # installation_id must link that specific installation instead of raising.
+        for installation_id in ("111", "222"):
+            team = Team.objects.create(organization=self.organization, name=f"Sibling {installation_id}")
+            Integration.objects.create(
+                team=team,
+                kind="github",
+                integration_id=installation_id,
+                config={"installation_id": installation_id},
+                sensitive_config={"access_token": "ghs_sibling"},
+            )
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        result = link_existing_team_github_integration(
+            user=self.user,
+            organization=self.organization,
+            team_id=self.team.pk,
+            source_team_id=None,
+            installation_id_param="222",
+        )
+
+        assert result is not None
+        assert mock_from_install.call_args.args[0] == "222"
+        assert mock_from_install.call_args.args[1] == self.team.pk
+
+    def test_list_org_github_installations_dedupes_and_excludes_target_team(self):
+        # The picker lists one entry per distinct installation_id in the org, excluding the target
+        # team's own installation, with account metadata for display.
+        self._team_github_integration(installation_id="999")
+        first = Team.objects.create(organization=self.organization, name="Org Project")
+        Integration.objects.create(
+            team=first,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111", "account": {"name": "acme", "type": "Organization"}},
+            sensitive_config={"access_token": "ghs_a"},
+        )
+        # A second project on the same installation must collapse into a single entry.
+        second = Team.objects.create(organization=self.organization, name="Other Project")
+        Integration.objects.create(
+            team=second,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111", "account": {"name": "acme", "type": "Organization"}},
+            sensitive_config={"access_token": "ghs_a2"},
+        )
+
+        installations = list_org_github_installations(organization=self.organization, exclude_team_id=self.team.pk)
+
+        assert [installation["installation_id"] for installation in installations] == ["111"]
+        assert installations[0]["account_name"] == "acme"
+        assert installations[0]["account_type"] == "Organization"
+        assert installations[0]["source_team_id"] == first.pk
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.

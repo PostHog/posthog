@@ -30,7 +30,7 @@ export function LinearIntegration({ next }: { next?: string }): JSX.Element {
 
 export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { linkedGithubInstallationLoading } = useValues(integrationsLogic)
+    const { linkedGithubInstallationLoading, githubAvailableInstallations } = useValues(integrationsLogic)
     const { linkExistingGithubInstallation } = useActions(integrationsLogic)
     const githubIntegrations = useIntegrations('github')
 
@@ -40,28 +40,46 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
         kind: 'github',
     })
 
+    const installations = githubAvailableInstallations ?? []
+    // A GitHub App installs once per org, so reuse an existing installation rather than reinstall —
+    // but only when this project has none and the org has one to link.
+    const canLinkExisting = githubIntegrations.length === 0 && installations.length > 0
+    const multipleInstallations = installations.length > 1
+
     return (
         <Integration kind="github">
             <div className="flex flex-col gap-y-2">
-                <div className="flex gap-x-2">
+                <div className="flex flex-wrap gap-2">
                     <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
                         Connect organization
                     </LemonButton>
-                    {githubIntegrations.length === 0 && (
-                        <LemonButton
-                            type="secondary"
-                            loading={linkedGithubInstallationLoading}
-                            onClick={() => linkExistingGithubInstallation()}
-                        >
-                            Link existing installation
-                        </LemonButton>
-                    )}
+                    {canLinkExisting &&
+                        (multipleInstallations ? (
+                            installations.map((installation) => (
+                                <LemonButton
+                                    key={installation.installation_id}
+                                    type="secondary"
+                                    loading={linkedGithubInstallationLoading}
+                                    onClick={() => linkExistingGithubInstallation(installation.installation_id)}
+                                >
+                                    Link {installation.account_name ?? `installation ${installation.installation_id}`}
+                                </LemonButton>
+                            ))
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                loading={linkedGithubInstallationLoading}
+                                onClick={() => linkExistingGithubInstallation()}
+                            >
+                                Link existing installation
+                            </LemonButton>
+                        ))}
                 </div>
-                {githubIntegrations.length === 0 && (
+                {canLinkExisting && (
                     <p className="text-secondary text-xs mb-0">
-                        Already installed the PostHog GitHub App for another project in this organization? A GitHub App
-                        installs once per organization, so use "Link existing installation" to connect it here instead
-                        of reinstalling.
+                        {multipleInstallations
+                            ? 'Your organization has more than one PostHog GitHub App installation. A GitHub App installs once per organization, so pick the one to connect to this project.'
+                            : 'Already installed the PostHog GitHub App for another project in this organization? A GitHub App installs once per organization, so use "Link existing installation" to connect it here instead of reinstalling.'}
                     </p>
                 )}
             </div>

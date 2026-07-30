@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError, getCookie } from 'lib/api'
+import api, { ApiError, getCookie, GitHubAvailableInstallation } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
 import { describeOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
@@ -89,6 +89,8 @@ export interface integrationsLogicValues {
     githubIntegrations: IntegrationType[]
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
+    githubAvailableInstallations: GitHubAvailableInstallation[] | null
+    githubAvailableInstallationsLoading: boolean
     integrations: IntegrationType[] | null
     integrationsLoading: boolean
     linkedGithubInstallation: IntegrationType | null
@@ -162,7 +164,7 @@ export interface integrationsLogicActions {
             | 'vercel'
         searchParams: any
     }
-    linkExistingGithubInstallation: () => any
+    linkExistingGithubInstallation: (installationId?: string) => string | undefined
     linkExistingGithubInstallationFailure: (
         error: string,
         errorObject?: any
@@ -175,6 +177,21 @@ export interface integrationsLogicActions {
         payload?: any
     ) => {
         linkedGithubInstallation: IntegrationType
+        payload?: any
+    }
+    loadGithubAvailableInstallations: () => any
+    loadGithubAvailableInstallationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadGithubAvailableInstallationsSuccess: (
+        githubAvailableInstallations: GitHubAvailableInstallation[],
+        payload?: any
+    ) => {
+        githubAvailableInstallations: GitHubAvailableInstallation[]
         payload?: any
     }
     loadGitHubRepositories: (integrationId: number) => {
@@ -814,9 +831,13 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 // Reuse a GitHub App installation already connected to another project in the same
                 // org. A GitHub App installs once per org, so a second project can't reinstall; this
                 // links the existing install without the fragile GitHub setup redirect roundtrip.
-                linkExistingGithubInstallation: async () => {
+                // When the org has more than one installation the caller passes the chosen
+                // installationId, since the backend can't auto-resolve between them.
+                linkExistingGithubInstallation: async (installationId?: string) => {
                     try {
-                        const integration = await api.integrations.githubLinkExisting({})
+                        const integration = await api.integrations.githubLinkExisting(
+                            installationId ? { installation_id: installationId } : {}
+                        )
                         lemonToast.success('Linked the existing GitHub installation to this project.')
                         actions.loadIntegrations()
                         return integration
@@ -824,6 +845,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         toastApiError(e)
                         throw e
                     }
+                },
+            },
+        ],
+        githubAvailableInstallations: [
+            null as GitHubAvailableInstallation[] | null,
+            {
+                loadGithubAvailableInstallations: async () => {
+                    return await api.integrations.githubAvailableInstallations()
                 },
             },
         ],
@@ -847,6 +876,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        loadIntegrationsSuccess: ({ integrations }) => {
+            // "Link existing installation" only applies when this project has no GitHub integration
+            // yet. Fetch the org's installations so the UI can offer a picker when more than one
+            // exists, rather than failing the auto-resolve link with an ambiguous-installation error.
+            if (!integrations?.some((integration) => integration.kind === 'github')) {
+                actions.loadGithubAvailableInstallations()
+            }
+        },
         loadGitHubRepositories: ({ integrationId }) => {
             actions.loadGitHubRepositoriesPage(integrationId, 0)
         },

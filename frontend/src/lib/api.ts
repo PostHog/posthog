@@ -293,6 +293,15 @@ import type { ProductIntentProperties } from './utils/product-intents'
 
 export type CheckboxValueType = string | number | boolean
 
+// Mirrors GitHubAvailableInstallationSerializer. Replace with the generated `GitHubAvailableInstallationApi`
+// once `hogli build:openapi` has been run against the new github/available_installations endpoint.
+export interface GitHubAvailableInstallation {
+    installation_id: string
+    account_name: string | null
+    account_type: string | null
+    source_team_id: number
+}
+
 const PAGINATION_DEFAULT_MAX_PAGES = 10
 
 export interface PaginatedResponse<T> {
@@ -6313,6 +6322,9 @@ const api = {
             teamId?: TeamType['id']
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrations(teamId).withAction('github/link_existing').create({ data })
+        },
+        async githubAvailableInstallations(teamId?: TeamType['id']): Promise<GitHubAvailableInstallation[]> {
+            return await new ApiRequest().integrations(teamId).withAction('github/available_installations').get()
         },
         async githubOAuthAuthorize(
             data: {

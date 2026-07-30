@@ -491,6 +491,43 @@ def link_existing_team_github_integration(
     return instance
 
 
+def list_org_github_installations(
+    *,
+    organization: Organization,
+    exclude_team_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """List the distinct GitHub App installations already linked anywhere in ``organization``.
+
+    A GitHub App installs once per org, so when an org has more than one installation the caller
+    can't rely on the single-install auto-resolve path in ``link_existing_team_github_integration``.
+    This enumerates the installations so the UI can offer a picker and pass an explicit
+    ``installation_id``. The first integration seen for each installation id (deterministic
+    ``order_by("id")``) provides the representative account metadata and source team.
+    """
+    org_github = Integration.objects.filter(team__organization_id=organization.id, kind="github")
+    if exclude_team_id is not None:
+        org_github = org_github.exclude(team_id=exclude_team_id)
+    org_github = org_github.order_by("id")
+
+    installations: dict[str, dict[str, Any]] = {}
+    for integration in org_github:
+        config = integration.config or {}
+        raw_installation_id = config.get("installation_id")
+        if not raw_installation_id:
+            continue
+        installation_id = str(raw_installation_id)
+        if installation_id in installations:
+            continue
+        account = config.get("account") or {}
+        installations[installation_id] = {
+            "installation_id": installation_id,
+            "account_name": account.get("name") or config.get("connecting_user_github_login"),
+            "account_type": account.get("type"),
+            "source_team_id": integration.team_id,
+        }
+    return list(installations.values())
+
+
 def finish_team_setup(http_request) -> FinishResult:
     state_raw = http_request.GET.get("state")
     user = cast(User, http_request.user)
