@@ -148,6 +148,9 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 upload_video_to_gemini_activity,
                 UploadVideoToGeminiInputs(asset_id=asset_result.asset_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                # The activity heartbeats, so a dead worker is detected in ~2 minutes instead of costing
+                # the full start-to-close budget per attempt. Matches the apply workflow.
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_STEP_RETRY,
             )
             call_output: ScannerCallOutput = await wf.execute_activity(
@@ -160,6 +163,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                     snapshot_override=selection.snapshot,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_STEP_RETRY,
             )
             await self._record(

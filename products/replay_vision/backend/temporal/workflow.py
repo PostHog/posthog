@@ -269,8 +269,12 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                             exported_asset_id=asset_result.asset_id,
                             signals=call_output.signals,
                         ),
-                        start_to_close_timeout=dt.timedelta(seconds=30),
-                        retry_policy=common.RetryPolicy(maximum_attempts=1),
+                        # Findings are emitted sequentially over the network, so 30s truncated the tail
+                        # on a slow facade and recorded signals_count=0. Retries are safe: each finding
+                        # carries a deterministic idempotency key, so a re-run emits nothing twice.
+                        start_to_close_timeout=dt.timedelta(minutes=2),
+                        heartbeat_timeout=dt.timedelta(seconds=30),
+                        retry_policy=common.RetryPolicy(maximum_attempts=3),
                     )
                 except Exception:
                     wf.logger.exception("Signal emission activity failed for observation %s", observation_id)

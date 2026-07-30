@@ -169,6 +169,7 @@ class BaseScanner(BaseModel, frozen=True):
         session_metadata: dict[str, Any] | None = None,
         navigation: list[dict[str, Any]] | None = None,
         navigation_dropped: int = 0,
+        events_truncated: bool = False,
     ) -> str:
         """The conversation's shared opening: framing, footer, events tool, calibration, navigation timeline, and
         session metadata. `navigation` takes dumped `NavigationEntry` dicts (plain dicts keep this module free of a
@@ -179,6 +180,7 @@ class BaseScanner(BaseModel, frozen=True):
             session_metadata=session_metadata or {},
             navigation=navigation or [],
             navigation_dropped=navigation_dropped,
+            events_truncated=events_truncated,
         )
 
     def core_steps(self) -> list[MissionStep]:
