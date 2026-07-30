@@ -32,6 +32,7 @@ import type { BillingType, PreflightStatus } from '../../../types'
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { parseExceptionEvent } from './exceptionUtils'
 import { openSupportModal } from './SupportModal'
+import { KNOWN_ENTERPRISE_ORG_IDS } from './supportResponseTime'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -904,8 +905,9 @@ export const supportLogic = kea<supportLogicType>([
 
             let planLevelTag = 'plan_free'
 
-            const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
-            const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(userLogic?.values?.user?.organization?.id || '')
+            const isKnownEnterpriseOrg = KNOWN_ENTERPRISE_ORG_IDS.includes(
+                userLogic?.values?.user?.organization?.id || ''
+            )
 
             const isNewOrganization = values.isCurrentOrganizationNew
 
