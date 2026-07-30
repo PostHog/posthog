@@ -540,6 +540,14 @@ class TestRichContentBlockNodes(SimpleTestCase):
                 },
                 "> see options:\n> - one\n> - two",
             ),
+            (
+                "unknown_block_keeps_inline_content",
+                {
+                    "type": "doc",
+                    "content": [{"type": "callout", "content": [{"type": "text", "text": "do not lose me"}]}],
+                },
+                "do not lose me",
+            ),
         ]
     )
     def test_rich_content_to_markdown_block_nodes(self, _name: str, doc: dict, expected: str) -> None:
@@ -560,6 +568,27 @@ class TestRichContentBlockNodes(SimpleTestCase):
         assert blocks is None
         assert "1. query time properties" in text
         assert "2. a cohort" in text
+
+    def test_slack_payload_maps_strike_to_slack_mrkdwn(self) -> None:
+        doc = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        _list_item(
+                            {
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": "gone", "marks": [{"type": "strike"}]}],
+                            }
+                        )
+                    ],
+                }
+            ],
+        }
+        text, blocks = rich_content_to_slack_payload(doc, "fallback")
+        assert blocks is None
+        assert text == "- ~gone~"
 
     @parameterized.expand(
         [
