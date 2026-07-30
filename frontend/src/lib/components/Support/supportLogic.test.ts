@@ -119,6 +119,9 @@ describe('supportLogic', () => {
         const aiTicketCaptures = (): unknown[][] =>
             (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'posthog_ai_support_ticket_created')
 
+        const conversationsUnavailableCaptures = (): unknown[][] =>
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support_conversations_unavailable')
+
         const enableConversationsFlag = (): void => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]: true })
         }
@@ -321,5 +324,65 @@ describe('supportLogic', () => {
 
             expect(aiTicketCaptures()).toHaveLength(0)
         })
+
+        it('does not capture support_conversations_unavailable when the flag is off', async () => {
+            disableConversationsFlag()
+
+            await logic.asyncActions.submitSupportTicket(FORM_FIELDS)
+
+            expect(conversationsUnavailableCaptures()).toHaveLength(0)
+        })
+
+        // Guards the reason-resolution order on the Zendesk fallback path: it must prefer the SDK's
+        // own getUnavailableReason() when present, and only fall back to a coarse send_declined/unknown
+        // signal for older SDKs that predate that getter.
+        type MockConversations = {
+            isAvailable: () => boolean
+            sendMessage: jest.Mock
+            getUnavailableReason?: () => string
+        }
+        const conversationsCases: [string, MockConversations | undefined, string][] = [
+            ['the extension never registered', undefined, 'addon_not_registered'],
+            [
+                'a newer SDK reports a precise reason',
+                {
+                    isAvailable: () => false,
+                    sendMessage: jest.fn(),
+                    getUnavailableReason: () => 'disabled_in_project',
+                },
+                'disabled_in_project',
+            ],
+            [
+                'an older SDK has an available extension that declined to send',
+                { isAvailable: () => true, sendMessage: jest.fn().mockResolvedValue(null) },
+                'send_declined',
+            ],
+            [
+                'an older SDK has an unavailable extension',
+                { isAvailable: () => false, sendMessage: jest.fn() },
+                'unknown',
+            ],
+        ]
+
+        it.each(conversationsCases)(
+            'tags the Zendesk fallback reason when %s',
+            async (_case, conversations, expectedReason) => {
+                ;(posthog as any).conversations = conversations
+                enableConversationsFlag()
+
+                jest.useFakeTimers()
+                try {
+                    const promise = (logic.asyncActions as any).submitSupportTicket(FORM_FIELDS)
+                    await jest.runAllTimersAsync()
+                    await promise
+                } finally {
+                    jest.useRealTimers()
+                }
+
+                expect(conversationsUnavailableCaptures()).toEqual([
+                    ['support_conversations_unavailable', expect.objectContaining({ reason: expectedReason })],
+                ])
+            }
+        )
     })
 })
