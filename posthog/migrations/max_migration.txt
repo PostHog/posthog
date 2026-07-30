@@ -1,1 +1,1 @@
-1271_add_pardot_integration_kind
+1276_untrack_legacy_provisioning_columns

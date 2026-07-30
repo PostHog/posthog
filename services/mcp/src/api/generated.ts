@@ -4553,6 +4553,8 @@ export namespace Schemas {
     }
 
     export interface ActorsQuery {
+      /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+      filterTestAccounts?: boolean | null;
       /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
       fixedProperties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
       kind?: 'ActorsQuery';
@@ -8795,6 +8797,27 @@ export namespace Schemas {
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
       /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
+    }
+
+    /**
+     * * `email` - email
+     * * `destination` - destination
+     */
+    export type FailedDeliveryChannelsEnum = typeof FailedDeliveryChannelsEnum[keyof typeof FailedDeliveryChannelsEnum];
+
+
+    export const FailedDeliveryChannelsEnum = {
+      Email: 'email',
+      Destination: 'destination',
+    } as const;
+
+    export interface AlertTestDeliveryResponse {
+      /** Number of active destinations queued for test delivery. */
+      destination_count: number;
+      /** Number of subscribed users sent a test email. */
+      email_recipient_count: number;
+      /** Configured delivery channels that failed to schedule or send. */
+      failed_delivery_channels: FailedDeliveryChannelsEnum[];
     }
 
     /**
@@ -13928,6 +13951,7 @@ export namespace Schemas {
 
     export interface CohortFilters {
       properties: CohortFilterGroup;
+      filterTestAccounts?: boolean | null;
     }
 
     /**
@@ -14548,13 +14572,31 @@ export namespace Schemas {
       images?: ConversationsTicketImage[] | null;
     }
 
+    /**
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode
+     */
+    export type ConversionGoalKindEnum = typeof ConversionGoalKindEnum[keyof typeof ConversionGoalKindEnum];
+
+
+    export const ConversionGoalKindEnum = {
+      EventsNode: 'EventsNode',
+      ActionsNode: 'ActionsNode',
+      DataWarehouseNode: 'DataWarehouseNode',
+    } as const;
+
     export interface ConversionGoalSummary {
       /** Unique id of the goal (event name, action id, or DW goal id) */
       id: string;
       /** Display name of the conversion goal */
       name: string;
-      /** Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table) */
-      kind: string;
+      /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+       *
+       * * `EventsNode` - EventsNode
+       * * `ActionsNode` - ActionsNode
+       * * `DataWarehouseNode` - DataWarehouseNode */
+      kind: ConversionGoalKindEnum;
       /** Human-readable target the goal matches (event/action name or table) */
       target_label: string;
       /** Count of matching conversion events in the last 30 days */
@@ -16950,7 +16992,25 @@ export namespace Schemas {
 
     export type DatabaseSchemaBatchExportTableFields = {[key: string]: DatabaseSchemaField};
 
+    export type DatabaseSchemaTableCertificationStatus = typeof DatabaseSchemaTableCertificationStatus[keyof typeof DatabaseSchemaTableCertificationStatus];
+
+
+    export const DatabaseSchemaTableCertificationStatus = {
+      Certified: 'certified',
+      Deprecated: 'deprecated',
+    } as const;
+
+    export interface DatabaseSchemaTableCertification {
+      certified_at?: string | null;
+      certified_by?: string | null;
+      notes?: string | null;
+      /** Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it). */
+      status: DatabaseSchemaTableCertificationStatus;
+    }
+
     export interface DatabaseSchemaBatchExportTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaBatchExportTableFields;
       id: string;
       name: string;
@@ -16979,6 +17039,8 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaDataWarehouseTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaDataWarehouseTableFields;
       /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
       format?: string | null;
@@ -16997,6 +17059,8 @@ export namespace Schemas {
     export type DatabaseSchemaEndpointTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaEndpointTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaEndpointTableFields;
       id: string;
       name: string;
@@ -17021,6 +17085,8 @@ export namespace Schemas {
     } as const;
 
     export interface DatabaseSchemaManagedViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaManagedViewTableFields;
       id: string;
       kind: DatabaseSchemaManagedViewTableKind;
@@ -17034,6 +17100,8 @@ export namespace Schemas {
     export type DatabaseSchemaMaterializedViewTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaMaterializedViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaMaterializedViewTableFields;
       id: string;
       last_run_at?: string | null;
@@ -17047,6 +17115,8 @@ export namespace Schemas {
     export type DatabaseSchemaPostHogTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaPostHogTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaPostHogTableFields;
       id: string;
       name: string;
@@ -17057,6 +17127,8 @@ export namespace Schemas {
     export type DatabaseSchemaSystemTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaSystemTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaSystemTableFields;
       id: string;
       name: string;
@@ -17067,6 +17139,8 @@ export namespace Schemas {
     export type DatabaseSchemaViewTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaViewTableFields;
       id: string;
       name: string;
@@ -23103,10 +23177,11 @@ export namespace Schemas {
          */
       suggested_reviewers?: SuggestedReviewer[];
       /**
-         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched.
+         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
          * @maxItems 20
+         * @nullable
          */
-      charts?: ReportChart[];
+      charts?: ReportChart[] | null;
     }
 
     export interface EditReportResponse {
@@ -23118,8 +23193,11 @@ export namespace Schemas {
       note_appended: boolean;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
-      /** How many charts the report now shows, or 0 if charts were untouched. */
-      charts_set: number;
+      /**
+         * How many charts the report now shows, or null if the edit left its charts as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's charts down.
+         * @nullable
+         */
+      charts_set: number | null;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
@@ -26283,6 +26361,20 @@ export namespace Schemas {
       na_patterns: EvaluationPattern[];
       recommendations: string[];
       statistics: EvaluationSummaryStatistics;
+    }
+
+    export interface EvaluationSummaryThrottleResponse {
+      /** Error category */
+      type: string;
+      /** Machine-readable error code */
+      code: string;
+      /** Why the request was throttled */
+      detail: string;
+      /**
+         * Related request field, when applicable
+         * @nullable
+         */
+      attr: string | null;
     }
 
     export interface EventDefinitionBasic {
@@ -31279,6 +31371,13 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    export interface FacetCount {
+      /** The facet value as emitted by the summarizer (lowercased). */
+      term: string;
+      /** Number of succeeded observations that emitted this value. */
+      count: number;
+    }
+
     /**
      * * `severity_text` - severity_text
      * * `service_name` - service_name
@@ -32509,8 +32608,12 @@ export namespace Schemas {
       goal_id: string;
       /** Display name of the conversion goal */
       goal_name: string;
-      /** EventsNode/ActionsNode/DataWarehouseNode */
-      kind: string;
+      /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+       *
+       * * `EventsNode` - EventsNode
+       * * `ActionsNode` - ActionsNode
+       * * `DataWarehouseNode` - DataWarehouseNode */
+      kind: ConversionGoalKindEnum;
       /** The period the breakdown was computed over */
       period: GoalExplanationPeriod;
       /** Total matching conversion events in the period */
@@ -33683,6 +33786,7 @@ export namespace Schemas {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
+     * * `transformation_log` - Transformation Log
      */
     export type HogFunctionTypeEnum = typeof HogFunctionTypeEnum[keyof typeof HogFunctionTypeEnum];
 
@@ -33695,6 +33799,7 @@ export namespace Schemas {
       WarehouseSourceWebhook: 'warehouse_source_webhook',
       SiteApp: 'site_app',
       Transformation: 'transformation',
+      TransformationLog: 'transformation_log',
     } as const;
 
     /**
@@ -33887,7 +33992,7 @@ export namespace Schemas {
 
     export interface HogFunction {
       readonly id: string;
-      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
        *
        * * `destination` - Destination
        * * `site_destination` - Site Destination
@@ -33895,7 +34000,8 @@ export namespace Schemas {
        * * `source_webhook` - Source Webhook
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
-       * * `transformation` - Transformation */
+       * * `transformation` - Transformation
+       * * `transformation_log` - Transformation Log */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -37019,6 +37125,12 @@ export namespace Schemas {
       models: LLMModelInfo[];
     }
 
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type LLMPromptConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptOutlineEntry {
       /**
          * Markdown heading level (1-6).
@@ -37039,6 +37151,11 @@ export namespace Schemas {
       name: string;
       /** Prompt payload as JSON or string data. */
       prompt: unknown;
+      /**
+         * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: LLMPromptConfig;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -37095,12 +37212,23 @@ export namespace Schemas {
       version: number;
     }
 
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type LLMPromptListConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
       readonly name: string;
       /** Prompt payload as JSON or string data. */
       readonly prompt: unknown;
+      /**
+         * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: LLMPromptListConfig;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -37125,11 +37253,22 @@ export namespace Schemas {
       readonly all_labels: readonly LLMPromptLabelSummary[];
     }
 
+    /**
+     * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+     * @nullable
+     */
+    export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
       /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
       prompt?: unknown;
+      /**
+         * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+         * @nullable
+         */
+      config?: LLMPromptPublicConfig;
       /** First 160 characters of the prompt. Only present when 'content=preview'. */
       prompt_preview?: string;
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
@@ -40918,6 +41057,15 @@ export namespace Schemas {
       histogram: ScorerHistogram | null;
     }
 
+    export interface SummarizerStats {
+      /** Top friction points by emission count. */
+      friction_ranked: FacetCount[];
+      /** Top keywords by emission count. */
+      keyword_ranked: FacetCount[];
+      /** Succeeded observations that emitted at least one friction point or keyword. */
+      total_with_facets: number;
+    }
+
     export interface ObservationStats {
       /** Counts of observations by terminal status. */
       status_counts: ObservationStatusCounts;
@@ -40933,6 +41081,8 @@ export namespace Schemas {
       classifier: ClassifierStats | null;
       /** Scorer-type aggregates; null when the scanner is not a scorer. */
       scorer: ScorerStats | null;
+      /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
+      summarizer: SummarizerStats | null;
     }
 
     /**
@@ -46748,6 +46898,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -50039,7 +50191,7 @@ export namespace Schemas {
 
     export interface PatchedHogFunction {
       readonly id?: string;
-      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
        *
        * * `destination` - Destination
        * * `site_destination` - Site Destination
@@ -50047,7 +50199,8 @@ export namespace Schemas {
        * * `source_webhook` - Source Webhook
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
-       * * `transformation` - Transformation */
+       * * `transformation` - Transformation
+       * * `transformation_log` - Transformation Log */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -50368,11 +50521,22 @@ export namespace Schemas {
       js_snippet_version?: string | null;
     }
 
+    /**
+     * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type PatchedLLMPromptPublishConfig = { [key: string]: unknown } | null;
+
     export interface PatchedLLMPromptPublish {
       /** Full prompt payload to publish as a new version. Mutually exclusive with edits. */
       prompt?: unknown;
       /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
       edits?: LLMPromptEditOperation[];
+      /**
+         * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: PatchedLLMPromptPublishConfig;
       /**
          * Latest version you are editing from. Used for optimistic concurrency checks.
          * @minimum 1
@@ -54541,6 +54705,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
@@ -78533,7 +78699,7 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview
@@ -78592,7 +78758,7 @@ export namespace Schemas {
 
     export type LlmPromptsNameRetrieveParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview

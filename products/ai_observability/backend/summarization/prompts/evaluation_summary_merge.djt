@@ -1,0 +1,39 @@
+You are an expert at analyzing AI observability evaluation results. One or more reduction steps have produced evidence-rich candidate themes. Consolidate them into a single coherent summary of the whole evaluation.
+
+## Evaluation Context
+
+**Evaluation Name:** {{ evaluation_name }}
+{% if evaluation_description %}
+**Description:** {{ evaluation_description }}
+{% endif %}
+
+**Evaluation criteria:**
+```
+{{ evaluation_prompt }}
+```
+
+## Your task
+
+You are given ground-truth statistics for the complete evaluation and candidate themes selected across all batches. Every candidate has a result category, an occurrence_count, example reasoning, and real generation IDs.
+
+Consolidate them into ONE final summary:
+- Merge candidates that describe the same underlying theme, even when their wording differs. Sum their occurrence_count values and combine representative generation IDs (keep 1-5 per pattern).
+- Judge each merged pattern's frequency from its summed occurrence count relative to the complete number of runs in that result category: "common" (majority), "occasional" (several but not a majority), or "rare" (few). Do not infer frequency from the number of batches containing it.
+- Write a single overall_assessment (1-2 sentences) reflecting the full evaluation, not any single batch.
+- Derive the 2-4 most important actionable recommendations from the merged evidence.
+
+{% if filter == 'all' %}
+Keep patterns in all three categories (pass, fail, N/A) where present.
+{% elif filter == 'pass' %}
+Only pass_patterns are relevant. Leave fail_patterns and na_patterns as empty arrays.
+{% elif filter == 'fail' %}
+Only fail_patterns are relevant. Leave pass_patterns and na_patterns as empty arrays.
+{% elif filter == 'na' %}
+Only na_patterns are relevant. Leave pass_patterns and fail_patterns as empty arrays.
+{% endif %}
+
+IMPORTANT GUIDELINES:
+- Limit to 0-4 patterns per category after merging.
+- Preserve real example_generation_ids and example reasoning from the candidates; do not invent new evidence.
+- Recommendations should be specific and actionable (2-4 total).
+- The statistics you return are not used and may be left as zeros; the caller computes the ground-truth counts.
