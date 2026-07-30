@@ -82,8 +82,8 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         )
 
     def _calculate(self) -> SessionQueryResponse:
-        if self.for_evaluation and not self._has_fallback_date_range():
-            raise ValueError("Evaluation-mode session queries require dateRange.date_from")
+        if self.for_evaluation and not self._has_bounded_date_range():
+            raise ValueError("Evaluation-mode session queries require dateRange.date_from and dateRange.date_to")
 
         query = self._build_query()
 
@@ -283,6 +283,11 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
 
     def _has_fallback_date_range(self) -> bool:
         return bool(self.query.dateRange and self.query.dateRange.date_from)
+
+    def _has_bounded_date_range(self) -> bool:
+        # date_to must be explicit too: QueryDateRange defaults a missing date_to to now(),
+        # which would silently turn a half-open range into an unbounded upper bound.
+        return bool(self.query.dateRange and self.query.dateRange.date_from and self.query.dateRange.date_to)
 
     def _date_filter(self) -> ast.Expr:
         return ast.And(

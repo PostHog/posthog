@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, SessionQuery
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
@@ -378,6 +380,22 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
 
         self.assertNotIn("greaterOrEquals(ai_events.timestamp", default_sql)
         self.assertNotIn("lessOrEquals(ai_events.timestamp", default_sql)
+
+    @parameterized.expand(
+        [
+            ("missing_date_from", DateRange(date_to="2026-07-08T00:00:00Z")),
+            ("missing_date_to", DateRange(date_from="2026-07-01T00:00:00Z")),
+            ("missing_date_range", None),
+        ]
+    )
+    def test_evaluation_mode_requires_both_date_bounds(self, _name: str, date_range: DateRange | None) -> None:
+        runner = SessionQueryRunner(
+            team=self.team,
+            query=SessionQuery(sessionId="s-1", dateRange=date_range),
+            for_evaluation=True,
+        )
+        with self.assertRaises(ValueError):
+            runner.calculate()
 
     def test_evaluation_mode_does_not_fall_back_to_events(self) -> None:
         runner = SessionQueryRunner(
