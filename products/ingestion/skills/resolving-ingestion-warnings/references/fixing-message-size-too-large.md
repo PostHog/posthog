@@ -19,7 +19,7 @@ Three consequences:
 
 ## Diagnose
 
-1. List the warnings: use the `posthog:ingestion-warnings-list` tool with `type: message_size_too_large` (or the Ingestion warnings page under Data management). Samples carry `event_uuid` and `distinct_id`; `pipeline_step` is `emit-event` (single event) or `flush` (batched person/group writes).
+1. List the warnings: query with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'message_size_too_large' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (or the Ingestion warnings page under Data management). The `details` JSON carries `event_uuid` and `distinct_id`; `pipeline_step` is `emit-event` (single event) or `flush` (batched person/group writes).
 2. Read the repetition pattern in the samples — but resolve distinct IDs to persons before concluding. Distinct IDs are not persons: identified users routinely carry several distinct IDs (anonymous IDs, emails, device IDs) that all map to one merged person, whose properties inflate events sent under **any** of them. Use `posthog:persons-list` (filter by the sampled `distinct_id`) to fetch the person behind it first, then read the pattern at the person level:
    - Same person recurring (even under different distinct IDs) → that person's profile is inflated.
    - Many different _persons_, same event name → the event itself carries a huge payload.
@@ -47,7 +47,7 @@ Per SDK, the bug usually looks like:
 ## Verify
 
 1. Re-run the affected flow.
-2. Re-query `posthog:ingestion-warnings-list` with `type: message_size_too_large` and a `since` after your fix — the count for the affected distinct IDs must stop growing. Warnings are debounced per team+type, so judge by "no new occurrences over a real usage window", not by the historical count going down (it won't).
+2. Re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'message_size_too_large'`, `timestamp` after your fix) — the count for the affected distinct IDs must stop growing. Warnings are debounced per team+type, so judge by "no new occurrences over a real usage window", not by the historical count going down (it won't).
 3. Confirm the previously-missing events now appear in the events table.
 
 ## Related

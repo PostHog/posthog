@@ -72,6 +72,13 @@ export interface AddCellResult {
     run?: ShapedRunResult
 }
 
+/**
+ * One blank line separates two blocks of the same card in the notebook editor; a second one starts
+ * a new card. Cells added here are nodes in their own right, so they are separated on both sides —
+ * otherwise consecutive markdown cells land as one card (`startsGroup` in the editor's types.ts).
+ */
+const BLOCK_SEPARATOR = '\n\n\n'
+
 function insertBlock(markdown: string, block: string, afterNodeId: string | undefined): string {
     const trimmed = markdown.replace(/\s+$/, '')
     if (afterNodeId) {
@@ -79,9 +86,11 @@ function insertBlock(markdown: string, block: string, afterNodeId: string | unde
         if (!anchor) {
             throw new Error(`No cell with node_id ${afterNodeId} found to insert after.`)
         }
-        return `${markdown.slice(0, anchor.end)}\n\n${block}${markdown.slice(anchor.end)}`
+        const rest = markdown.slice(anchor.end).replace(/^\n+/, '')
+        const head = `${markdown.slice(0, anchor.end)}${BLOCK_SEPARATOR}${block}`
+        return rest ? `${head}${BLOCK_SEPARATOR}${rest}` : `${head}\n`
     }
-    return trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`
+    return trimmed ? `${trimmed}${BLOCK_SEPARATOR}${block}\n` : `${block}\n`
 }
 
 async function runAndWriteBack(
