@@ -18,6 +18,7 @@ from posthog.temporal.common.client import sync_connect
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.utils import report_inbox_url
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
@@ -439,6 +440,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     scout_name = serializers.SerializerMethodField(
         help_text="skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
     )
+    report_url = serializers.SerializerMethodField(
+        help_text="Canonical deep link to this report in the PostHog inbox.",
+    )
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
@@ -475,6 +479,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "is_suggested_reviewer",
             "source_products",
             "scout_name",
+            "report_url",
             "implementation_pr_url",
             "implementation_pr_merged",
             "refund",
@@ -585,6 +590,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if scout_names_map is not None:
             return scout_names_map.get(str(obj.id))
         return None
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_report_url(self, obj: SignalReport) -> str:
+        return report_inbox_url(obj.team_id, str(obj.id))
 
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
         implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
