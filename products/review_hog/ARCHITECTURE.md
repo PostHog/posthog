@@ -223,7 +223,10 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     one per finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size /
     sandbox-usage properties (`track_review_completed_activity`): the turn's `sandbox_task_ids` (recovered by
     workflow-id-prefix, joining to `$ai_generation.task_id` for per-turn dollar cost) plus summed token totals.
-    Best-effort: telemetry can never fail a review.
+    Best-effort: telemetry can never fail a review. Every turn's LLM calls — sandbox stages (stamped via the
+    agent-server's gateway headers) and one-shots (direct gateway headers) — carry `$ai_session_id` =
+    `{report_id}:r{run_index}`, so a turn's generations group as one LLM-analytics session, joinable from the
+    completion event.
 
 ---
 

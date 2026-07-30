@@ -141,6 +141,7 @@ async def create_task_and_trigger(
     origin_product: Task.OriginProduct | None = None,
     signal_report_id: str | None = None,
     ai_stage: str | None = None,
+    ai_session_id: str | None = None,
     internal: bool = False,
     workflow_id_prefix: str | None = None,
 ):
@@ -163,6 +164,7 @@ async def create_task_and_trigger(
         branch=branch,
         signal_report_id=signal_report_id,
         ai_stage=ai_stage,
+        ai_session_id=ai_session_id,
         posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,

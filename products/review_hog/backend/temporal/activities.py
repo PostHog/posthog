@@ -428,6 +428,13 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
     return f"{activity.info().workflow_id}:{step_name}".lower()
 
 
+def _turn_ai_session_id(report_id: str, run_index: int) -> str:
+    """One `$ai_session_id` per review turn: the turn's generations (sandbox + one-shot) group
+    under it in LLM analytics, and dashboards join them to `reviewhog_review_completed` by the
+    report-id prefix."""
+    return f"{report_id}:r{run_index}"
+
+
 async def _refresh_status_comment(team_id: int, report_id: str) -> None:
     """Refresh the PR's status comment after this activity persisted progress (debounced, best-effort)."""
     await database_sync_to_async(maybe_refresh_status_comment, thread_sensitive=False)(team_id, report_id)
@@ -750,6 +757,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
                 system_prompt=CHUNKING_SYSTEM_PROMPT,
                 model_to_validate=ChunksList,
                 step_name="chunking",
+                ai_session_id=_turn_ai_session_id(input.report_id, input.run_index),
             )
         else:
             chunks = await run_sandbox_review(
@@ -762,6 +770,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
                 model_to_validate=ChunksList,
                 step_name="chunking",
                 workflow_id_prefix=_sandbox_workflow_id_prefix("chunking"),
+                ai_session_id=_turn_ai_session_id(input.report_id, input.run_index),
                 runtime_adapter=CHUNKING_RUNTIME_ADAPTER,
                 model=CHUNKING_MODEL,
                 reasoning_effort=CHUNKING_REASONING_EFFORT,
@@ -833,6 +842,7 @@ async def select_perspectives_activity(input: SelectPerspectivesInput) -> Perspe
             system_prompt=SELECTION_SYSTEM_PROMPT,
             model_to_validate=PerspectiveSelection,
             step_name="perspective_selection",
+            ai_session_id=_turn_ai_session_id(input.report_id, input.run_index),
         )
     # Persist the normalized plan (exactly what the fan-out runs), not the model's raw output — the
     # progress estimate and the skipped-perspective UI read this artefact as ground truth.
@@ -944,6 +954,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             model_to_validate=IssuesReview,
             step_name=step_name,
             workflow_id_prefix=_sandbox_workflow_id_prefix(step_name),
+            ai_session_id=_turn_ai_session_id(input.report_id, input.run_index),
             runtime_adapter=REVIEW_RUNTIME_ADAPTER,
             model=REVIEW_MODEL,
             reasoning_effort=REVIEW_REASONING_EFFORT,
@@ -1010,6 +1021,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             branch=input.branch,
             repository=input.repository,
             workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
+            ai_session_id=_turn_ai_session_id(input.report_id, input.run_index),
         )
     issue_ids = await database_sync_to_async(persist_findings, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, issues=survivors, run_index=input.run_index
@@ -1107,6 +1119,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             model_to_validate=IssueValidation,
                             step_name=f"validation-c{input.chunk_id}",
                             workflow_id_prefix=_sandbox_workflow_id_prefix(f"validation-c{input.chunk_id}"),
+                            ai_session_id=_turn_ai_session_id(input.report_id, input.run_index),
                             runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
                             model=VALIDATION_MODEL,
                             reasoning_effort=VALIDATION_REASONING_EFFORT,

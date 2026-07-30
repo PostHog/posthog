@@ -34,6 +34,7 @@ async def run_oneshot_review(
     system_prompt: str,
     model_to_validate: type[_ModelT],
     step_name: str,
+    ai_session_id: str | None = None,
 ) -> _ModelT:
     """Run one review step as a single LLM-gateway call and return its validated output.
 
@@ -65,7 +66,12 @@ async def run_oneshot_review(
                 output_config=cast(OutputConfigParam, {"effort": ONESHOT_REASONING_EFFORT}),
                 output_format=model_to_validate,
                 metadata={"user_id": f"user-{user_id}"},
-                extra_headers={"x-posthog-property-ai_stage": step_name},
+                extra_headers={
+                    "x-posthog-property-ai_stage": step_name,
+                    # Same key the sandbox path stamps via the agent-server, so the one-shot
+                    # groups with its turn's generations in LLM analytics.
+                    **({"x-posthog-property-$ai_session_id": ai_session_id} if ai_session_id else {}),
+                },
                 timeout=_TIMEOUT_SECONDS,
             )
         except APIError as e:

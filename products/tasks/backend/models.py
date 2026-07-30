@@ -500,6 +500,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         branch: str | None = None,
         signal_report_id: str | None = None,
         ai_stage: str | None = None,
+        ai_session_id: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
@@ -654,6 +655,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if ai_stage:
             extra_state["ai_stage"] = ai_stage
 
+        # Same channel as `ai_stage`, lifted as `$ai_session_id` — groups the run's generations
+        # under the caller's logical operation (e.g. one ReviewHog review turn) in LLM analytics.
+        if ai_session_id:
+            extra_state["ai_session_id"] = ai_session_id
+
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 
@@ -780,6 +786,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
+        ai_session_id: str | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
         pending_user_message: str | None = None,
@@ -813,6 +820,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
+            ai_session_id=ai_session_id,
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
             pending_user_message=pending_user_message,

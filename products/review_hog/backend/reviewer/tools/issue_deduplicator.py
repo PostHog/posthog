@@ -103,6 +103,7 @@ async def deduplicate_issues(
     branch: str,
     repository: str,
     workflow_id_prefix: str | None = None,
+    ai_session_id: str | None = None,
 ) -> list[Issue]:
     """Deduplicate the in-scope issues and return the survivors (the canonical post-dedup set).
 
@@ -155,6 +156,7 @@ async def deduplicate_issues(
             system_prompt=_SYSTEM_PROMPT,
             model_to_validate=IssueDeduplication,
             step_name="dedup",
+            ai_session_id=ai_session_id,
         )
     else:
         deduplication_result = await run_sandbox_review(
@@ -166,6 +168,7 @@ async def deduplicate_issues(
             system_prompt=_SYSTEM_PROMPT,
             model_to_validate=IssueDeduplication,
             step_name="dedup",
+            ai_session_id=ai_session_id,
             workflow_id_prefix=workflow_id_prefix,
             runtime_adapter=DEDUP_RUNTIME_ADAPTER,
             model=DEDUP_MODEL,

@@ -19,6 +19,7 @@ async def _run_prompt(
     branch: str | None = None,
     step_name: str = "",
     workflow_id_prefix: str | None = None,
+    ai_session_id: str | None = None,
 ) -> _ModelT:
     """Spawn a single-turn sandbox agent and return its validated end-of-turn.
 
@@ -44,6 +45,7 @@ async def _run_prompt(
             origin_product=TaskOriginProduct.REVIEW_HOG,
             internal=True,
             ai_stage=step_name or None,
+            ai_session_id=ai_session_id,
         )
     except Exception:
         logger.exception("Sandbox execution failed")
@@ -65,6 +67,7 @@ async def run_sandbox_review(
     model_to_validate: type[_ModelT],
     step_name: str = "",
     workflow_id_prefix: str | None = None,
+    ai_session_id: str | None = None,
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
@@ -105,6 +108,7 @@ async def run_sandbox_review(
         branch=branch,
         step_name=step_name,
         workflow_id_prefix=workflow_id_prefix,
+        ai_session_id=ai_session_id,
     )
 
 
@@ -119,6 +123,7 @@ async def start_sandbox_session(
     model_to_validate: type[_ModelT],
     step_name: str = "",
     workflow_id_prefix: str | None = None,
+    ai_session_id: str | None = None,
     runtime_adapter: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
@@ -156,6 +161,7 @@ async def start_sandbox_session(
             origin_product=TaskOriginProduct.REVIEW_HOG,
             internal=True,
             ai_stage=step_name or None,
+            ai_session_id=ai_session_id,
         )
     except Exception:
         logger.exception("Sandbox session start failed")
