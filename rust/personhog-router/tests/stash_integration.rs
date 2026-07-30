@@ -908,3 +908,63 @@ async fn drain_converges_with_concurrent_arrivals() {
         drop(h.await.unwrap());
     }
 }
+
+/// Cancelling a drain mid-forward must return promptly and put the entry
+/// back — not ride out the backend timeout. At router shutdown the
+/// drain-lane join sits between cancellation and the lease revoke, so a
+/// forward that keeps a lane busy delays deregistration, and every
+/// freeze quorum still counting this router stalls with it.
+#[tokio::test]
+async fn drain_cancellation_returns_promptly_and_puts_the_entry_back() {
+    // A leader that accepts TCP connections but never speaks: the
+    // forward hangs in the HTTP/2 handshake until the backend timeout.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind hanging leader");
+    let leader_addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((sock, _)) = listener.accept().await {
+            held.push(sock);
+        }
+    });
+
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let backend = make_backend(leader_addr, stash).await;
+    let handler = new_test_handler(Arc::clone(&backend));
+
+    let (team_id, person_id) = (1, 42);
+    let partition = backend.partition_for_person(team_id, person_id);
+    handler
+        .begin_stash(partition, "leader-new")
+        .await
+        .expect("begin_stash should succeed");
+
+    let req = mk_request(team_id, person_id, "parked@example.com");
+    let backend_for_call = Arc::clone(&backend);
+    let _in_flight = tokio::spawn(async move { forward(&backend_for_call, req).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let cancel = CancellationToken::new();
+    let drain_cancel = cancel.clone();
+    let drain = tokio::spawn(async move {
+        handler
+            .drain_stash(partition, "leader-new", drain_cancel)
+            .await
+    });
+    // Let the drain reach the hanging forward before cancelling.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    cancel.cancel();
+
+    tokio::time::timeout(Duration::from_secs(1), drain)
+        .await
+        .expect("cancelled drain must return well before the backend timeout")
+        .expect("drain task must not panic")
+        .expect("a cancelled drain is a pause, not an error");
+
+    let handler = new_test_handler(Arc::clone(&backend));
+    assert!(
+        handler.stash_pending(partition),
+        "the abandoned entry must be put back for the next drain"
+    );
+}

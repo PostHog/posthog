@@ -16,6 +16,7 @@ from temporalio.client import ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
+from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
@@ -290,6 +291,120 @@ class TestConsolidateDags(BaseTest):
         self.assertTrue(Node.objects.filter(dag=source, saved_query=bad).exists())
         self.assertTrue(Node.objects.filter(dag=target, saved_query=good).exists())
         mocks.v2_delete.assert_not_called()
+
+    def test_adopt_unresolvable_lands_broken_query_edge_less_and_deletes_source_dag(self):
+        # One broken query must not hold the team's consolidation hostage: with the flag, the
+        # unresolvable query is adopted into the target with no edges and a marker, cadence intent
+        # intact, while healthy queries move normally and the source DAG is deleted.
+        target = DAG.get_or_create_default(self.team)
+        source = DAG.objects.create(team=self.team, name="posthog_team")
+        good = self._query("good_view", "SELECT * FROM events")
+        bad = self._query("bad_view", "SELECT * FROM nonexistent_table_xyz")
+        self._node(source, good)
+        set_declared_target(self._node(source, bad), M15)
+
+        with _temporal_boundary():
+            output = self._run("--adopt-unresolvable", apply=True)
+
+        self.assertFalse(DAG.objects.filter(id=source.id).exists())
+        adopted = Node.objects.get(dag=target, saved_query=bad)
+        self.assertFalse(Edge.objects.filter(dag=target, target=adopted).exists())
+        self.assertIn("nonexistent_table_xyz", adopted.properties["system"]["degraded_sync"]["error"])
+        self.assertEqual(get_declared_target(adopted), M15)
+        good_node = Node.objects.get(dag=target, saved_query=good)
+        events = Node.objects.get(dag=target, name="events", type=NodeType.TABLE)
+        self.assertTrue(Edge.objects.filter(dag=target, source=events, target=good_node).exists())
+        self.assertIn("adopted bad_view without edges", output)
+
+    def test_adopted_node_unblocks_its_dependents_moves(self):
+        # The reason the flag exists: one unresolvable query must not cascade into N failed
+        # moves. Parent in a managed DAG (excluded from consolidation) → dependent fails
+        # Node.DoesNotExist and is adopted edge-less → the dependent's own dependent resolves
+        # the adopted node in the target and moves with a real edge.
+        target = DAG.get_or_create_default(self.team)
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        managed_parent = self._query("stripe_view", "SELECT 1")
+        self._node(managed, managed_parent)
+        source = DAG.objects.create(team=self.team, name="posthog_team")
+        blocked = self._query("blocked_view", "SELECT * FROM stripe_view")
+        dependent = self._query("dependent_view", "SELECT * FROM blocked_view")
+        blocked_node = self._node(source, blocked)
+        dependent_node = self._node(source, dependent)
+        Edge.objects.create(team=self.team, dag=source, source=blocked_node, target=dependent_node)
+
+        with _temporal_boundary():
+            output = self._run("--adopt-unresolvable", apply=True)
+
+        self.assertFalse(DAG.objects.filter(id=source.id).exists())
+        adopted = Node.objects.get(dag=target, saved_query=blocked)
+        self.assertFalse(Edge.objects.filter(dag=target, target=adopted).exists())
+        self.assertIn("degraded_sync", adopted.properties["system"])
+        moved = Node.objects.get(dag=target, saved_query=dependent)
+        self.assertTrue(Edge.objects.filter(dag=target, source=adopted, target=moved).exists())
+        self.assertIn("adopted blocked_view without edges", output)
+        self.assertIn("moved dependent_view", output)
+
+    def test_adopt_unresolvable_does_not_adopt_non_resolution_failures(self):
+        # The flag exists for SQL that cannot resolve. A sync that fails for operational reasons
+        # (DB blip, programming error) must stay a failed move — adopting it would delete the
+        # source DAG and report success on a query a plain retry would have moved intact.
+        target = DAG.get_or_create_default(self.team)
+        source = DAG.objects.create(team=self.team, name="posthog_team")
+        moved = self._query("only_in_source", "SELECT 1")
+        self._node(source, moved)
+
+        with _temporal_boundary():
+            with mock.patch(f"{COMMAND}.sync_saved_query_to_dag", side_effect=RuntimeError("db down")):
+                with self.assertRaisesRegex(CommandError, "incomplete"):
+                    self._run("--adopt-unresolvable", apply=True)
+
+        self.assertTrue(DAG.objects.filter(id=source.id).exists())
+        self.assertFalse(Node.objects.filter(dag=target, saved_query=moved).exists())
+
+    def test_adoption_failure_rolls_back_the_node(self):
+        # If the marker save fails after get_or_create committed the node, an unmarked edge-less
+        # node would survive; the re-run would then classify the query as DROP instead of
+        # retrying the move, stranding it without the marker forever. Create + mark must commit
+        # or roll back together so the re-run sees a clean MOVE to retry.
+        target = DAG.get_or_create_default(self.team)
+        source = DAG.objects.create(team=self.team, name="posthog_team")
+        bad = self._query("bad_view", "SELECT * FROM nonexistent_table_xyz")
+        self._node(source, bad)
+
+        real_save = Node.save
+
+        def failing_marker_save(node, *args, **kwargs):
+            if kwargs.get("update_fields") == ["properties"]:
+                raise RuntimeError("connection lost")
+            return real_save(node, *args, **kwargs)
+
+        with _temporal_boundary():
+            with mock.patch.object(Node, "save", autospec=True, side_effect=failing_marker_save):
+                with self.assertRaisesRegex(CommandError, "incomplete"):
+                    self._run("--adopt-unresolvable", apply=True)
+
+        self.assertTrue(DAG.objects.filter(id=source.id).exists())
+        self.assertFalse(Node.objects.filter(dag=target, saved_query=bad).exists())
+
+    def test_degraded_sync_marker_cleared_when_query_resolves_again(self):
+        # A stale marker after the customer fixes their SQL would make the post-fix re-sync sweep
+        # (and any dashboard keyed on the marker) report a healthy node as degraded forever.
+        target = DAG.get_or_create_default(self.team)
+        fixed = self._query("fixed_view", "SELECT * FROM events")
+        node = Node.objects.create(
+            team=self.team,
+            dag=target,
+            saved_query=fixed,
+            type=NodeType.VIEW,
+            properties={"system": {"degraded_sync": {"error": "Unknown table", "at": "2026-07-30T00:00:00+00:00"}}},
+        )
+
+        sync_saved_query_to_dag(fixed, dag=target, reconcile=False)
+
+        node.refresh_from_db()
+        self.assertNotIn("system", node.properties)
+        events = Node.objects.get(dag=target, name="events", type=NodeType.TABLE)
+        self.assertTrue(Edge.objects.filter(dag=target, source=events, target=node).exists())
 
     def test_schedule_teardown_failure_keeps_source_dag(self):
         # deleting the DAG row before its execute-dag schedules are gone would orphan the
