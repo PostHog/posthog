@@ -40,7 +40,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS, MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
 
 logger = structlog.get_logger(__name__)
@@ -636,13 +636,18 @@ def build_snapshot(
     # Sort clusters by call volume desc so the UI shows the most impactful first.
     clusters.sort(key=lambda c: c["call_count"], reverse=True)
 
+    # Persist only the highest-volume clusters; ``n_clusters`` keeps the full
+    # count so the UI can say how many the run actually found.
+    n_clusters_total = len(clusters)
+    del clusters[MAX_SNAPSHOT_CLUSTERS:]
+
     return {
         "clusters": clusters,
         "computed_with": {
             "distance_threshold": distance_threshold,
             "embedding_model": EMBEDDING_MODEL,
             "n_intents": len(records),
-            "n_clusters": len(clusters),
+            "n_clusters": n_clusters_total,
         },
     }
 
