@@ -284,6 +284,24 @@ def _first_per_pk_table(
     return pa_table.take(kept_indices)
 
 
+def _merge_predicate_ops(normalized_primary_keys: list[str]) -> list[str]:
+    """Per-key merge match conditions, using NULL-safe equality.
+
+    delta-rs matches source↔target with plain `source.c = target.c`, which is NULL-*un*safe:
+    `NULL = NULL` evaluates to NULL (not true). Composite keys with nullable columns — e.g. the
+    GoogleAds report resources keyed on `segments.ad_network_type` / `segments.click_type` /
+    `segments.device`, which are frequently NULL — therefore never match their existing target row,
+    so `when_not_matched_insert_all` re-inserts them on *every* incremental sync and the table
+    silently accumulates a duplicate per NULL-keyed row. `IS NOT DISTINCT FROM` treats NULL == NULL,
+    matching the source dedup (`_first_per_pk_table` groups NULLs together) and stopping the drift.
+
+    Each term is parenthesised: delta-rs's predicate parser (1.6.1) mis-associates a bare
+    `a IS NOT DISTINCT FROM b AND c IS NOT DISTINCT FROM d` (it groups `b AND c`), so the parens are
+    required for it to plan.
+    """
+    return [f"(source.{c} IS NOT DISTINCT FROM target.{c})" for c in normalized_primary_keys]
+
+
 def delta_storage_options() -> dict[str, str]:
     """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
     read path (e.g. the person-property backfill) can open a Delta table without constructing a full
@@ -641,7 +659,7 @@ class DeltaTableHelper:
                 if n in py_table_column_names:
                     normalized_primary_keys.append(n)
 
-            predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
+            predicate_ops = _merge_predicate_ops(normalized_primary_keys)
             if use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
