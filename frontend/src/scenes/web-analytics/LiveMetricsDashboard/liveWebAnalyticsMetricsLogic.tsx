@@ -60,6 +60,7 @@ import {
 } from './recentUsersByLastSeen'
 
 const ERROR_TOAST_ID = 'live-pageviews-error'
+const GEO_ERROR_TOAST_ID = 'live-geo-error'
 const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const PARTIAL_FAILURE_TOAST_ID = 'live-pageviews-partial-failure'
 const BUCKET_WINDOW_MINUTES = 30
@@ -352,12 +353,17 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                                 bot: botData,
                             })
 
-                            // City breakdown rides on the regular event stream because the geo SSE
-                            // (which drives lat/lng + country) doesn't include city information.
+                            // City and country breakdowns ride on the regular event stream: the geo SSE has no
+                            // city at all, and it drops any event whose server-side IP lookup produced no
+                            // coordinates, which would otherwise leave the countries card empty even though
+                            // $geoip_country_code is right here on the main stream.
                             const cityName = event.properties?.$geoip_city_name as string | undefined
-                            const cityCountryCode = event.properties?.$geoip_country_code as string | undefined
+                            const countryCode = event.properties?.$geoip_country_code as string | undefined
                             if (cityName) {
-                                window.addCityDataPoint(eventTs, cityName, cityCountryCode ?? '', event.distinct_id)
+                                window.addCityDataPoint(eventTs, cityName, countryCode ?? '', event.distinct_id)
+                            }
+                            if (countryCode) {
+                                window.addGeoDataPoint(eventTs, countryCode, event.distinct_id)
                             }
                         }
                     }
@@ -401,6 +407,8 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             {
                 setInitialData: (v) => v + 1,
                 addGeoEvents: (v) => v + 1,
+                addEvents: (v) => v + 1,
+                tickCurrentMinute: (v) => v + 1,
             },
         ],
         isLoading: [
@@ -670,9 +678,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
 
             const url = new URL(`${host}/events`)
             const baseColumns =
-                '$pathname,$current_url,$host,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain'
+                '$pathname,$current_url,$host,$device_type,$device_id,$browser,$ip,$raw_user_agent,$referring_domain,$geoip_country_code'
             const cityColumns = values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]
-                ? ',$geoip_city_name,$geoip_country_code'
+                ? ',$geoip_city_name'
                 : ''
             const recordingColumn = values.currentTeam?.session_recording_opt_in ? ',$session_id' : ''
             url.searchParams.append('columns', `${baseColumns}${cityColumns}${recordingColumn}`)
@@ -729,6 +737,9 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 url,
                 token,
                 onMessage: (data) => {
+                    lemonToast.dismiss(GEO_ERROR_TOAST_ID)
+                    cache.hasShownGeoStreamErrorToast = false
+
                     try {
                         const geoData = JSON.parse(data) as LiveGeoEvent
                         if (geoData.countryCode && geoData.distinctId) {
@@ -739,7 +750,14 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     }
                 },
                 onError: (error) => {
-                    console.error('Geo stream error:', error)
+                    if (!cache.hasShownGeoStreamErrorToast) {
+                        console.error('Geo stream error:', error)
+                        lemonToast.error('Live location data may be incomplete. Retrying...', {
+                            toastId: GEO_ERROR_TOAST_ID,
+                            autoClose: 5000,
+                        })
+                        cache.hasShownGeoStreamErrorToast = true
+                    }
                 },
             })
         },
