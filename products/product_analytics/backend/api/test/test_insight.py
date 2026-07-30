@@ -1625,6 +1625,25 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             request=ANY,
         )
 
+    @parameterized.expand([("hogql",), ("sql",)])
+    def test_adding_insight_with_unknown_legacy_insight_kind_to_dashboard(self, insight_kind: str) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        # Query-based insights saved before the SQL rename still carry these kinds in `filters`,
+        # which the legacy insight-to-display map has never known about.
+        insight = Insight.objects.create(
+            team=self.team,
+            name="old sql insight",
+            filters={"insight": insight_kind},
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}/", {"dashboards": [dashboard_id]}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertTrue(DashboardTile.objects.filter(insight=insight, dashboard_id=dashboard_id).exists())
+
     @patch("products.product_analytics.backend.api.insight.report_user_action")
     def test_non_web_retrieve_fires_insight_read_event(self, mock_report_user_action: mock.Mock) -> None:
         insight_id, insight_json = self.dashboard_api.create_insight(

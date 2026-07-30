@@ -48,6 +48,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_DATA_WAREHOUSE,
     TREND_FILTER_TYPE_EVENTS,
+    TRENDS_LINEAR,
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
 )
@@ -285,7 +286,10 @@ class InsightMixin(BaseParamMixin):
 class DisplayDerivedMixin(InsightMixin):
     @cached_property
     def display(self) -> Literal[DISPLAY_TYPES]:
-        return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY[self.insight])
+        # INSIGHT_TO_DISPLAY only covers the legacy insight kinds. Query-based insights can still
+        # carry a stale `filters` blob naming a kind it doesn't know about (e.g. the pre-rename
+        # "hogql"), and those have no meaningful legacy display — fall back instead of raising.
+        return self._data.get(DISPLAY, INSIGHT_TO_DISPLAY.get(self.insight, TRENDS_LINEAR))
 
     @include_dict
     def display_to_dict(self):
