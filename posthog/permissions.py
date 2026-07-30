@@ -543,6 +543,21 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
+    """The teams a scoped token is confined to, or None when the credential carries no team
+    restriction (session auth, or a token scoped to every team in the organization).
+
+    The companion of `get_authenticator_scopes` for the other half of a token's authority, so a
+    check that has to re-derive a credential's reach outside `TeamAndOrgViewSetMixin` reads both
+    legs from one place.
+    """
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return list(authenticator.personal_api_key.scoped_teams or []) or None
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return list(authenticator.access_token.scoped_teams or []) or None
+    return None
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
