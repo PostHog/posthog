@@ -1,32 +1,32 @@
 version: 2
 
 models:
-  - name: dim_customer
-    description: One row per paying customer.
-    columns:
-      - name: customer_id
-        data_tests: [unique, not_null]
-      - name: country
+    - name: dim_customer
+      description: One row per paying customer.
+      columns:
+          - name: customer_id
+            data_tests: [unique, not_null]
+          - name: country
 
-  - name: fct_revenue_item
-    description: Line-item grain revenue, converted to the base currency.
-    columns:
-      - name: revenue_item_id
-        data_tests: [unique, not_null]
-      - name: customer_id
-        data_tests:
-          - not_null
-          - relationships:
-              to: ref('dim_customer')
-              field: customer_id
-      - name: amount
-        description: Revenue in the reporting base currency.
-        data_tests: [not_null]
+    - name: fct_revenue_item
+      description: Line-item grain revenue, converted to the base currency.
+      columns:
+          - name: revenue_item_id
+            data_tests: [unique, not_null]
+          - name: customer_id
+            data_tests:
+                - not_null
+                - relationships:
+                      to: ref('dim_customer')
+                      field: customer_id
+          - name: amount
+            description: Revenue in the reporting base currency.
+            data_tests: [not_null]
 
-  - name: fct_mrr
-    description: Monthly MRR/ARR with the new/expansion/contraction/churn bridge.
-    columns:
-      - name: month
-        data_tests: [unique, not_null]
-      - name: mrr
-        data_tests: [not_null]
+    - name: fct_mrr
+      description: Monthly MRR/ARR with the new/expansion/contraction/churn bridge.
+      columns:
+          - name: month
+            data_tests: [unique, not_null]
+          - name: mrr
+            data_tests: [not_null]
