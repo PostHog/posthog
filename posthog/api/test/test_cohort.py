@@ -3081,6 +3081,29 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_creating_static_cohort_from_time_series_trends_actors_without_day_is_rejected(self):
+        # Without `day` the populate task can't compile the query, so the cohort would save and then
+        # fail on every recalculation, never gaining members.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "cohort A",
+                "is_static": True,
+                "query": {
+                    "kind": "ActorsQuery",
+                    "select": ["person"],
+                    "source": {
+                        "kind": "InsightActorsQuery",
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    },
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     @patch("posthog.api.cohort.report_user_action")
     def test_creating_with_query_and_fields(self, patch_capture):
         _create_person(
