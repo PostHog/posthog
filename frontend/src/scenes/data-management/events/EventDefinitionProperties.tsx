@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
-import { DefinitionHeader } from './DefinitionHeader'
+import { DefinitionHeader, DefinitionSentAs } from './DefinitionHeader'
 
 export function EventDefinitionProperties({ definition }: { definition: EventDefinition }): JSX.Element {
     const { loadPropertiesForEvent } = useActions(eventDefinitionsTableLogic)
@@ -33,6 +33,13 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                         taxonomicGroupType={TaxonomicFilterGroupType.EventProperties}
                     />
                 )
+            },
+        },
+        {
+            title: 'Sent as',
+            key: 'sent_as',
+            render: function Render(_, _definition: PropertyDefinition) {
+                return <DefinitionSentAs definition={_definition} />
             },
         },
         {

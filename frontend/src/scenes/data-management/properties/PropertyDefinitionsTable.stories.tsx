@@ -96,6 +96,12 @@ export const Default: Story = {
     },
 }
 
+export const PersonProperties: Story = {
+    parameters: {
+        pageUrl: urls.propertyDefinitions() + '?type=person',
+    },
+}
+
 export const FilteredVerifiedOnly: Story = {
     parameters: {
         pageUrl: urls.propertyDefinitions() + '?verified=true',

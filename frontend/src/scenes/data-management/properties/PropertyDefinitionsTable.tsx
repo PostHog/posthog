@@ -5,12 +5,18 @@ import { useActions, useValues } from 'kea'
 import { LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { filterToTaxonomicFilterType } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
-import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import {
+    DefinitionHeader,
+    DefinitionSentAs,
+    getPersonPropertyDefinitionIcon,
+    getPropertyDefinitionIcon,
+} from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -19,19 +25,31 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { PropertyDefinition } from '~/types'
+import { PropertyDefinition, PropertyFilterType } from '~/types'
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions, showVerifiedFilter } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
 
+    // Person and group properties have their own taxonomy, so the label and description only resolve
+    // once we look the definition up under the group the current filter is showing.
+    const taxonomicGroupType =
+        filterToTaxonomicFilterType(filters.type as PropertyFilterType, filters.group_type_index) ??
+        TaxonomicFilterGroupType.EventProperties
+
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
             key: 'icon',
             width: 0,
             render: function Render(_, definition: PropertyDefinition) {
-                return <span className="text-xl text-secondary">{getPropertyDefinitionIcon(definition)}</span>
+                return (
+                    <span className="text-xl text-secondary">
+                        {filters.type === 'person'
+                            ? getPersonPropertyDefinitionIcon(definition)
+                            : getPropertyDefinitionIcon(definition)}
+                    </span>
+                )
             },
         },
         {
@@ -43,7 +61,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                         <DefinitionHeader
                             definition={definition}
                             to={urls.propertyDefinition(definition.id)}
-                            taxonomicGroupType={TaxonomicFilterGroupType.EventProperties}
+                            taxonomicGroupType={taxonomicGroupType}
                         />
                         {definition.warehouse_origin && (
                             <Tooltip
@@ -64,6 +82,13 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 )
             },
             sorter: (a, b) => a.name.localeCompare(b.name),
+        },
+        {
+            title: 'Sent as',
+            key: 'sent_as',
+            render: function Render(_, definition: PropertyDefinition) {
+                return <DefinitionSentAs definition={definition} />
+            },
         },
         {
             title: 'Type',

@@ -14,7 +14,11 @@ import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
-import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import {
+    DefinitionHeader,
+    DefinitionSentAs,
+    getEventDefinitionIcon,
+} from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
@@ -68,6 +72,13 @@ export function EventDefinitionsTable(): JSX.Element {
                 )
             },
             sorter: true,
+        },
+        {
+            title: 'Sent as',
+            key: 'sent_as',
+            render: function Render(_, definition: EventDefinition) {
+                return <DefinitionSentAs definition={definition} />
+            },
         },
         {
             title: 'Last seen',

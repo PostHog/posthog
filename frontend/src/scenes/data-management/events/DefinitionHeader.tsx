@@ -13,6 +13,7 @@ import {
     IconServer,
 } from '@posthog/icons'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
@@ -223,5 +224,23 @@ export function DefinitionHeader({
                 <PropertyKeyInfo value={definition.name ?? ''} disablePopover disableIcon type={taxonomicGroupType} />
             }
         />
+    )
+}
+
+/** The raw key, which the name cell hides behind a friendly label for anything PostHog has a definition for. */
+export function DefinitionSentAs({ definition }: { definition: EventDefinition | PropertyDefinition }): JSX.Element {
+    // Virtual properties are computed at query time, so nothing is ever sent for them.
+    if (!definition.name || ('virtual' in definition && definition.virtual)) {
+        return <span className="text-secondary">—</span>
+    }
+    return (
+        <CopyToClipboardInline
+            explicitValue={definition.name}
+            description="name"
+            iconSize="xsmall"
+            className="font-mono text-xs"
+        >
+            {definition.name}
+        </CopyToClipboardInline>
     )
 }
