@@ -50,6 +50,7 @@ from posthog.constants import PAGEVIEW_EVENT
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
@@ -1824,13 +1825,15 @@ class HedgeboxMatrix(Matrix):
                     | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
                 ),
                 # The wizard can also provision an account rather than logging into one, which
-                # every provisioning endpoint gates on. All four default to False, so without
-                # them account creation fails at authentication with "no provisioning client is
-                # registered" and the flow can't be exercised locally at all.
+                # every provisioning endpoint gates on. Every capability defaults to False, so
+                # without these account creation fails at authentication with "no provisioning
+                # client is registered" and the flow can't be exercised locally at all.
                 "is_provisioning_partner": True,
-                "provisioning_active": True,
-                "provisioning_can_create_accounts": True,
-                "provisioning_can_provision_resources": True,
+                "_provisioning_config": ProvisioningConfig(
+                    active=True,
+                    can_create_accounts=True,
+                    can_provision_resources=True,
+                ).model_dump(mode="json"),
             },
         )
 
