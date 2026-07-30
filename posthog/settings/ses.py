@@ -13,3 +13,10 @@ else:
     SES_SECRET_ACCESS_KEY = os.getenv("SES_SECRET_ACCESS_KEY", "") or None
 
 SES_REGION = os.getenv("SES_REGION", "us-east-1")
+
+# SNS topics allowed to deliver SES tenant reputation events (EventBridge -> SNS -> webhook).
+# Empty (the default) leaves the webhook inert: the SNS signature proves a message came from AWS,
+# but only the allowlist proves it came from *our* topic.
+WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
+    arn.strip() for arn in os.getenv("WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS", "").split(",") if arn.strip()
+]
