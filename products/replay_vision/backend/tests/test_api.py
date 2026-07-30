@@ -13,6 +13,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.redis import get_client
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
@@ -1573,9 +1574,25 @@ class TestObserveAction(_VisionAPITestCase):
         self.scanner = self._create_scanner()
         # Claims from earlier tests' mocked starts are never released by an activity.
         get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
+        load_metadata = patch.object(SessionRecording, "load_metadata", return_value=True)
+        self.mock_load_metadata = load_metadata.start()
+        self.addCleanup(load_metadata.stop)
 
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
+
+    def test_observe_rejects_session_without_a_retrievable_recording(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        self.mock_load_metadata.return_value = False
+
+        resp = self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-gone"}, format="json")
+
+        self.assertEqual(resp.status_code, 404, resp.json())
+        start_workflow.assert_not_called()
 
     @parameterized.expand(
         [

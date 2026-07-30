@@ -68,6 +68,7 @@ import {
 } from '../replay_scanners/types'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { RecordingUnavailable } from './RecordingUnavailable'
 import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -316,6 +317,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             noBorder
                             noDock
                             withSidebar
+                            notFoundContent={<RecordingUnavailable sessionId={observation.session_id} />}
                         />
                         {pendingSeek && (
                             <AutoSeekToTime

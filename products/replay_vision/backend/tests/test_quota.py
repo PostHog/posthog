@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.date_util import start_of_month
 from posthog.models import Organization, Team
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
@@ -516,6 +517,12 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        load_metadata = patch.object(SessionRecording, "load_metadata", return_value=True)
+        load_metadata.start()
+        self.addCleanup(load_metadata.stop)
+
     @property
     def observe_url(self) -> str:
         return f"/api/environments/{self.team.id}/vision/scanners/{self.scanner.id}/observe/"

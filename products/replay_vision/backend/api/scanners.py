@@ -25,6 +25,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -1154,6 +1155,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
+
+        # An observation whose recording can't be fetched is useless — the user can never verify the finding.
+        if not SessionRecording.get_or_build(session_id=session_id, team=self.team).load_metadata():
+            raise NotFound("No playable recording found for this session.")
 
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND
