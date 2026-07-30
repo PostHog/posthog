@@ -1,6 +1,7 @@
 import type { UserBasicType } from '~/types'
 
 import {
+    type ReportChartApi,
     type SignalReportRefundApi,
     type SignalScoutRunSummaryApi,
     SignalSourceProductApi as SignalSourceProduct,
@@ -70,6 +71,8 @@ export interface SignalReport {
     updated_at: string
     artefact_count: number
     is_suggested_reviewer: boolean
+    /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
+    charts?: ReportChartApi[]
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** P0–P4 from the priority judgment when the report is researched. */

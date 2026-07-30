@@ -661,7 +661,14 @@ export class CdpApi {
                 })
             }
 
-            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            // Redact the flow's decrypted secret inputs from the mocked async-function logs, so a test
+            // run can't echo a stored credential (e.g. an Authorization header) back to the caller.
+            const sensitiveValues = await this.hogFlowExecutor.getSensitiveValues(compoundConfiguration)
+            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
+                mock_async_functions,
+                logs,
+                sensitiveValues
+            )
             options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 

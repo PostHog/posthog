@@ -26,6 +26,28 @@ class SSRFBlockedError(Exception):
     """URL failed SSRF validation. The message is the block reason."""
 
 
+def select_pinned_ip(
+    pinned_ips: set[ipaddress.IPv4Address | ipaddress.IPv6Address],
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Choose which validated address to pin, preferring IPv4.
+
+    Pinning replaces the resolver's own address selection, so picking an arbitrary member of the
+    set can hand back an AAAA record on a host with no IPv6 route. That fails outright with
+    "Network is unreachable" instead of falling back to the A record the way getaddrinfo ordering
+    would, which is what happens on IPv4-only CI runners and in IPv4-only clusters. Within a family
+    the lowest address wins, so a host with several records pins the same one every time and a
+    failure reproduces instead of arriving intermittently as set iteration order shifts.
+
+    Returns None for an empty set, meaning the caller should pin nothing.
+    """
+    ipv4 = [ip for ip in pinned_ips if ip.version == 4]
+    if ipv4:
+        return min(ipv4, key=lambda ip: int(ip))
+    if pinned_ips:
+        return min(pinned_ips, key=lambda ip: int(ip))
+    return None
+
+
 def _canonical_host(hostname: str) -> str:
     """Return the host in the same ASCII form ``requests`` connects to.
 
@@ -144,8 +166,9 @@ def pinned_request(
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse.urlparse(url).hostname or "").lower()
-    if pinned_ips:
-        adapter.pin(hostname, next(iter(pinned_ips)))
+    chosen_ip = select_pinned_ip(pinned_ips)
+    if chosen_ip is not None:
+        adapter.pin(hostname, chosen_ip)
 
     session = requests.Session()
     session.mount("http://", adapter)  # nosemgrep: request-session-with-http

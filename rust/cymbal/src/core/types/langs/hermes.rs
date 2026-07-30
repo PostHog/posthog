@@ -59,7 +59,11 @@ impl RawHermesFrame {
                 Ok(self.handle_resolution_error(HermesError::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                tracing::warn!("Unexpected Hermes symbol resolution error: {:?}", e);
+                tracing::warn!(
+                    team_id,
+                    "Unexpected Hermes symbol resolution error: {:?}",
+                    e
+                );
                 Ok(self.handle_resolution_error(HermesError::InvalidMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),

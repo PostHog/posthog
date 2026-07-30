@@ -15,6 +15,12 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
     prepare_data_modeling_ducklake_metadata_activity,
     verify_ducklake_copy_activity,
 )
+from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
+    DuckLakeRegisterDataImportsWorkflow,
+    copy_and_register_ducklake_data_imports_activity,
+    ducklake_register_data_imports_gate_activity,
+    prepare_ducklake_data_imports_registration_activity,
+)
 from posthog.temporal.ducklake.publish_table_workflow import (
     DuckgresPrunePublishedSnapshotWorkflow,
     DuckgresPublishTableWorkflow,
@@ -30,16 +36,20 @@ WORKFLOWS = [
     DuckLakeCopyDataModelingWorkflow,
     DuckgresPrunePublishedSnapshotWorkflow,
     DuckgresPublishTableWorkflow,
+    DuckLakeRegisterDataImportsWorkflow,
 ]
 ACTIVITIES = [
     cleanup_data_imports_staging_activity,
     cleanup_data_modeling_staging_activity,
     copy_data_imports_to_ducklake_activity,
     copy_data_modeling_model_to_ducklake_activity,
+    copy_and_register_ducklake_data_imports_activity,
     ducklake_copy_data_imports_gate_activity,
     ducklake_copy_workflow_gate_activity,
+    ducklake_register_data_imports_gate_activity,
     prepare_data_imports_ducklake_metadata_activity,
     prepare_data_modeling_ducklake_metadata_activity,
+    prepare_ducklake_data_imports_registration_activity,
     prune_published_snapshot_activity,
     publish_table_copy_activity,
     publish_table_mark_failed_activity,

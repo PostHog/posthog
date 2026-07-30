@@ -23,14 +23,20 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT, MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.constants import (
+    MAX_SNAPSHOT_CLUSTERS,
+    MCP_MISSING_CAPABILITY_EVENT,
+    MCP_TOOL_CALL_EVENT,
+)
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
-# How long a snapshot may sit in COMPUTING before we assume the task died and
-# auto-recover. Generous because a real recompute completes in well under a
-# minute even at the top_n=500 cap; anything past 10 minutes is a dead task.
-STALE_COMPUTING_THRESHOLD = timedelta(minutes=10)
+# How long a snapshot may sit in COMPUTING before we assume the run died and
+# auto-recover. Must exceed the compute activity's schedule_to_close budget
+# (400s, covering queue wait + both attempts — see intent_clustering
+# constants); past that, nothing can still legitimately write a final status,
+# so the row is a dead run whose worker never reached _mark_error.
+STALE_COMPUTING_THRESHOLD = timedelta(minutes=8)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -648,9 +654,9 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
     Defensive side effect: any row stuck in COMPUTING past
     STALE_COMPUTING_THRESHOLD is auto-flipped to ERROR so the UI can offer
-    a retry. The Celery task may have died between writing COMPUTING and
-    writing its final status (worker restart, OOM, etc.) and otherwise has
-    no path back to a usable state.
+    a retry. The Temporal activity may have died between writing COMPUTING
+    and writing its final status (no worker on the queue, worker OOM, etc.)
+    and otherwise has no path back to a usable state.
     """
     MCPIntentClusterSnapshot.objects.filter(
         team=team,
@@ -658,7 +664,7 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
         updated_at__lt=timezone.now() - STALE_COMPUTING_THRESHOLD,
     ).update(
         status=MCPIntentClusterSnapshot.Status.ERROR,
-        error_message="Recompute task did not complete within the expected window. Retry to try again.",
+        error_message="Clustering didn't finish in time. Retry to start a new run.",
     )
 
     snapshot = MCPIntentClusterSnapshot.objects.filter(team=team).select_related("last_computed_by").first()
@@ -675,6 +681,16 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
     blob = snapshot.clusters or {}
     clusters_raw = blob.get("clusters", []) if isinstance(blob, dict) else []
     meta_raw = blob.get("computed_with") if isinstance(blob, dict) else None
+
+    # Snapshots persisted before build_snapshot capped its output can hold
+    # hundreds of clusters — cap at read time too, keeping the highest-volume
+    # ones (the same ranking build_snapshot persists).
+    if len(clusters_raw) > MAX_SNAPSHOT_CLUSTERS:
+        clusters_raw = sorted(
+            (item for item in clusters_raw if isinstance(item, dict)),
+            key=lambda item: int(item.get("call_count", 0) or 0),
+            reverse=True,
+        )[:MAX_SNAPSHOT_CLUSTERS]
 
     return contracts.IntentClusterSnapshot(
         status=snapshot.status,

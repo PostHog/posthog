@@ -431,17 +431,37 @@ describe('ToolExecutor metrics', () => {
             expect(callsFor(mockToolErrorsInc, 'exec')).toHaveLength(0)
         })
 
-        it('emits exec-level error for framework failures before inner dispatch', async () => {
-            await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },
-                execState()
-            )
+        // Dispatcher rejections are agent mistakes, not server faults: they must not
+        // land in the `internal` bucket the error-rate alert watches, they stay
+        // attributed to `exec` (no inner tool ran), and they must carry a value-free
+        // message so the failure is debuggable from analytics.
+        it.each([
+            ['call nonexistent-tool-xyz {}', 'unknown_tool'],
+            ['frobnicate', 'unknown_command'],
+            ['call docs-search {not json}', 'invalid_json'],
+        ])('classifies %s as validation', async (command, reason) => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 
-            const execErrors = callsFor(mockToolCallsInc, 'exec')
-            expect(execErrors.length).toBeGreaterThan(0)
-            expect(execErrors[0].status).toBe('error')
+            expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'validation_error' }])
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_message: `Exec command rejected: ${reason}`,
+            })
+        })
 
-            expect(callsFor(mockToolErrorsInc, 'exec').length).toBeGreaterThan(0)
+        it('classifies a scope-gated tool as permission, not validation', async () => {
+            // The agent can't fix this by sending different input — the connection has
+            // to be reauthorized, which is what the permission-rate alert watches for.
+            const state = execState()
+            state.scopeGatedTools = [{ name: 'gated-tool', missingScopes: ['insight:read'] }] as any
+
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'info gated-tool' } }, state)
+
+            expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'permission' }])
+            expect(trackToolCallExtras('exec')).toMatchObject({
+                $mcp_error_message: 'Exec command rejected: missing_scope',
+            })
         })
     })
 })

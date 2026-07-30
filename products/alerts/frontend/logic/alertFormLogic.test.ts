@@ -349,6 +349,10 @@ describe('alertFormLogic', () => {
         })
 
         expect(thresholdAlertHasBounds(logic.values.alertForm)).toBe(false)
+        expect(logic.values.alertFormValidationErrors.threshold).toBe(
+            'Enter at least one threshold (less than or more than)'
+        )
+        expect(logic.values.thresholdBoundsFormError).toBeUndefined()
 
         logic.actions.setAlertFormSubmitAttempted()
 

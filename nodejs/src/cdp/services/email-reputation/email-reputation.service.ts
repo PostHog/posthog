@@ -4,9 +4,15 @@ import { Counter } from 'prom-client'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
+import { captureTeamEvent } from '~/common/utils/posthog'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import { ReputationMetrics, ReputationThresholds, classifyReputation } from './classifier'
 import { BatchEvaluationSummary, HourlyEmailMetricsRow } from './types'
+
+export const REPUTATION_STATE_CHANGED_EVENT = 'workflow_email_reputation_state_changed'
+
+const DEGRADED_STATES = new Set(['warning', 'critical'])
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -72,6 +78,7 @@ export class EmailReputationService {
     constructor(
         private clickhouse: ClickHouseClient,
         private postgres: PostgresRouter,
+        private teamManager: TeamManager,
         private config: EmailReputationServiceConfig
     ) {}
 
@@ -216,11 +223,20 @@ export class EmailReputationService {
             summary.teamsEvaluated++
         }
 
+        // Read before the inserts so "previous" can't see this run's own rows.
+        const previousStates = await this.fetchPreviousTeamStates(teamIds, evaluatedAt)
+        const suspendedTeamIds = await this.fetchSuspendedTeamIds(teamIds)
+
         for (const snapshot of snapshots) {
             const inserted = await this.insertSnapshot(snapshot, evaluatedAt)
             if (inserted) {
                 summary.snapshotsWritten++
                 reputationSnapshotsCounter.labels(snapshot.scope, snapshot.state).inc()
+                if (snapshot.scope === 'team') {
+                    // Emitting only on a real insert makes Temporal activity retries emit-once for
+                    // free: a retried batch hits ON CONFLICT and never reaches this branch.
+                    await this.maybeEmitTeamStateChange(snapshot, previousStates, suspendedTeamIds, evaluatedAt)
+                }
             }
         }
 
@@ -347,6 +363,76 @@ export class EmailReputationService {
 
     private representativeVolume(buckets: Map<number, ReputationMetrics>): number {
         return representativeVolume(buckets, this.config.targetVolume, this.config.representativeVolumeMultiplier)
+    }
+
+    /**
+     * Emit `workflow_email_reputation_state_changed` into PostHog's own project for team-scope
+     * snapshots, so internal alerting/analytics ride the CDP (a workflow with a Slack destination
+     * consumes it) instead of a hardcoded webhook. Emits on any transition into or out of a
+     * degraded state, and on every run while critical — the repeat while critical and unsuspended
+     * is the manual enforcement queue's nag; the consumer filters on `email_sending_suspended`.
+     * Quietly-healthy fleets emit nothing (a new team's first healthy snapshot is not an event).
+     */
+    private async maybeEmitTeamStateChange(
+        snapshot: SnapshotRow,
+        previousStates: Map<number, string>,
+        suspendedTeamIds: Set<number>,
+        evaluatedAt: string
+    ): Promise<void> {
+        const previousState = previousStates.get(snapshot.teamId) ?? null
+        const changed = previousState !== snapshot.state
+        const involvesDegraded =
+            DEGRADED_STATES.has(snapshot.state) || (previousState !== null && DEGRADED_STATES.has(previousState))
+        if (!((changed && involvesDegraded) || snapshot.state === 'critical')) {
+            return
+        }
+        try {
+            const team = await this.teamManager.getTeam(snapshot.teamId)
+            if (!team) {
+                return
+            }
+            captureTeamEvent(team, REPUTATION_STATE_CHANGED_EVENT, {
+                scope: 'team',
+                affected_team_id: snapshot.teamId,
+                previous_state: previousState,
+                new_state: snapshot.state,
+                bounce_rate: snapshot.bounceRate,
+                complaint_rate: snapshot.complaintRate,
+                emails_sent: snapshot.emailsSent,
+                evaluated_at: evaluatedAt,
+                email_sending_suspended: suspendedTeamIds.has(snapshot.teamId),
+            })
+        } catch (error) {
+            // The snapshot is the source of truth; a failed emit must not fail the batch.
+            logger.error('[EmailReputation] failed to emit state change event', {
+                teamId: snapshot.teamId,
+                error,
+            })
+        }
+    }
+
+    private async fetchPreviousTeamStates(teamIds: number[], evaluatedAt: string): Promise<Map<number, string>> {
+        const result = await this.postgres.query<{ team_id: number | string; state: string }>(
+            PostgresUse.COMMON_READ,
+            `SELECT DISTINCT ON (team_id) team_id, state
+             FROM posthog_emailreputationsnapshot
+             WHERE hog_flow_id IS NULL AND team_id = ANY($1) AND evaluated_at < $2::timestamptz
+             ORDER BY team_id, evaluated_at DESC`,
+            [teamIds, evaluatedAt],
+            'emailReputationFetchPreviousTeamStates'
+        )
+        return new Map(result.rows.map((row) => [Number(row.team_id), row.state]))
+    }
+
+    private async fetchSuspendedTeamIds(teamIds: number[]): Promise<Set<number>> {
+        const result = await this.postgres.query<{ team_id: number | string }>(
+            PostgresUse.COMMON_READ,
+            `SELECT team_id FROM workflows_teamworkflowsconfig
+             WHERE team_id = ANY($1) AND email_sending_suspended_at IS NOT NULL`,
+            [teamIds],
+            'emailReputationFetchSuspendedTeams'
+        )
+        return new Set(result.rows.map((row) => Number(row.team_id)))
     }
 
     /** Returns true if a row was written, false if it already existed (retry dedupe). */

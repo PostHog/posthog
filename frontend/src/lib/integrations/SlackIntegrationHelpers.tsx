@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     LemonBanner,
+    LemonBannerProps,
     LemonButton,
     LemonInputSelect,
     LemonInputSelectOption,
@@ -21,10 +22,13 @@ import { IntegrationType, SlackChannelType } from '~/types'
 import { slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
-export function SlackNotConfiguredBanner(): JSX.Element {
+export function SlackNotConfiguredBanner({
+    type = 'info',
+    className,
+}: Partial<Pick<LemonBannerProps, 'type' | 'className'>>): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     return (
-        <LemonBanner type="info">
+        <LemonBanner type={type} className={className}>
             <div className="flex flex-col gap-2">
                 <div className="flex justify-between gap-2 items-center">
                     <span>

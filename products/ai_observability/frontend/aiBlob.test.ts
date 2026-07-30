@@ -34,6 +34,14 @@ describe('aiBlob', () => {
         expect(resolveAiBlobUrl(POINTER, null)).toBe(POINTER)
     })
 
+    it.each([
+        ['image/png', `data:image/png;base64,${POINTER}`],
+        ['application/pdf', `data:application/pdf;base64,${POINTER}`],
+    ])('resolves a pointer that a recipe wrapped in a %s data uri', (_mime, wrapped) => {
+        expect(parseAiBlobPointer(wrapped)).toMatchObject({ hash: HASH })
+        expect(resolveAiBlobUrl(wrapped, 1)).toBe(`/api/projects/1/ai_blob/v1/sha256/${HASH}`)
+    })
+
     it('resolves a pointer data field to the blob endpoint, ignoring the passed mime type', () => {
         expect(resolveDataUri(POINTER, 'image/png', 1)).toBe(`/api/projects/1/ai_blob/v1/sha256/${HASH}`)
     })

@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 // Keep in sync with FEATURE_FLAG_SUPPORTED_OPERATORS in
 // products/feature_flags/backend/api/feature_flag.py (mirrored by the filters serializer in
-// products/feature_flags/backend/api/filters_schema.py — issue #50084)
+// products/feature_flags/backend/api/filters_schema.py — issue #50084). This enum is
+// deliberately a superset: cohort filters don't go through flag-level operator validation,
+// so operators the cohort UI allows (between/not_between, and the min/max aliases mirroring
+// FEATURE_FLAG_OPERATOR_ALIASES) must deserialize here even though the flag API rejects them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorType {
@@ -16,8 +19,12 @@ pub enum OperatorType {
     NotRegex,
     Gt,
     Lt,
+    #[serde(alias = "min")]
     Gte,
+    #[serde(alias = "max")]
     Lte,
+    Between,
+    NotBetween,
     SemverGt,
     SemverGte,
     SemverLt,
@@ -182,5 +189,45 @@ mod tests {
         .expect("string key should deserialize");
 
         assert_eq!(filter.key, "email");
+    }
+
+    #[test]
+    fn deserializes_between_operators_and_min_max_aliases() {
+        // Cohort filters can carry operators the flag API rejects (between/not_between)
+        // and the legacy min/max aliases that only the flag write path normalizes to
+        // gte/lte — all of them must deserialize instead of failing the whole cohort.
+        let cases = [
+            ("between", OperatorType::Between),
+            ("not_between", OperatorType::NotBetween),
+            ("min", OperatorType::Gte),
+            ("max", OperatorType::Lte),
+        ];
+        for (wire_name, expected) in cases {
+            let operator: OperatorType = serde_json::from_value(serde_json::json!(wire_name))
+                .unwrap_or_else(|_| panic!("operator '{wire_name}' should deserialize"));
+            assert_eq!(operator, expected, "operator '{wire_name}'");
+        }
+
+        // The aliases must not change serialization: a Gte/Lte parsed from "min"/"max"
+        // still round-trips as "gte"/"lte" (guards the hypercache verifier contract).
+        assert_eq!(
+            serde_json::to_value(OperatorType::Gte).unwrap(),
+            serde_json::json!("gte")
+        );
+        assert_eq!(
+            serde_json::to_value(OperatorType::Lte).unwrap(),
+            serde_json::json!("lte")
+        );
+
+        // Between/NotBetween must also round-trip to their own canonical wire names
+        // (guards the same hypercache verifier contract for the operators this PR adds).
+        assert_eq!(
+            serde_json::to_value(OperatorType::Between).unwrap(),
+            serde_json::json!("between")
+        );
+        assert_eq!(
+            serde_json::to_value(OperatorType::NotBetween).unwrap(),
+            serde_json::json!("not_between")
+        );
     }
 }

@@ -31,6 +31,7 @@ use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::PgFallback;
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::warming::WarmClientPools;
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -99,6 +100,11 @@ pub fn start_coordinator(
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
+            // Effectively disabled: these tests park handoffs to assert
+            // warming behavior, and a live deadline would delete the
+            // state under test.
+            handoff_deadline: Duration::from_secs(86_400),
+            warming_deadline: Duration::from_secs(86_400),
         },
         strategy,
         None,
@@ -141,7 +147,12 @@ impl StashHandler for MockCutoverHandler {
         Ok(())
     }
 
-    async fn drain_stash(&self, partition: u32, target: &str) -> Result<()> {
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
         self.events.lock().await.push(CutoverEvent::StashDrained {
             partition,
             target: target.to_string(),
@@ -162,6 +173,8 @@ pub fn start_router(
             router_name: name.to_string(),
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..RoutingTableConfig::default()
         },
     );
     let token = cancel.child_token();
@@ -331,16 +344,26 @@ pub async fn start_leader_pod(
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     // Recovery must read the broker the service produces to.
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
+    let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        name,
+        &warming.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config(name, &mock_cluster.bootstrap_servers()),
+        warming,
+        pools,
     );
     let pod = PodHandle::new(
         store,
         PodConfig {
             pod_name: name.to_string(),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -401,11 +424,18 @@ pub async fn start_leader_pod_with_lease_ttl(
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
+    let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        name,
+        &warming.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config(name, &mock_cluster.bootstrap_servers()),
+        warming,
+        pools,
     );
     let pod = PodHandle::new(
         store,
@@ -413,6 +443,9 @@ pub async fn start_leader_pod_with_lease_ttl(
             pod_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),

@@ -374,4 +374,53 @@ pub struct TrafficArgs {
     /// Prometheus metrics + liveness port.
     #[arg(long, env = "TRAFFIC_METRICS_PORT", default_value_t = 9110)]
     pub metrics_port: u16,
+
+    /// Continuous chaos: kill scenarios against the stack under test on
+    /// a randomized cadence. Ships false; the chart flips it once RBAC
+    /// is in place. Requires the harness ServiceAccount to hold pod
+    /// get/list/delete in the target namespaces.
+    #[arg(long, env = "CHAOS_ENABLED", default_value_t = false, action = clap::ArgAction::Set)]
+    pub chaos_enabled: bool,
+
+    /// Bounds of the randomized pause between chaos scenarios.
+    #[arg(long, env = "CHAOS_INTERVAL_MIN", default_value = "180s", value_parser = humantime::parse_duration)]
+    pub chaos_interval_min: Duration,
+
+    #[arg(long, env = "CHAOS_INTERVAL_MAX", default_value = "600s", value_parser = humantime::parse_duration)]
+    pub chaos_interval_max: Duration,
+
+    /// Namespaces of the target classes. Each class's app pods are
+    /// selected by `app.kubernetes.io/name=<namespace>` plus
+    /// `component=app`, which in the personhog charts matches the
+    /// namespace name and excludes pgbouncer sidecars.
+    #[arg(
+        long,
+        env = "CHAOS_LEADER_NAMESPACE",
+        default_value = "personhog-leader"
+    )]
+    pub chaos_leader_namespace: String,
+
+    #[arg(
+        long,
+        env = "CHAOS_ROUTER_NAMESPACE",
+        default_value = "personhog-router-leader"
+    )]
+    pub chaos_router_namespace: String,
+
+    #[arg(
+        long,
+        env = "CHAOS_WRITER_NAMESPACE",
+        default_value = "personhog-writer"
+    )]
+    pub chaos_writer_namespace: String,
+
+    /// etcd endpoints of the stack under test (comma-separated). Enables
+    /// the coordinator-targeted scenarios, which resolve the live
+    /// election holder; absent, those scenarios are excluded.
+    #[arg(long, env = "CHAOS_ETCD_ENDPOINTS")]
+    pub chaos_etcd_endpoints: Option<String>,
+
+    /// etcd key prefix, matching the routers' ETCD_PREFIX.
+    #[arg(long, env = "CHAOS_ETCD_PREFIX", default_value = "/personhog/")]
+    pub chaos_etcd_prefix: String,
 }

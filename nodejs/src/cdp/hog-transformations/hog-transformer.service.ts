@@ -20,6 +20,7 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
+import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../services/managers/team-workflows-config.service'
 import { EmailSuppressionService } from '../services/messaging/email-suppression.service'
 import { EmailService } from '../services/messaging/email.service'
@@ -519,13 +520,16 @@ export function createHogTransformerService(
             sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
             sesRegion: config.SES_REGION,
             sesEndpoint: config.SES_ENDPOINT,
+            sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+            sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
         trackingCodeSigner,
-        emailSuppressionService
+        emailSuppressionService,
+        new RecipientsManagerService(deps.postgres)
     )
     const pushNotificationService = new PushNotificationService(
         deps.integrationManager,

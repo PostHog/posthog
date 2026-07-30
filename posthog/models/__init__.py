@@ -15,7 +15,7 @@ from .comment import Comment
 from .core_event import CoreEvent
 from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
-from ..ducklake.models import DuckgresServer, DuckgresServerTeam, DuckgresSinkSchemaState
+from ..ducklake.models import DuckgresServer, DuckgresSinkSchemaState
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -102,7 +102,6 @@ __all__ = [
     "DataColorTheme",
     "DeletionType",
     "DuckgresServer",
-    "DuckgresServerTeam",
     "DuckgresSinkSchemaState",
     "Element",
     "ElementGroup",

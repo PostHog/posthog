@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEye, IconPlay, IconRefresh } from '@posthog/icons'
+import { IconCopy, IconEye, IconPlay, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -99,6 +99,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         scanner,
         triggeringOnDemandObservation,
         retryingObservationIds,
+        copyingAllObservations,
     } = useValues(logic)
     const {
         refreshObservations,
@@ -112,6 +113,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationSubjectFilter,
         setObservationDateRange,
         clearObservationFilters,
+        copyAllObservations,
     } = useActions(logic)
     const scannerType = scanner?.scanner_type
     const tagFilterOptions = availableTags.map((tag) => ({ value: tag, label: tag }))
@@ -298,6 +300,19 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     Clear filters
                                 </LemonButton>
                             </>
+                        )}
+                        {scannerType === 'summarizer' && observationStats.total > 0 && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconCopy />}
+                                onClick={() => copyAllObservations()}
+                                loading={copyingAllObservations}
+                                tooltip="Copies the filtered summaries as plain text, ready to paste into a doc or an LLM"
+                                data-attr="vision-observations-copy-all"
+                            >
+                                Copy all
+                            </LemonButton>
                         )}
                         <Tooltip
                             title={

@@ -102,11 +102,11 @@ function EmptyRuns(): JSX.Element {
     return (
         <div className="flex flex-col items-center text-center gap-3 py-10">
             <SleepingHog className="w-40 h-40" />
-            <h3 className="m-0">{isAlert ? 'Your alert is live' : 'Your action is live'}</h3>
+            <h3 className="m-0">{isAlert ? 'Your alert is live' : 'Your digest is live'}</h3>
             <p className="text-muted max-w-md">
                 {isAlert
                     ? `Checks run ${everyMatch ? 'every few minutes' : 'about every hour'}. When the condition is met, the alert and its matching observations show up here.`
-                    : "Results will show up after its next scheduled run. Once it runs, you'll see the summaries here — check back soon."}
+                    : "Results will show up after its next scheduled run. Once it runs, you'll see the digests here — check back soon."}
             </p>
         </div>
     )

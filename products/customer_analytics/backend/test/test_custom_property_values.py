@@ -378,9 +378,7 @@ class TestCustomPropertyValueFacade(BaseTest):
     def test_set_returns_a_contract_with_the_typed_value(self, _name, display_type, value, expected_value):
         definition = create_custom_property_definition(team_id=self.team.id, name=_name, display_type=display_type)
 
-        result = facade.set_custom_property_value(
-            self.team.id, self.account.id, definition.id, value, created_by_id=self.user.id
-        )
+        result = facade.set_custom_property_value(self.team.id, self.account.id, definition.id, value, actor=self.user)
 
         assert isinstance(result, contracts.CustomPropertyValue)
         assert result.value == expected_value
