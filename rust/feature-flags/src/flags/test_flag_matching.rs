@@ -3577,10 +3577,9 @@ mod tests {
         ));
         let team = context.insert_new_team(None).await.unwrap();
 
-        // Realtime cohort with an events backfill timestamp and a behavioral condition_type, so
+        // Realtime cohort with a backfill timestamp and a behavioral condition_type, so
         // membership comes from the provider (uses_realtime_membership() requires all
-        // three, and the events stamp is the one that seeds a behavioral cohort). Its
-        // filters require plan=enterprise, which the person does NOT
+        // three). Its filters require plan=enterprise, which the person does NOT
         // satisfy — a match can only come from the provider. The filters themselves are
         // person-property (not actually behavioral) purely so this test can tell a
         // provider-driven result apart from dynamic filter evaluation; condition_type is
@@ -3593,8 +3592,8 @@ mod tests {
                 plan_cohort_filters("enterprise"),
                 false,
                 Some(CohortType::Realtime),
-                None,
                 Some(Utc::now()),
+                None,
                 Some(behavioral_condition_type()),
             )
             .await
@@ -3659,8 +3658,8 @@ mod tests {
                 plan_cohort_filters("enterprise"),
                 false,
                 Some(CohortType::Realtime),
-                None,
                 Some(Utc::now()),
+                None,
                 Some(behavioral_condition_type()),
             )
             .await

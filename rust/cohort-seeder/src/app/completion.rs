@@ -256,10 +256,12 @@ impl CompletionDriver {
         };
 
         let now = Utc::now();
-        let mut reconciling = 0_u64;
+        // Per kind, not summed: "person runs are piling up undispatched" is the failure this protocol
+        // exists to prevent, and it is invisible against behavioral traffic.
+        let mut reconciling: HashMap<RunKind, u64> = HashMap::new();
         let mut oldest_stalled: Option<DateTime<Utc>> = None;
         let mut directives = Vec::new();
-        let mut undispatched = HashSet::new();
+        let mut undispatched: HashMap<RunId, RunKind> = HashMap::new();
         // Collected across the loop and resolved with one batched chunk-ledger read below, so the
         // pass never issues a query per planned run.
         let mut planned = Vec::new();
@@ -273,10 +275,10 @@ impl CompletionDriver {
         for completion in discovered {
             match &completion.phase {
                 CompletionPhase::Observed => {
-                    reconciling += 1;
+                    *reconciling.entry(completion.kind).or_default() += 1;
                 }
                 CompletionPhase::Reconciling(dispatched) => {
-                    reconciling += 1;
+                    *reconciling.entry(completion.kind).or_default() += 1;
                     // Age from the dispatch, not the run's creation: a run that legitimately spent
                     // days seeding would otherwise read as stalled-by-days the instant it dispatches.
                     track_oldest(&mut oldest_stalled, dispatched.epoch.as_datetime());
@@ -314,8 +316,8 @@ impl CompletionDriver {
                     }
                 }
                 CompletionPhase::ReconcilingUndispatched(reason) => {
-                    reconciling += 1;
-                    undispatched.insert(completion.run_id);
+                    *reconciling.entry(completion.kind).or_default() += 1;
+                    undispatched.insert(completion.run_id, completion.kind);
                     // A run holds this phase until a re-dispatch records — across a whole
                     // observe-only rollout window, if auto-dispatch is off. Count and warn once per
                     // stretch so the signal measures broken dispatch records rather than how many
@@ -374,11 +376,25 @@ impl CompletionDriver {
 
         // Forget runs that have left the phase, so a later relapse counts as a fresh event.
         lock_recoverable(&self.reported_undispatched)
-            .retain(|run_id, _| undispatched.contains(run_id));
+            .retain(|run_id, _| undispatched.contains_key(run_id));
 
-        gauge!(RUNS_RECONCILING).set(reconciling as f64);
+        // Publish every discovered kind each tick, including the zeroes: a labelled gauge that is
+        // only set when non-empty keeps its last reading forever once that kind drains.
+        let mut undispatched_by_kind: HashMap<RunKind, u64> = HashMap::new();
+        for kind in self.kinds {
+            reconciling.entry(*kind).or_default();
+            undispatched_by_kind.entry(*kind).or_default();
+        }
+        for kind in undispatched.values() {
+            *undispatched_by_kind.entry(*kind).or_default() += 1;
+        }
+        for (kind, count) in &reconciling {
+            gauge!(RUNS_RECONCILING, "kind" => kind.as_str()).set(*count as f64);
+        }
         // A standing count: the first-sighting counter goes flat while runs stay stranded.
-        gauge!(RECONCILE_RUNS_UNDISPATCHED).set(undispatched.len() as f64);
+        for (kind, count) in &undispatched_by_kind {
+            gauge!(RECONCILE_RUNS_UNDISPATCHED, "kind" => kind.as_str()).set(*count as f64);
+        }
 
         let planned_ids: Vec<RunId> = planned.iter().map(|(run_id, _)| *run_id).collect();
         match runs_with_all_chunks_confirmed(&self.pool, &planned_ids).await {
@@ -443,17 +459,18 @@ impl CompletionDriver {
                 if summary.completed + summary.partial + summary.shortfall > 0
                     || summary.zero_markers
                 {
-                    counter!(RUNS_OBSERVED).increment(1);
+                    counter!(RUNS_OBSERVED, "kind" => target.kind.as_str()).increment(1);
                 }
                 if summary.zero_markers {
                     // A counter, not a gauge: a settled run is `Observed` on the next tick, so a
                     // fleet-wide gate-off would be a single-tick blip most scrapes would miss.
-                    counter!(RECONCILE_ZERO_MARKER_RUNS).increment(1);
+                    counter!(RECONCILE_ZERO_MARKER_RUNS, "kind" => target.kind.as_str())
+                        .increment(1);
                 }
                 ObserveOutcome::default()
             }
             Ok(ObserveStep::ObservedAllComplete) => {
-                counter!(RUNS_OBSERVED).increment(1);
+                counter!(RUNS_OBSERVED, "kind" => target.kind.as_str()).increment(1);
                 ObserveOutcome::default()
             }
             Ok(ObserveStep::LivenessLagging(partitions)) => ObserveOutcome {

@@ -184,6 +184,23 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub seeder_person_seeds_enabled: bool,
 
+    /// Enable the person-property *reconcile* path: completion discovery widens to `person_property`
+    /// runs, so a fully-seeded one transitions `seeding -> reconciling` and produces person-guarded
+    /// control tiles. Requires `SEEDER_PERSON_SEEDS_ENABLED`; on its own it does nothing.
+    ///
+    /// Deploy order, in this order, no overlap:
+    ///   1. Roll the processor fleet-wide with the person reconcile guard (this PR's `ReconcileScope`
+    ///      decode + the loader's person shape-hash map). A processor without it ignores the tile's
+    ///      `guard`, looks the person hash up in the behavioral map, and discards without a marker.
+    ///   2. Flip `SEEDER_PERSON_SEEDS_ENABLED` and let person runs seed.
+    ///   3. Flip this once step 1 is confirmed everywhere.
+    ///
+    /// Flipping this back off does not undo a bad rollout: a run already in `reconciling` stops
+    /// being discovered, so it never reaches `reconcile_observed_at` and never finalizes. Recovery
+    /// is an operator re-dispatch through the CLI after the fleet is upgraded.
+    #[envconfig(default = "false")]
+    pub seeder_person_reconcile_dispatch_enabled: bool,
+
     /// Person-seed produce rate, shared across concurrent person chunks and separate from
     /// `seeder_tiles_per_sec` so the two throughputs tune independently.
     #[envconfig(default = "2000")]

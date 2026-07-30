@@ -46,6 +46,8 @@ pub const RECONCILE_DISPATCHES: &str = "seeder_reconcile_dispatches_total";
 pub const RECONCILE_CAS_LOST: &str = "seeder_reconcile_cas_lost_total";
 pub const RECONCILE_RECORD_INVALID: &str = "seeder_reconcile_record_invalid_total";
 pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in_flight";
+/// Runs currently in the reconcile protocol, labelled by the run's `kind` (gauge). Published for
+/// every discovered kind each tick, zeroes included, so a drained kind does not freeze.
 pub const RUNS_RECONCILING: &str = "seeder_runs_reconciling";
 // Liveness, marker watcher, and observation.
 pub const RECONCILE_MARKERS_OBSERVED: &str = "seeder_reconcile_markers_observed_total";
@@ -61,13 +63,19 @@ pub const RECONCILE_COHORTS_PARTIAL: &str = "seeder_reconcile_cohorts_partial_to
 /// Cohort participations short of their markers with the pinned shape unchanged — the retryable
 /// half of the split — labelled by the run's `kind` (counter).
 pub const RECONCILE_COHORTS_SHORTFALL: &str = "seeder_reconcile_cohorts_shortfall_total";
+/// Runs that settled without a single marker — the shape a processor that cannot read the tile's
+/// guard produces — labelled by the run's `kind` (counter).
 pub const RECONCILE_ZERO_MARKER_RUNS: &str = "seeder_reconcile_zero_marker_runs_total";
+/// Runs the observation pass settled, labelled by the run's `kind` (counter).
 pub const RUNS_OBSERVED: &str = "seeder_runs_observed_total";
 pub const RECONCILE_WATCH_TRUNCATED: &str = "seeder_reconcile_watch_truncated_total";
 pub const RECONCILE_OBSERVATION_STALLED_AGE_SECONDS: &str =
     "seeder_reconcile_observation_stalled_age_seconds";
 pub const RECONCILE_OBSERVATION_PASS_SECONDS: &str = "seeder_reconcile_observation_pass_seconds";
 pub const RECONCILE_OBSERVE_ERRORS: &str = "seeder_reconcile_observe_errors_total";
+/// Reconciling runs with no usable dispatch record, labelled by the run's `kind` (gauge).
+/// Published for every discovered kind each tick, zeroes included, so a drained kind does not
+/// freeze at its last reading.
 pub const RECONCILE_RUNS_UNDISPATCHED: &str = "seeder_reconcile_runs_undispatched";
 // Person-property seed path.
 pub const PERSONS_SCANNED: &str = "seeder_persons_scanned_total";

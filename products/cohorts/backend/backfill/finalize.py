@@ -52,8 +52,8 @@ READINESS_STAMPS_COUNTER = Counter(
 
 RUNS_FINALIZED_COUNTER = Counter(
     "posthog_cohort_backfill_runs_finalized_total",
-    "Backfill runs terminalized by the finalizer, by terminal status",
-    ["status"],  # labels: "completed", "superseded"
+    "Backfill runs terminalized by the finalizer, by terminal status and backfill kind",
+    ["status", "kind"],  # status: "completed", "superseded"; kind: the CohortBackfillKind
 )
 
 # Split by reason: a shortfall is routine backpressure, an error is a crashed pass. Summing them
@@ -105,10 +105,11 @@ def finalize_backfill_runs() -> FinalizerPass:
         return result
 
     # Deliberate, documented cross-team scan: the finalizer serves all teams. Each row is re-locked
-    # per team inside the loop, so the unscoped read is discovery only. Oldest-observed first, so a
-    # capped pass drains the backlog in arrival order. Note the `IN` costs `cohort_bfr_reconciling_idx`
-    # its ordering — the index leads with `backfill_kind`, so the planner sorts rather than walking it
-    # — which makes the cap bound the work done per pass, not the rows read.
+    # per team inside the loop, so the unscoped read is discovery only. Oldest-observed first, which
+    # `cohort_bfr_observed_idx` serves ordered, so the cap terminates the walk instead of bounding a
+    # sort. The kind predicate is a recheck along that walk, not a leading column: it excludes
+    # nothing today, and keeping it is what makes "a kind with no stamp is never discovered" —
+    # rather than "is discovered and then raises" — the mechanism that protects `_STAMP_BY_KIND`.
     observed = list(
         CohortBackfillRun.objects.unscoped()
         .filter(
@@ -242,10 +243,10 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
         if transitioned:
             if terminal_status == CohortBackfillRunStatus.COMPLETED:
                 result.completed += 1
-                RUNS_FINALIZED_COUNTER.labels(status="completed").inc()
+                RUNS_FINALIZED_COUNTER.labels(status="completed", kind=run.backfill_kind).inc()
             else:
                 result.superseded += 1
-                RUNS_FINALIZED_COUNTER.labels(status="superseded").inc()
+                RUNS_FINALIZED_COUNTER.labels(status="superseded", kind=run.backfill_kind).inc()
         else:
             # We hold the run row's FOR UPDATE lock, so a missed CAS can only mean our own
             # readiness stamp superseded a cohort-scoped run inside this transaction —
@@ -253,7 +254,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
             # one-participation invariant checked above: with more, a run that also stamped a cohort
             # would land here and be counted purely superseded.
             result.superseded += 1
-            RUNS_FINALIZED_COUNTER.labels(status="superseded").inc()
+            RUNS_FINALIZED_COUNTER.labels(status="superseded", kind=run.backfill_kind).inc()
 
         # Re-fire invalidation when completing a run whose stamps landed in an earlier pass, covering
         # a crash between that pass's commit and its post-commit invalidation. (A crash after this

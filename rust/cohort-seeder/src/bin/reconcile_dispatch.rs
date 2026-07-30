@@ -103,11 +103,15 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
         return Ok(());
     }
     // The kind is derived from the run row, so without this the CLI would put person-guarded tiles
-    // on the membership topic while the fleet-wide gate is still off. Dry runs stay allowed.
-    if prepared.run_kind() == RunKind::PersonProperty && !config.seeder_person_seeds_enabled {
+    // on the membership topic while the fleet-wide gate is still off. Keyed on the reconcile gate
+    // rather than the seed gate: producing tiles is the step an old processor cannot survive, and
+    // the two are staged separately. Dry runs stay allowed.
+    if prepared.run_kind() == RunKind::PersonProperty
+        && !config.seeder_person_reconcile_dispatch_enabled
+    {
         bail!(
-            "run {run_id:?} is a person_property run; set SEEDER_PERSON_SEEDS_ENABLED once every \
-             processor carries the person reconcile guard"
+            "run {run_id:?} is a person_property run; set SEEDER_PERSON_RECONCILE_DISPATCH_ENABLED \
+             once every processor carries the person reconcile guard"
         );
     }
     eprintln!(

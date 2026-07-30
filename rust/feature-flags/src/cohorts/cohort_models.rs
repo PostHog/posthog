@@ -64,32 +64,24 @@ pub struct Cohort {
 impl Cohort {
     /// Returns true if this cohort's membership should be resolved via the
     /// realtime cohort_membership table rather than the static cohortpeople table.
-    /// Requires a realtime/behavioral cohort type, at least one behavioral/lifecycle
-    /// leaf condition, and the events backfill timestamp (indicating the membership
-    /// table has been written to). Cohorts made up only of person
+    /// Requires a realtime/behavioral cohort type, at least one populated backfill
+    /// timestamp (indicating the membership table has been written to), AND at least
+    /// one behavioral/lifecycle leaf condition. Cohorts made up only of person
     /// properties never use the membership table, even when otherwise eligible —
     /// there's no realtime signal to gain from it, so they fall through to dynamic
     /// filter evaluation like any other property-only cohort.
     ///
-    /// Note: that timestamp is the events one specifically, and the person one is deliberately
-    /// not required. Only the events backfill populates `cohort_membership` for a behavioral or
-    /// lifecycle leaf, so accepting the person stamp in its place — as this did while nothing
-    /// wrote that column — routes a cohort whose behavioral half is unseeded to the table and
-    /// silently under-matches it.
-    ///
-    /// A mixed cohort therefore still routes here on the events stamp alone, its person half
-    /// answered from person records built off the live event stream rather than from a backfill.
-    /// That gap predates the person backfill, and Python's `Cohort.is_flag_compatible` already
-    /// refuses such a cohort at flag-save time. Demanding the person stamp *here* would instead
-    /// flip every already-live flag on a mixed cohort off the moment this deploys, since the
-    /// fallback resolves a behavioral leaf as unsupported and the whole cohort as a non-match.
-    /// Tighten it once person backfills have actually stamped the fleet.
+    /// Note: Python's `Cohort.is_flag_compatible` gates on filter composition (person vs
+    /// behavioral) and requires the matching timestamp(s) before a flag can reference the
+    /// cohort at all. Here we only need to know that the membership table has been
+    /// populated, so accepting either timestamp is sufficient.
     pub fn uses_realtime_membership(&self) -> bool {
         matches!(
             self.cohort_type,
             Some(CohortType::Realtime) | Some(CohortType::Behavioral)
-        ) && self.has_behavioral_condition()
-            && self.last_backfill_events_at.is_some()
+        ) && (self.last_backfill_person_properties_at.is_some()
+            || self.last_backfill_events_at.is_some())
+            && self.has_behavioral_condition()
     }
 
     /// Returns true if `condition_type` flags a `behavioral` or `lifecycle` leaf condition.
@@ -98,15 +90,19 @@ impl Cohort {
     /// since it routes the cohort through legacy dynamic filter evaluation instead of the
     /// realtime `cohort_membership` table.
     fn has_behavioral_condition(&self) -> bool {
-        self.condition_flag("behavioral") || self.condition_flag("lifecycle")
-    }
-
-    fn condition_flag(&self, name: &str) -> bool {
         self.condition_type
             .as_ref()
             .and_then(|value| value.as_object())
-            .and_then(|flags| flags.get(name))
-            .and_then(Value::as_bool)
+            .map(|flags| {
+                flags
+                    .get("behavioral")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    || flags
+                        .get("lifecycle")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+            })
             .unwrap_or(false)
     }
 
@@ -396,9 +392,6 @@ mod tests {
         let behavioral = Some(serde_json::json!({
             "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
         }));
-        let mixed = Some(serde_json::json!({
-            "person_properties": true, "behavioral": true, "lifecycle": false, "cohorts": false
-        }));
         let person_properties_only = Some(serde_json::json!({
             "person_properties": true, "behavioral": false, "lifecycle": false, "cohorts": false
         }));
@@ -438,8 +431,7 @@ mod tests {
                 behavioral.clone(),
                 false,
             ),
-            // Behavioral-only condition: only the events stamp seeds the membership table, so the
-            // person stamp alone is not enough — the behavioral half would resolve as non-member.
+            // Realtime + behavioral condition: either timestamp enables realtime membership
             (
                 Some(CohortType::Realtime),
                 None,
@@ -452,7 +444,7 @@ mod tests {
                 backfill_ts,
                 None,
                 behavioral.clone(),
-                false,
+                true,
             ),
             (
                 Some(CohortType::Realtime),
@@ -468,6 +460,7 @@ mod tests {
                 behavioral.clone(),
                 true,
             ),
+            // Behavioral + behavioral condition: either timestamp enables realtime membership
             (
                 Some(CohortType::Behavioral),
                 None,
@@ -480,7 +473,7 @@ mod tests {
                 backfill_ts,
                 None,
                 behavioral.clone(),
-                false,
+                true,
             ),
             (
                 Some(CohortType::Behavioral),
@@ -494,31 +487,6 @@ mod tests {
                 backfill_ts,
                 backfill_ts,
                 behavioral.clone(),
-                true,
-            ),
-            // Mixed: the events stamp alone routes it here, and the person stamp alone never does.
-            // Only the events backfill seeds the behavioral half; the person half rides the live
-            // event stream until a person backfill lands (see `uses_realtime_membership`).
-            (Some(CohortType::Realtime), None, None, mixed.clone(), false),
-            (
-                Some(CohortType::Realtime),
-                backfill_ts,
-                None,
-                mixed.clone(),
-                false,
-            ),
-            (
-                Some(CohortType::Realtime),
-                None,
-                backfill_ts,
-                mixed.clone(),
-                true,
-            ),
-            (
-                Some(CohortType::Realtime),
-                backfill_ts,
-                backfill_ts,
-                mixed.clone(),
                 true,
             ),
             // Person-properties-only cohorts never use realtime membership, regardless of
@@ -586,7 +554,6 @@ mod tests {
             "person_properties": true, "behavioral": false, "lifecycle": false, "cohorts": false
         }));
 
-        // Every cohort here is behavioral-only, so the events stamp is the one that seeds it.
         let make_cohort = |id: i32,
                            cohort_type: Option<CohortType>,
                            ts: Option<DateTime<Utc>>,
@@ -594,7 +561,7 @@ mod tests {
             let mut c = create_test_cohort(None, None, serde_json::json!({}));
             c.id = id;
             c.cohort_type = cohort_type;
-            c.last_backfill_events_at = ts;
+            c.last_backfill_person_properties_at = ts;
             c.condition_type = condition_type;
             c
         };

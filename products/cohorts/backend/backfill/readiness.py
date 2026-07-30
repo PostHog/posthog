@@ -74,21 +74,25 @@ class _ReadinessSpec:
 
     ``hash_field`` names the same column on both models: the fingerprint the run pinned on the
     participation, and the cohort's current one it is CAS'd against.
+
+    ``readiness`` names the stamped column, not the run kind, and the log field it feeds is named
+    for it. Deliberately not the ``CohortBackfillKind`` vocabulary the metrics label ``kind`` with:
+    a behavioral run stamps ``last_backfill_events_at``, so one value would have to be wrong.
     """
 
-    kind: str
+    readiness: str
     hash_field: str
     stamp_field: str
 
 
 _EVENTS = _ReadinessSpec(
-    kind="events",
+    readiness="events",
     hash_field="behavioral_filters_shape_hash",
     stamp_field="last_backfill_events_at",
 )
 
 _PERSON_PROPERTIES = _ReadinessSpec(
-    kind="person_properties",
+    readiness="person_properties",
     hash_field="person_filters_shape_hash",
     stamp_field="last_backfill_person_properties_at",
 )
@@ -128,7 +132,7 @@ def _stamp_readiness(run: CohortBackfillRun, cohort_id: int, spec: _ReadinessSpe
             "cohort_backfill_readiness_stamp_refused_superseded",
             run_id=str(run.id),
             cohort_id=cohort_id,
-            kind=spec.kind,
+            readiness=spec.readiness,
         )
         return False
 
@@ -173,7 +177,12 @@ def _stamp_readiness(run: CohortBackfillRun, cohort_id: int, spec: _ReadinessSpe
                 CohortBackfillRunStatus.RECONCILING,
             ),
         ).update(status=CohortBackfillRunStatus.SUPERSEDED, finished_at=Now(), error=error)
-    logger.info("cohort_backfill_readiness_stamp_superseded", run_id=str(run.id), cohort_id=cohort_id, kind=spec.kind)
+    logger.info(
+        "cohort_backfill_readiness_stamp_superseded",
+        run_id=str(run.id),
+        cohort_id=cohort_id,
+        readiness=spec.readiness,
+    )
     return False
 
 
