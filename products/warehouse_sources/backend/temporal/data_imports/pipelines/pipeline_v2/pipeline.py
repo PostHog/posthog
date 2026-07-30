@@ -282,19 +282,16 @@ class PipelineNonDLT(Generic[ResumableData]):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
             return result
         finally:
-            # Help reduce the memory footprint of each job. This is best-effort cleanup:
-            # `get_delta_table` does object-storage I/O, so a transient storage blip here
-            # must not mask the real import error from the try body — which drives
-            # retry classification and the user-facing message — nor fail an otherwise
-            # successful sync.
+            # Help reduce the memory footprint of each job. This is best-effort cleanup of
+            # whatever `get_delta_table` already cached this run — pop rather than call, so a
+            # run that failed before ever fetching the delta table (nothing to release) doesn't
+            # make a fresh, unrelated object-storage call here that can itself raise and get
+            # captured, obscuring the real import error that's already driving retry
+            # classification and the user-facing message.
             await self._logger.adebug("Cleaning up delta table helper")
-            try:
-                delta_table = await self._delta_table_helper.get_delta_table()
-                self._delta_table_helper.get_delta_table.cache_clear()
-                if delta_table:
-                    del delta_table
-            except Exception:
-                await self._logger.aexception("Failed to clean up delta table helper")
+            delta_table = self._delta_table_helper.get_delta_table.cache_pop(self._delta_table_helper)
+            if delta_table:
+                del delta_table
 
             del self._resource
             del self._delta_table_helper
