@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     SavedQuery,
@@ -921,6 +922,17 @@ class ClickHousePrinter(BasePrinter):
     ):
         # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
         # Skip warehouse tables and tables with an explicit skip.
+        if isinstance(table_type.table, DirectSQLTable):
+            # An external table has no team_id — the connection it belongs to is what scopes it to a team.
+            # ClickHouse is both our own dialect and a direct engine, so refuse to print a direct table into a
+            # query aimed at our cluster: without this, a mislabelled table would silently read whatever
+            # `<database>.<table>` resolves to there, unfiltered.
+            if not self.context.is_direct_query:
+                raise QueryError(
+                    f'Table "{table_type.table.to_printed_hogql()}" can only be queried through its direct connection.'
+                )
+            return None
+
         if (
             not isinstance(table_type.table, DataWarehouseTable)
             and not isinstance(table_type.table, SavedQuery)

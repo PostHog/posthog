@@ -25,10 +25,10 @@ from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.auth import (
     HubspotRetryableError,
     hubspot_refresh_access_token,
@@ -824,6 +824,10 @@ def hubspot_source(
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
+        # Month, not finer: the partition key is a creation date while the incremental cursor is
+        # last-modified, so each batch touches partitions across the portal's whole history and the
+        # merge commits once per touched partition. Auto-repartition steps finer if a month
+        # partition ever outgrows the budget.
+        partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
     )

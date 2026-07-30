@@ -480,6 +480,40 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "300/hour"
 
 
+# The batch session-context endpoint computes experiment context for up to 20 recordings per
+# call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
+# — and its primary caller is the session-authenticated replay/experiment UI, which the
+# ClickHouse*RateThrottle pair deliberately does not cover. PersonalApiKeyOrUserRateThrottle
+# applies regardless of auth method. The UI fires at most one prefetch per user action (page
+# load, filter change — debounced client-side — or recording open), and repeats hit the
+# server-side cache, so these rates clear a whole project's worth of concurrent viewers while
+# capping a scripted loop of cold batches.
+class _SessionContextsRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        # One bucket per project regardless of auth method. The parent idents personal-API-key
+        # requests by key hash, so each minted key would get its own budget of this expensive
+        # compute — the sum must be capped project-wide instead, the same reasoning as
+        # ProjectSecretApiKeyTeamRateThrottle's team-wide bucket.
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id is not None:
+            ident = team_id
+        elif request.user.is_authenticated:
+            ident = request.user.pk
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class SessionContextsBurstRateThrottle(_SessionContextsRateThrottleBase):
+    scope = "session_contexts_burst"
+    rate = "60/minute"
+
+
+class SessionContextsSustainedRateThrottle(_SessionContextsRateThrottleBase):
+    scope = "session_contexts_sustained"
+    rate = "600/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 
@@ -662,21 +696,21 @@ class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "600/hour"
 
 
-class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_burst"
     rate = "50/minute"
 
 
-class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_sustained"
     rate = "200/hour"
 
 
-class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     # Daily cap for LLM-powered summarization endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
@@ -1109,6 +1143,16 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
     # this endpoint the real-world side-effect blast radius means we want
     # every auth method covered.
     scope = "subscription_test_delivery"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
+class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "alert_test_delivery"
     rate = "10/minute"
 
     def get_cache_key(self, request, view):
