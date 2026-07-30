@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.settings import (
     APPLOVIN_API_BASE_URL,
     APPLOVIN_ENDPOINTS,
@@ -20,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.applovin.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import redact_literal_values
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT_SECONDS = 120
 VALIDATION_TIMEOUT_SECONDS = 30
