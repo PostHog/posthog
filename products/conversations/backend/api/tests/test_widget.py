@@ -900,8 +900,8 @@ class TestWidgetIdentityVerification(BaseTest):
 
 
 class TestWidgetContextSanitization(SimpleTestCase):
-    def _validated(self, **overrides):
-        serializer = WidgetMessageSerializer(
+    def _serializer(self, **overrides):
+        return WidgetMessageSerializer(
             data={
                 "widget_session_id": str(uuid.uuid4()),
                 "distinct_id": "user-123",
@@ -909,6 +909,9 @@ class TestWidgetContextSanitization(SimpleTestCase):
                 **overrides,
             }
         )
+
+    def _validated(self, **overrides):
+        serializer = self._serializer(**overrides)
         self.assertTrue(serializer.is_valid(), serializer.errors)
         return serializer.validated_data
 
@@ -939,3 +942,36 @@ class TestWidgetContextSanitization(SimpleTestCase):
 
         self.assertNotIn(long_key, validated[field])
         self.assertEqual(len(validated[field]), max_entries)
+
+    @parameterized.expand(
+        [
+            (
+                "session_context",
+                {"tab_index": 3, "is_replay": True, "referrer": None},
+                {"tab_index": 3, "is_replay": True, "referrer": None},
+            ),
+            (
+                "traits",
+                {"plan_seats": 3, "is_admin": True, "email": None},
+                {"plan_seats": "3", "is_admin": "True", "email": None},
+            ),
+        ]
+    )
+    def test_non_string_values_are_coerced_per_field(self, field, payload, expected):
+        validated = self._validated(**{field: payload})
+
+        self.assertEqual(validated[field], expected)
+
+    @parameterized.expand(
+        [
+            ("session_context", "not-a-dict"),
+            ("session_context", None),
+            ("traits", "not-a-dict"),
+            ("traits", None),
+        ]
+    )
+    def test_structurally_malformed_context_is_still_rejected(self, field, value):
+        serializer = self._serializer(**{field: value})
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
