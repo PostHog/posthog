@@ -278,7 +278,7 @@ class TestCodeBasedVerificationGlobalDisable(SimpleTestCase):
             reason="email pipeline down", ttl_seconds=3600, disabled_by="support@posthog.com"
         )
         result = CodeBasedVerifier().should_send_code_based_verification(user)
-        self.assertEqual(result, CodeBasedVerificationCheckResult(should_send=False))
+        self.assertEqual(result, CodeBasedVerificationCheckResult(should_send=False, skip_reason="globally_disabled"))
 
     @patch("posthog.helpers.two_factor_session.get_client")
     def test_fails_closed_when_redis_unavailable(self, mock_get_client):
@@ -286,3 +286,54 @@ class TestCodeBasedVerificationGlobalDisable(SimpleTestCase):
         # Reads must not raise, and must default to "not disabled" so email MFA stays enforced.
         self.assertFalse(is_code_based_verification_globally_disabled())
         self.assertIsNone(get_code_based_verification_global_disable())
+
+
+@pytest.mark.disable_mock_code_based_verifier
+class TestCodeBasedVerificationNotSentTelemetry(SimpleTestCase):
+    def setUp(self):
+        self.user = MagicMock()
+        self.user.pk = 123
+        self.user.email = "test@example.com"
+        self.user.distinct_id = uuid4()
+        self.request = MagicMock()
+        self.request.session = {}
+
+    @parameterized.expand(
+        [
+            ("globally_disabled",),
+            ("admin_bypass_list",),
+            ("email_not_available",),
+        ]
+    )
+    @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
+    def test_skipped_send_is_reported(self, skip_reason, mock_capture):
+        verifier = CodeBasedVerifier()
+        with patch.object(
+            verifier,
+            "should_send_code_based_verification",
+            return_value=CodeBasedVerificationCheckResult(should_send=False, skip_reason=skip_reason),
+        ):
+            self.assertFalse(verifier.create_and_send_code_based_verification(self.request, self.user))
+
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args[1]
+        self.assertEqual(call_kwargs["event"], "login verification code not sent")
+        self.assertEqual(call_kwargs["distinct_id"], str(self.user.distinct_id))
+        self.assertEqual(call_kwargs["properties"], {"reason": skip_reason, "email": self.user.email})
+
+    @patch("posthog.helpers.two_factor_session.code_based_verification_token_generator.make_code")
+    @patch("posthog.helpers.two_factor_session.posthoganalytics.capture")
+    def test_failed_send_is_reported(self, mock_capture, mock_make_code):
+        mock_make_code.side_effect = Exception("email service down")
+
+        verifier = CodeBasedVerifier()
+        with patch.object(
+            verifier,
+            "should_send_code_based_verification",
+            return_value=CodeBasedVerificationCheckResult(should_send=True),
+        ):
+            self.assertFalse(verifier.create_and_send_code_based_verification(self.request, self.user))
+
+        events = [c[1] for c in mock_capture.call_args_list if c[1].get("event") == "login verification code not sent"]
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["properties"]["reason"], "send_failed")

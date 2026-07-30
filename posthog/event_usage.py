@@ -166,6 +166,24 @@ def report_user_password_reset(user: User) -> None:
     )
 
 
+def report_password_reset_requested(email: str, user: Optional[User]) -> None:
+    """
+    Reports a password reset request, including the case where no active account matches the
+    address. Both branches return the same "check your email" response to the requester, so
+    without this event support has no way to tell a send apart from a silent no-op.
+    """
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id if user and user.distinct_id else email.lower(),
+        event="password reset requested",
+        properties={
+            "email": email.lower(),
+            "email_sent": bool(user),
+            "reason": None if user else "no_active_user_for_email",
+        },
+        groups=groups(user.current_organization, user.current_team) if user else groups(),
+    )
+
+
 def report_team_member_invited(
     inviting_user: User,
     invite_id: str,

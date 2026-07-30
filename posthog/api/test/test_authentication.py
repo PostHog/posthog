@@ -1361,6 +1361,29 @@ class TestPasswordResetAPI(APIBaseTest):
         # No emails should be sent
         self.assertEqual(len(mail.outbox), 0)
 
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_password_reset_reports_whether_an_email_was_sent(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        assert self.CONFIG_EMAIL is not None
+
+        for email, expected_sent, expected_reason in [
+            (self.CONFIG_EMAIL, True, None),
+            ("i_dont_exist@posthog.com", False, "no_active_user_for_email"),
+        ]:
+            mock_capture.reset_mock()
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+                self.client.post("/api/reset/", {"email": email})
+
+            reset_events = [
+                call.kwargs
+                for call in mock_capture.call_args_list
+                if call.kwargs.get("event") == "password reset requested"
+            ]
+            self.assertEqual(len(reset_events), 1, email)
+            self.assertEqual(reset_events[0]["properties"]["email"], email.lower())
+            self.assertEqual(reset_events[0]["properties"]["email_sent"], expected_sent)
+            self.assertEqual(reset_events[0]["properties"]["reason"], expected_reason)
+
     def test_cant_reset_if_email_is_not_configured(self):
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})

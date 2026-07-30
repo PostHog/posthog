@@ -49,7 +49,7 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import report_password_reset_requested, report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
@@ -1072,6 +1072,10 @@ class PasswordResetSerializer(serializers.Serializer):
             user.save()
             token = password_reset_token_generator.make_token(user)
             send_password_reset(user.id, token)
+        else:
+            logger.info("password_reset_no_matching_user", email=email)
+
+        report_password_reset_requested(email, user)
 
         return True
 

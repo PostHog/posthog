@@ -342,6 +342,7 @@ class CodeBasedVerificationCheckResult:
     suppression_bypassed: bool = False
     suppression_reason: Optional[str] = None
     suppression_cached: bool = False
+    skip_reason: Optional[str] = None
 
 
 class CodeBasedVerifier:
@@ -362,15 +363,29 @@ class CodeBasedVerifier:
                 error=str(e),
             )
 
+    def _capture_not_sent_event(self, user: User, reason: str) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(user.distinct_id),
+                event="login verification code not sent",
+                properties={"reason": reason, "email": user.email},
+            )
+        except Exception as e:
+            mfa_logger.warning(
+                "Failed to capture code-based verification not-sent event",
+                user_id=user.pk,
+                error=str(e),
+            )
+
     def should_send_code_based_verification(self, user: User) -> CodeBasedVerificationCheckResult:
         if is_code_based_verification_globally_disabled():
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return CodeBasedVerificationCheckResult(should_send=False, skip_reason="globally_disabled")
 
         if is_dev_mode() and not settings.TEST:
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return CodeBasedVerificationCheckResult(should_send=False, skip_reason="dev_mode")
 
         if not is_email_available(with_absolute_urls=True):
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return CodeBasedVerificationCheckResult(should_send=False, skip_reason="email_not_available")
 
         if not is_http_email_service_available():
             mfa_logger.info(
@@ -383,11 +398,12 @@ class CodeBasedVerifier:
                 suppression_bypassed=True,
                 suppression_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
                 suppression_cached=False,
+                skip_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
             )
 
         if is_code_based_verification_bypass(user.email):
             mfa_logger.info("Code-based verification bypassed via admin bypass list", user_id=user.pk)
-            return CodeBasedVerificationCheckResult(should_send=False)
+            return CodeBasedVerificationCheckResult(should_send=False, skip_reason="admin_bypass_list")
 
         suppression_result = check_esp_suppression(user.email)
         if suppression_result.is_suppressed:
@@ -405,6 +421,7 @@ class CodeBasedVerifier:
                 suppression_bypassed=True,
                 suppression_reason=reason,
                 suppression_cached=from_cache,
+                skip_reason=reason or "esp_suppression",
             )
 
         return CodeBasedVerificationCheckResult(should_send=True)
@@ -414,7 +431,9 @@ class CodeBasedVerifier:
     ) -> bool:
         from posthog.tasks import email
 
-        if not self.should_send_code_based_verification(user).should_send:
+        check = self.should_send_code_based_verification(user)
+        if not check.should_send:
+            self._capture_not_sent_event(user, check.skip_reason or "unknown")
             return False
 
         try:
@@ -444,6 +463,7 @@ class CodeBasedVerifier:
                 error=str(e),
             )
             capture_exception(Exception(f"Code-based verification email failed: {e}"))
+            self._capture_not_sent_event(user, "send_failed")
             return False
 
     def has_pending_code_based_verification(self, request: HttpRequest) -> bool:
