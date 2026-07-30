@@ -201,9 +201,11 @@ def build_inner_overview_query(query: TrendsQuery, properties: list[Any]) -> Web
         properties=properties,
         filterTestAccounts=query.filterTestAccounts,
         compareFilter=query.compareFilter or CompareFilter(compare=False),
-        # The "Allow precompute" toggle: carrying it into the inner query lets
-        # the shared gate's per-query opt-out fire for trend tiles too.
-        useWebAnalyticsPrecompute=getattr(query, "useWebAnalyticsPrecompute", None),
+        # TrendsQuery carries no useWebAnalyticsPrecompute field (the core
+        # trends schema stays untouched by design), so the per-query "Allow
+        # precompute" opt-out cannot reach this path — the rollout flag baked
+        # into the runner's cache key is the kill switch for trend tiles.
+        useWebAnalyticsPrecompute=None,
     )
 
 

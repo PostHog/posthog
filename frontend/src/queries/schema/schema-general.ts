@@ -1697,12 +1697,6 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      * `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise.
      */
     calendarHeatmapFilter?: CalendarHeatmapFilter
-    /**
-     * Web analytics "Allow precompute" opt-out. Only consulted for queries the web analytics
-     * product routes to its precompute-backed trends runners (`tags.productKey === 'web_analytics'`);
-     * ignored otherwise. An explicit `false` forces the live trends path.
-     */
-    useWebAnalyticsPrecompute?: boolean
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */

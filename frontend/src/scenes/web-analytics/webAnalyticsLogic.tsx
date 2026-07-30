@@ -1741,7 +1741,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             conversionGoal,
                             properties: webAnalyticsFilters,
                             tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                            useWebAnalyticsPrecompute,
                             ...trendsQueryProperties,
                         },
                         hidePersonsModal: true,
@@ -2734,7 +2733,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                         conversionGoal,
                                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                        useWebAnalyticsPrecompute,
                                         trendsFilter: {
                                             display: ChartDisplayType.CalendarHeatmap,
                                         },
@@ -2807,7 +2805,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             display: ChartDisplayType.CalendarHeatmap,
                                         },
                                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                        useWebAnalyticsPrecompute,
                                     },
                                 },
                                 docs: {

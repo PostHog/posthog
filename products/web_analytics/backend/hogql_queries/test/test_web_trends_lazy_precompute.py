@@ -313,19 +313,6 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert series_filtered.results[0]["data"] == precomputed.results[0]["data"]
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_per_query_opt_out_falls_back(self) -> None:
-        # The "Allow precompute" toggle sets useWebAnalyticsPrecompute=false on
-        # the tile queries; the trends path must honor it like every other WA
-        # runner — it is the user-facing escape hatch for precompute doubts.
-        self._seed()
-        query = self._build_query()
-        query.useWebAnalyticsPrecompute = False
-        with self._enable_lazy(), self._enable_trends_flag():
-            response = WebTrendsQueryRunner(team=self.team, query=query).calculate()
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-        assert sum(response.results[0]["data"]) == 2
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_stale_buckets_are_served_and_revalidated_via_overview_family(self) -> None:
         # Stale-within-grace buckets must be served (falling back would put
         # dashboards on the slow path at every TTL lapse) and the background
