@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // stop in phase 1, only after the drain finishes — signalling them
     // together with coordination black-holed every partition for the whole
     // drain (dead server, still the registered owner). The coordination
-    // graceful window must exceed the pod's drain timeout (30s), and the
+    // graceful window must exceed the pod's drain timeout (30s) plus the pre-revoke fence's short bound (3s), and the
     // global timeout must fit both phases.
     let mut manager = Manager::builder("personhog-leader")
         .with_global_shutdown_timeout(Duration::from_secs(60))
