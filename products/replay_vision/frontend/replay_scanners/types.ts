@@ -155,7 +155,7 @@ export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> =
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
-    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash (preview)',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
