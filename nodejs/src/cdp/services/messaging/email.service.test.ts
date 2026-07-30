@@ -527,6 +527,17 @@ describe('EmailService', () => {
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.TenantName).toBeUndefined()
             })
+
+            it('omits TenantName for test-panel sends even when enabled', async () => {
+                service['sesConfig'].sesTenantAttributionEnabled = true
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation, true)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.TenantName).toBeUndefined()
+            })
         })
 
         it('should include cc addresses in SES destination', async () => {

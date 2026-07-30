@@ -556,11 +556,13 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        if (this.sesConfig.sesTenantAttributionEnabled) {
+        if (this.sesConfig.sesTenantAttributionEnabled && !isTest) {
             // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
             // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
             // is the provisioning convention (products/workflows/backend/providers/ses.py and
-            // posthog/management/commands/migrate_ses_tenants.py).
+            // posthog/management/commands/migrate_ses_tenants.py). Test-panel sends are excluded
+            // like every other reputation signal in this class: they're disproportionately
+            // bounce-prone and shouldn't count against the team's tenant.
             sendEmailParams.TenantName = `team-${result.invocation.teamId}`
         }
 
