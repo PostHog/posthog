@@ -7,7 +7,6 @@ from posthog.models import Organization, Team
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import enablement
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
-    duckgres_sink_team_ids,
     is_duckgres_sink_team_member,
 )
 
@@ -47,7 +46,10 @@ def test_duckgres_sink_flag_evaluated_locally_with_group_properties(
     mock_feature_enabled.return_value = True
 
     with _patch_all_rows([_cp_row(team)]):
-        assert duckgres_sink_team_ids() == [team.id]
+        result = enablement.duckgres_sink_enablement()
+
+    assert result is not None
+    assert result.team_ids == [team.id]
 
     mock_feature_enabled.assert_called_once_with(
         "duckgres-batch-sink",
@@ -76,7 +78,10 @@ def test_duckgres_sink_skips_team_when_flag_unresolved_locally(
     mock_feature_enabled.return_value = None
 
     with _patch_all_rows([_cp_row(team)]):
-        assert duckgres_sink_team_ids() == []
+        result = enablement.duckgres_sink_enablement()
+
+    assert result is not None
+    assert result.team_ids == []
 
 
 @pytest.mark.django_db

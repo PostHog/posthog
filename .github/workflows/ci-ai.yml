@@ -186,7 +186,9 @@ jobs:
 
             - name: Post eval summary to CI report comment
               # always() because we want to post even if some eval groups errored
-              if: always() && github.event_name == 'pull_request'
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
