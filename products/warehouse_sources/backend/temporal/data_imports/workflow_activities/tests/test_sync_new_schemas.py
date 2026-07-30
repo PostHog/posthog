@@ -3,6 +3,8 @@ import contextlib
 import pytest
 from unittest import mock
 
+from posthog.models.integration import UndecryptedIntegrationSecretError
+
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
@@ -67,6 +69,20 @@ def test_get_schemas_error_handling(error_msg, non_retryable, expected_exc):
     else:
         with pytest.raises(Exception, match=expected_exc):
             _run_activity(source_mock)
+
+
+def test_undecrypted_integration_secret_error_is_skipped():
+    # Checked by type, not message, so it must be skipped even when get_non_retryable_errors
+    # has no matching entry — otherwise discovery retries forever on an unrecoverable decryption
+    # failure and spams error tracking every cycle.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError(
+        "Integration.sensitive_config['refresh_token'] is still encrypted; the stored credentials could not be decrypted"
+    )
+    source_mock.get_non_retryable_errors.return_value = {}
+
+    _run_activity(source_mock)
 
 
 def test_discovery_uses_source_pinned_api_version():

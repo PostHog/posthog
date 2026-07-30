@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import random
 import datetime
 import unicodedata
 from typing import Any, TypedDict, cast
@@ -455,19 +456,89 @@ DEV_LOGIN_KNOWN_EMAIL_LABELS = {
     "test@posthog.com": "Default test user",
 }
 
+# Name pools for dev-login fresh account creation, so test accounts are easy to
+# tell apart in the login tools list.
+DEV_ACCOUNT_FIRST_NAMES = [
+    "Ada",
+    "Byron",
+    "Cleo",
+    "Dorian",
+    "Edith",
+    "Felix",
+    "Greta",
+    "Hugo",
+    "Iris",
+    "Jonas",
+    "Kira",
+    "Linus",
+    "Mira",
+    "Nico",
+    "Opal",
+    "Pablo",
+    "Quinn",
+    "Rosa",
+    "Silas",
+    "Tessa",
+]
+
+DEV_ACCOUNT_ORGANIZATION_NAMES = [
+    "Acme Analytics",
+    "Bluebird Labs",
+    "Cindercone Systems",
+    "Driftwood Data",
+    "Ember Metrics",
+    "Ferrous Works",
+    "Glimmer Grove",
+    "Halcyon House",
+    "Ironwood Insights",
+    "Juniper Junction",
+    "Kestrel Kollective",
+    "Lumen Loft",
+    "Marble & Moss",
+    "Northlight Co.",
+    "Obsidian Oak",
+    "Pinnacle Patch",
+    "Quartz Quarry",
+    "Riverstone Research",
+    "Solstice Software",
+    "Timberline Tools",
+]
+
 
 class DevLoginSerializer(serializers.Serializer):
     email = serializers.EmailField(
+        required=False,
         write_only=True,
         help_text="Email of the active user to log in as. Only honored when dev login is allowed (DEBUG and ALLOW_DEV_LOGIN).",
+    )
+    create_fresh_account = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Create a fresh account/org with random names (password: 12345678) and log in directly, without signup. Only honored when dev login is allowed.",
     )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
 
-    def create(self, validated_data: dict[str, str]) -> Any:
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        # Gate first, before any field-level validation: when dev login is disabled the
+        # endpoint must look nonexistent (404) regardless of the request body, so a
+        # missing-email 400 can't leak that the route exists.
         if not is_dev_login_allowed():
             raise Http404()
+        if not data.get("create_fresh_account") and not data.get("email"):
+            raise serializers.ValidationError(
+                {"email": serializers.ErrorDetail("This field is required.", code="required")}
+            )
+        return data
+
+    def create(self, validated_data: dict[str, Any]) -> Any:
+        if not is_dev_login_allowed():
+            raise Http404()
+
+        if validated_data.get("create_fresh_account"):
+            return self._create_fresh_account()
 
         request = self.context["request"]
         try:
@@ -475,6 +546,27 @@ class DevLoginSerializer(serializers.Serializer):
         except User.DoesNotExist:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        request.session["reauth"] = "false"
+        request.session.save()
+        report_user_logged_in(user, social_provider="")
+        return user
+
+    def _create_fresh_account(self) -> Any:
+        first_name = random.choice(DEV_ACCOUNT_FIRST_NAMES)
+        email = f"{first_name.lower()}-{uuid4().hex[:8]}@posthog.dev"
+        organization_name = random.choice(DEV_ACCOUNT_ORGANIZATION_NAMES)
+
+        with transaction.atomic():
+            _, _, user = User.objects.bootstrap(
+                organization_name=organization_name,
+                email=email,
+                password="12345678",
+                first_name=first_name,
+                is_email_verified=True,
+            )
+
+        request = self.context["request"]
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         request.session["reauth"] = "false"
         request.session.save()

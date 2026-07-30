@@ -27,16 +27,14 @@ from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
     RepartitionTarget,
     RepartitionUnpartitionableError,
     repartition_table_in_place,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
     WAREHOUSE_AUTO_REPARTITION_FLAG,
     base_event_props,
@@ -243,7 +241,12 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         )
         return
 
-    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
+    # `resolved_s3_folder_name` is authoritative for the Delta folder, not the row's own name: a row
+    # renamed during the multi-schema migration keeps its folder pinned to the original path (name
+    # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
+    # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
+    resource_name = schema.resolved_s3_folder_name or schema.name
+    helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=logger)
 
     if pending is None and swap is None:
         # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an

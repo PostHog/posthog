@@ -90,6 +90,8 @@ pub struct HandoffModel {
     pub reads: u8,
     /// Total failure events (crash-restarts + lease expiries).
     pub crashes: u8,
+    /// Total deadline cancellations the checker may inject.
+    pub cancels: u8,
     /// Times a dead pod may rejoin under its old name.
     pub rejoins: u8,
     /// Times a router may (re)join: late slots coming up, or dead
@@ -215,7 +217,14 @@ impl HandoffModel {
     /// beyond its warm cutoff and is invisible to it forever.
     fn accept_write(&self, state: &mut SystemState, x: PodId, partition: Partition) {
         let designated_other = match state.handoffs.get(&partition) {
-            Some(h) if h.new_owner != x => state.pods[&h.new_owner].warmed.contains_key(&partition),
+            // A handoff-designated pod's warm hides this write forever
+            // only if that warm will actually be honored — i.e. it was
+            // installed for this handoff. A stale-era warm is released
+            // and rebuilt at Acquiring, which picks the write up.
+            Some(h) if h.new_owner != x => state.pods[&h.new_owner]
+                .warmed
+                .get(&partition)
+                .is_some_and(|w| w.for_handoff == Some(h.id)),
             Some(_) => false,
             None => match state.assignments.get(&partition) {
                 Some(owner) if *owner != x => state.pods[owner].warmed.contains_key(&partition),
@@ -236,6 +245,78 @@ impl HandoffModel {
         if !pod.registered {
             pod.zombie_writes_left = pod.zombie_writes_left.saturating_sub(1);
         }
+    }
+
+    /// Cancel the in-flight handoff at `p` by atomic replacement — the
+    /// single disposition rule production's planner applies on any
+    /// cancellation trigger. The record is swapped, in one guarded
+    /// transaction that also clears the predecessor's acks, for whatever
+    /// resolves the routers' stashes:
+    ///
+    /// * current owner registered → a reaffirm: `Complete` toward that
+    ///   owner, `old_owner: None`. Routers drain home through their
+    ///   ordinary Complete handling; the owner pod re-derives `Serving`
+    ///   and unfences. (`old_owner` must be `None` — naming the owner on
+    ///   both sides would match `desired_state`'s old-owner arm first
+    ///   and derive `Released`, making the pod drop the partition.)
+    /// * otherwise, a placeable successor → a fresh `Freezing` handoff
+    ///   toward the planner's target, new id, new quorum snapshot.
+    ///   Routers keep stashing without ever observing a gap.
+    /// * nothing placeable (owner dead, no registered pod) → plain
+    ///   delete. Safe because stash disposal is derived from durable
+    ///   state (`Observe`'s no-handoff arm drains to the assignment
+    ///   owner, fail-closed), not decided on the deletion event.
+    fn cancel_by_replacement(&self, state: &mut SystemState, p: Partition) {
+        if state
+            .routers
+            .values()
+            .any(|r| r.stash.get(&p).is_some_and(|q| !q.is_empty()))
+        {
+            state.cancelled_while_stash_parked = true;
+        }
+
+        state.freeze_acks.retain(|(fp, _), _| fp != &p);
+        state.drained_acks.retain(|(dp, _), _| dp != &p);
+        state.warmed_acks.retain(|(wp, _), _| wp != &p);
+
+        let owner = state.assignments.get(&p).copied();
+        if let Some(owner) = owner.filter(|o| state.pods[o].registered) {
+            let id = state.next_handoff_id;
+            state.next_handoff_id += 1;
+            state.handoffs.insert(
+                p,
+                Handoff {
+                    id,
+                    old_owner: None,
+                    new_owner: owner,
+                    phase: Phase::Complete,
+                    quorum: BTreeSet::new(),
+                },
+            );
+            state.reaffirmed = true;
+            return;
+        }
+        if let Some(target) = self.target_owner(state, p) {
+            let id = state.next_handoff_id;
+            state.next_handoff_id += 1;
+            let quorum: BTreeSet<RouterId> = self
+                .router_ids()
+                .filter(|r| state.routers[r].registered)
+                .collect();
+            state.handoffs.insert(
+                p,
+                Handoff {
+                    id,
+                    old_owner: owner,
+                    new_owner: target,
+                    phase: Phase::Freezing,
+                    quorum,
+                },
+            );
+            state.replaced_with_successor = true;
+            return;
+        }
+        state.handoffs.remove(&p);
     }
 
     /// Route one write through router `r` exactly as the raw proxy does:
@@ -331,18 +412,25 @@ impl Model for HandoffModel {
             crashes_left: self.crashes,
             rejoins_left: self.rejoins,
             router_joins_left: self.router_joins,
+            cancels_left: self.cancels,
             next_write_id: 0,
             reads_served: 0,
             lost_acked_write: false,
             double_planned_handoff: false,
             stale_strong_read: false,
+            reaffirmed: false,
+            replaced_with_successor: false,
+            cancelled_while_stash_parked: false,
         }]
     }
 
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
         actions.push(Action::Rebalance);
         for p in self.partition_ids() {
-            actions.push(Action::CleanupStale(p));
+            actions.push(Action::CancelDeadNewOwner(p));
+            if state.cancels_left > 0 {
+                actions.push(Action::Cancel(p));
+            }
             actions.push(Action::AdvancePhase(p));
             actions.push(Action::CleanupComplete(p));
             for pod in self.pod_ids() {
@@ -385,21 +473,37 @@ impl Model for HandoffModel {
         let mut state = last.clone();
         match action {
             // ── coordinator ────────────────────────────────────
-            // The cleanup half of `handle_pod_change_static` for one
-            // partition. The mod_revision-guarded delete lets the model
-            // treat check-and-delete as atomic; scheduling it freely
-            // against Rebalance/AdvancePhase/CleanupComplete covers the
+            // The dead-new-owner arm of the coordinator's cleanup, now a
+            // replacement. The mod_revision guard lets the model treat
+            // check-and-replace as atomic; scheduling it freely against
+            // Rebalance/AdvancePhase/CleanupComplete covers the
             // concurrency of the pod watch, handoff watch, tick, and an
-            // overlapping outgoing coordinator.
-            Action::CleanupStale(p) => {
+            // overlapping outgoing coordinator. Complete records are
+            // excluded — they resolve through CleanupComplete and a
+            // later Rebalance, exactly as in production.
+            Action::CancelDeadNewOwner(p) => {
                 match state.handoffs.get(&p) {
-                    Some(h) if !state.pods[&h.new_owner].registered => {}
+                    Some(h)
+                        if h.phase != Phase::Complete && !state.pods[&h.new_owner].registered => {}
                     _ => return None,
                 }
-                state.handoffs.remove(&p);
-                state.freeze_acks.retain(|(fp, _), _| fp != &p);
-                state.drained_acks.retain(|(dp, _), _| dp != &p);
-                state.warmed_acks.retain(|(wp, _), _| wp != &p);
+                self.cancel_by_replacement(&mut state, p);
+            }
+
+            // Deadline cancellation: any in-flight handoff, any phase
+            // short of Complete, whenever the checker feels like it —
+            // the superset of every production deadline policy. Same
+            // disposition as the dead-new-owner arm.
+            Action::Cancel(p) => {
+                if state.cancels_left == 0 {
+                    return None;
+                }
+                match state.handoffs.get(&p) {
+                    Some(h) if h.phase != Phase::Complete => {}
+                    _ => return None,
+                }
+                state.cancels_left -= 1;
+                self.cancel_by_replacement(&mut state, p);
             }
 
             // The rebalance half: create Freezing handoffs for every
@@ -620,6 +724,7 @@ impl Model for HandoffModel {
                                     log.epoch = log.epoch.wrapping_add(1);
                                 }
                                 WarmState {
+                                    for_handoff: None,
                                     epoch: log.epoch,
                                     cutoff: log.len,
                                     accepted: 0,
@@ -652,13 +757,23 @@ impl Model for HandoffModel {
                     DesiredState::Acquiring => {
                         let h_id = state.handoffs[&p].id;
                         let mut changed = false;
-                        if !state.pods[&x].warmed.contains_key(&p) {
+                        // Mirror of the pod's `WarmProvenance` check: only
+                        // a warm installed for this handoff satisfies its
+                        // warming — a leftover from an earlier era (the
+                        // intervening Released convergence never ran) is
+                        // released and rebuilt at the current HWM.
+                        let valid = state.pods[&x]
+                            .warmed
+                            .get(&p)
+                            .is_some_and(|w| w.for_handoff == Some(h_id));
+                        if !valid {
                             let warm = {
                                 let log = state.changelogs.get_mut(&p).unwrap();
                                 if self.variant == Variant::EpochFenced {
                                     log.epoch = log.epoch.wrapping_add(1);
                                 }
                                 WarmState {
+                                    for_handoff: Some(h_id),
                                     epoch: log.epoch,
                                     cutoff: log.len,
                                     accepted: 0,
@@ -1003,6 +1118,20 @@ impl Model for HandoffModel {
                 // Vacuously discoverable in configs without reads, so
                 // `assert_properties` stays usable across the matrix.
                 m.reads == 0 || s.reads_served > 0
+            }),
+            // Replacement-cancellation reachability. Guards make each
+            // probe vacuous outside the configs shaped to reach it, so
+            // `assert_properties` stays usable across the matrix.
+            // A reaffirm needs a move handoff whose old owner is alive —
+            // which takes a crash *and* a rejoin to manufacture.
+            Property::<Self>::sometimes("cancellation_reaffirms", |m, s| {
+                m.cancels == 0 || m.rejoins == 0 || s.reaffirmed
+            }),
+            Property::<Self>::sometimes("cancellation_replaces_with_successor", |m, s| {
+                m.cancels == 0 || s.replaced_with_successor
+            }),
+            Property::<Self>::sometimes("cancellation_races_a_parked_stash", |m, s| {
+                m.cancels == 0 || m.writes == 0 || s.cancelled_while_stash_parked
             }),
             // Liveness: every full run ends quiescent and converged —
             // no handoffs in flight, every assignment served by a warm,

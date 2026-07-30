@@ -57,6 +57,12 @@ function groupHasEventProperty(group: UniversalFiltersGroup): boolean {
     )
 }
 
+// True when the group holds no leaf filter at any depth. The stored shape is an outer group wrapping one inner
+// group (see recordingsQueryToUniversalFilters), so an unfiltered scanner still arrives as a non-empty `values`.
+export function groupHasNoFilters(group: UniversalFiltersGroup): boolean {
+    return group.values.every((value) => isUniversalGroupFilterLike(value) && groupHasNoFilters(value))
+}
+
 // Renders the bound universal-filter group's values; adding is handled by the search bar above, not an inline button.
 function ScannerFilterGroup(): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
@@ -126,8 +132,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                 <div className="space-y-1">
                                     <LemonLabel>Recording filters</LemonLabel>
                                     <div className="text-xs text-muted">
-                                        Filter by event, action, person, session, or cohort. Leave empty to scan all
-                                        completed recordings.
+                                        Filter by event, action, person, session, or cohort.
                                     </div>
                                 </div>
                                 <TestAccountFilterSwitch
@@ -159,6 +164,15 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     size="small"
                                 />
                             </div>
+                            {groupHasNoFilters(universal.filter_group) && (
+                                <LemonBanner type="warning">
+                                    <span className="text-xs">
+                                        No recording filters set. Your prompt describes what to look for, but it doesn't
+                                        limit which recordings get scanned, so this scanner spends credits scanning
+                                        recordings that aren't relevant to your prompt. Add a filter to narrow it down.
+                                    </span>
+                                </LemonBanner>
+                            )}
                             {groupHasEventProperty(universal.filter_group) && (
                                 <LemonBanner type="info" dismissKey="replay-vision-event-vs-person-property-hint">
                                     <span className="text-xs">

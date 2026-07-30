@@ -26,10 +26,6 @@ from posthog.models.integration import (
     google_ads_hierarchy_level,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -48,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsSourceConfig,
 )
@@ -482,5 +479,16 @@ class GoogleAdsSource(
                     False,
                     "Google Ads returned a temporary error while validating your credentials. This is "
                     "usually a transient issue on Google's side — please try again in a moment.",
+                )
+            # A gRPC INVALID_ARGUMENT ("Request contains an invalid argument") means Google rejected the
+            # request as malformed — most often a customer ID (or MCC manager ID) that isn't a valid
+            # account. Its str() is the same raw protobuf dump (with a per-request peer IP) the user
+            # can't act on, so surface an actionable prompt instead of leaking it.
+            if "INVALID_ARGUMENT" in error_message:
+                return (
+                    False,
+                    "Google Ads rejected the request as invalid while validating your credentials. Check "
+                    "that your customer ID (and your manager account ID, if using an MCC) is correct, then "
+                    "try again.",
                 )
             return False, f"Error validating credentials: {error_message}"

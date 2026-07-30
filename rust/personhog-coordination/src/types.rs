@@ -83,6 +83,18 @@ pub enum AssignmentPrecondition {
     Absent { partition: u32 },
 }
 
+/// One cancellation-by-replacement in a plan application: the handoff
+/// record at the partition's key is swapped — guarded on the
+/// `mod_revision` the planner read — for the record that resolves its
+/// stashes (a successor `Freezing` handoff, or a reaffirm `Complete`
+/// toward the live current owner), with the predecessor's acks deleted
+/// in the same transaction.
+#[derive(Debug, Clone)]
+pub struct HandoffReplacement {
+    pub handoff: HandoffState,
+    pub expected_mod_revision: i64,
+}
+
 /// Tracks the progress of moving a partition from one writer pod to another,
 /// or a fresh initial assignment.
 ///

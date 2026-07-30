@@ -12,11 +12,14 @@ from posthog.schema import (
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
+    InfinityValue,
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsItem,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
@@ -68,6 +71,23 @@ COMPARE_PERIOD_PREVIOUS = "previous"
 COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
 
 
+_INFINITY_SENTINELS = {float(InfinityValue.NUMBER_999999), float(InfinityValue.NUMBER__999999)}
+
+
+def strip_infinity_sentinels(response: AnalyticsQueryResponseProtocol) -> None:
+    """Blank the "infinite change" sentinel (±999999) so tabular exports, which render cells raw, don't show it as a real percentage."""
+    results = getattr(response, "results", None)
+    if isinstance(results, dict):
+        cells = list(results.values())
+    elif isinstance(results, list):
+        cells = [cell for row in results for cell in (row if isinstance(row, list) else [row])]
+    else:
+        return
+    for cell in cells:
+        if isinstance(cell, MarketingAnalyticsItem) and cell.changeFromPreviousPct in _INFINITY_SENTINELS:
+            cell.changeFromPreviousPct = None
+
+
 def _session_start_day(expr: ast.Expr) -> ast.Expr:
     """Truncate to the day, via a function the sessions timestamp pushdown recognizes.
 
@@ -102,6 +122,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         start = time.perf_counter()
         try:
             response = self._calculate()
+            if self.limit_context == LimitContext.EXPORT:
+                strip_infinity_sentinels(response)
             self._capture_query_event("marketing analytics query performed", start)
             return response
         except Exception as e:
