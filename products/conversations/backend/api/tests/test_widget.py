@@ -3,6 +3,7 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -217,26 +218,40 @@ class TestWidgetAPI(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_failed_send_telemetry_includes_submitter_identity(self):
+    @parameterized.expand(
+        [
+            ("widget_session", False),
+            ("verified_identity", True),
+        ]
+    )
+    def test_failed_send_telemetry_identifies_team_and_submitter(self, _name: str, use_identity: bool) -> None:
+        payload: dict[str, str] = {"message": ""}
+        if use_identity:
+            secret = "test_secret_key_for_hmac"
+            self.team.secret_api_token = secret
+            self.team.save()
+            payload["identity_distinct_id"] = self.distinct_id
+            payload["identity_hash"] = compute_identity_hash(self.distinct_id, secret)
+        else:
+            payload["widget_session_id"] = self.widget_session_id
+            payload["distinct_id"] = self.distinct_id
+
         with patch("products.conversations.backend.api.widget.report_team_action") as mock_report:
-            response = self.client.post(
-                "/api/conversations/v1/widget/message",
-                {
-                    "message": "",  # empty content fails validation
-                    "widget_session_id": self.widget_session_id,
-                    "distinct_id": self.distinct_id,
-                },
-                **self._get_headers(),
-            )
+            response = self.client.post("/api/conversations/v1/widget/message", payload, **self._get_headers())
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         mock_report.assert_called_once()
-        event, properties = mock_report.call_args.args[1], mock_report.call_args.args[2]
+        _, event, properties = mock_report.call_args.args
         self.assertEqual(event, "support ticket send failed")
         self.assertEqual(properties["reason"], "validation_error")
         self.assertEqual(properties["team_id"], self.team.id)
-        self.assertEqual(properties["submitted_distinct_id"], self.distinct_id)
-        self.assertEqual(properties["submitted_widget_session_id"], self.widget_session_id)
+        self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+        self.assertEqual(properties["identity_attempted"], use_identity)
+        self.assertEqual(properties["submitted_widget_session_id"], None if use_identity else self.widget_session_id)
+
+        submitter = properties["submitted_distinct_id_hash"]
+        self.assertNotIn(self.distinct_id, str(submitter))
+        self.assertRegex(submitter, r"^[0-9a-f]{16}$")
 
     def test_create_message_with_traits(self):
         response = self.client.post(

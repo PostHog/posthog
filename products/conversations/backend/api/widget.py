@@ -12,7 +12,10 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 """
 
 import uuid
+import hashlib
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from django.db.models import F, Q
 
@@ -58,11 +61,62 @@ def _bounded_identifier(value: object, max_length: int = 200) -> str | None:
     """Coerce an untrusted request identifier to a bounded string for telemetry, or None.
 
     The widget message endpoint is public and unauthenticated, so request identifiers are
-    attacker-controlled — cap the length so a stuffed value can't inflate the event payload.
+    attacker-controlled. Cap the length so a stuffed value can't inflate the event payload.
     """
     if not isinstance(value, str) or not value:
         return None
     return value[:max_length]
+
+
+def _pseudonymized_distinct_id(value: object) -> str | None:
+    """Reduce a submitter's distinct_id to a short opaque digest, or None.
+
+    A widget submitter is the customer's own end user and their distinct_id is often an email
+    address, so it must not be copied verbatim into PostHog's internal analytics. The digest is
+    stable per distinct_id, which is all the telemetry needs: counting affected users and
+    spotting one user retrying versus many users failing.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    return hashlib.sha256(value.encode()).hexdigest()[:16]
+
+
+def _report_failed_send(team: Team, request_data: Mapping[str, Any], errors: Mapping[str, Any]) -> None:
+    # Track rejected submissions server-side so they're queryable even when the
+    # client-side event is blocked (ad blockers, network drops). Field names and
+    # value lengths only — never message content. An over-long auto-captured
+    # session_context value (e.g. current_url) is a known rejection cause.
+    # This endpoint is public and unauthenticated, so session_context is
+    # attacker-controlled: bound both the number of fields and the key length we
+    # record so a request stuffed with many keys can't inflate the event payload.
+    raw_session_context = request_data.get("session_context")
+    session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
+    session_context_field_lengths = {}
+    if isinstance(raw_session_context, dict):
+        for key, value in list(raw_session_context.items())[:20]:
+            if isinstance(key, str) and isinstance(value, str):
+                session_context_field_lengths[key[:100]] = len(value)
+
+    identity_distinct_id = request_data.get("identity_distinct_id")
+    report_team_action(
+        team,
+        "support ticket send failed",
+        {
+            "channel_source": "widget",
+            "reason": "validation_error",
+            "error_fields": sorted(errors.keys()),
+            "session_context_field_count": session_context_field_count,
+            "session_context_field_lengths": session_context_field_lengths,
+            "team_id": team.id,
+            "organization_id": str(team.organization_id),
+            "submitted_distinct_id_hash": _pseudonymized_distinct_id(
+                request_data.get("distinct_id") or identity_distinct_id
+            ),
+            "submitted_widget_session_id": _bounded_identifier(request_data.get("widget_session_id")),
+            "submitted_ticket_id": _bounded_identifier(request_data.get("ticket_id")),
+            "identity_attempted": bool(identity_distinct_id and request_data.get("identity_hash")),
+        },
+    )
 
 
 class IdentityVerificationFailed(Exception):
@@ -122,45 +176,7 @@ class WidgetMessageView(APIView):
         if not serializer.is_valid():
             logger.warning("Validation error in WidgetMessageView", extra={"errors": serializer.errors})
             try:
-                # Track rejected submissions server-side so they're queryable even when the
-                # client-side event is blocked (ad blockers, network drops). Field names and
-                # value lengths only — never message content. An over-long auto-captured
-                # session_context value (e.g. current_url) is a known rejection cause.
-                # This endpoint is public and unauthenticated, so session_context is
-                # attacker-controlled: bound both the number of fields and the key length we
-                # record so a request stuffed with many keys can't inflate the event payload.
-                raw_session_context = request.data.get("session_context")
-                session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
-                session_context_field_lengths = {}
-                if isinstance(raw_session_context, dict):
-                    for key, value in list(raw_session_context.items())[:20]:
-                        if isinstance(key, str) and isinstance(value, str):
-                            session_context_field_lengths[key[:100]] = len(value)
-                report_team_action(
-                    team,
-                    "support ticket send failed",
-                    {
-                        "channel_source": "widget",
-                        "reason": "validation_error",
-                        "error_fields": sorted(serializer.errors.keys()),
-                        "session_context_field_count": session_context_field_count,
-                        "session_context_field_lengths": session_context_field_lengths,
-                        # Tie the failure back to who and where it came from. team.uuid is the
-                        # capture distinct_id and org/project ride along as groups, but neither is
-                        # queryable as an event property, and the end user who hit the error isn't
-                        # captured at all — so surface team_id plus the submitter's identifiers.
-                        "team_id": team.id,
-                        "organization_id": str(team.organization_id),
-                        "submitted_distinct_id": _bounded_identifier(
-                            request.data.get("distinct_id") or request.data.get("identity_distinct_id")
-                        ),
-                        "submitted_widget_session_id": _bounded_identifier(request.data.get("widget_session_id")),
-                        "submitted_ticket_id": _bounded_identifier(request.data.get("ticket_id")),
-                        "identity_attempted": bool(
-                            request.data.get("identity_distinct_id") and request.data.get("identity_hash")
-                        ),
-                    },
-                )
+                _report_failed_send(team, request.data, serializer.errors)
             except Exception as e:
                 capture_exception(e)
             return Response(
