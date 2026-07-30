@@ -1914,6 +1914,11 @@ export namespace Schemas {
       hideAggregation?: boolean | null;
     }
 
+    export interface ActivateRequest {
+      /** Prompt config id to activate for its label. */
+      config_id: string;
+    }
+
     export interface ActivateVersionRequest {
       /** Version number to activate. Must reference an existing version of this app. */
       version_number: number;
@@ -14208,6 +14213,69 @@ export namespace Schemas {
       StoppedEarly: 'stopped_early',
       Invalid: 'invalid',
     } as const;
+
+    /**
+     * * `boolean` - boolean
+     * * `number` - number
+     * * `string` - string
+     */
+    export type OutputFieldTypeEnum = typeof OutputFieldTypeEnum[keyof typeof OutputFieldTypeEnum];
+
+
+    export const OutputFieldTypeEnum = {
+      Boolean: 'boolean',
+      Number: 'number',
+      String: 'string',
+    } as const;
+
+    export interface OutputField {
+      /**
+         * Output key, e.g. ai_pilled. Lowercase, starts with a letter, letters/digits/underscore only.
+         * @pattern ^[a-z][a-z0-9_]*$
+         */
+      key: string;
+      /** Value type the LLM must return for this key.
+       *
+       * * `boolean` - boolean
+       * * `number` - number
+       * * `string` - string */
+      type: OutputFieldTypeEnum;
+      /** Shown to the LLM to describe what this key means. */
+      description?: string;
+    }
+
+    export interface ConfigVersion {
+      /** Prompt config row id. */
+      id: string;
+      /** Label this config computes, e.g. ai_pilled. */
+      name: string;
+      /** Server-assigned version identity, e.g. v3. */
+      version: string;
+      /** System prompt; {email} is replaced with the signup email domain at runtime. */
+      prompt_text: string;
+      /** Gateway model id this version was authored against. */
+      model: string;
+      /** Dotted paths into the archived Harmonic payload fed to the prompt, e.g. funding.fundingStage. Restricted to the allow-list served by GET /input_fields/, because every selected value reaches the LLM and is then stored on the result indefinitely. */
+      input_fields: string[];
+      /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. */
+      output_fields: OutputField[];
+      /** Whether the batch runner currently computes this version. */
+      is_active: boolean;
+      /**
+         * Email of the staff user who created this version, or null for system-seeded rows.
+         * @nullable
+         */
+      readonly created_by_email: string | null;
+      /** When this version was created. */
+      created_at: string;
+      /** Whether any EnrichmentLabelResult rows reference this version. Informational only: the API never edits a version's content in place, it only creates a new one, so this doesn't gate anything. The label name is not part of a version's content and can always be renamed. */
+      readonly has_results: boolean;
+    }
+
+    export interface ConfigListResponse {
+      /** Versions for the requested label, newest first. */
+      results: ConfigVersion[];
+    }
 
     /**
      * * `posthog_code` - posthog_code
@@ -37516,6 +37584,23 @@ export namespace Schemas {
          * @nullable
          */
       max_tags?: number | null;
+    }
+
+    export interface LabelSummary {
+      /** Label name computed by one or more prompt config versions. */
+      label: string;
+      /** Number of prompt config versions saved for this label. */
+      version_count: number;
+      /**
+         * Version string the batch runner currently computes for this label, or null.
+         * @nullable
+         */
+      active_version: string | null;
+    }
+
+    export interface LabelListResponse {
+      /** Distinct labels, alphabetical. */
+      results: LabelSummary[];
     }
 
     /**
@@ -72656,6 +72741,14 @@ export namespace Schemas {
      * @minLength 1
      */
     search: string;
+    };
+
+    export type GrowthScoreLabConfigsRetrieveParams = {
+    /**
+     * Label name to list prompt config versions for.
+     * @minLength 1
+     */
+    label: string;
     };
 
     export type LlmAnalyticsPersonalSpendListParams = {

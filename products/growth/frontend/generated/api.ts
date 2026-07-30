@@ -9,14 +9,93 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivateRequestApi,
+    ConfigListResponseApi,
+    ConfigVersionApi,
+    GrowthScoreLabConfigsRetrieveParams,
     IdentityMatchingLinksListParams,
     IdentityMatchingLinksResponseApi,
     IdentityMatchingRunsResponseApi,
+    LabelListResponseApi,
     ProductPushCampaignActiveRetrieveParams,
     ProductPushCampaignApi,
     SdkHealthReportApi,
     SdkHealthReportRetrieveParams,
 } from './api.schemas'
+
+export const getGrowthScoreLabActivateCreateUrl = () => {
+    return `/api/growth_score_lab/activate/`
+}
+
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, and flip which version is active.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
+export const growthScoreLabActivateCreate = async (
+    activateRequestApi: ActivateRequestApi,
+    options?: RequestInit
+): Promise<ConfigVersionApi> => {
+    return apiMutator<ConfigVersionApi>(getGrowthScoreLabActivateCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(activateRequestApi),
+    })
+}
+
+export const getGrowthScoreLabConfigsRetrieveUrl = (params: GrowthScoreLabConfigsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/growth_score_lab/configs/?${stringifiedParams}`
+        : `/api/growth_score_lab/configs/`
+}
+
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, and flip which version is active.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
+export const growthScoreLabConfigsRetrieve = async (
+    params: GrowthScoreLabConfigsRetrieveParams,
+    options?: RequestInit
+): Promise<ConfigListResponseApi> => {
+    return apiMutator<ConfigListResponseApi>(getGrowthScoreLabConfigsRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getGrowthScoreLabLabelsRetrieveUrl = () => {
+    return `/api/growth_score_lab/labels/`
+}
+
+/**
+ * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * config versions, and flip which version is active.
+ *
+ * Registered on the root router so it is not team-nested - prompt configs are instance-global,
+ * not scoped to any team or org.
+ */
+export const growthScoreLabLabelsRetrieve = async (options?: RequestInit): Promise<LabelListResponseApi> => {
+    return apiMutator<LabelListResponseApi>(getGrowthScoreLabLabelsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getProductPushCampaignActiveRetrieveUrl = (
     organizationId: string,

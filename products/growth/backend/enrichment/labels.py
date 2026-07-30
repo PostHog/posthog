@@ -5,6 +5,7 @@ client via `get_llm_client(product="growth")` and pass it in — this module jus
 an archived Harmonic payload plus a prompt config into a stamped verdict.
 """
 
+import re
 import json
 import math
 from collections.abc import Callable
@@ -26,6 +27,9 @@ UNKNOWN: Literal["unknown"] = "unknown"
 # Keys the stored output dict uses for provenance (see classify_payload below) -
 # a configured output field can never shadow them.
 RESERVED_OUTPUT_FIELD_KEYS = frozenset({"meta", "inputs"})
+
+# Schema constraints the API validates a config's output_fields against.
+OUTPUT_FIELD_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 _TRUE_STRINGS = frozenset({"true", "yes", "y", "1"})
 _FALSE_STRINGS = frozenset({"false", "no", "n", "0"})
@@ -173,6 +177,9 @@ _OUTPUT_FIELD_COERCERS: dict[str, Callable[[Any], Any]] = {
     "number": _coerce_number,
     "string": str,
 }
+
+# Derived from the coercer table so the API can never accept a type this module has no coercer for.
+OUTPUT_FIELD_TYPES = tuple(_OUTPUT_FIELD_COERCERS)
 
 # Keys whose value is a 0-1 confidence by convention, range-checked so a model answering 7.5
 # doesn't get stored as if it meant something.
