@@ -25644,7 +25644,7 @@ export namespace Schemas {
 
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
@@ -25682,7 +25682,7 @@ export namespace Schemas {
       /** Proposed model; determines `credits_per_observation` in the response.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
     }
@@ -43830,7 +43830,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -52577,7 +52577,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
