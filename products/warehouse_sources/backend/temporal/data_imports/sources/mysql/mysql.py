@@ -810,7 +810,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         with self._ssh_tunnel_endpoint(config) as (host, port):
             kwargs: dict[str, Any] = {
                 "host": host,
-                "port": port,
+                # pymysql rejects a non-int port; config.port can arrive as a string when the
+                # config is built directly rather than through the int-coercing from_dict.
+                "port": int(port),
                 "database": config.database,
                 "user": config.user,
                 "password": config.password,
