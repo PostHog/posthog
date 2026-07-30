@@ -24200,7 +24200,14 @@
                 "Inth",
                 "BCMS",
                 "Convonite",
-                "Hookdeck"
+                "Hookdeck",
+                "Billit",
+                "Moxie",
+                "TripleWhale",
+                "Directus",
+                "Clay",
+                "TradableBits",
+                "Swan"
             ],
             "type": "string"
         },
