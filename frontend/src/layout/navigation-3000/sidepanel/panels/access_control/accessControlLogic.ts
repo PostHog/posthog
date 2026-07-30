@@ -61,7 +61,6 @@ export interface accessControlLogicValues {
     endpoint: string
     humanReadableResource: string
     inheritedAccess: InheritedAccess | null
-    inheritedResource: APIScopeObject | null
     membersById: Record<string, OrganizationMemberType>
     minimumAccessLevel: AccessControlLevel | null
     organizationAdmins: OrganizationMemberType[]
@@ -748,120 +747,7 @@ export interface accessControlLogicMeta {
         availableLevels: (availableLevelsWithNone: AccessControlLevel[]) => AccessControlLevel[]
         canEditAccessControls: (accessControls: AccessControlResponseType | null) => boolean | null
         accessControlDefault: (accessControls: AccessControlResponseType | null) => AccessControlTypeProject | null
-        inheritedResource: (accessControls: AccessControlResponseType | null) => APIScopeObject | null
-        inheritedAccess: (
-            accessControls: AccessControlResponseType | null,
-            inheritedResource:
-                | 'access_control'
-                | 'account'
-                | 'action'
-                | 'activity_log'
-                | 'ai_observability_clusters'
-                | 'alert'
-                | 'annotation'
-                | 'approvals'
-                | 'batch_export'
-                | 'batch_import'
-                | 'batch_import_support'
-                | 'business_knowledge'
-                | 'clickhouse_test_cluster_perf'
-                | 'cohort'
-                | 'comment'
-                | 'conversation'
-                | 'customer_analytics'
-                | 'customer_journey'
-                | 'customer_profile_config'
-                | 'dashboard'
-                | 'dashboard_template'
-                | 'data_catalog'
-                | 'data_catalog_approval'
-                | 'dataset'
-                | 'early_access_feature'
-                | 'element'
-                | 'endpoint'
-                | 'engineering_analytics'
-                | 'error_tracking'
-                | 'evaluation'
-                | 'event_definition'
-                | 'event_filter'
-                | 'experiment'
-                | 'experiment_holdout'
-                | 'experiment_saved_metric'
-                | 'export'
-                | 'external_data_schema'
-                | 'external_data_source'
-                | 'feature_flag'
-                | 'field_note'
-                | 'file_system'
-                | 'file_system_shortcut'
-                | 'group'
-                | 'health_issue'
-                | 'heatmap'
-                | 'hog_flow'
-                | 'hog_function'
-                | 'ingestion_warning'
-                | 'insight'
-                | 'insight_variable'
-                | 'integration'
-                | 'internal_run'
-                | 'legal_document'
-                | 'link'
-                | 'live_debugger'
-                | 'llm_analytics'
-                | 'llm_gateway'
-                | 'llm_playground'
-                | 'llm_prompt'
-                | 'llm_provider_key'
-                | 'llm_skill'
-                | 'logs'
-                | 'loop'
-                | 'marketing_analytics'
-                | 'mcp_analytics'
-                | 'metrics'
-                | 'notebook'
-                | 'organization'
-                | 'organization_integration'
-                | 'organization_member'
-                | 'person'
-                | 'plugin'
-                | 'product_enablement'
-                | 'product_tour'
-                | 'project'
-                | 'property_definition'
-                | 'query'
-                | 'query_performance'
-                | 'replay_scanner'
-                | 'revenue_analytics'
-                | 'review_hog'
-                | 'session_recording'
-                | 'session_recording_playlist'
-                | 'sharing_configuration'
-                | 'signal_scout'
-                | 'signal_scout_internal'
-                | 'signal_scout_report'
-                | 'stamphog'
-                | 'streamlit_app'
-                | 'subscription'
-                | 'survey'
-                | 'tagger'
-                | 'task'
-                | 'ticket'
-                | 'toolbar'
-                | 'tracing'
-                | 'uploaded_media'
-                | 'usage_metric'
-                | 'user'
-                | 'user_interview'
-                | 'vision_action'
-                | 'visual_review'
-                | 'warehouse_objects'
-                | 'warehouse_table'
-                | 'warehouse_view'
-                | 'web_analytics'
-                | 'webhook'
-                | 'wizard_session'
-                | null
-        ) => InheritedAccess | null
+        inheritedAccess: (accessControls: AccessControlResponseType | null) => InheritedAccess | null
         organizationAdmins: (sortedMembers: OrganizationMemberType[] | null) => OrganizationMemberType[]
         organizationAdminsAsAccessControlMember: (
             organizationAdmins: OrganizationMemberType[]
@@ -1405,21 +1291,14 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
 
-        inheritedResource: [
-            (s) => [s.accessControls],
-            (accessControls: AccessControlResponseType | null): APIScopeObject | null => {
-                return accessControls?.inherited_resource ?? null
-            },
-        ],
-
         // What the object falls back to with no default of its own: the project's rule for
         // everyone, or the resource's built-in level when the project sets no rule at all.
+        // A null inherited_resource means nothing sits above this object, so there is no
+        // "No override" to offer — a project's own default is the case that hits.
         inheritedAccess: [
-            (s) => [s.accessControls, s.inheritedResource],
-            (
-                accessControls: AccessControlResponseType | null,
-                inheritedResource: APIScopeObject | null
-            ): InheritedAccess | null => {
+            (s) => [s.accessControls],
+            (accessControls: AccessControlResponseType | null): InheritedAccess | null => {
+                const inheritedResource = accessControls?.inherited_resource
                 if (!accessControls || !inheritedResource) {
                     return null
                 }
