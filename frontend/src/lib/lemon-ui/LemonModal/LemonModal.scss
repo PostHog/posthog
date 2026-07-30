@@ -1,16 +1,15 @@
 .LemonModal__overlay {
-    position: fixed;
-    inset: 0 0 auto;
-    z-index: var(--z-modal);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-
     // `position: fixed` resolves against the layout viewport, which on mobile extends behind the
     // browser chrome and the on-screen keyboard. Pinning the overlay to the visible viewport
     // instead keeps the modal's scroll pane and footer above the fold; scrolling the overlay is
     // the last resort for a modal that still can't fit.
+    position: fixed;
+    inset: 0 0 auto;
     top: var(--visual-viewport-offset-top);
+    z-index: var(--z-modal);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
     height: var(--visual-viewport-height);
     overflow-y: auto;
     overscroll-behavior: contain;

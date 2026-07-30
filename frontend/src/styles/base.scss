@@ -3,17 +3,14 @@
 @import 'mixins';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
-// Geometry of the part of the page the user can actually see. `dvh` handles collapsible mobile
-// browser chrome; the on-screen keyboard is invisible to CSS, so `useVisualViewportBounds`
-// overwrites these from `window.visualViewport` while a modal is open.
-:root {
-    --visual-viewport-height: 100dvh;
-    --visual-viewport-offset-top: 0px;
-}
-
 // Set variables
 :root,
 :host {
+    // Geometry of the part of the page the user can actually see. `dvh` handles collapsible mobile
+    // browser chrome; the on-screen keyboard is invisible to CSS, so `useVisualViewportBounds`
+    // overwrites these from `window.visualViewport` while a modal is open.
+    --visual-viewport-height: 100dvh;
+    --visual-viewport-offset-top: 0px;
     --color-red-50: oklch(0.971 0.013 17.38deg);
     --color-red-100: oklch(0.936 0.032 17.717deg);
     --color-red-200: oklch(0.885 0.062 18.334deg);
