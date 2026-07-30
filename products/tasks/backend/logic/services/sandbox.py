@@ -538,6 +538,13 @@ def _get_modal_evals_sandbox_class() -> SandboxClass:
     return ModalEvalsSandbox
 
 
+def _get_exedev_sandbox_class() -> SandboxClass:
+    """exe.dev sandbox provider — drives VMs over the exe.dev HTTPS /exec gateway."""
+    from .exedev_sandbox import ExeDevSandbox
+
+    return ExeDevSandbox
+
+
 def get_sandbox_class() -> SandboxClass:
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
@@ -549,6 +556,9 @@ def get_sandbox_class() -> SandboxClass:
 
     if provider and provider.upper() == "MODAL_EVALS":
         return _get_modal_evals_sandbox_class()
+
+    if provider and provider.upper() == "EXEDEV":
+        return _get_exedev_sandbox_class()
 
     # Default to Modal everywhere
     from .modal_sandbox import ModalSandbox
@@ -567,6 +577,8 @@ def get_sandbox_class_for_backend(backend: str) -> SandboxClass:
         return _get_modal_evals_sandbox_class()
     if backend == "docker":
         return _get_docker_sandbox_class()
+    if backend.lower() == "exedev":
+        return _get_exedev_sandbox_class()
     raise RuntimeError(f"Unsupported sandbox backend: {backend}")
 
 

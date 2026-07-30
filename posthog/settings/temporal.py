@@ -66,6 +66,15 @@ SANDBOX_AGENT_OTEL_LOGS_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_
 SANDBOX_AGENT_OTEL_LOGS_TOKEN: str | None = get_from_env("SANDBOX_AGENT_OTEL_LOGS_TOKEN", None, optional=True)
 SANDBOX_AGENT_OTEL_TRACES_URL: str | None = get_from_env("SANDBOX_AGENT_OTEL_TRACES_URL", None, optional=True)
 
+# exe.dev sandbox provider (selected with SANDBOX_PROVIDER=exedev). A scoped exe.dev API
+# token used by ExeDevSandbox to drive VMs over the HTTPS /exec gateway. The image is a
+# Docker reference pre-loaded with the PostHog agent-server at /scripts (the backend
+# never builds/pulls it). Optional egress allowlist / region tune VM creation.
+SANDBOX_EXEDEV_API_TOKEN: str | None = get_from_env("SANDBOX_EXEDEV_API_TOKEN", None, optional=True)
+SANDBOX_EXEDEV_IMAGE: str | None = get_from_env("SANDBOX_EXEDEV_IMAGE", None, optional=True)
+SANDBOX_EXEDEV_EGRESS_ALLOWLIST: str | None = get_from_env("SANDBOX_EXEDEV_EGRESS_ALLOWLIST", None, optional=True)
+SANDBOX_EXEDEV_REGION: str | None = get_from_env("SANDBOX_EXEDEV_REGION", None, optional=True)
+
 # client_id of the OAuthApplication used to mint the access token the PostHog setup wizard
 # uses when it runs inside a task sandbox (the "run the wizard in the cloud" onboarding path).
 # It must be the wizard's own app so the LLM gateway authorizes the token like a normal wizard

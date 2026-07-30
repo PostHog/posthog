@@ -1853,6 +1853,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         - http://127.0.0.1:{port} (Docker sandboxes)
         - https://*.modal.run (Modal sandboxes)
         - https://*.modal.host (Modal connect token sandboxes)
+        - https://*.exe.xyz (exe.dev sandboxes)
         """
         from urllib.parse import urlparse
 
@@ -1867,7 +1868,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if (
             parsed.scheme == "https"
             and parsed.hostname
-            and (parsed.hostname.endswith(".modal.run") or parsed.hostname.endswith(".modal.host"))
+            and (
+                parsed.hostname.endswith(".modal.run")
+                or parsed.hostname.endswith(".modal.host")
+                or parsed.hostname.endswith(".exe.xyz")
+            )
         ):
             return True
 
