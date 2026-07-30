@@ -7,7 +7,9 @@ from django.db import transaction
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.facade.api import (
+    CONSECUTIVE_FAILURES_TO_SUSPEND,
     clear_node_suspension,
+    count_leading_failures,
     is_node_suspended,
     mark_node_suspended,
     query_fingerprint,
@@ -16,7 +18,6 @@ from products.data_modeling.backend.facade.api import (
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
-    DataModelingJobStatus,
     DataWarehouseSavedQuery,
     Node,
 )
@@ -33,9 +34,6 @@ __all__ = [
     "strip_hostname_from_error",
     "update_node_system_properties",
 ]
-
-# Consecutive failed jobs (per engine) before a node is suspended from future DAG runs.
-CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 # Regex patterns for stripping hostnames from ClickHouse error messages
 # Matches patterns like: "(from chi-xxx.svc.cluster.local:9000)" or "(from 10.0.0.1:9000)"
@@ -87,21 +85,6 @@ def update_node_system_properties(
     node.properties = properties
 
 
-def _count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | None = None) -> int:
-    jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine))
-    if since is not None:
-        # Otherwise the failures that caused the suspension are still the most recent jobs, and one
-        # new failure re-suspends the node we just resumed.
-        jobs = jobs.filter(created_at__gt=dt.datetime.fromisoformat(since))
-    statuses = jobs.order_by("-created_at").values_list("status", flat=True)[:CONSECUTIVE_FAILURES_TO_SUSPEND]
-    count = 0
-    for status in statuses:
-        if status != DataModelingJobStatus.FAILED:
-            break
-        count += 1
-    return count
-
-
 @database_sync_to_async_pool
 def maybe_suspend_node_for_engine(
     *,
@@ -119,7 +102,7 @@ def maybe_suspend_node_for_engine(
         if is_node_suspended(node, engine):
             return False
         since = suspension_reset_at(node, engine)
-        if _count_leading_failures(saved_query_id, engine, since=since) < CONSECUTIVE_FAILURES_TO_SUSPEND:
+        if count_leading_failures(saved_query_id, engine, since=since) < CONSECUTIVE_FAILURES_TO_SUSPEND:
             return False
         fingerprint = query_fingerprint(
             DataWarehouseSavedQuery.objects.filter(id=saved_query_id).values_list("query", flat=True).first()

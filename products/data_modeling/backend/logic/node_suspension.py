@@ -8,9 +8,15 @@ import hashlib
 import datetime as dt
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from django.db import transaction
 
+from products.data_modeling.backend.models.data_modeling_job import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+)
 from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
@@ -18,6 +24,9 @@ if TYPE_CHECKING:
 
 SUSPENDED_KEY = "suspended"
 RESET_KEY = "suspension_reset"
+
+# Consecutive failed jobs (per engine) before a node is suspended from future DAG runs.
+CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 
 def _now() -> str:
@@ -109,6 +118,38 @@ def resume_nodes(nodes: Iterable[Node], *, by: str, engine: str | None = None) -
     return sum(
         _persist_change(node, lambda locked: clear_node_suspension(locked, engine=engine, by=by)) for node in nodes
     )
+
+
+def count_leading_failures(saved_query_id: UUID, engine: str, *, since: str | None = None) -> int:
+    """Consecutive failed jobs for the engine, newest first, capped at the suspension threshold."""
+    jobs = DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=str(engine))
+    if since is not None:
+        # Otherwise the failures that caused the suspension are still the most recent jobs, and one
+        # new failure re-suspends the node we just resumed.
+        jobs = jobs.filter(created_at__gt=dt.datetime.fromisoformat(since))
+    statuses = jobs.order_by("-created_at").values_list("status", flat=True)[:CONSECUTIVE_FAILURES_TO_SUSPEND]
+    count = 0
+    for status in statuses:
+        if status != DataModelingJobStatus.FAILED:
+            break
+        count += 1
+    return count
+
+
+def failure_streak_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> dict:
+    """How close the query's serving-engine materialization is to the suspension threshold.
+
+    Counted the same way the circuit breaker counts, including resume watermarks — so the
+    number the user sees is the number the breaker will act on.
+    """
+    engine = DataModelingJobEngine.CLICKHOUSE.value
+    resets = [
+        at
+        for node in Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id)
+        if (at := suspension_reset_at(node, engine)) is not None
+    ]
+    count = count_leading_failures(saved_query.id, engine, since=max(resets) if resets else None)
+    return {"count": count, "threshold": CONSECUTIVE_FAILURES_TO_SUSPEND}
 
 
 def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> dict[str, dict]:

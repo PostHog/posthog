@@ -15,7 +15,7 @@ from parameterized import parameterized
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
-from products.data_modeling.backend.facade.api import mark_node_suspended, suspension_state
+from products.data_modeling.backend.facade.api import clear_node_suspension, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -1967,6 +1967,45 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(list(suspended), ["clickhouse"])
         self.assertEqual(suspended["clickhouse"]["reason"], "first failure")
         self.assertEqual(suspended["clickhouse"]["job_id"], "job-1")
+
+    def test_retrieve_failure_streak_counts_only_failures_after_resume_watermark(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="streaky_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=DAG.objects.create(team=self.team, name="streak_dag"),
+            saved_query=saved_query,
+            type=NodeType.MAT_VIEW,
+        )
+
+        def add_failed_job(when: str, engine: str = "clickhouse") -> None:
+            job = DataModelingJob.objects.create(
+                team=self.team, saved_query=saved_query, status="Failed", engine=engine
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=when)
+
+        add_failed_job("2026-07-01T00:00:00Z")
+        add_failed_job("2026-07-01T01:00:00Z")
+        add_failed_job("2026-07-01T02:00:00Z")
+        # A resume stamps a watermark; failures before it must not count toward the streak the
+        # UI shows, because the circuit breaker ignores them too.
+        mark_node_suspended(node, engine="clickhouse", reason="failing", job_id="job-x")
+        with freeze_time("2026-07-02T00:00:00Z"):
+            clear_node_suspension(node, engine="clickhouse", by="api")
+        node.save()
+        add_failed_job("2026-07-03T00:00:00Z")
+        add_failed_job("2026-07-03T01:00:00Z")
+        # Shadow-engine failures are not what scheduled serving pauses on.
+        add_failed_job("2026-07-03T02:00:00Z", engine="duckgres")
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["failure_streak"], {"count": 2, "threshold": 5})
 
     def test_resume_clears_suspension_for_every_node_of_the_query(self):
         # Key access is the point of this surface: the node-level resume is on an INTERNAL viewset,

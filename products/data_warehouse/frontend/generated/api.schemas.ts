@@ -932,6 +932,13 @@ export const SavedQuerySyncFrequencyEnumApi = {
     '30day': '30day',
 } as const
 
+export interface SavedQueryFailureStreakApi {
+    /** Consecutive failed materialization runs on the serving engine, counted the same way the suspension circuit breaker counts them (capped at the threshold). */
+    count: number
+    /** Consecutive failures after which scheduled materialization pauses. */
+    threshold: number
+}
+
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
  *
@@ -1033,6 +1040,7 @@ export interface DataWarehouseSavedQueryApi {
     readonly user_access_level: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended: DataWarehouseSavedQueryApiSuspended
+    readonly failure_streak: SavedQueryFailureStreakApi
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -1158,6 +1166,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
+    readonly failure_streak?: SavedQueryFailureStreakApi
 }
 
 export interface SavedQueryResumeApi {

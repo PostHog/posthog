@@ -16783,6 +16783,13 @@ export namespace Schemas {
       ManagedViewset: 'managed_viewset',
     } as const;
 
+    export interface SavedQueryFailureStreak {
+      /** Consecutive failed materialization runs on the serving engine, counted the same way the suspension circuit breaker counts them (capped at the threshold). */
+      count: number;
+      /** Consecutive failures after which scheduled materialization pauses. */
+      threshold: number;
+    }
+
     /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
@@ -16884,6 +16891,7 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
+      readonly failure_streak: SavedQueryFailureStreak;
     }
 
     /**
@@ -48700,6 +48708,7 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
+      readonly failure_streak?: SavedQueryFailureStreak;
     }
 
     /**

@@ -339,6 +339,14 @@ class SavedQuerySuspensionSerializer(serializers.Serializer):
     job_id = serializers.CharField(help_text="Materialization job that tripped suspension.")
 
 
+class SavedQueryFailureStreakSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text="Consecutive failed materialization runs on the serving engine, counted the same way "
+        "the suspension circuit breaker counts them (capped at the threshold)."
+    )
+    threshold = serializers.IntegerField(help_text="Consecutive failures after which scheduled materialization pauses.")
+
+
 class DataWarehouseSavedQuerySerializer(
     DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
@@ -376,6 +384,7 @@ class DataWarehouseSavedQuerySerializer(
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
     suspended = serializers.SerializerMethodField(read_only=True)
+    failure_streak = serializers.SerializerMethodField(read_only=True)
     folder_id = TeamScopedPrimaryKeyRelatedField(
         source="folder",
         queryset=DataWarehouseSavedQueryFolder.objects.all(),
@@ -437,6 +446,7 @@ class DataWarehouseSavedQuerySerializer(
             "expires_at",
             "user_access_level",
             "suspended",
+            "failure_streak",
         ]
         read_only_fields = [
             "id",
@@ -455,6 +465,7 @@ class DataWarehouseSavedQuerySerializer(
             "origin",
             "expires_at",
             "suspended",
+            "failure_streak",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
@@ -509,6 +520,12 @@ class DataWarehouseSavedQuerySerializer(
             engine: SavedQuerySuspensionSerializer(entry).data
             for engine, entry in suspension_state_for_saved_query(view).items()
         }
+
+    @extend_schema_field(SavedQueryFailureStreakSerializer())
+    def get_failure_streak(self, view: DataWarehouseSavedQuery) -> dict[str, Any]:
+        from products.data_modeling.backend.facade.api import failure_streak_for_saved_query
+
+        return SavedQueryFailureStreakSerializer(failure_streak_for_saved_query(view)).data
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
