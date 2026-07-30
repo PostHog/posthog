@@ -47,6 +47,7 @@
 # products/conversations/frontend/scenes/tickets/ticketGroups.ts.
 import re
 import calendar
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -94,7 +95,13 @@ _RELATIVE_DATE_REGEX = re.compile(r"-(?P<number>[1-9][0-9]*)(?P<unit>[hdwmy])(?P
 _ISO_DATE_REGEX = re.compile(r"\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})?)?")
 # Keeps resolution well inside datetime's year range (1000y from now is fine).
 _MAX_RELATIVE_NUMBER = 1000
-_RELATIVE_DELTA_KWARGS = {"h": "hours", "d": "days", "w": "weeks", "m": "months", "y": "years"}
+_RELATIVE_DELTAS: dict[str, Callable[[int], relativedelta]] = {
+    "h": lambda n: relativedelta(hours=n),
+    "d": lambda n: relativedelta(days=n),
+    "w": lambda n: relativedelta(weeks=n),
+    "m": lambda n: relativedelta(months=n),
+    "y": lambda n: relativedelta(years=n),
+}
 
 
 def _start_of(value: datetime, unit: str) -> datetime:
@@ -150,7 +157,7 @@ def _resolve_date_value(value: str, timezone_info: ZoneInfo, now: datetime | Non
             return None
         unit = match.group("unit")
         anchor = (now or datetime.now(tz=timezone_info)).astimezone(timezone_info)
-        resolved = anchor - relativedelta(**{_RELATIVE_DELTA_KWARGS[unit]: number})
+        resolved = anchor - _RELATIVE_DELTAS[unit](number)
         if match.group("position") == "Start":
             return _start_of(resolved, unit)
         if match.group("position") == "End":
