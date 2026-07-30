@@ -28516,7 +28516,7 @@ export namespace Schemas {
     }
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
      */
     export interface ExternalDataSchema {
       readonly id: string;
@@ -49661,7 +49661,7 @@ export namespace Schemas {
     } | null;
 
     /**
-     * Mixin for serializers to add user access control fields
+     * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
      */
     export interface PatchedExternalDataSchema {
       readonly id?: string;

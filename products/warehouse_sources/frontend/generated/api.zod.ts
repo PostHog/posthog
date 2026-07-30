@@ -108,7 +108,7 @@ export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasPartialUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
@@ -209,7 +209,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasIncrementalFieldsCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
@@ -310,7 +310,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasReloadCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
@@ -411,7 +411,7 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasResyncCreateBodyIncrementalFieldLookbackSecondsMax = 5184000
@@ -512,7 +512,7 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod
                 "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas."
             ),
     })
-    .describe('Mixin for serializers to add user access control fields')
+    .describe('A schema of an external data source: its sync configuration and the warehouse table it syncs into.')
 
 /**
  * Create, Read, Update and Delete External data Sources.

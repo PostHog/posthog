@@ -137,7 +137,7 @@ export type ExternalDataSchemaApiSource = {
 } | null
 
 /**
- * Mixin for serializers to add user access control fields
+ * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
  */
 export interface ExternalDataSchemaApi {
     readonly id: string
@@ -297,7 +297,7 @@ export type PatchedExternalDataSchemaApiSource = {
 } | null
 
 /**
- * Mixin for serializers to add user access control fields
+ * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
  */
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
