@@ -90,12 +90,15 @@ class TestScoutSlackDelivery(BaseTest):
         assert call["blocks"][-1]["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
-        # The @PostHog follow-up nudge lands as a reply in the message's thread.
+        # The @PostHog follow-up invite lands as a reply in the message's thread.
         reply = fake_client.chat_postMessage.call_args_list[1].kwargs
         assert reply["thread_ts"] == "1785418710.000100"
         assert reply["channel"] == "CSCOUTS"
         assert reply["blocks"][0]["type"] == "context"
-        assert "@PostHog" in reply["blocks"][0]["elements"][0]["text"]
+        assert (
+            reply["blocks"][0]["elements"][0]["text"]
+            == "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
+        )
 
     def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
         emission = self._make_emission()
@@ -138,40 +141,8 @@ class TestScoutSlackDelivery(BaseTest):
         assert reply["thread_ts"] == "1785418710.000200"
         assert reply["blocks"][0]["type"] == "context"
 
-    def test_reply_uses_the_exact_ask_posthog_copy_when_bot_is_ready(self) -> None:
-        emission = self._make_emission()
-        report = SignalReport.objects.create(
-            team=self.team,
-            status=SignalReport.Status.READY,
-            title="Checkout failures",
-            summary="Checkout failed",
-        )
-        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
-        fake_client = MagicMock()
-        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000300"}
-
-        with (
-            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
-            patch("posthog.helpers.slack_subscription_explore.bot_is_ready", return_value=True),
-        ):
-            slack_integration.return_value.client = fake_client
-            deliver_scout_slack_output.run(
-                self.team.id,
-                "report",
-                str(report.id),
-                str(emission.scout_run_id),
-                "01864f4c-6957-7d3f-8d85-1d775e527265",
-                integration.id,
-                "CSCOUTS|#scout-findings",
-            )
-
-        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
-        assert (
-            reply["blocks"][0]["elements"][0]["text"]
-            == "💬 Reply in this thread and mention *@PostHog* with a question to dig into this report."
-        )
-
-    def test_no_reply_when_ai_not_approved(self) -> None:
+    def test_reply_posted_regardless_of_ai_approval(self) -> None:
+        # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
         emission = self._make_emission()
@@ -197,7 +168,9 @@ class TestScoutSlackDelivery(BaseTest):
                 "CSCOUTS|#scout-findings",
             )
 
-        assert fake_client.chat_postMessage.call_count == 1
+        assert fake_client.chat_postMessage.call_count == 2
+        reply = fake_client.chat_postMessage.call_args_list[1].kwargs
+        assert reply["thread_ts"] == "1785418710.000400"
 
     def test_task_skips_report_suppressed_before_delivery(self) -> None:
         emission = self._make_emission()

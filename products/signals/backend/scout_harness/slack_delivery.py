@@ -9,7 +9,6 @@ from django.conf import settings
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
@@ -41,8 +40,8 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 
 ScoutSlackOutputType = Literal["finding", "report"]
 
-# Only powers the "set up the bot" fallback link; the ready-bot line is static.
-_EXPLORE_HINT_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_scout&utm_medium=slack"
+# Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
+_SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
 
 
 @dataclass(frozen=True)
@@ -78,27 +77,25 @@ def slack_api_error_code(exc: SlackApiError) -> str | None:
     return error_code if isinstance(error_code, str) else None
 
 
-def _post_explore_hint_reply(client: object, *, channel_id: str, thread_ts: object, integration: Integration) -> None:
-    """Reply in-thread nudging the channel to @PostHog this scout output.
+def _post_scout_slack_reply(client: object, *, channel_id: str, thread_ts: object) -> None:
+    """Reply in-thread inviting @PostHog follow-ups on a scout's Slack output.
 
     Best-effort and non-blocking: the scout message itself has already been delivered, so a failed
     or missing follow-up never fails the delivery (and so never re-posts the parent on retry).
     """
-    ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
-    hint = build_explore_hint(integration, utm_tags=_EXPLORE_HINT_UTM_TAGS, ai_enabled=ai_enabled)
-    if not hint or not isinstance(thread_ts, str) or not thread_ts:
+    if not isinstance(thread_ts, str) or not thread_ts:
         return
     try:
         client.chat_postMessage(  # type: ignore[attr-defined]
             channel=channel_id,
             thread_ts=thread_ts,
-            blocks=[hint],
-            text=hint["elements"][0]["text"],
+            blocks=[{"type": "context", "elements": [{"type": "mrkdwn", "text": _SCOUT_SLACK_REPLY_TEXT}]}],
+            text=_SCOUT_SLACK_REPLY_TEXT,
             unfurl_links=False,
             unfurl_media=False,
         )
     except SlackApiError:
-        logger.warning("scout_slack_explore_hint_reply_failed", channel=channel_id, exc_info=True)
+        logger.warning("scout_slack_followup_reply_failed", channel=channel_id, exc_info=True)
 
 
 def _prettify_scout_name(skill_name: str) -> str:
@@ -208,7 +205,7 @@ def post_scout_emission_to_slack(
             ) from exc
         raise
 
-    _post_explore_hint_reply(client, channel_id=channel_id, thread_ts=response.get("ts"), integration=integration)
+    _post_scout_slack_reply(client, channel_id=channel_id, thread_ts=response.get("ts"))
 
 
 def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
@@ -284,4 +281,4 @@ def post_scout_report_to_slack(
             ) from exc
         raise
 
-    _post_explore_hint_reply(client, channel_id=channel_id, thread_ts=response.get("ts"), integration=integration)
+    _post_scout_slack_reply(client, channel_id=channel_id, thread_ts=response.get("ts"))
