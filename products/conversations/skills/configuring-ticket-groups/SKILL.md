@@ -36,26 +36,26 @@ Each filter is one of:
 - `{"type": "ticket_tags", "operator": "any_of", "value": ["vip", ...]}` — the ticket has ANY of
   these tags. Matching is exact: `urgent_billing` does not match `urgent`.
 - `{"type": "ticket_property", "key": "channel_source" | "status" | "priority", "operator": "in",
-  "value": [...]}` — channel_source: widget/email/slack/teams/github; status: new/open/pending/on_hold/resolved;
+"value": [...]}` — channel_source: widget/email/slack/teams/github; status: new/open/pending/on_hold/resolved;
   priority: low/medium/high/critical.
 - `{"type": "ticket_property", "key": "email_from", "operator": "icontains", "value": "@bigcorp.com"}`
   — case-insensitive substring of the sender.
 - `{"type": "ticket_property", "key": "sla_due_at", "operator": "is_set" | "is_not_set"}` — no
   `value` field.
 - `{"type": "ticket_property", "key": "created_at", "operator": "date_before" | "date_after",
-  "value": "-3d"}` — see the date grammar below.
+"value": "-3d"}` — see the date grammar below.
 
 A multi-filter group ANDs its filters. For example, "email tickets from Big Corp opened in the
 last week":
 
 ```json
 {
-    "label": "Big Corp (fresh)",
-    "filters": [
-        { "type": "ticket_property", "key": "channel_source", "operator": "in", "value": ["email"] },
-        { "type": "ticket_property", "key": "email_from", "operator": "icontains", "value": "@bigcorp.com" },
-        { "type": "ticket_property", "key": "created_at", "operator": "date_after", "value": "-1w" }
-    ]
+  "label": "Big Corp (fresh)",
+  "filters": [
+    { "type": "ticket_property", "key": "channel_source", "operator": "in", "value": ["email"] },
+    { "type": "ticket_property", "key": "email_from", "operator": "icontains", "value": "@bigcorp.com" },
+    { "type": "ticket_property", "key": "created_at", "operator": "date_after", "value": "-1w" }
+  ]
 }
 ```
 
