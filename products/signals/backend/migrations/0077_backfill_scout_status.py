@@ -4,7 +4,7 @@ from django.db import migrations
 def backfill_paused_by_user(apps, schema_editor):
     # Rows disabled before `status` existed can only have been switched off by a human:
     # nothing system-driven ever wrote `enabled` until this field shipped. One UPDATE over a
-    # small table (scout configs, not events); kept separate from 0075's AddFields so the
+    # small table (scout configs, not events); kept separate from 0076's AddFields so the
     # data write never shares a transaction with schema locks.
     SignalScoutConfig = apps.get_model("signals", "SignalScoutConfig")
     # `_default_manager`, not `objects`: the model's Meta routes the default manager to the
@@ -14,7 +14,7 @@ def backfill_paused_by_user(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0075_signalscoutconfig_status"),
+        ("signals", "0076_signalscoutconfig_status"),
     ]
 
     operations = [
