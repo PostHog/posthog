@@ -320,6 +320,30 @@ export function extractBreakdownValues(
         )
 }
 
+export type BreakdownValueGroup = { breakdownProperty?: string; values: BreakdownValueAndType[] }
+
+/** Cluster an extractBreakdownValues list into per-property groups, keeping the list's order
+ * within and across groups. The property-less group (the funnel baseline, legacy values)
+ * moves to the end: its entries span every property, so it reads as an appendix to the
+ * property sections rather than the first one. */
+export function groupBreakdownValuesByProperty(values: BreakdownValueAndType[]): BreakdownValueGroup[] {
+    const grouped = new Map<string | null, BreakdownValueAndType[]>()
+    for (const value of values) {
+        const key = value.breakdownProperty ?? null
+        const group = grouped.get(key)
+        if (group) {
+            group.push(value)
+        } else {
+            grouped.set(key, [value])
+        }
+    }
+    const groups = [...grouped.entries()].map(
+        ([breakdownProperty, groupValues]): BreakdownValueGroup =>
+            breakdownProperty == null ? { values: groupValues } : { breakdownProperty, values: groupValues }
+    )
+    return [...groups.filter((g) => g.breakdownProperty != null), ...groups.filter((g) => g.breakdownProperty == null)]
+}
+
 /** Sentinel rows keep their built-in muted/fixed treatment instead of an assigned palette color. */
 export function isAutoAssignableBreakdownValue(breakdownValue: string): boolean {
     return (

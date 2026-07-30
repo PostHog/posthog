@@ -16,6 +16,7 @@ import { DashboardMode } from '~/types'
 
 import {
     BreakdownColorConfig,
+    BreakdownValueAndType,
     COHORT_BREAKDOWN_PROPERTY_KEY,
     breakdownPropertyKeyParts,
     denormalizeBreakdownValue,
@@ -26,9 +27,10 @@ import { dashboardLogic } from './dashboardLogic'
 
 type BreakdownColorRow = BreakdownColorConfig & { pinnedConfig?: BreakdownColorConfig }
 
-function BreakdownPropertyLabel({ breakdownProperty }: { breakdownProperty?: string }): JSX.Element | null {
+function BreakdownPropertyGroupTitle({ breakdownProperty }: { breakdownProperty?: string }): JSX.Element {
     if (breakdownProperty == null) {
-        return null
+        // The property-less group holds entries that apply under every property, like the funnel baseline.
+        return <span>All properties</span>
     }
     if (breakdownProperty === COHORT_BREAKDOWN_PROPERTY_KEY) {
         return <span>Cohorts</span>
@@ -46,7 +48,7 @@ function BreakdownPropertyLabel({ breakdownProperty }: { breakdownProperty?: str
 }
 
 export function DashboardInsightColorsModal(): JSX.Element {
-    const { isOpen, insightTilesLoading, breakdownValues } = useValues(dashboardInsightColorsModalLogic)
+    const { isOpen, insightTilesLoading, breakdownValueGroups } = useValues(dashboardInsightColorsModalLogic)
     const { hideInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
 
     const { themes: _themes, themesLoading } = useValues(dataColorThemesLogic)
@@ -65,12 +67,22 @@ export function DashboardInsightColorsModal(): JSX.Element {
         }
     }
 
+    const toRow = (breakdownValue: BreakdownValueAndType): BreakdownColorRow => {
+        const config = findBreakdownColorConfig(
+            effectiveBreakdownColors,
+            breakdownValue.breakdownValue,
+            breakdownValue.breakdownType,
+            breakdownValue.breakdownProperty
+        )
+        return {
+            ...breakdownValue,
+            colorToken: config?.colorToken || null,
+            source: config?.source,
+            pinnedConfig: config,
+        }
+    }
+
     const columns: LemonTableColumns<BreakdownColorRow> = [
-        {
-            title: 'Property',
-            key: 'breakdown_property',
-            render: (_, { breakdownProperty }) => <BreakdownPropertyLabel breakdownProperty={breakdownProperty} />,
-        },
         {
             title: 'Breakdown',
             key: 'breakdown_value',
@@ -163,24 +175,18 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 independently. Values on a single insight keep that insight's own colors. Pick a color to pin a value to
                 it.
             </p>
-            <LemonTable
-                columns={columns}
-                dataSource={breakdownValues.map((breakdownValue): BreakdownColorRow => {
-                    const config = findBreakdownColorConfig(
-                        effectiveBreakdownColors,
-                        breakdownValue.breakdownValue,
-                        breakdownValue.breakdownType,
-                        breakdownValue.breakdownProperty
-                    )
-                    return {
-                        ...breakdownValue,
-                        colorToken: config?.colorToken || null,
-                        source: config?.source,
-                        pinnedConfig: config,
-                    }
-                })}
-                loading={insightTilesLoading || undefined}
-            />
+            {breakdownValueGroups.length === 0 ? (
+                <LemonTable columns={columns} dataSource={[]} loading={insightTilesLoading || undefined} />
+            ) : (
+                breakdownValueGroups.map((group) => (
+                    <div key={group.breakdownProperty ?? ''} className="mb-4">
+                        <LemonLabel className="mb-1">
+                            <BreakdownPropertyGroupTitle breakdownProperty={group.breakdownProperty} />
+                        </LemonLabel>
+                        <LemonTable columns={columns} dataSource={group.values.map(toRow)} showHeader={false} />
+                    </div>
+                ))
+            )}
             {insightTilesLoading ? (
                 <p className="text-muted-alt mt-2">Tiles are still loading. More breakdown values may appear.</p>
             ) : null}

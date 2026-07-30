@@ -12,6 +12,7 @@ import {
     extractBreakdownValuesByTile,
     findBreakdownColorConfig,
     getBreakdownPropertyKey,
+    groupBreakdownValuesByProperty,
     hasUnresolvedBreakdownTiles,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
@@ -419,6 +420,35 @@ describe('dashboardBreakdownColors', () => {
                     { breakdownValue: 'Baseline', breakdownType: 'event' },
                     { breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' },
                 ],
+            ])
+        })
+    })
+
+    describe('groupBreakdownValuesByProperty', () => {
+        it('clusters values into property groups, with property-less values last', () => {
+            const baseline = { breakdownValue: 'Baseline', breakdownType: 'event' as const }
+            const macOs = {
+                breakdownValue: 'Mac OS X',
+                breakdownType: 'event' as const,
+                breakdownProperty: 'event::$os',
+            }
+            const chrome = {
+                breakdownValue: 'Chrome',
+                breakdownType: 'event' as const,
+                breakdownProperty: 'event::$browser',
+            }
+            const firefox = {
+                breakdownValue: 'Firefox',
+                breakdownType: 'event' as const,
+                breakdownProperty: 'event::$browser',
+            }
+
+            // extractBreakdownValues emits property-less rows first; the modal shows them
+            // as the closing section instead, after the property groups in dashboard order
+            expect(groupBreakdownValuesByProperty([baseline, macOs, chrome, firefox])).toEqual([
+                { breakdownProperty: 'event::$os', values: [macOs] },
+                { breakdownProperty: 'event::$browser', values: [chrome, firefox] },
+                { values: [baseline] },
             ])
         })
     })
