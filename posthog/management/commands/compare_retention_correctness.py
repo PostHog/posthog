@@ -44,8 +44,9 @@ across worker threads) we install one process-wide patch whose return value is r
 ``ContextVar`` each worker sets before it runs. Threads start with a fresh context, so the workers
 never collide.
 
-Checking *all* insights is done as a resumable sweep, not one giant run. Pass ``--state-file
-progress.json`` and the command processes one ``--limit``-sized batch, writes a cursor (the highest
+Checking *all* insights can be one giant run (``--all``, which ignores ``--limit``) or a resumable
+sweep. For the sweep, pass ``--state-file progress.json`` and the command processes one
+``--limit``-sized batch, writes a cursor (the highest
 insight id it reached) plus the running counts and accumulated findings back to that file, then exits.
 Re-run the same command and it resumes just past the cursor; repeat until it reports the sweep complete.
 The cursor is printed every run, so without a state file you can drive the same loop by hand with
@@ -57,6 +58,9 @@ scope is refused so a narrowed cursor can't silently leave insights unchecked.
 Examples:
     # All retention insights, up to 8 teams in parallel
     python manage.py compare_retention_correctness
+
+    # Every matching insight in one run, no batching
+    python manage.py compare_retention_correctness --all
 
     # Resumable sweep over every insight: run this repeatedly until it reports "complete"
     python manage.py compare_retention_correctness --state-file /tmp/retention_sweep.json --limit 500
@@ -404,6 +408,7 @@ class Command(BaseCommand):
         parser.add_argument("--insight-id", type=int, action="append", help="Restrict to insight DB id(s); repeatable")
         parser.add_argument("--short-id", type=str, action="append", help="Restrict to insight short_id(s); repeatable")
         parser.add_argument("--limit", type=int, default=100, help="Max insights per batch (default 100)")
+        parser.add_argument("--all", action="store_true", help="Process every matching insight (ignores --limit)")
         parser.add_argument("--sample", type=int, default=None, help="Randomly sample N insights instead of by id")
         parser.add_argument(
             "--state-file",
@@ -457,6 +462,9 @@ class Command(BaseCommand):
         after_id: Optional[int] = options["after_id"]
         scope = scope_signature(options)
 
+        if options["all"] and options["sample"]:
+            raise CommandError("--all and --sample are mutually exclusive")
+
         if options["sample"] is not None and (state_file or after_id is not None):
             raise CommandError(
                 "--sample picks a random set and can't drive a resumable sweep (--state-file / --after-id)."
@@ -496,16 +504,19 @@ class Command(BaseCommand):
         self._print_summary(rows)
 
         next_cursor = max(i.id for i in insights)
+        # --all drains everything past the cursor in one batch, so the sweep is complete by
+        # construction; a limit above the batch size makes the "fewer rows than limit" test agree.
+        effective_limit = len(insights) + 1 if options["all"] else options["limit"]
         if state_file:
             new_state = merge_progress_state(
-                prev_state, rows, next_cursor=next_cursor, limit=options["limit"], scope=scope
+                prev_state, rows, next_cursor=next_cursor, limit=effective_limit, scope=scope
             )
             new_state.updated_at = datetime.now(UTC).isoformat()
             save_progress_state(state_file, new_state)
             self._print_checkpoint(state_file, new_state)
             self._print_cumulative(new_state)
         else:
-            self._print_next_cursor(next_cursor, len(insights), options["limit"])
+            self._print_next_cursor(next_cursor, len(insights), effective_limit)
 
         mismatches = sum(1 for r in rows if r.status == "MISMATCH")
         if options["fail_on_mismatch"] and mismatches:
@@ -642,7 +653,10 @@ class Command(BaseCommand):
         # Keyset pagination: ascending id is a stable, unique sweep order and the cursor is just the last id.
         if after_id is not None:
             queryset = queryset.filter(id__gt=after_id)
-        return list(queryset.order_by("id")[: options["limit"]])
+        queryset = queryset.order_by("id")
+        if options["all"]:
+            return list(queryset)
+        return list(queryset[: options["limit"]])
 
     def _print_progress(self, done: int, total: int, row: Row) -> None:
         if row.status == "OK":
