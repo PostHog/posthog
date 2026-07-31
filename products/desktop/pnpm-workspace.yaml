@@ -107,8 +107,6 @@ overrides:
   # Security: force patched versions for advisory-flagged packages (each pin is over the
   # 7-day minimumReleaseAge and clears the package's advisories). Local mirror of the
   # PostHog/code hardening PR; drop once a resync pins to a commit that already has it.
-  # simple-git stays at 3.32.3 (the critical fix); 3.36 adds a block-unsafe plugin that
-  # breaks our core.fsmonitor/GIT_EDITOR/PAGER usage.
   protobufjs: 7.6.5
   axios: 1.18.1
   hono: 4.12.28
