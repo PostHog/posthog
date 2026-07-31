@@ -396,7 +396,6 @@ export interface mcpDashboardOverviewLogicValues {
     timezone: string // teamLogic
     activityIncompleteTail: boolean
     activityRows: ActivityRow[]
-    kpiIncompleteTail: boolean
     activityRowsLoading: boolean
     bucketKeys: string[]
     dailyActivity: DailyActivity
@@ -407,6 +406,7 @@ export interface mcpDashboardOverviewLogicValues {
     harnessRowsLoading: boolean
     intentClusterCount: KPIMetric
     interval: IntervalType
+    kpiIncompleteTail: boolean
     kpis: KPIData
     kpisLoading: boolean
     notableSessions: NotableSession[]
