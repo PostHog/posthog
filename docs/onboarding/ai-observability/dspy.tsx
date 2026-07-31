@@ -93,13 +93,18 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
 
                     <Markdown>
                         {dedent`
-                            \`user_id\` ties this call to a person, mapped to PostHog's \`distinct_id\`, so you can
-                            see everything one user asked for and know who hit an error or ran up cost.
+                            \`user_id\` ties this call to a person, mapped to PostHog's \`distinct_id\`. This lets
+                            you see everything one user asked for and know who hit an error or ran up cost.
                             \`$ai_session_id\` groups every call made through that LM into one conversation, so a
-                            multi-turn exchange reads as a single thread instead of separate, unrelated calls. A
-                            trace covers one call, and a session covers the whole conversation: passing the same
+                            multi-turn exchange reads as a single thread instead of separate, unrelated calls.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            A trace covers one call, and a session covers the whole conversation: passing the same
                             session id across every call is what connects them. Together, they give you a complete
-                            view: who made the request, which conversation it's part of, and every generation and
+                            view: who made the request, which conversation it is part of, and every generation and
                             tool call inside it.
                         `}
                     </Markdown>
@@ -120,49 +125,11 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
             content: (
                 <>
                     <Markdown>
-                        Use DSPy as normal. PostHog automatically captures an `$ai_generation` event for each LLM call
-                        made through LiteLLM.
-                    </Markdown>
-
-                    <CodeBlock
-                        language="python"
-                        code={dedent`
-                            # Define a simple signature
-                            class QA(dspy.Signature):
-                                """Answer the question."""
-                                question: str = dspy.InputField()
-                                answer: str = dspy.OutputField()
-
-                            # Create and run a module
-                            predictor = dspy.Predict(QA)
-                            result = predictor(
-                                question="What is a fun fact about hedgehogs?"
-                            )
-
-                            print(result.answer)
-                        `}
-                    />
-
-                    <Markdown>
                         {dedent`
-                            You can expect captured \`$ai_generation\` events to have the following properties:
-                        `}
-                    </Markdown>
-
-                    {NotableGenerationProperties && <NotableGenerationProperties />}
-                </>
-            ),
-        },
-        {
-            title: 'Capture tool calls as spans',
-            badge: 'optional',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            LiteLLM's PostHog callback captures the \`$ai_generation\` event for each LLM call DSPy
-                            makes, but it never sees a retrieval step or any other work your own code does around
-                            it. Capture that as a span yourself.
+                            Use DSPy as normal. PostHog automatically captures an \`$ai_generation\` event for each
+                            LLM call made through LiteLLM. LiteLLM's callback does not see a retrieval step or any
+                            other work your own code does around it. Capture that as a span yourself, as the
+                            example below does before calling \`predictor\`.
                         `}
                     </Markdown>
 
@@ -215,6 +182,12 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                                 },
                             )
 
+                            # Define a simple signature
+                            class QA(dspy.Signature):
+                                """Answer the question."""
+                                question: str = dspy.InputField()
+                                answer: str = dspy.OutputField()
+
                             predictor = dspy.Predict(QA)
                             question = f"Using this context, answer what a fun fact about hedgehogs is: {context}"
                             result = predictor(question=question)
@@ -224,10 +197,33 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
 
                     <Markdown>
                         {dedent`
+                            You can expect captured \`$ai_generation\` events to have the following properties:
+                        `}
+                    </Markdown>
+
+                    {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            The recommended example above already captures a retrieval step as a span, ahead of
+                            the generation that uses its output. Use the same pattern for a tool call or any other
+                            work you want timed inside the trace.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
                             The span must carry the same \`$ai_trace_id\` as the generation it belongs to, or it
-                            won't nest under the same trace. Nothing measures duration for you: time your own code
-                            and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind of
-                            work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
+                            will not nest under the same trace. Nothing measures duration for you: time your own
+                            code and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind
+                            of work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
                         `}
                     </Markdown>
 

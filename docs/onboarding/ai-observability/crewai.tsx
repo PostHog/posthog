@@ -78,8 +78,8 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                         <Markdown>
                             CrewAI can route LLM calls either through its own provider clients or through LiteLLM.
                             PostHog hooks into LiteLLM's callback system, so you need `is_litellm=True` on the `LLM` you
-                            pass to your agents. With it, every call is captured as an `$ai_generation` event without
-                            proxying your calls.
+                            pass to your agents. With it, PostHog captures every call as an `$ai_generation` event,
+                            without proxying your calls.
                         </Markdown>
                     </CalloutBox>
 
@@ -87,9 +87,9 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                         <Markdown>
                             {dedent`
                                 CrewAI installs \`chromadb\`, which pins \`posthog<6.0.0\`. The AI observability
-                                wrappers and the LangChain handler work on 5.x, so CrewAI tracing is unaffected.
-                                But \`posthog.ai.otel\` was added in 7.12.0, so the OpenTelemetry integration
-                                cannot be installed alongside CrewAI unless you override chromadb's pin.
+                                wrappers and the LangChain handler work on 5.x, so CrewAI tracing works normally.
+                                The posthog SDK added \`posthog.ai.otel\` in 7.12.0. You cannot install the
+                                OpenTelemetry integration alongside CrewAI unless you override chromadb's pin.
                             `}
                         </Markdown>
                     </CalloutBox>
@@ -102,88 +102,11 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Run your CrewAI agents as normal. PostHog automatically captures generation events for each LLM
-                        call.
-                    </Markdown>
-
-                    <CodeBlock
-                        language="python"
-                        code={dedent`
-                            # is_litellm=True routes calls through LiteLLM so the PostHog
-                            # callback fires. Without it, CrewAI uses its own provider client
-                            # and no events are captured.
-                            llm = LLM(
-                                model="gpt-4o-mini",
-                                is_litellm=True,
-                                metadata={
-                                    "user_id": "user_123",  # Maps to PostHog distinct_id
-                                    "$ai_session_id": "conversation-abc",  # Groups calls into one session
-                                },
-                            )
-
-                            researcher = Agent(
-                                role="Researcher",
-                                goal="Find interesting facts about hedgehogs",
-                                backstory="You are an expert wildlife researcher.",
-                                llm=llm,
-                            )
-
-                            task = Task(
-                                description="Research three fun facts about hedgehogs.",
-                                expected_output="A list of three fun facts.",
-                                agent=researcher,
-                            )
-
-                            crew = Crew(
-                                agents=[researcher],
-                                tasks=[task],
-                            )
-
-                            result = crew.kickoff()
-                            print(result)
-                        `}
-                    />
-
-                    <Markdown>
-                        Pass `user_id` and `$ai_session_id` in the `metadata` on `LLM()` to identify the caller and
-                        group every call made through that LLM into one PostHog session. Both forward straight through
-                        LiteLLM's callback like any other metadata key.
-                    </Markdown>
-
-                    <Markdown>
                         {dedent`
-                            \`user_id\` ties this call to a person, mapped to PostHog's \`distinct_id\`, so you can
-                            see everything one user asked for and know who hit an error or ran up cost.
-                            \`$ai_session_id\` groups every call made through that \`LLM\` into one conversation, so
-                            a multi-turn exchange reads as a single thread instead of separate, unrelated calls. A
-                            trace covers one call, and a session covers the whole conversation: passing the same
-                            session id across every call is what connects them. Together, they give you a complete
-                            view: who made the request, which conversation it's part of, and every generation and
-                            tool call inside it.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            You can expect captured \`$ai_generation\` events to have the following properties:
-                        `}
-                    </Markdown>
-
-                    {NotableGenerationProperties && <NotableGenerationProperties />}
-                </>
-            ),
-        },
-        {
-            title: 'Capture tool calls as spans',
-            badge: 'optional',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            LiteLLM's PostHog callback captures the \`$ai_generation\` event for each LLM call your
-                            crew makes, but it never sees the tools your agents call. CrewAI also doesn't hand you a
-                            response object to inspect for tool calls the way a raw LLM client would, so capture a
-                            tool's own execution as a span from inside the tool itself instead.
+                            Run your CrewAI agents as normal. PostHog automatically captures an \`$ai_generation\`
+                            event for each LLM call. LiteLLM's callback does not see the tools your agents call.
+                            Capture a tool's own execution as a span from inside the tool itself instead, as
+                            \`get_weather\` does below.
                         `}
                     </Markdown>
 
@@ -229,6 +152,9 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 )
                                 return result
 
+                            # is_litellm=True routes calls through LiteLLM so the PostHog
+                            # callback fires. Without it, CrewAI uses its own provider client
+                            # and no events are captured.
                             llm = LLM(
                                 model="gpt-4o-mini",
                                 is_litellm=True,
@@ -261,10 +187,52 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <Markdown>
                         {dedent`
+                            \`user_id\` ties this call to a person, mapped to PostHog's \`distinct_id\`. This lets
+                            you see everything one user asked for and know who hit an error or ran up cost.
+                            \`$ai_session_id\` groups every call made through that \`LLM\` into one conversation, so
+                            a multi-turn exchange reads as a single thread instead of separate, unrelated calls.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            A trace covers one call, and a session covers the whole conversation: passing the same
+                            session id across every call is what connects them. Together, they give you a complete
+                            view: who made the request, which conversation it is part of, and every generation and
+                            tool call inside it.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            You can expect captured \`$ai_generation\` events to have the following properties:
+                        `}
+                    </Markdown>
+
+                    {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            The recommended example above already captures \`get_weather\`'s execution as a span
+                            from inside the tool, nested under the trace its generation belongs to. CrewAI does not
+                            hand you a response object to inspect for tool calls, unlike a raw LLM client. Use this
+                            same pattern for any tool your agents call.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
                             The span must carry the same \`$ai_trace_id\` as the generation it belongs to, or it
-                            won't nest under the same trace. Nothing measures duration for you: time your own code
-                            and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind of
-                            work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
+                            will not nest under the same trace. Nothing measures duration for you: time your own
+                            code and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind
+                            of work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
                         `}
                     </Markdown>
 
