@@ -209,6 +209,9 @@ class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel)
     display_name = models.CharField(max_length=200, blank=True, default="")
     description = models.TextField(blank=True, default="")
     input_schema = models.JSONField(default=dict, blank=True)
+    # MCP spec tool annotations (destructiveHint etc.) as declared by the
+    # upstream server. Untrusted hints: policy lets them escalate, never loosen.
+    annotations = models.JSONField(default=dict, blank=True)
     approval_state = models.CharField(max_length=20, choices=APPROVAL_STATES, default="needs_approval")
     last_seen_at = models.DateTimeField()
     # Set when the tool is absent from a fresh tools/list. Cleared on reappearance.

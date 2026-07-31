@@ -20,7 +20,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from fnmatch import fnmatch
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db.models import Q
@@ -45,9 +45,11 @@ from .models import MCPGatewayServer, MCPOrgRule, MCPServerInstallation, MCPTool
 # anyway — so the loosening is limited to teams that asked for it.
 SYNC_DEFAULT_APPROVAL_STATE = "needs_approval"
 
-# Exact verb forms that indicate a tool mutates or destroys state. Deliberately
-# the strong set only: an over-broad heuristic would make the "ask"/"block"
-# presets gate nearly every tool.
+# Exact verb forms that indicate a tool mutates or destroys state. Matched
+# against the tool name only — descriptions are prose, where verbs like
+# "archived" or "removes" show up in read-only tools. Deliberately the strong
+# set only: an over-broad heuristic would make the "ask"/"block" presets gate
+# nearly every tool.
 _DESTRUCTIVE_TOKENS = frozenset(
     {
         "archive",
@@ -128,12 +130,17 @@ def _word_tokens(value: str) -> set[str]:
     return {token for token in _WORD_SPLIT.split(normalized) if token}
 
 
-def is_destructive_tool(tool_name: str, description: str = "") -> bool:
-    """Heuristic used by presets and pattern-less org rules."""
-    return bool((_word_tokens(tool_name) | _word_tokens(description)) & _DESTRUCTIVE_TOKENS)
+def is_destructive_tool(tool_name: str, annotations: dict[str, Any] | None = None) -> bool:
+    """Heuristic used by presets and pattern-less org rules: destructive verb
+    tokens in the tool name, or the server's own MCP ``destructiveHint``
+    annotation. Annotations are untrusted upstream input, so a hint can only
+    escalate — ``destructiveHint: false`` never clears a name match."""
+    if annotations is not None and annotations.get("destructiveHint") is True:
+        return True
+    return bool(_word_tokens(tool_name) & _DESTRUCTIVE_TOKENS)
 
 
-def member_preset_team_state(preset: str, tool_name: str, description: str = "") -> str | None:
+def member_preset_team_state(preset: str, tool_name: str, annotations: dict[str, Any] | None = None) -> str | None:
     """The default state a policy preset implies for a tool, or None when the
     preset is unset and imposes nothing."""
     if preset == "allow":
@@ -141,9 +148,9 @@ def member_preset_team_state(preset: str, tool_name: str, description: str = "")
     if preset == "user":
         return "needs_approval"
     if preset == "ask":
-        return "needs_approval" if is_destructive_tool(tool_name, description) else "approved"
+        return "needs_approval" if is_destructive_tool(tool_name, annotations) else "approved"
     if preset == "block":
-        return "do_not_use" if is_destructive_tool(tool_name, description) else "approved"
+        return "do_not_use" if is_destructive_tool(tool_name, annotations) else "approved"
     return None
 
 
@@ -329,36 +336,36 @@ class PolicyContext:
             for server_id, server in servers_by_id.items()
         }
 
-    def _matching_rule(self, tool_name: str, description: str) -> MCPOrgRule | None:
+    def _matching_rule(self, tool_name: str, annotations: dict[str, Any] | None) -> MCPOrgRule | None:
         matches = [
             rule
             for rule in self._rules
             if (
                 fnmatch(tool_name, rule.tool_pattern)
                 if rule.tool_pattern
-                else is_destructive_tool(tool_name, description)
+                else is_destructive_tool(tool_name, annotations)
             )
         ]
         if not matches:
             return None
         return max(matches, key=lambda rule: _STRICTNESS.get(rule.effect, 0))
 
-    def team_policy(self, tool_name: str, description: str = "") -> tuple[str, str] | None:
+    def team_policy(self, tool_name: str, annotations: dict[str, Any] | None = None) -> tuple[str, str] | None:
         if tool_name in self._team_rows:
             return self._team_rows[tool_name], "team"
-        preset_state = member_preset_team_state(self.preset, tool_name, description)
+        preset_state = member_preset_team_state(self.preset, tool_name, annotations)
         return (preset_state, "preset") if preset_state is not None else None
 
-    def team_state(self, tool_name: str, description: str = "") -> str | None:
-        team_policy = self.team_policy(tool_name, description)
+    def team_state(self, tool_name: str, annotations: dict[str, Any] | None = None) -> str | None:
+        team_policy = self.team_policy(tool_name, annotations)
         return team_policy[0] if team_policy is not None else None
 
-    def resolve_team(self, tool_name: str, description: str = "") -> ResolvedPolicy:
+    def resolve_team(self, tool_name: str, annotations: dict[str, Any] | None = None) -> ResolvedPolicy:
         """Resolve the editable team ceiling itself, rather than a caller under it."""
-        team_policy = self.team_policy(tool_name, description)
+        team_policy = self.team_policy(tool_name, annotations)
         team_state = team_policy[0] if team_policy is not None else None
 
-        rule = self._matching_rule(tool_name, description)
+        rule = self._matching_rule(tool_name, annotations)
         if rule is not None:
             return ResolvedPolicy(
                 state=rule.effect,
@@ -374,11 +381,11 @@ class PolicyContext:
 
         return ResolvedPolicy(state="approved", decided_by="default", team_state=None)
 
-    def resolve(self, tool_name: str, description: str = "") -> ResolvedPolicy:
-        team_policy = self.team_policy(tool_name, description)
+    def resolve(self, tool_name: str, annotations: dict[str, Any] | None = None) -> ResolvedPolicy:
+        team_policy = self.team_policy(tool_name, annotations)
         team_state = team_policy[0] if team_policy is not None else None
 
-        rule = self._matching_rule(tool_name, description)
+        rule = self._matching_rule(tool_name, annotations)
         if rule is not None:
             return ResolvedPolicy(
                 state=rule.effect,

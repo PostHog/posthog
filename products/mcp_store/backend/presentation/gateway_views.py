@@ -107,20 +107,20 @@ def policy_entries_above_team_ceiling(
 ) -> list[str]:
     """Return entries that try to make a caller scope more permissive than its team ceiling."""
     context = PolicyContext(team_id=team_id, caller=caller, gateway_server=server)
-    descriptions: dict[str, str] = {}
+    annotations_by_tool: dict[str, dict[str, Any]] = {}
     tool_rows = _ordered_gateway_tool_rows(
         server,
         tool_names=[entry["tool_name"] for entry in entries],
         include_removed_fallback=True,
-    ).values_list("tool_name", "description")
-    for tool_name, description in tool_rows:
-        descriptions.setdefault(tool_name, description or "")
+    ).values_list("tool_name", "annotations")
+    for tool_name, annotations in tool_rows:
+        annotations_by_tool.setdefault(tool_name, annotations or {})
     return [
         entry["tool_name"]
         for entry in entries
         if not is_policy_state_allowed(
             entry["policy_state"],
-            context.team_state(entry["tool_name"], descriptions.get(entry["tool_name"], "") or ""),
+            context.team_state(entry["tool_name"], annotations_by_tool.get(entry["tool_name"])),
         )
     ]
 
@@ -943,21 +943,23 @@ class MCPGatewayServerViewSet(
             installation=installation,
         )
 
-        tools: list[tuple[str, str, dict[str, Any]]] = []
+        tools: list[tuple[str, str, dict[str, Any], dict[str, Any]]] = []
         seen: set[str] = set()
-        tool_rows = _ordered_gateway_tool_rows(server).values_list("tool_name", "description", "input_schema")
-        for tool_name, description, input_schema in tool_rows:
+        tool_rows = _ordered_gateway_tool_rows(server).values_list(
+            "tool_name", "description", "input_schema", "annotations"
+        )
+        for tool_name, description, input_schema, annotations in tool_rows:
             if tool_name in seen:
                 continue
             seen.add(tool_name)
-            tools.append((tool_name, description or "", input_schema or {}))
+            tools.append((tool_name, description or "", input_schema or {}, annotations or {}))
 
         rows: list[dict[str, Any]] = []
-        for tool_name, description, input_schema in tools:
+        for tool_name, description, input_schema, annotations in tools:
             resolved = (
-                context.resolve_team(tool_name, description)
+                context.resolve_team(tool_name, annotations)
                 if scope_type == "team"
-                else context.resolve(tool_name, description)
+                else context.resolve(tool_name, annotations)
             )
             rows.append(
                 {

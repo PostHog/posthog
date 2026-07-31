@@ -689,14 +689,14 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         )
         assert legacy_above_ceiling_response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_member_policy_ceiling_uses_latest_known_description_across_installations(self) -> None:
+    def test_member_policy_ceiling_uses_latest_known_annotations_across_installations(self) -> None:
         self._make_admin()
         server, _installation, latest_tool = self._server_with_personal_tool()
         now = timezone.now()
         latest_tool.tool_name = "manage_issue"
-        latest_tool.description = "Permanently delete the issue"
+        latest_tool.annotations = {"destructiveHint": True}
         latest_tool.last_seen_at = now
-        latest_tool.save(update_fields=["tool_name", "description", "last_seen_at", "updated_at"])
+        latest_tool.save(update_fields=["tool_name", "annotations", "last_seen_at", "updated_at"])
         older_installation = MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,

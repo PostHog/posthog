@@ -513,7 +513,7 @@ class MCPServerInstallationToolSerializer(serializers.ModelSerializer):
         context = cast(PolicyContext | None, self.context.get("policy_context"))
         if context is None:
             return None
-        return context.resolve(obj.tool_name, obj.description or "")
+        return context.resolve(obj.tool_name, obj.annotations)
 
     @extend_schema_field(serializers.ChoiceField(choices=APPROVAL_STATES))
     def get_approval_state(self, obj: MCPServerInstallationTool) -> str:
@@ -1756,7 +1756,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 gateway_server=installation.gateway_server,
                 installation=installation,
             )
-            team_state = policy_context.team_state(tool.tool_name, tool.description or "")
+            team_state = policy_context.team_state(tool.tool_name, tool.annotations)
             if not is_policy_state_allowed(new_state, team_state):
                 raise serializers.ValidationError(
                     {

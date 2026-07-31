@@ -325,7 +325,7 @@ class TestCallTool(TestCallMCPServerTool):
 
 
 class TestGetToolApprovalStates(BaseTest):
-    def test_gateway_policy_uses_cached_tool_description(self) -> None:
+    def test_gateway_policy_uses_cached_tool_annotations(self) -> None:
         server = MCPGatewayServer.objects.for_team(self.team.id).create(
             team=self.team,
             name="Issue server",
@@ -341,7 +341,7 @@ class TestGetToolApprovalStates(BaseTest):
         MCPServerInstallationTool.objects.create(
             installation=installation,
             tool_name="manage_issue",
-            description="Deletes an issue permanently.",
+            annotations={"destructiveHint": True},
             last_seen_at=timezone.now(),
         )
         TeamMCPGatewayConfig.objects.for_team(self.team.id).create(

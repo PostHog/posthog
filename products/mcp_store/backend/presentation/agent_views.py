@@ -160,7 +160,7 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
                         "state": policy_contexts[server.id]
                         .resolve(
                             tool.tool_name,
-                            tool.description or "",
+                            tool.annotations,
                         )
                         .state,
                     }
