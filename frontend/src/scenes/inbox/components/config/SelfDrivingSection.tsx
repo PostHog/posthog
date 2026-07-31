@@ -255,6 +255,12 @@ export function SelfDrivingSection(): JSX.Element {
                         />
                     </div>
                     <p className="text-xs text-tertiary leading-snug mb-0">Agents open PRs for actionable reports.</p>
+                    {/* The switch is team-scoped but the PRs it opens bill against the org-wide allowance,
+                        so the scope is stated here, where someone turns PR generation on. */}
+                    <p className="text-xs text-secondary leading-snug mb-0">
+                        This switch is per project, but the PR allowance is shared across your whole organization. See
+                        Usage below.
+                    </p>
                 </div>
             </div>
 

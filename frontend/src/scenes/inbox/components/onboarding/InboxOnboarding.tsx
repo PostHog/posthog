@@ -64,7 +64,7 @@ const BEATS: Beat[] = [
         ),
         subtext: (
             <>
-                Your first 3 PRs each month are free, then it's $15 per PR after that. <PrPricingInfo />
+                Your organization's first 3 PRs each month are free, then it's $15 per PR after that. <PrPricingInfo />
             </>
         ),
         preview: <PullRequestPreview />,

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -86,7 +86,7 @@ function EditLimitModal(): JSX.Element {
             isOpen={isModalOpen}
             onClose={closeModal}
             title="PR limit"
-            description="How many pull requests agents can open each month before pausing."
+            description="How many pull requests agents can open across your whole organization each month before pausing."
             width={460}
             footer={
                 <>
@@ -106,7 +106,8 @@ function EditLimitModal(): JSX.Element {
                 <div className="flex flex-col gap-2 text-xs">
                     {freePrs > 0 && pricePerPrUsd != null && (
                         <span className="text-secondary">
-                            The first {freePrs} PRs each month are free, then {currencyFormatter(pricePerPrUsd)} per PR.
+                            Your organization's first {freePrs} PRs each month are free, then{' '}
+                            {currencyFormatter(pricePerPrUsd)} per PR.
                         </span>
                     )}
                     {estimatedBudgetUsd != null && pricePerPrUsd != null && (
@@ -164,28 +165,36 @@ export function InboxUsageWidget(): JSX.Element | null {
     return (
         <>
             <div className={CARD_CLASS}>
-                <div className="flex items-center justify-between gap-1.5">
-                    <span className="text-[13px] font-semibold text-default">Pull requests</span>
-                    {!isSubscribed ? (
-                        <LemonTag type="muted" size="small">
-                            Free plan
-                        </LemonTag>
-                    ) : canAccessBilling && status !== 'limit' ? (
-                        <button
-                            type="button"
-                            onClick={openModal}
-                            className="text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0"
-                        >
-                            Edit
-                        </button>
-                    ) : null}
+                {/* Scope and free tier are stated in the card itself, not in a tooltip: the count and the
+                    allowance are org-wide while the switch that spends them is per project, so hover-only
+                    copy left people expecting a per-project free tier and surprised by the bill. */}
+                <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center justify-between gap-1.5">
+                        <span className="text-[13px] font-semibold text-default">Pull requests</span>
+                        {!isSubscribed ? (
+                            <LemonTag type="muted" size="small">
+                                Free plan
+                            </LemonTag>
+                        ) : canAccessBilling && status !== 'limit' ? (
+                            <button
+                                type="button"
+                                onClick={openModal}
+                                className="text-xs text-link hover:underline cursor-pointer bg-transparent border-0 p-0"
+                            >
+                                Edit
+                            </button>
+                        ) : null}
+                    </div>
+                    <p className="text-xs text-secondary leading-snug mb-0">
+                        {freePrs > 0
+                            ? `Shared across your organization. The first ${freePrs} PRs each month are free.`
+                            : 'Shared across your organization.'}
+                    </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Tooltip title={freePrs > 0 ? `The first ${freePrs} PRs each month are free` : undefined}>
-                        <div className="flex-1">
-                            <UsageBar percentage={percentage} status={status} />
-                        </div>
-                    </Tooltip>
+                    <div className="flex-1">
+                        <UsageBar percentage={percentage} status={status} />
+                    </div>
                     {spentUsd != null && (
                         <span className="text-xs font-medium text-default tabular-nums">
                             {currencyFormatter(spentUsd)}
@@ -193,13 +202,10 @@ export function InboxUsageWidget(): JSX.Element | null {
                     )}
                 </div>
                 <div className="flex items-center justify-between gap-2 text-xs">
-                    <Tooltip title="PRs opened by agents across your whole organization this billing period">
-                        {/* tabIndex so keyboard users can focus the count and get the org-wide scope */}
-                        <span className="text-secondary tabular-nums" tabIndex={0}>
-                            <span className="font-medium text-default">{usedPrsDisplay}</span>
-                            {limitPrs != null ? ` / ${limitPrs}` : ''} PRs created
-                        </span>
-                    </Tooltip>
+                    <span className="text-secondary tabular-nums">
+                        <span className="font-medium text-default">{usedPrsDisplay}</span>
+                        {limitPrs != null ? ` / ${limitPrs}` : ''} PRs created
+                    </span>
                     {resetDate && (
                         <span className="text-tertiary tabular-nums">Resets {resetDate.format('MMM D')}</span>
                     )}
