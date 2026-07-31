@@ -18,9 +18,11 @@ export interface MetricsSqlEditorTrackingLogicProps {
 export interface metricsSqlEditorTrackingLogicActions {
     sqlEditorRunQuery: (
         queryOverride?: string | undefined,
-        switchTab?: boolean | undefined
+        switchTab?: boolean | undefined,
+        refreshMode?: 'async' | 'force_async' | undefined
     ) => {
         queryOverride: string | undefined
+        refreshMode: 'async' | 'force_async' | undefined
         switchTab: boolean | undefined
     } // sqlEditorLogic
     sqlEditorSaveAsEndpointSubmit: (
