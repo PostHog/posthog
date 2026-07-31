@@ -9,7 +9,8 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
-from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError
+from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
+
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _MIN_TRACE_CHARS_IN_SESSION,
     _SESSION_EVENT_COUNT_SQL,
@@ -26,11 +27,13 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
 )
 
 
-def _trace(trace_id: str, *, cost: float, latency: float, event_count: int = 1) -> LLMTrace:
+def _trace(
+    trace_id: str, *, cost: float, latency: float, event_count: int = 1, created_at: datetime | None = None
+) -> LLMTrace:
     return LLMTrace.model_validate(
         {
             "id": trace_id,
-            "createdAt": datetime.now(UTC).isoformat(),
+            "createdAt": (created_at or datetime.now(UTC)).isoformat(),
             "distinctId": "person1",
             "totalCost": cost,
             "totalLatency": latency,
@@ -163,7 +166,7 @@ class TestFetchSessionForEvaluation:
             ) as mock_session_query_runner,
         ):
             mock_session_query_runner.return_value.calculate.return_value = Mock(
-                results=[_trace("t1", cost=0, latency=0)]
+                results=[_trace("t1", cost=0, latency=0)], hasMore=False
             )
             fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), 3600)
 
@@ -171,12 +174,59 @@ class TestFetchSessionForEvaluation:
         assert kwargs["for_evaluation"] is True
         assert kwargs["query"].dateRange.date_from is not None
         assert kwargs["query"].dateRange.date_to is not None
+        # SessionQueryRunner defaults to 100 rows under LimitContext.QUERY, which would drop the
+        # tail of any session past 100 traces, so the fetch must ask for the export ceiling instead.
+        assert kwargs["query"].limit == MAX_SELECT_TRACES_LIMIT_EXPORT
+
+    def test_returns_traces_oldest_first_even_though_the_runner_orders_newest_first(self):
+        # SessionQueryRunner orders `first_timestamp DESC` for the UI session list. The judge's
+        # system prompt claims the traces it's handed are "in order", so the fetch must reverse
+        # that ordering rather than passing the DESC rows straight through.
+        oldest = _trace("t-oldest", cost=0, latency=0, created_at=datetime(2026, 7, 20, 9, tzinfo=UTC))
+        middle = _trace("t-middle", cost=0, latency=0, created_at=datetime(2026, 7, 20, 10, tzinfo=UTC))
+        newest = _trace("t-newest", cost=0, latency=0, created_at=datetime(2026, 7, 20, 11, tzinfo=UTC))
+        with (
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
+                return_value=3,
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
+            ) as mock_session_query_runner,
+        ):
+            mock_session_query_runner.return_value.calculate.return_value = Mock(
+                results=[newest, middle, oldest], hasMore=False
+            )
+            outcome = fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), 3600)
+
+        assert outcome.traces is not None
+        assert [trace.id for trace in outcome.traces] == ["t-oldest", "t-middle", "t-newest"]
+
+    def test_treats_a_truncated_result_as_a_skip_rather_than_a_partial_grade(self):
+        with (
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
+                return_value=3,
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
+            ) as mock_session_query_runner,
+        ):
+            mock_session_query_runner.return_value.calculate.return_value = Mock(
+                results=[_trace("t1", cost=0, latency=0)], hasMore=True
+            )
+            outcome = fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), 3600)
+
+        assert outcome.traces is None
+        assert outcome.skip_reason == "session_truncated"
 
 
 class TestExecuteSessionActivities:
     @pytest.mark.parametrize(
         "skip_reason",
-        ["session_not_found", "session_too_large", "session_expired"],
+        ["session_not_found", "session_too_large", "session_truncated"],
     )
     def test_hog_skips_carry_a_session_specific_reason(self, skip_reason):
         with patch(
@@ -212,32 +262,11 @@ class TestExecuteSessionActivities:
                 )
             )
 
-    def test_hog_reports_an_aged_out_session_as_expired(self):
-        with patch(
-            "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
-            side_effect=AIEventsExpiredError(),
-        ):
-            result = async_to_sync(execute_session_hog_eval_activity)(
-                ExecuteSessionEvaluationInputs(
-                    evaluation={
-                        "evaluation_type": "hog",
-                        "evaluation_config": {"bytecode": ["_H", 1, 32, True]},
-                        "output_config": {"allows_na": False},
-                    },
-                    team_id=1,
-                    session_id="s-1",
-                    window_start=datetime.now(UTC).isoformat(),
-                    max_age_seconds=86400,
-                )
-            )
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "session_expired"
-
-    def test_judge_reports_an_aged_out_session_as_expired_without_judging(self):
+    def test_judge_skips_without_judging_when_the_session_is_truncated(self):
         with (
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
-                side_effect=AIEventsExpiredError(),
+                return_value=SessionFetchOutcome(traces=None, skip_reason="session_truncated", event_count=0),
             ),
             patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
         ):
@@ -256,8 +285,8 @@ class TestExecuteSessionActivities:
                 )
             )
         assert result["skipped"] is True
-        assert result["skip_reason"] == "session_expired"
-        # The whole point of the fail-loud chain: never grade a transcript stripped of message content.
+        assert result["skip_reason"] == "session_truncated"
+        # The whole point of the truncation-as-skip choice: never grade a partial transcript.
         mock_call_llm_judge.assert_not_called()
 
     def test_our_bug_page_names_the_session_target(self):

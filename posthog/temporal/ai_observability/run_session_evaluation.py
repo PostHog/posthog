@@ -17,10 +17,11 @@ from temporalio.exceptions import ApplicationError
 from posthog.schema import DateRange, LLMTrace, SessionQuery
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, query_ai_events
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -55,8 +56,9 @@ _SESSION_SKIP_REASONING = {
     "session_too_large": (
         f"Session exceeds {MAX_SESSION_EVAL_EVENTS} events — likely a shared or runaway session id; evaluation skipped."
     ),
-    "session_expired": (
-        "The session aged past the AI events retention window before it could be evaluated; evaluation skipped."
+    "session_truncated": (
+        f"Session has more than {MAX_SELECT_TRACES_LIMIT_EXPORT} traces in the evaluation window; evaluation "
+        "skipped rather than judged on a partial transcript."
     ),
 }
 
@@ -129,13 +131,24 @@ def fetch_session_for_evaluation(
         query=SessionQuery(
             sessionId=session_id,
             dateRange=DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat()),
+            # SessionQueryRunner defaults to DEFAULT_RETURNED_ROWS (100) under LimitContext.QUERY,
+            # which would silently drop the tail of any session past 100 traces. Ask for the same
+            # ceiling MAX_SESSION_EVAL_EVENTS already implies is plausible for a real session.
+            limit=MAX_SELECT_TRACES_LIMIT_EXPORT,
         ),
         for_evaluation=True,
     )
     response = runner.calculate()
     if not response.results:
         return SessionFetchOutcome(traces=None, skip_reason="session_not_found", event_count=event_count)
-    return SessionFetchOutcome(traces=list(response.results), skip_reason=None, event_count=event_count)
+    if response.hasMore:
+        # A session graded on part of itself must not look like a session graded whole, so skip
+        # rather than hand the judge a transcript silently missing its tail (or, combined with
+        # the runner's newest-first ordering, its opening).
+        return SessionFetchOutcome(traces=None, skip_reason="session_truncated", event_count=event_count)
+
+    traces = sorted(response.results, key=lambda trace: trace.createdAt)
+    return SessionFetchOutcome(traces=traces, skip_reason=None, event_count=event_count)
 
 
 def build_session_hog_globals(
@@ -271,15 +284,12 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
 
     allows_na = evaluation.get("output_config", {}).get("allows_na", False)
 
-    try:
-        outcome = fetch_session_for_evaluation(
-            inputs.team_id,
-            inputs.session_id,
-            datetime.fromisoformat(inputs.window_start),
-            inputs.max_age_seconds,
-        )
-    except AIEventsExpiredError:
-        return build_session_skip_result(allows_na, "session_expired")
+    outcome = fetch_session_for_evaluation(
+        inputs.team_id,
+        inputs.session_id,
+        datetime.fromisoformat(inputs.window_start),
+        inputs.max_age_seconds,
+    )
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found")
 
@@ -309,15 +319,12 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
     allows_na = evaluation.get("output_config", {}).get("allows_na", False)
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
-        try:
-            outcome = fetch_session_for_evaluation(
-                inputs.team_id,
-                inputs.session_id,
-                datetime.fromisoformat(inputs.window_start),
-                inputs.max_age_seconds,
-            )
-        except AIEventsExpiredError:
-            return None, "session_expired"
+        outcome = fetch_session_for_evaluation(
+            inputs.team_id,
+            inputs.session_id,
+            datetime.fromisoformat(inputs.window_start),
+            inputs.max_age_seconds,
+        )
         if outcome.skip_reason or outcome.traces is None:
             return None, outcome.skip_reason or "session_not_found"
         globals_dict = build_session_hog_globals(outcome.traces, inputs.session_id, bytecode=bytecode)
