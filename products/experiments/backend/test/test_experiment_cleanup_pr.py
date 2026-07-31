@@ -189,6 +189,35 @@ class TestExperimentCleanupPr(APIBaseTest):
         self.assertEqual(mock_create_task.call_args.kwargs["repository"], "acme/api")
         self.assertEqual(experiment.repository, "acme/api")
 
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_repository_outside_the_installation_skips_and_is_not_persisted(
+        self,
+        mock_resolve_github,
+        mock_create_task,
+        _mock_feature_enabled,
+        _mock_report,
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+        )
+        experiment = self._running_experiment()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            ExperimentService(team=self.team, user=self.user).end_experiment(
+                experiment,
+                conclusion="won",
+                open_cleanup_pr=True,
+                repository="evil/other",
+                request=self._make_request(),
+            )
+
+        experiment.refresh_from_db()
+        mock_create_task.assert_not_called()
+        self.assertIsNone(experiment.repository)
+
     def test_cleanup_target_never_uses_personal_github_connections(self):
         # The team has no GitHub integration, but an org owner has a personal connection with
         # cached repos. The resolver's owner fallback must not surface those repo names to

@@ -5962,16 +5962,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            # (name, open_cleanup_pr, repository, expected_status, expected_stored_repository)
-            ("normalized_when_opting_in", True, "Acme/Web", status.HTTP_200_OK, "acme/web"),
-            ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK, None),
-            ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST, None),
+            # (name, open_cleanup_pr, repository, expected_status)
+            # Nothing persists in any of these: the value only sticks when a cleanup PR
+            # actually opens against it (team flag on + repo in the installation).
+            ("not_persisted_when_cleanup_does_not_run", True, "acme/web", status.HTTP_200_OK),
+            ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK),
+            ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
         ]
     )
     @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
     def test_end_endpoint_repository(
-        self, _name, open_cleanup_pr, repository, expected_status, expected_stored, _mock_flag, _mock_access
+        self, _name, open_cleanup_pr, repository, expected_status, _mock_flag, _mock_access
     ):
         exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
 
@@ -5982,7 +5984,32 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(resp.status_code, expected_status, resp.content)
-        self.assertEqual(Experiment.objects.get(id=exp_id).repository, expected_stored)
+        self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
+
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report, _mock_access
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True, "repository": "ACME/Web"},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(mock_create_task.call_args.kwargs["repository"], "Acme/Web")
+        self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
