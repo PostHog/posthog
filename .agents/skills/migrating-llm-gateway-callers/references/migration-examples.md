@@ -7,7 +7,6 @@ These PRs show different migration shapes. Read the relevant diff before impleme
 - [#64448: make cluster labeling routable through the AI gateway](https://github.com/PostHog/posthog/pull/64448) introduces an environment-gated OpenAI client, validates paired settings, preserves direct-provider fallback, checks model availability before rollout, and tests both routes.
 - [#65043: route the eval-report agent through the AI gateway](https://github.com/PostHog/posthog/pull/65043) moves the AI observability eval-report agent after the shared route exists and tests the selected client path.
 - [#65044: route OpenAI summarization through the AI gateway](https://github.com/PostHog/posthog/pull/65044) extracts shared sync and async builders, uses the slugless Go URL and project secret, keeps `trust_env=False`, retains the Python fallback, and prevents duplicate `$ai_generation` capture.
-- [#68329: route the PR-approval agent through the AI gateway](https://github.com/PostHog/posthog/pull/68329) covers a non-Django SDK process. It validates and translates gateway environment variables, switches away from the traced SDK wrapper in gateway mode, keeps a direct fallback, and tests credential and metadata wiring without exposing secret values.
 
 ## Incremental product rollout
 
