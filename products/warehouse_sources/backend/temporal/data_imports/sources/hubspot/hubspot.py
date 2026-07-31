@@ -10,8 +10,10 @@ Two fetch paths:
 - get_rows_via_search: POST to /crm/v3/objects/{entity}/search with server-side date
   filtering, used for subsequent incremental syncs. Mirrors Airbyte's CRM-search
   pattern: time-windowed queries sorted by the cursor property, with cursor-advance
-  sub-slicing when the 10k result cap is hit within a window. Backfills associations
-  per page via v4 batch-read.
+  sub-slicing when the 10k result cap is hit within a window. Falls back to walking
+  hs_object_id when 10k+ records share a single cursor value (e.g. a bulk CRM
+  operation stamping an identical timestamp). Backfills associations per page via
+  v4 batch-read.
 """
 
 import dataclasses
@@ -56,11 +58,6 @@ PROPERTY_LENGTH_LIMIT = 16_000  # Empirically determined rough limit for the Hub
 # concern (POST body), but each extra property multiplies backfill work and response payload size.
 SEARCH_PROPERTIES_LIMIT = 250
 WINDOW_SIZE_MS = SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000
-
-
-class HubspotPathologicalWindowError(Exception):
-    """Raised when a single cursor-ms value has >SEARCH_RESULT_CAP records and the window
-    cannot be sub-divided further. Extremely unlikely in practice for HubSpot CRM data."""
 
 
 @dataclasses.dataclass
@@ -561,6 +558,11 @@ def get_rows_via_search(
       `sub_slice_max_cursor` (the highest cursor seen in the slice) and continue with
       GTE so boundary-cursor records are re-fetched and deduplicated by primary key,
       rather than id-walking. This avoids skipping records that share the boundary cursor.
+    - If every record in a sub-slice shares the exact same cursor value (e.g. a bulk CRM
+      operation stamped an identical timestamp on 10k+ records), the cursor can't advance.
+      Fall back to walking `hs_object_id` within that single cursor value until it's fully
+      drained, then resume normal cursor sub-slicing from the next millisecond. This is a
+      narrow fallback for the tied-cursor case only, not a return to id-walking generally.
     - Backfill associations (if any) per page via the v4 batch-read endpoint.
     - Checkpoint (sync_start_ms, sync_end_ms, last_cursor_ms) to Redis on each batch flush.
     """
@@ -660,6 +662,9 @@ def get_rows_via_search(
         # Per-sub-slice max cursor. Used to decide whether to advance window_lower
         # and to detect the pathological case (>=10k records sharing a single cursor value).
         sub_slice_max_cursor = window_lower - 1
+        # Max hs_object_id seen among rows tied to window_lower, used only by the
+        # tied-cursor id-walk fallback below.
+        sub_slice_max_object_id = -1
 
         while True:
             body: dict[str, Any] = {
@@ -712,6 +717,10 @@ def get_rows_via_search(
                         last_cursor_ms = row_cursor_ms
                     if row_cursor_ms > sub_slice_max_cursor:
                         sub_slice_max_cursor = row_cursor_ms
+                    if row_cursor_ms == window_lower:
+                        row_object_id = row.get("hs_object_id")
+                        if row_object_id is not None:
+                            sub_slice_max_object_id = max(sub_slice_max_object_id, int(row_object_id))
 
                 batcher.batch(row)
                 if batcher.should_yield():
@@ -725,20 +734,89 @@ def get_rows_via_search(
 
             # Sub-slice the window if we hit the 10k cap.
             if window_result_count >= SEARCH_RESULT_CAP:
-                # If every record in this sub-slice had cursor == window_lower we can't
-                # safely advance (moving to window_lower + 1 would skip any unseen records
-                # at the same timestamp). This requires 10k+ records at a single ms,
-                # which is effectively impossible for real HubSpot CRM data.
+                # If every record in this sub-slice had cursor == window_lower, cursor-based
+                # sub-slicing can't advance (moving to window_lower + 1 would skip any unseen
+                # records at the same timestamp). A bulk CRM operation (CSV import, workflow,
+                # integration) commonly stamps an identical cursor across >=10k records, so this
+                # does happen in practice. Fall back to walking hs_object_id within the tied
+                # cursor value, which HubSpot doesn't cap the same way, then resume the normal
+                # cursor sub-slicing once the tied bucket is drained.
                 if sub_slice_max_cursor <= window_lower:
-                    raise HubspotPathologicalWindowError(
-                        f"Hubspot search: {SEARCH_RESULT_CAP} records share cursor={window_lower}ms "
-                        f"for {endpoint}; cannot sub-divide further"
+                    tied_cursor = window_lower
+                    last_object_id = sub_slice_max_object_id
+                    logger.warning(
+                        f"Hubspot search: {SEARCH_RESULT_CAP}+ records share cursor={tied_cursor}ms "
+                        f"for {endpoint}; falling back to hs_object_id walk"
                     )
+                    while True:
+                        id_walk_body: dict[str, Any] = {
+                            "limit": SEARCH_PAGE_SIZE,
+                            "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
+                            "filterGroups": [
+                                {
+                                    "filters": [
+                                        {
+                                            "propertyName": cursor_prop,
+                                            "operator": "EQ",
+                                            "value": str(tied_cursor),
+                                        },
+                                        {
+                                            "propertyName": "hs_object_id",
+                                            "operator": "GT",
+                                            "value": str(last_object_id),
+                                        },
+                                    ]
+                                }
+                            ],
+                            "properties": props_list,
+                        }
+
+                        id_walk_data = fetch_search(id_walk_body)
+                        id_walk_results = id_walk_data.get("results", [])
+                        if not id_walk_results:
+                            break
+
+                        if config.associations:
+                            _backfill_associations_into_results(
+                                results=id_walk_results,
+                                from_entity_plural=endpoint,
+                                association_types=config.associations,
+                                headers=headers,
+                                refresh_token=refresh_token,
+                                source_id=source_id,
+                                logger=logger,
+                                api_version=api_version,
+                            )
+
+                        for id_walk_result in id_walk_results:
+                            row = _flatten_result(id_walk_result)
+                            if expected_properties:
+                                _backfill_missing_properties(row, expected_properties)
+
+                            row_object_id = row.get("hs_object_id")
+                            if row_object_id is not None:
+                                last_object_id = max(last_object_id, int(row_object_id))
+
+                            batcher.batch(row)
+                            if batcher.should_yield():
+                                py_table = batcher.get_table()
+                                yield py_table
+                                save_progress()
+
+                    if last_cursor_ms < tied_cursor:
+                        last_cursor_ms = tied_cursor
+                    window_lower = tied_cursor + 1
+                    sub_slice_max_cursor = window_lower - 1
+                    sub_slice_max_object_id = -1
+                    after = None
+                    window_result_count = 0
+                    continue
                 # Use GTE (not GT) so boundary records at sub_slice_max_cursor are re-fetched.
                 # Primary-key dedup handles the duplicates without risk of skipping records
                 # that share the boundary cursor.
                 window_lower = sub_slice_max_cursor
                 sub_slice_max_cursor = window_lower - 1
+                sub_slice_max_object_id = -1
                 after = None
                 window_result_count = 0
                 continue

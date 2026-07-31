@@ -11,7 +11,6 @@ from requests.exceptions import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
-    HubspotPathologicalWindowError,
     HubspotResumeConfig,
     _backfill_associations_into_results,
     _batch_read_associations,
@@ -722,8 +721,10 @@ class TestGetRowsViaSearch:
         assert subslice_lower > first_lower
         assert subslice_lower == cursor_base + SEARCH_RESULT_CAP - 1
 
-    def test_pathological_window_raises(self) -> None:
-        # SEARCH_RESULT_CAP records all with the same cursor_ms → can't sub-divide.
+    def test_pathological_window_falls_back_to_id_walk(self) -> None:
+        # SEARCH_RESULT_CAP records all with the same cursor_ms → cursor sub-slicing can't
+        # advance. A bulk CRM operation (import, workflow, integration) commonly stamps this
+        # exact shape, so the sync must drain via hs_object_id instead of aborting.
         identical_cursor = 1_799_000_000_000
         pages_in_cap = SEARCH_RESULT_CAP // SEARCH_PAGE_SIZE
         pages = []
@@ -732,7 +733,19 @@ class TestGetRowsViaSearch:
             is_last = i == pages_in_cap - 1
             pages.append(_search_page(batch, after=None if is_last else f"c{i}"))
 
-        side_effect, _ = _setup_search_post([_make_response(200, p) for p in pages])
+        # One more record sharing the same cursor, beyond the 10k cap, only reachable by
+        # walking hs_object_id past the highest id already seen (SEARCH_RESULT_CAP - 1).
+        id_walk_tail = _search_page([_result(str(SEARCH_RESULT_CAP), identical_cursor)])
+        id_walk_done = _search_page([])  # id-walk exhausted
+        resumed_search_empty = _search_page([])  # normal search resumes past the tied cursor
+
+        responses = [_make_response(200, p) for p in pages] + [
+            _make_response(200, id_walk_tail),
+            _make_response(200, id_walk_done),
+            _make_response(200, resumed_search_empty),
+        ]
+
+        side_effect, captured = _setup_search_post(responses)
         manager = _make_manager()
         logger = MagicMock()
 
@@ -740,21 +753,36 @@ class TestGetRowsViaSearch:
             "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
             new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
         ):
-            with pytest.raises(HubspotPathologicalWindowError):
-                # Force a narrow sync window so the identical cursors trigger the cap check.
-                list(
-                    get_rows_via_search(
-                        api_key="k",
-                        refresh_token="r",
-                        endpoint="deals",
-                        logger=logger,
-                        resumable_source_manager=manager,
-                        db_incremental_field_last_value=str(identical_cursor - 1),
-                        include_custom_props=False,
-                        now_ms=identical_cursor + 1_000,
-                        api_version=HUBSPOT_API_VERSION_V3,
-                    )
+            # Should drain cleanly instead of raising.
+            list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=str(identical_cursor - 1),
+                    include_custom_props=False,
+                    now_ms=identical_cursor + 1_000,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
+            )
+
+        # The id-walk request sorts by hs_object_id and filters on cursor EQ + id GT, rather
+        # than the GTE/LTE window filter used everywhere else.
+        id_walk_request = captured[pages_in_cap]["json"]
+        assert id_walk_request["sorts"] == [{"propertyName": "hs_object_id", "direction": "ASCENDING"}]
+        filters = id_walk_request["filterGroups"][0]["filters"]
+        assert {
+            "propertyName": "hs_lastmodifieddate",
+            "operator": "EQ",
+            "value": str(identical_cursor),
+        } in filters
+        assert {
+            "propertyName": "hs_object_id",
+            "operator": "GT",
+            "value": str(SEARCH_RESULT_CAP - 1),
+        } in filters
 
     def test_saves_progress_at_window_boundaries(self) -> None:
         manager = _make_manager()
