@@ -13,6 +13,7 @@ from PIL import Image
 
 from posthog.models.comment import Comment
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.person.person import Person
 from posthog.models.team import Team
 
 from products.conversations.backend.mailgun import (
@@ -22,7 +23,7 @@ from products.conversations.backend.mailgun import (
     MailgunPermanentError,
     MailgunTransientError,
 )
-from products.conversations.backend.models import EmailChannel, EmailMessageMapping, EmailOutboxMessage
+from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, EmailOutboxMessage
 from products.conversations.backend.models.ticket import Ticket
 
 
@@ -919,6 +920,73 @@ class TestEmailInboundContent(BaseTest):
 
         reply = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
         assert reply.content == "Thanks, that worked"
+
+
+class TestWidgetAckThreading(BaseTest):
+    """The receipt exists so a reply sent before any agent response threads correctly."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True, "widget_email_replies_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="acc0ffee00001111",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            is_default=True,
+        )
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="widget-session",
+            distinct_id="verified-distinct-id",
+            identity_verified=True,
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Dashboards are broken",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    @patch("products.conversations.backend.services.email_delivery.send_mime")
+    @patch("products.conversations.backend.services.email_delivery.get_persons_by_distinct_ids")
+    def test_reply_to_ack_lands_on_the_same_ticket(
+        self, mock_persons: MagicMock, mock_send_mime: MagicMock, _mock_sig: MagicMock
+    ):
+        from products.conversations.backend.services.email_delivery import send_widget_ack_email
+
+        mock_persons.return_value = [Person(team_id=self.team.id, properties={"email": "customer@test.com"})]
+        assert send_widget_ack_email(self.ticket) is True
+        ack_message_id = EmailMessageMapping.objects.get(ticket=self.ticket).message_id
+
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-acc0ffee00001111@mg.posthog.com",
+                "from": "customer@test.com",
+                "Message-Id": "<customer-reply@test.com>",
+                "In-Reply-To": ack_message_id,
+                "subject": "Re: Dashboards are broken",
+                "stripped-text": "It's still happening on Safari",
+                "X-Mailgun-Spf": "pass",
+                "sender": "customer@test.com",
+            },
+        )
+        assert response.status_code == 200
+
+        # No second ticket: the reply threaded onto the original via the ack's mapping.
+        assert Ticket.objects.filter(team=self.team).count() == 1
+        reply = Comment.objects.get(
+            team=self.team, item_id=str(self.ticket.id), content="It's still happening on Safari"
+        )
+        assert (reply.item_context or {}).get("author_type") == "customer"
 
 
 class TestSendEmailReplyMultiConfig(BaseTest):

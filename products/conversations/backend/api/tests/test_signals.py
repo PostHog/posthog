@@ -10,7 +10,7 @@ from parameterized import parameterized
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 
-from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
+from products.conversations.backend.models import EmailChannel, EmailMessageMapping, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
 
 
@@ -577,6 +577,141 @@ class TestWidgetEmailLegSignal(BaseTest):
 
         mock_lookup.assert_called_once()
         assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 2
+
+
+class TestWidgetAckEmail(BaseTest):
+    PERSON_LOOKUP = "products.conversations.backend.services.email_delivery.get_persons_by_distinct_ids"
+    SEND_MIME = "products.conversations.backend.services.email_delivery.send_mime"
+
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {"email_enabled": True, "widget_email_replies_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="widgetack001",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            is_default=True,
+        )
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="verified-distinct-id",
+            identity_verified=True,
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Dashboards are broken",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+    def _persons(self, email: str | None = "customer@external.com"):
+        return [Person(team_id=self.team.id, properties={"email": email} if email else {})]
+
+    def _send(self):
+        from products.conversations.backend.services.email_delivery import send_widget_ack_email
+
+        self.ticket.refresh_from_db()
+        return send_widget_ack_email(self.ticket)
+
+    def test_ack_sends_replyable_receipt_without_creating_a_message(self):
+        self.ticket.refresh_from_db()
+        stats_before = (self.ticket.message_count, self.ticket.unread_customer_count, self.ticket.last_message_text)
+
+        with (
+            patch(self.PERSON_LOOKUP, return_value=self._persons()),
+            patch(self.SEND_MIME) as mock_send_mime,
+        ):
+            assert self._send() is True
+
+        mock_send_mime.assert_called_once()
+        args, kwargs = mock_send_mime.call_args
+        assert args[0] == "example.com"
+        assert kwargs["recipients"] == ["customer@external.com"]
+        mime = args[1]
+        assert b"Dashboards are broken" in mime
+        assert b"Reply to this email" in mime
+
+        # The receipt is a delivery artifact, not a ticket message: it adds no comment
+        # and leaves ticket stats untouched, so it can't stomp the agent list preview,
+        # inflate message_count, or fire the message events workflows trigger on.
+        assert Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).count() == 1
+        self.ticket.refresh_from_db()
+        assert (
+            self.ticket.message_count,
+            self.ticket.unread_customer_count,
+            self.ticket.last_message_text,
+        ) == stats_before
+
+        # The mapping is what makes a reply to the receipt thread onto this ticket.
+        mapping = EmailMessageMapping.objects.get(ticket=self.ticket, team=self.team)
+        assert mapping.message_id in mime.decode()
+
+    def test_ack_uses_custom_text_when_configured(self):
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "widget_email_ack_text": "Got it, we are on the case.",
+        }
+        self.team.save()
+
+        with (
+            patch(self.PERSON_LOOKUP, return_value=self._persons()),
+            patch(self.SEND_MIME) as mock_send_mime,
+        ):
+            assert self._send() is True
+
+        mime = mock_send_mime.call_args[0][1]
+        assert b"Got it, we are on the case." in mime
+        assert b"Reply to this email" not in mime
+
+    @parameterized.expand(
+        [
+            ("setting_disabled", {"email_enabled": True}, {}, {}, "customer@external.com"),
+            ("setting_non_bool", {"email_enabled": True, "widget_email_replies_enabled": "false"}, {}, {}, "c@e.com"),
+            ("identity_unverified", None, {"identity_verified": False}, {}, "customer@external.com"),
+            ("channel_not_default", None, {}, {"is_default": False}, "customer@external.com"),
+            ("channel_unverified", None, {}, {"domain_verified": False}, "customer@external.com"),
+            ("person_has_no_email", None, {}, {}, None),
+        ]
+    )
+    def test_ack_not_sent(self, _name, settings_override, ticket_override, channel_override, person_email):
+        if settings_override is not None:
+            self.team.conversations_settings = settings_override
+            self.team.save()
+        if ticket_override:
+            for field, field_value in ticket_override.items():
+                setattr(self.ticket, field, field_value)
+            self.ticket.save(update_fields=[*ticket_override, "updated_at"])
+        if channel_override:
+            for field, field_value in channel_override.items():
+                setattr(self.config, field, field_value)
+            self.config.save(update_fields=list(channel_override))
+
+        with (
+            patch(self.PERSON_LOOKUP, return_value=self._persons(person_email)),
+            patch(self.SEND_MIME) as mock_send_mime,
+        ):
+            assert self._send() is False
+
+        mock_send_mime.assert_not_called()
+        assert not EmailMessageMapping.objects.filter(ticket=self.ticket).exists()
+
+    def test_ack_is_idempotent_once_a_thread_anchor_exists(self):
+        with (
+            patch(self.PERSON_LOOKUP, return_value=self._persons()),
+            patch(self.SEND_MIME) as mock_send_mime,
+        ):
+            assert self._send() is True
+            assert self._send() is False
+
+        mock_send_mime.assert_called_once()
+        assert EmailMessageMapping.objects.filter(ticket=self.ticket).count() == 1
 
 
 class TestIsOutboundReply:

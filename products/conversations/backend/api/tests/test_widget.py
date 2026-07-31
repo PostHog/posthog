@@ -3,6 +3,7 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -695,6 +696,61 @@ class TestWidgetIdentityVerification(BaseTest):
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.distinct_id, self.distinct_id)
         self.assertTrue(ticket.identity_verified)
+
+    @parameterized.expand(
+        [
+            ("verified_with_setting_on", True, True, 1),
+            ("verified_with_setting_off", True, False, 0),
+            ("anonymous_with_setting_on", False, True, 0),
+        ]
+    )
+    @patch("products.conversations.backend.api.widget.send_widget_ticket_ack")
+    def test_ack_enqueued_only_for_verified_tickets_when_enabled(
+        self, _name, verified, setting_on, expected_calls, mock_ack
+    ):
+        if setting_on:
+            self.team.conversations_settings = {
+                **self.team.conversations_settings,
+                "widget_email_replies_enabled": True,
+            }
+            self.team.save()
+
+        payload = (
+            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash}
+            if verified
+            else {"widget_session_id": self.widget_session_id, "distinct_id": self.distinct_id}
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {**payload, "message": "Hello"},
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_ack.delay.call_count, expected_calls)
+
+    @patch("products.conversations.backend.api.widget.send_widget_ticket_ack")
+    def test_ack_not_enqueued_for_followup_messages(self, mock_ack):
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "widget_email_replies_enabled": True,
+        }
+        self.team.save()
+        ticket = self._create_ticket()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                "/api/conversations/v1/widget/message",
+                {
+                    "identity_distinct_id": self.distinct_id,
+                    "identity_hash": self.identity_hash,
+                    "message": "Adding more detail",
+                    "ticket_id": str(ticket.id),
+                },
+                **self._get_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_ack.delay.assert_not_called()
 
     def test_anonymous_message_creates_unverified_ticket(self):
         # A widget_session_id-only (no HMAC) request is not server-attested.
