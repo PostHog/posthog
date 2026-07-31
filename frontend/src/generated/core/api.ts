@@ -669,7 +669,7 @@ export const getOrganizationsProjectsCreateUrl = (organizationId: string) => {
  */
 export const organizationsProjectsCreate = async (
     organizationId: string,
-    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsCreateUrl(organizationId), {
@@ -708,7 +708,7 @@ export const getOrganizationsProjectsUpdateUrl = (organizationId: string, id: nu
 export const organizationsProjectsUpdate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(getOrganizationsProjectsUpdateUrl(organizationId, id), {
@@ -810,7 +810,7 @@ export const getOrganizationsProjectsChangeOrganizationCreateUrl = (organization
 export const organizationsProjectsChangeOrganizationCreate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -884,7 +884,7 @@ export const getOrganizationsProjectsDefaultEvaluationContextsCreateUrl = (organ
 export const organizationsProjectsDefaultEvaluationContextsCreate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -950,7 +950,7 @@ export const getOrganizationsProjectsDefaultReleaseConditionsUpdateUrl = (organi
 export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(
@@ -1067,7 +1067,7 @@ export const getOrganizationsProjectsGenerateConversationsPublicTokenCreateUrl =
 export const organizationsProjectsGenerateConversationsPublicTokenCreate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompatApi?: NonReadonly<ProjectBackwardCompatApi>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<ProjectBackwardCompatApi> => {
     return apiMutator<ProjectBackwardCompatApi>(

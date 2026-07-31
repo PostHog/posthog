@@ -343,12 +343,7 @@ export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
 
 export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
     .object({
-        name: zod
-            .string()
-            .min(1)
-            .max(organizationsProjectsCreateBodyNameMax)
-            .optional()
-            .describe('Human-readable project name.'),
+        name: zod.string().min(1).max(organizationsProjectsCreateBodyNameMax).describe('Human-readable project name.'),
         product_description: zod
             .string()
             .max(organizationsProjectsCreateBodyProductDescriptionMax)
@@ -950,12 +945,7 @@ export const organizationsProjectsUpdateBodyDefaultDataThemeMax = 2147483647
 
 export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod
-            .string()
-            .min(1)
-            .max(organizationsProjectsUpdateBodyNameMax)
-            .optional()
-            .describe('Human-readable project name.'),
+        name: zod.string().min(1).max(organizationsProjectsUpdateBodyNameMax).describe('Human-readable project name.'),
         product_description: zod
             .string()
             .max(organizationsProjectsUpdateBodyProductDescriptionMax)
@@ -2793,7 +2783,6 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
             .string()
             .min(1)
             .max(organizationsProjectsChangeOrganizationCreateBodyNameMax)
-            .optional()
             .describe('Human-readable project name.'),
         product_description: zod
             .string()
@@ -4044,7 +4033,6 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
             .string()
             .min(1)
             .max(organizationsProjectsDefaultEvaluationContextsCreateBodyNameMax)
-            .optional()
             .describe('Human-readable project name.'),
         product_description: zod
             .string()
@@ -4668,7 +4656,6 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
             .string()
             .min(1)
             .max(organizationsProjectsDefaultReleaseConditionsUpdateBodyNameMax)
-            .optional()
             .describe('Human-readable project name.'),
         product_description: zod
             .string()
@@ -6544,7 +6531,6 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
             .string()
             .min(1)
             .max(organizationsProjectsGenerateConversationsPublicTokenCreateBodyNameMax)
-            .optional()
             .describe('Human-readable project name.'),
         product_description: zod
             .string()

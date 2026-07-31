@@ -56166,7 +56166,7 @@ export namespace Schemas {
          * @minLength 1
          * @maxLength 200
          */
-      name?: string;
+      name: string;
       /**
          * Short description of what the project is about. This is helpful to give our AI agents context about your project.
          * @maxLength 1000
