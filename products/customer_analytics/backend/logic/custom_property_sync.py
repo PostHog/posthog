@@ -19,6 +19,7 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -67,7 +68,13 @@ def sync_custom_property_values(
     if saved_query is None or saved_query.deleted:
         return SyncResult(view_found=False)
 
-    available_columns = set((saved_query.columns or {}).keys())
+    # hogql_definition() resolves a materialized query against the materialized table's columns,
+    # not the saved query's own `columns` — those only refresh on save, so a column added but not
+    # yet re-materialized would otherwise pass this check and then fail HogQL field resolution.
+    if saved_query.is_materialized and saved_query.table is not None:
+        available_columns = set((saved_query.table.columns or {}).keys())
+    else:
+        available_columns = set((saved_query.columns or {}).keys())
     result = SyncResult(view_found=True)
     usable: list[CustomPropertySource] = []
     selected_columns: set[str] = set()
@@ -89,17 +96,25 @@ def sync_custom_property_values(
     account_ids_by_external_id = _get_account_ids_by_external_id(team_id, external_id=external_id)
     external_ids = sorted(account_ids_by_external_id)
     team = Team.objects.get(id=team_id)
-    rows_by_key_column = {
-        key_column: _read_view(team, saved_query.name, ordered, key_column, external_ids)
-        for key_column in sorted({source.key_column for source in usable})
-    }
+    rows_by_key_column: dict[str, list] = {}
+    for key_column in sorted({source.key_column for source in usable}):
+        try:
+            rows_by_key_column[key_column] = _read_view(team, saved_query.name, ordered, key_column, external_ids)
+        except QueryError as e:
+            # The pre-flight column check above can still miss a column that was added to the view
+            # but not yet re-materialized — HogQL then fails to resolve it. Scope the failure to the
+            # sources keyed on this column instead of failing the whole run over a transient mismatch.
+            capture_exception(e, {"team_id": team_id, "saved_query_id": str(saved_query.id)})
+            for source in usable:
+                if source.key_column == key_column:
+                    result.source_errors[str(source.id)] = str(e)[:_MAX_ERROR_LENGTH]
     result.accounts_total = len(account_ids_by_external_id)
     result.rows_fetched = sum(len(rows) for rows in rows_by_key_column.values())
 
     unmatched: set[Any] = set()
     for source in usable:
         source_column = source.source_column
-        if source_column is None:
+        if source_column is None or source.key_column not in rows_by_key_column:
             continue
         key_index, value_index = column_index[source.key_column], column_index[source_column]
         for row in rows_by_key_column[source.key_column]:

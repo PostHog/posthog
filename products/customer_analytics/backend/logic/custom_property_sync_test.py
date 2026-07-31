@@ -6,6 +6,8 @@ from django.apps import apps
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from products.customer_analytics.backend.logic.custom_property_sync import (
     MAX_CONSECUTIVE_SYNC_FAILURES,
     _read_view,
@@ -89,6 +91,55 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
 
         assert result.written == 0
         assert str(source.id) in result.source_errors
+
+    def test_materialized_view_validates_against_table_columns_not_saved_query_columns(self):
+        # A column added to the view's SELECT updates saved_query.columns immediately, but the
+        # materialized table (what HogQL actually reads) only gets it after the next materialization
+        # run. Validating against the stale saved_query.columns would let this source through and
+        # then blow up field resolution instead of reporting a clean per-source error.
+        DataWarehouseTable = apps.get_model("warehouse_sources", "DataWarehouseTable")
+        table = DataWarehouseTable.objects.create(team=self.team, name="billing_view_mat", columns={"org_id": {}})
+        self.view.table = table
+        self.view.is_materialized = True
+        self.view.save()
+        source = self._source(self.mrr_def, "mrr")
+
+        result = self._sync([])
+
+        assert result.written == 0
+        assert str(source.id) in result.source_errors
+
+    def test_query_error_resolving_field_is_scoped_to_affected_sources(self):
+        mrr_source = self._source(self.mrr_def, "mrr")
+        plan_source = self._source(self.plan_def, "plan", key_column="plan")
+
+        with patch(_EXECUTE, side_effect=QueryError("Unable to resolve field: mrr")):
+            result = sync_custom_property_values(team_id=self.team.id, saved_query_id=self.view.id)
+
+        assert str(mrr_source.id) in result.source_errors
+        assert str(plan_source.id) in result.source_errors
+        assert result.written == 0
+
+    def test_query_error_on_one_key_column_does_not_block_another(self):
+        self.view.columns = {**self.view.columns, "org_id2": {}}
+        self.view.save()
+        mrr_source = self._source(self.mrr_def, "mrr", key_column="org_id")
+        plan_source = self._source(self.plan_def, "plan", key_column="org_id2")
+
+        def execute(query, **kwargs):
+            # the org_id-keyed batch fails to resolve; the org_id2-keyed batch succeeds.
+            # selected columns are sorted: mrr, org_id, org_id2, plan
+            key_column = query.where.left.args[0].chain[0]
+            if key_column == "org_id":
+                raise QueryError("Unable to resolve field: mrr")
+            return _Response([(None, None, "globex", "enterprise")])
+
+        with patch(_EXECUTE, side_effect=execute):
+            result = sync_custom_property_values(team_id=self.team.id, saved_query_id=self.view.id)
+
+        assert str(mrr_source.id) in result.source_errors
+        assert str(plan_source.id) not in result.source_errors
+        assert self._active(self.globex, self.plan_def).value_str == "enterprise"
 
     def test_deleted_view_returns_not_found(self):
         self._source(self.mrr_def, "mrr")
