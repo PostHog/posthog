@@ -42,7 +42,7 @@ describe('SecureConnectionsService', () => {
         )
         expect(postgres.query).toHaveBeenCalledWith(
             expect.anything(),
-            expect.stringContaining('secure_connections_teamsecureconnectionsconfig'),
+            expect.stringContaining("extra_settings -> 'secure_connections'"),
             [42],
             'secure-connections-cdp-approval'
         )

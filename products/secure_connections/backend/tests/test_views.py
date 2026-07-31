@@ -7,8 +7,6 @@ from rest_framework import status
 
 from posthog.models import OrganizationMembership
 
-from products.secure_connections.backend.models import TeamSecureConnectionsConfig
-
 CONNECTION_ID = "7c18c57e-f1bb-4309-b879-42cb9a8c079e"
 TENANT_ID = "8247d991-d342-4ea3-a5d1-dce541312cb8"
 
@@ -89,10 +87,10 @@ class TestSecureConnectionApprovalsApi(APIBaseTest):
             "selector_kind": "hostname",
             "selector": "api.internal.example",
         }
-        assert (
-            TeamSecureConnectionsConfig.objects.get(team=self.team).cdp_approved_connections[CONNECTION_ID]["selector"]
-            == "api.internal.example"
-        )
+        self.team.refresh_from_db()
+        assert self.team.extra_settings["secure_connections"]["cdp_approved_connections"][CONNECTION_ID][
+            "selector"
+        ] == ("api.internal.example")
 
         responses.reset()
         response = self.client.post(self.url, {"connection_id": CONNECTION_ID, "approved": False})

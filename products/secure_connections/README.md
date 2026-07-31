@@ -59,7 +59,8 @@ Workers must fail closed if the forwarder cannot be created.
 ## CDP authorization and magic hostnames
 
 Project admins explicitly approve individual hostname-routed services for CDP on the Secure connections page.
-Approvals are denied by default and stored in the project's `TeamSecureConnectionsConfig` extension.
+Approvals are denied by default and stored under `secure_connections.cdp_approved_connections` in the project's
+team settings. Updates lock the team row so concurrent admin changes cannot overwrite one another.
 
 An approved service can be addressed from destination Hog code with its stable magic hostname:
 

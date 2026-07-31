@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import transaction
 
+from posthog.models import Team
+
 from products.secure_connections.backend.client import SecureConnectionServiceClient
 from products.secure_connections.backend.facade.contracts import (
     SecureConnection,
@@ -8,7 +10,9 @@ from products.secure_connections.backend.facade.contracts import (
     SecureConnectionState,
     SecureConnectionStatus,
 )
-from products.secure_connections.backend.models import TeamSecureConnectionsConfig
+
+TEAM_SETTINGS_KEY = "secure_connections"
+CDP_APPROVALS_KEY = "cdp_approved_connections"
 
 
 def tenant_slug(team_id: int) -> str:
@@ -52,14 +56,16 @@ def create_enrollment(team_id: int) -> SecureConnectionEnrollment:
 
 
 def get_cdp_approved_connections(team_id: int) -> dict[str, dict[str, str]]:
-    config = TeamSecureConnectionsConfig.objects.filter(team_id=team_id).only("cdp_approved_connections").first()
-    return config.cdp_approved_connections if config else {}
+    extra_settings = Team.objects.filter(id=team_id).values_list("extra_settings", flat=True).first() or {}
+    return extra_settings.get(TEAM_SETTINGS_KEY, {}).get(CDP_APPROVALS_KEY, {})
 
 
 @transaction.atomic
 def set_cdp_connection_approval(team_id: int, connection: SecureConnection, *, approved: bool) -> None:
-    config, _ = TeamSecureConnectionsConfig.objects.select_for_update().get_or_create(team_id=team_id)
-    approvals = dict(config.cdp_approved_connections)
+    team = Team.objects.select_for_update().only("extra_settings").get(id=team_id)
+    extra_settings = dict(team.extra_settings or {})
+    secure_connections_settings = dict(extra_settings.get(TEAM_SETTINGS_KEY, {}))
+    approvals = dict(secure_connections_settings.get(CDP_APPROVALS_KEY, {}))
     if approved:
         approvals[connection.id] = {
             "name": connection.name,
@@ -68,5 +74,7 @@ def set_cdp_connection_approval(team_id: int, connection: SecureConnection, *, a
         }
     else:
         approvals.pop(connection.id, None)
-    config.cdp_approved_connections = approvals
-    config.save(update_fields=["cdp_approved_connections"])
+    secure_connections_settings[CDP_APPROVALS_KEY] = approvals
+    extra_settings[TEAM_SETTINGS_KEY] = secure_connections_settings
+    team.extra_settings = extra_settings
+    team.save(update_fields=["extra_settings"])

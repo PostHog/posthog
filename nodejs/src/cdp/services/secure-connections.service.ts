@@ -129,9 +129,9 @@ export class SecureConnectionsService {
     private async getApprovedConnection(teamId: number, connectionId: string): Promise<ApprovedConnection | null> {
         const result = await this.postgres.query<ApprovalRow>(
             PostgresUse.COMMON_WRITE,
-            `SELECT cdp_approved_connections
-             FROM secure_connections_teamsecureconnectionsconfig
-             WHERE team_id = $1`,
+            `SELECT extra_settings -> 'secure_connections' -> 'cdp_approved_connections' AS cdp_approved_connections
+             FROM posthog_team
+             WHERE id = $1`,
             [teamId],
             'secure-connections-cdp-approval'
         )
