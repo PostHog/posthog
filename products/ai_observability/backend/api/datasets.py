@@ -826,7 +826,10 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             201: DatasetItemReadSerializer,
             409: DatasetConflictResponseSerializer,
         },
-        description="Create an item and its first immutable version. A matching external ID retry returns the existing item.",
+        description=(
+            "Create an item and its first immutable version. An identical external ID retry returns the existing item. "
+            "If the matching item is archived, the submitted content is restored as a new active version."
+        ),
         tags=["AI observability"],
     )
     @llma_track_latency("llma_dataset_items_create")

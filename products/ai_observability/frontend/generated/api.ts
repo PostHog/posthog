@@ -196,7 +196,7 @@ export const getDatasetItemsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create an item and its first immutable version. A matching external ID retry returns the existing item.
+ * Create an item and its first immutable version. An identical external ID retry returns the existing item. If the matching item is archived, the submitted content is restored as a new active version.
  */
 export const datasetItemsCreate = async (
     projectId: string,

@@ -126,7 +126,7 @@ class TestDatasetsApi(APIBaseTest):
 
         self.assertEqual(item["input"], input_value)
 
-    def test_item_create_is_idempotent_with_external_id(self) -> None:
+    def test_item_create_handles_existing_external_id(self) -> None:
         dataset = self._create_dataset()
         payload = {
             "dataset": dataset["id"],
@@ -156,6 +156,33 @@ class TestDatasetsApi(APIBaseTest):
         )
         self.assertEqual(conflicting_response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(conflicting_response.data["code"], "external_id_conflict")
+
+        archive_response = self.client.post(
+            f"{self.items_url}{first_response.data['id']}/archive/",
+            {"base_version": 1},
+            format="json",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+
+        restored_payload = {**payload, "input": ["refreshed"]}
+        restored_response = self.client.post(self.items_url, restored_payload, format="json")
+        retry_restored_response = self.client.post(self.items_url, restored_payload, format="json")
+
+        self.assertEqual(restored_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(restored_response.data["id"], first_response.data["id"])
+        self.assertEqual(restored_response.data["version"], 3)
+        self.assertEqual(restored_response.data["input"], ["refreshed"])
+        self.assertFalse(restored_response.data["archived"])
+        self.assertEqual(retry_restored_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(retry_restored_response.data["version_id"], restored_response.data["version_id"])
+        self.assertEqual(
+            DatasetItem.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
+            1,
+        )
+        self.assertEqual(
+            DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
+            3,
+        )
 
     def test_external_id_idempotency_preserves_json_types(self) -> None:
         dataset = self._create_dataset()

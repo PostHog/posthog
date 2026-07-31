@@ -442,9 +442,21 @@ def create_dataset_item(
         )
         if existing_item is not None:
             current_version = _current_item_version(dataset=dataset, item=existing_item)
-            if not current_version.archived and _item_contents_equal(
-                _DatasetItemContent.from_version(current_version), content
-            ):
+            if current_version.archived:
+                restored_version = _create_item_version(
+                    dataset=dataset,
+                    item=existing_item,
+                    created_by=created_by,
+                    version_number=current_version.version + 1,
+                    archived=False,
+                    content=content,
+                )
+                return DatasetItemMutationResult(
+                    item=existing_item,
+                    version=restored_version,
+                    created=False,
+                )
+            if _item_contents_equal(_DatasetItemContent.from_version(current_version), content):
                 return DatasetItemMutationResult(
                     item=existing_item,
                     version=current_version,

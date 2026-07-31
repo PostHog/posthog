@@ -209,8 +209,9 @@ tools:
         description: >
             Add an item to a dataset and create its first immutable version. `input` accepts any non-null JSON value.
             Use `expected_output` for the user-authored target and `source_output` for an actual output copied from a
-            trace. Supply a case-sensitive `external_id` for safe retries. For trace provenance, provide
-            `source_trace_id` and `source_timestamp` together; `source_event_id` is optional.
+            trace. Supply a case-sensitive `external_id` for safe retries. If that item is archived, this restores it
+            with the submitted content. For trace provenance, provide `source_trace_id` and `source_timestamp`
+            together; `source_event_id` is optional.
         feature_flag: llm-analytics-datasets
         response:
             informational_wrapper:
