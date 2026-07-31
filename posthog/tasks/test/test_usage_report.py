@@ -207,6 +207,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
         # make sure we don't collapse duplicate rows
         sync_execute("SYSTEM STOP MERGES")
+        # Server-global and not scoped to this database, so it outlives the process and would
+        # leave every later test on this ClickHouse unable to merge.
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
 
         materialize("events", "$exception_values")
 
