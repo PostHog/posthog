@@ -27,6 +27,7 @@ COST_ALIASES: dict[str, tuple[str, str]] = {
     # Modal serves the same GLM checkpoint; billed at the CF rate until trued
     # up against Modal's GPU-time invoices.
     "openai/zai-org/GLM-5.2-FP8": ("cloudflare/@cf/zai-org/glm-5.2", "openai"),
+    "openai/zai-org/GLM-5.2": (BASETEN_METRIC_MODEL, "openai"),
     "openai/moonshotai/kimi-k3": ("moonshotai/kimi-k3", "openai"),
 }
 
