@@ -24413,7 +24413,11 @@
                 "Directus",
                 "Clay",
                 "TradableBits",
-                "Swan"
+                "Swan",
+                "Hyros",
+                "Odoo",
+                "Airbridge",
+                "Snovio"
             ],
             "type": "string"
         },

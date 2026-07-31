@@ -10,6 +10,9 @@
 ## Commands
 
 - Environment:
+  - This is a full dev environment, not a restricted patch-editing sandbox — it has `node`, `pnpm`, a package mirror, and `apt`, so tools and dependencies that aren't present yet can be installed, and tests, Storybook, and the app can actually be run. A missing `node_modules`, browser binary, or flox usually just means setup hasn't run yet (`pnpm install`, `npx playwright install --with-deps chromium`, or building the nested `@posthog/quill` workspace that `global.scss` imports), rather than that running things is impossible.
+  - So the absence of a tool isn't evidence that a task can't be done — installing it is the first step. The honest signal that something genuinely can't run is an attempt that fails for a specific, nameable reason (no network access, `apt` unavailable, out of memory), which is worth reporting alongside whatever fallback you take.
+  - This matters most for visual and UX work, where reading the code isn't the same as seeing the result. Rendering the affected surface (for example in Storybook via a headless browser) and comparing before and after is what actually confirms such a change, and is usually worth the setup cost.
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:

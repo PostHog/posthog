@@ -118,6 +118,16 @@ class SESProvider:
     def _identity_arn(self, domain: str) -> str:
         return f"arn:aws:ses:{settings.SES_REGION}:{self._aws_account_id}:identity/{domain}"
 
+    def _configuration_set_arn(self, name: str) -> str:
+        return f"arn:aws:ses:{settings.SES_REGION}:{self._aws_account_id}:configuration-set/{name}"
+
+    def _associate_tenant_resource(self, tenant_name: str, resource_arn: str) -> None:
+        try:
+            self.ses_v2_client.create_tenant_resource_association(TenantName=tenant_name, ResourceArn=resource_arn)
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "AlreadyExistsException":
+                raise
+
     def _list_identity_tenants(self, domain: str) -> set[str]:
         try:
             resp = self.ses_v2_client.list_resource_tenants(ResourceArn=self._identity_arn(domain))
@@ -158,15 +168,20 @@ class SESProvider:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
-        # Associate the new domain identity with the tenant
-        try:
-            self.ses_v2_client.create_tenant_resource_association(
-                TenantName=expected_tenant,
-                ResourceArn=self._identity_arn(domain),
-            )
-        except ClientError as e:
-            if e.response["Error"]["Code"] != "AlreadyExistsException":
-                raise
+        # Associate the new domain identity with the tenant, plus the configuration sets sends
+        # reference — an attributed send fails unless EVERY resource it uses is associated.
+        self._associate_tenant_resource(expected_tenant, self._identity_arn(domain))
+        for config_set in settings.SES_TENANT_CONFIGURATION_SETS:
+            # Unlike the identity (created moments ago in this same call), config sets are
+            # provisioned externally — a missing or drifted one must not fail the customer's
+            # add-domain request. The gap is caught by migrate_ses_tenants / at attributed send
+            # time instead.
+            try:
+                self._associate_tenant_resource(expected_tenant, self._configuration_set_arn(config_set))
+            except (ClientError, BotoCoreError):
+                logger.exception(
+                    "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
+                )
 
     def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
         # Validate the domain contains valid characters for a domain name
