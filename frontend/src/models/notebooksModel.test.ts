@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { NotebookNodeType, NotebookTarget, NotebookType } from 'scenes/notebooks/types'
 
@@ -12,6 +13,10 @@ import { notebooksModel } from './notebooksModel'
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntent: jest.fn().mockResolvedValue(null),
+}))
+
+jest.mock('lib/utils/deleteWithUndo', () => ({
+    deleteWithUndo: jest.fn(),
 }))
 
 describe('notebooksModel', () => {
@@ -47,6 +52,21 @@ describe('notebooksModel', () => {
         expect(getMarkdownNotebookMarkdown(content)).toContain('# Activation')
         expect(getMarkdownNotebookMarkdown(content)).toContain('<Query')
         expect(getMarkdownNotebookMarkdown(content)).toContain('"kind":"HogQLQuery"')
+    })
+
+    it('dispatches notebookRestored when a delete is undone, so the list reloads', async () => {
+        const deleteWithUndoMock = jest.mocked(deleteWithUndo)
+        deleteWithUndoMock.mockResolvedValue(undefined)
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteNotebook('nb1', 'My notebook')
+        }).toDispatchActions(['deleteNotebookSuccess'])
+
+        const { callback } = deleteWithUndoMock.mock.calls[0][0]
+
+        await expectLogic(logic, () => {
+            callback?.(true, { name: 'My notebook', id: 'nb1' })
+        }).toDispatchActions(['notebookRestored'])
     })
 })
 

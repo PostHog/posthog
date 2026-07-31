@@ -161,6 +161,9 @@ export interface notebooksModelActions {
     loadNotebooks: () => {
         value: true
     }
+    notebookRestored: (shortId: string) => {
+        shortId: string
+    }
     receiveNotebookUpdate: (notebook: NotebookListItemType) => {
         notebook: NotebookListItemType
     }
@@ -206,6 +209,7 @@ export const notebooksModel = kea<notebooksModelType>([
         loadNotebooks: true,
         deleteNotebook: (shortId: NotebookListItemType['short_id'], title?: string) => ({ shortId, title }),
         createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
+        notebookRestored: (shortId: string) => ({ shortId }),
     }),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
@@ -215,7 +219,7 @@ export const notebooksModel = kea<notebooksModelType>([
         scratchpadNotebook: [SCRATCHPAD_NOTEBOOK],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         notebooks: [
             [] as NotebookListItemType[],
             {
@@ -255,6 +259,7 @@ export const notebooksModel = kea<notebooksModelType>([
                         callback: (undo) => {
                             if (undo) {
                                 refreshTreeItem('notebook', shortId)
+                                actions.notebookRestored(shortId)
                             } else {
                                 deleteFromTree('notebook', shortId)
                             }

@@ -62,6 +62,9 @@ export interface notebooksTableLogicActions {
             title: string | undefined
         }
     } // notebooksModel
+    notebookRestored: (shortId: string) => {
+        shortId: string
+    } // notebooksModel
     loadNotebooks: () => {
         value: true
     }
@@ -129,7 +132,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
     }),
     connect(() => ({
         values: [notebooksModel, ['notebookTemplates']],
-        actions: [notebooksModel, ['deleteNotebookSuccess']],
+        actions: [notebooksModel, ['deleteNotebookSuccess', 'notebookRestored']],
     })),
     reducers({
         filters: [
@@ -197,6 +200,7 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
         setSortValue: () => actions.loadNotebooks(),
         setPage: () => actions.loadNotebooks(),
         deleteNotebookSuccess: () => actions.loadNotebooks(),
+        notebookRestored: () => actions.loadNotebooks(),
     })),
     selectors(({ actions }) => ({
         notebooksAndTemplates: [
