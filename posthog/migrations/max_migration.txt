@@ -1,1 +1,1 @@
-1276_untrack_legacy_provisioning_columns
+1279_drop_duckgresserverteam_table

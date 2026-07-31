@@ -6,12 +6,7 @@ import dataclasses
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.ducklake.common import (
-    duckgres_data_modeling_schema,
-    duckgres_data_modeling_table_name,
-    get_duckgres_server_for_organization,
-    is_dev_mode,
-)
+from posthog.ducklake.common import duckgres_data_modeling_schema, get_duckgres_server_for_organization, is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -166,7 +161,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     team, node, saved_query = await _get_shadow_input_objects(inputs)
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = duckgres_data_modeling_schema(team.pk)
-    table_name = duckgres_data_modeling_table_name(saved_query.name)
+    table_name = saved_query.normalized_name
 
     await logger.ainfo(
         "Starting duckgres shadow materialization",

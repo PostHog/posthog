@@ -33,6 +33,8 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         description: 'Investigates recurring checkout failures.',
         scout_origin: 'custom',
         enabled: false,
+        status: 'paused_by_user',
+        pause_reason: null,
         emit: false,
         run_interval_minutes: 60,
         run_cron_schedule: null,
