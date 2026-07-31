@@ -1022,36 +1022,6 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
 
 
-class TaskCommentForward(TeamScopedRootMixin):
-    """One row per comment sent into a run, so a comment reaches the agent at most once
-    and the trail records who sent it.
-
-    The equivalent for thread messages is a column on the message itself; comments live on
-    the shared comments table, which this product has no business adding columns to.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    # db_constraint=False on the team/user/comment FKs: an FK constraint to those tables
-    # locks them on deploy, and Django still enforces the relation at the app level.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
-    comment = models.ForeignKey("posthog.Comment", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    run = models.ForeignKey("tasks.TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    forwarded_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
-    )
-    forwarded_at = models.DateTimeField(default=django_timezone.now)
-
-    class Meta:
-        db_table = "posthog_task_comment_forward"
-        constraints = [
-            models.UniqueConstraint(fields=["team", "comment"], name="task_comment_forward_team_comment_unique")
-        ]
-
-    def __str__(self):
-        return f"Comment {self.comment_id} forwarded to task {self.task_id}"
-
-
 class TaskActivity(TeamScopedRootMixin):
     """One row per (user, task): the latest thing that happened on a task the user is
     involved in, plus whether they have seen it.

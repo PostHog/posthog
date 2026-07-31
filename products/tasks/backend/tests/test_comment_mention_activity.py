@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -7,10 +5,10 @@ from parameterized import parameterized
 from posthog.models import Comment, Organization, OrganizationMembership, Team, User
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import Task, TaskActivity, TaskCommentForward, TaskRun
+from products.tasks.backend.models import Task, TaskActivity
 
 
-class CommentForwardingTestCase(TestCase):
+class CommentMentionTestCase(TestCase):
     def setUp(self) -> None:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Growth Team")
@@ -48,7 +46,7 @@ class CommentForwardingTestCase(TestCase):
         )
 
 
-class TestCommentMentionActivity(CommentForwardingTestCase):
+class TestCommentMentionActivity(CommentMentionTestCase):
     def test_mention_on_an_artifact_comment_reaches_the_feed(self):
         comment = self._comment()
 
@@ -108,79 +106,3 @@ class TestCommentMentionActivity(CommentForwardingTestCase):
         self._record_mentions(comment, [self.author.id])
 
         assert not TaskActivity.objects.filter(team=self.team).exists()
-
-
-class TestForwardComment(CommentForwardingTestCase):
-    def setUp(self) -> None:
-        super().setUp()
-        self.run = TaskRun.objects.create(team=self.team, task=self.task, status=TaskRun.Status.STARTED)
-        self.task.latest_run = self.run
-        self.task.save(update_fields=["latest_run"])
-
-    def _forward(self, comment: Comment, user: User) -> str:
-        return tasks_facade.forward_comment(comment.id, self.task.id, self.team.id, user.id)
-
-    def test_author_forwards_a_comment_into_the_live_run(self):
-        comment = self._comment()
-
-        with patch.object(tasks_facade, "signal_task_run_user_message", return_value=True) as signal:
-            assert self._forward(comment, self.author) == "ok"
-
-        assert TaskCommentForward.objects.filter(team=self.team, comment=comment).exists()
-        forwarded_content = signal.call_args.kwargs["content"]
-        assert "this needs a guard" in forwarded_content
-        # Labelled as someone's words rather than concatenated into the agent's instructions.
-        assert forwarded_content.startswith("<forwarded_comment ")
-        assert "Bob" in forwarded_content
-
-    def test_only_the_task_author_may_forward(self):
-        comment = self._comment()
-
-        with patch.object(tasks_facade, "signal_task_run_user_message", return_value=True) as signal:
-            assert self._forward(comment, self.peer) == "forbidden"
-
-        signal.assert_not_called()
-        assert not TaskCommentForward.objects.exists()
-
-    def test_a_comment_reaches_the_agent_only_once(self):
-        comment = self._comment()
-
-        with patch.object(tasks_facade, "signal_task_run_user_message", return_value=True) as signal:
-            assert self._forward(comment, self.author) == "ok"
-            assert self._forward(comment, self.author) == "already_forwarded"
-
-        assert signal.call_count == 1
-
-    # The task is in the URL and the comment names its own task, so a comment belonging to a
-    # different task must not be forwardable into this one's run.
-    def test_comment_belonging_to_another_task_is_rejected(self):
-        other_task = Task.objects.create(team=self.team, title="Other", created_by=self.author)
-        comment = self._comment(item_context={"anchor": {"kind": "document"}, "taskId": str(other_task.id)})
-
-        with patch.object(tasks_facade, "signal_task_run_user_message", return_value=True) as signal:
-            assert self._forward(comment, self.author) == "not_found"
-
-        signal.assert_not_called()
-
-    def test_no_live_run_is_refused(self):
-        self.run.status = TaskRun.Status.COMPLETED
-        self.run.save(update_fields=["status"])
-        comment = self._comment()
-
-        with patch.object(tasks_facade, "signal_task_run_user_message", return_value=True) as signal:
-            assert self._forward(comment, self.author) == "no_run"
-
-        signal.assert_not_called()
-        assert not TaskCommentForward.objects.exists()
-
-    # A failed send must not burn the one shot the comment gets.
-    def test_failed_signal_leaves_the_comment_forwardable(self):
-        comment = self._comment()
-
-        with patch.object(tasks_facade, "signal_task_run_user_message", return_value=False):
-            assert self._forward(comment, self.author) == "signal_failed"
-
-        assert not TaskCommentForward.objects.exists()
-
-        with patch.object(tasks_facade, "signal_task_run_user_message", return_value=True):
-            assert self._forward(comment, self.author) == "ok"

@@ -34,7 +34,7 @@ from django.utils import timezone as django_timezone
 import posthoganalytics
 
 from posthog.event_usage import groups
-from posthog.models import Comment, Team, User
+from posthog.models import Team, User
 from posthog.models.integration import Integration
 
 from products.tasks.backend.constants import (
@@ -66,7 +66,6 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskAutomation,
-    TaskCommentForward,
     TaskPin,
     TaskRun,
     TaskSession,
@@ -5907,60 +5906,6 @@ def forward_thread_message(
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     return "ok", _thread_message_to_dto(message)
-
-
-def forward_comment(comment_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:
-    """Send a comment written on one of the task's resources into the task's live run.
-
-    Mirrors ``forward_thread_message``: only the task's author decides what reaches their
-    agent, the run has to still be live, and a comment goes in at most once.
-
-    Forwarding names a stored comment rather than carrying its text, so the wording and the
-    author both come from the database. A caller cannot dress arbitrary text up as a
-    teammate's comment, and the agent only ever sees words a member of this team wrote.
-    """
-    task = _visible_task(task_id, team_id, user_id)
-    if task is None:
-        return "not_found"
-    if task.created_by_id != user_id:
-        return "forbidden"
-
-    comment = (
-        Comment.objects.filter(team_id=team_id, id=comment_id)
-        .exclude(deleted=True)
-        .select_related("created_by")
-        .first()
-    )
-    if comment is None or _comment_task_id(comment.scope, comment.item_id, comment.item_context) != task.id:
-        return "not_found"
-
-    with transaction.atomic():
-        run = task.latest_run
-        if run is None or run.status in (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
-            return "no_run"
-
-        # The unique constraint is the lock: claiming the comment before signalling is what
-        # stops two concurrent forwards from both reaching the agent.
-        try:
-            with transaction.atomic():
-                TaskCommentForward.objects.create(
-                    team_id=team_id,
-                    task_id=task.id,
-                    comment_id=comment.id,
-                    run=run,
-                    forwarded_by_id=user_id,
-                )
-        except IntegrityError:
-            return "already_forwarded"
-
-        author = comment.created_by
-        author_name = (author.get_full_name() or author.email) if author else "A teammate"
-        content = frame_forwarded_comment(author_name=author_name, content=comment.content or "")
-        if not signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[]):
-            # Undo the claim, so a failed send can be retried.
-            transaction.set_rollback(True)
-            return "signal_failed"
-    return "ok"
 
 
 # Threads are a Channels (project-bluebird) surface, so agent-authored thread
