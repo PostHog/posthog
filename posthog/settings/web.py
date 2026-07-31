@@ -551,6 +551,7 @@ SPECTACULAR_SETTINGS = {
         "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
         "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
         "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
+        "SignalFixVerificationStatusEnum": "products.signals.backend.models.SignalFixVerification.Status",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
