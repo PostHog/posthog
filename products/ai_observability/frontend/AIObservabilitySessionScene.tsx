@@ -43,6 +43,10 @@ const LLMASessionFeedbackDisplay = lazyWithRetry(() =>
     import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
 )
 
+const LLMASessionEvaluationsDisplay = lazyWithRetry(() =>
+    import('./LLMASessionEvaluationsDisplay').then((m) => ({ default: m.LLMASessionEvaluationsDisplay }))
+)
+
 type TurnPhase = 'userThinking' | 'aiThinking' | 'complete'
 
 export const scene: SceneExport = {
@@ -233,6 +237,9 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
                             <LLMASessionFeedbackDisplay sessionId={sessionId} />
                         </Suspense>
                     )}
+                    <Suspense fallback={<Spinner />}>
+                        <LLMASessionEvaluationsDisplay sessionId={sessionId} />
+                    </Suspense>
                 </div>
                 <SummarizeAllButton
                     loading={summariesLoading}
