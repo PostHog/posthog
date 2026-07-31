@@ -1,7 +1,7 @@
 # Desktop migration plan
 
 Moving PostHog/code into this monorepo as `products/desktop/`. This document is the plan
-and running status; `../DRIFTS.md` is the mechanical contract for regenerating the import.
+and running status; `../MIGRATION.md` is the mechanical contract for regenerating the import.
 
 ## Decisions
 
@@ -38,7 +38,7 @@ Done:
   `releases.json` powering in-app release notes. Verified end to end: tag-scoped OIDC
   writes, the server-side copy flip and public reads through the product domain.
 - Dry-run import PR (PostHog/posthog#72483): full tree staged, 17 workflows ported or
-  accounted for, DRIFTS.md resync contract, desktop CI green inside the monorepo
+  accounted for, MIGRATION.md resync contract, desktop CI green inside the monorepo
   (including the merge-queue aggregator pattern) except two admin-gated items below.
 
 Blocked on admin actions:
@@ -53,7 +53,7 @@ Blocked on admin actions:
    install auto-updating onto the S3-polling build, release notes in the app), then let
    the fleet drain onto the S3 feed while dual-publishing continues.
 2. **Regenerate the import from newer pinned SHAs** as PostHog/code keeps moving (protocol
-   in DRIFTS.md). The first resync after #3490 picks up the S3 release workflow.
+   in MIGRATION.md). The first resync after #3490 picks up the S3 release workflow.
 3. **People-side prep**: copy the secrets inventory into posthog (signing, sourcemaps,
    releaser app, AWS, Trunk, Discord, App Store Connect), re-register the npm trusted
    publisher for `@posthog/agent`, create the `desktop-v<X>.<Y>.0` base tag, register the
@@ -67,7 +67,7 @@ Blocked on admin actions:
 5. **After**: backend test coupling (add `products/desktop/packages/{agent,shared,git}/**`
    to the tasks filters in ci-backend; point `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` at the
    in-repo tree), hogli `desktop:*` commands, sparse-checkout recipe in the README, agent
-   release hardening, fix the semgrep findings DRIFTS lists, retire the legacy GitHub feed
+   release hardening, fix the semgrep findings MIGRATION lists, retire the legacy GitHub feed
    once telemetry allows, then archive PostHog/code.
 
 ## The consumer matrix (why backend coupling matters)

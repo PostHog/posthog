@@ -1,4 +1,4 @@
-# DRIFTS.md — intentional divergences from PostHog/code
+# MIGRATION.md — intentional divergences from PostHog/code
 
 This directory is a point-in-time import of the PostHog/code repository. This file is the
 contract for resyncing it: everything listed here is an intentional change made to fit the
@@ -14,7 +14,7 @@ be treated as a bug in the sync.
 1. Pick the new pinned SHA on PostHog/code main.
 2. Replace the `products/desktop/` tree with `git archive <sha> | tar -x -C products/desktop/`, then delete
    `products/desktop/.github` (workflows live at the monorepo root, transformed per the rules below).
-   `products/desktop/DRIFTS.md` (this file) is monorepo-only: restore it and update the pinned SHA.
+   `products/desktop/MIGRATION.md` (this file) is monorepo-only: restore it and update the pinned SHA.
 3. Re-derive each `.github/workflows/desktop-*.yml` from its source workflow (mapping table
    below) by applying the transform rules. If a source workflow changed, re-apply the rules
    to the new version rather than hand-merging the diff.
@@ -29,7 +29,7 @@ be treated as a bug in the sync.
 The tree is a verbatim copy of the source at the pinned SHA except:
 
 - `.github/` is not imported (see workflow mapping below).
-- `DRIFTS.md` (this file) and `docs/plan.md` (the migration plan) exist only in the
+- `MIGRATION.md` (this file) and `docs/plan.md` (the migration plan) exist only in the
   monorepo; restore both on a resync.
 - Monorepo symlink convention (enforced by CI): every AGENTS.md needs a sibling CLAUDE.md
   symlink, and CLAUDE.md files must BE symlinks. Applied:
