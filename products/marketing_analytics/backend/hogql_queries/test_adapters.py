@@ -1624,6 +1624,47 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert expr.args[0].value == 0
         assert adapter.build_query() is not None, "BingAdsAdapter should build a query without the revenue column"
 
+    def test_bing_ads_falls_back_to_campaign_join_when_report_lacks_campaign_name(self):
+        """Reports synced before `CampaignName` was requested don't have the column, and
+        referencing it would fail the whole query — fall back to the campaigns join instead."""
+        campaign_table = self._create_mock_table("bingads_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bingads_campaign_performance_report", "BingAds")
+        stats_table.columns = {col: {"valid": True} for col in ("campaign_id", "spend")}
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="test_missing_campaign_name",
+        )
+        adapter = BingAdsAdapter(config=config, context=self.context)
+
+        from_expr = adapter._get_from()
+        assert isinstance(from_expr.table, ast.Field)
+        assert from_expr.table.chain == ["bingads_campaigns"], "should anchor on the entity table"
+        assert from_expr.next_join is not None, "should still join the performance report"
+        assert adapter.build_query() is not None, "should build a query without the campaign_name column"
+
+    def test_bing_ads_campaign_grain_groups_by_id_and_takes_latest_name(self):
+        """The report is a per-day fact table, so a renamed campaign carries the old name on old
+        rows. Grouping by the name would split one campaign into a row per name."""
+        campaign_table = self._create_mock_table("bingads_campaigns", "BingAds")
+        stats_table = self._create_mock_table("bingads_campaign_performance_report", "BingAds")
+        stats_table.columns = {col: {"valid": True} for col in ("campaign_id", "campaign_name", "spend")}
+
+        config = BingAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="BingAds",
+            source_id="test_renamed_campaign",
+        )
+        adapter = BingAdsAdapter(config=config, context=self.context)
+
+        group_by = adapter._get_group_by()
+        assert len(group_by) == 1, "campaign name must not be a grouping key"
+        assert ".campaign_id" in group_by[0].to_hogql()
+        assert "argMax" in adapter._get_campaign_name_field().to_hogql(), "latest name should win"
+
     @parameterized.expand(
         [
             ("total_impression", "_get_impressions_field"),
@@ -1803,7 +1844,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     def test_bing_ads_native_query_generation(self):
         campaign_table = self._create_mock_table("bing_campaigns", "BingAds")
         stats_table = self._create_mock_table("bing_campaign_performance_report", "BingAds")
-        stats_table.columns = {"revenue": {"valid": True}}
+        stats_table.columns = {col: {"valid": True} for col in ("revenue", "campaign_id", "campaign_name")}
 
         config = BingAdsConfig(
             campaign_table=campaign_table,

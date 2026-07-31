@@ -135,13 +135,15 @@ class TestCampaignFieldPreferences(BaseTest):
         )
         adapter = MetaAdsAdapter(config, self.context)
 
+        # Check that the campaign name field uses 'name' field
         campaign_name_expr = adapter._get_campaign_name_field()
         name_hogql = campaign_name_expr.to_hogql()
-        assert ".campaign_name" in name_hogql
+        assert ".name" in name_hogql
 
+        # Check that the campaign id field uses 'id' field
         campaign_id_expr = adapter._get_campaign_id_field()
         id_hogql = campaign_id_expr.to_hogql()
-        assert ".campaign_id" in id_hogql
+        assert ".id" in id_hogql
 
     def test_metaads_uses_campaign_id_for_matching_when_configured(self):
         """Test that MetaAds adapter uses campaign id (field: 'id') for matching when configured"""
@@ -226,15 +228,15 @@ class TestCampaignFieldPreferences(BaseTest):
         )
         adapter = LinkedinAdsAdapter(config, self.context)
 
-        # Bing reads campaign columns off the performance report, so no campaigns join
+        # Check that matching field uses id
         match_field_expr = adapter.get_campaign_match_field()
         match_hogql = match_field_expr.to_hogql()
-        assert ".campaign_id" in match_hogql
+        assert ".id" in match_hogql
 
         # But name should still be available for display
         name_field_expr = adapter._get_campaign_name_field()
         name_hogql = name_field_expr.to_hogql()
-        assert ".campaign_name" in name_hogql
+        assert ".name" in name_hogql
 
     def test_tiktok_adapter_respects_preferences(self):
         """Test that TikTokAds adapter respects preferences for matching"""
@@ -294,15 +296,15 @@ class TestCampaignFieldPreferences(BaseTest):
         )
         adapter = RedditAdsAdapter(config, self.context)
 
-        # Bing reads campaign columns off the performance report, so no campaigns join
+        # Check that matching field uses id
         match_field_expr = adapter.get_campaign_match_field()
         match_hogql = match_field_expr.to_hogql()
-        assert ".campaign_id" in match_hogql
+        assert ".id" in match_hogql
 
         # But name should still be available for display
         name_field_expr = adapter._get_campaign_name_field()
         name_hogql = name_field_expr.to_hogql()
-        assert ".campaign_name" in name_hogql
+        assert ".name" in name_hogql
 
     def test_get_campaign_field_preference_handles_missing_config(self):
         """Test that helper method handles missing team config gracefully"""

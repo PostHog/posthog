@@ -278,6 +278,24 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 config.campaign_table.name, self._campaign_name_column, "Unknown campaign"
             )
         tables = self._level_tables()
+        if self._campaign_stats_are_unified():
+            # A performance report is a per-day fact table, so `campaign_name` differs across
+            # rows once a campaign is renamed — the entity join used to hide that by supplying
+            # one current name per id. Take the latest name instead of grouping by it, or a
+            # renamed campaign splits into one row per name with its cost divided between them.
+            # `_get_group_by` drops the name accordingly.
+            return ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="argMax",
+                        args=[
+                            ast.Field(chain=[tables.entity_table.name, tables.entity_name_column]),
+                            ast.Field(chain=[tables.stats_table.name, self._stats_date_column]),
+                        ],
+                    )
+                ],
+            )
         return ast.Call(name="toString", args=[ast.Field(chain=[tables.entity_table.name, tables.entity_name_column])])
 
     def _get_campaign_id_field(self) -> ast.Expr:
@@ -456,6 +474,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     # LEFT JOINing the report drops spend for any campaign the report knows about but
     # the entity table doesn't — deleted campaigns are never returned by the platform's
     # "get campaigns" endpoints, yet their historical spend lives on in the report.
+    # Only takes effect when the columns are really there — see `_campaign_stats_are_unified`.
     _uses_unified_campaign_stats: bool = False
     # Column names on a unified report that hold parent campaign info. Only consulted
     # when `_uses_unified_entity_stats` / `_uses_unified_campaign_stats` is True. Default
@@ -501,6 +520,31 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             return config.ad_table is not None and config.ad_stats_table is not None
         return True
 
+    def _campaign_stats_are_unified(self) -> bool:
+        """Whether the campaign grain can read id + name straight off the performance report.
+
+        `_uses_unified_campaign_stats` says the source's report *should* embed those columns,
+        but a table synced before they were requested won't have them, and referencing a column
+        that isn't there fails the whole query with "Field not found" (the same reason `revenue`
+        is guarded in the Bing adapter). So the flag only takes effect once the columns are
+        actually present; otherwise we fall back to joining the campaigns entity table.
+
+        Only meaningful below AD_GROUP: at the entity levels the campaign columns come from the
+        adset/ad report via `_uses_unified_entity_stats` instead.
+        """
+        if not self._uses_unified_campaign_stats or not self._has_hierarchical_config():
+            return False
+        if self.context.drill_down_level in (
+            MarketingAnalyticsDrillDownLevel.AD_GROUP,
+            MarketingAnalyticsDrillDownLevel.AD,
+        ):
+            return False
+        config = cast(HierarchicalNativeAdsConfig, self.config)
+        return all(
+            self._table_has_column(config.stats_table, column)
+            for column in (self._unified_campaign_pk_column, self._unified_campaign_name_column)
+        )
+
     def _level_tables(self) -> HierarchicalLevelTables:
         """Return the entity + stats tables for the current drill-down level.
 
@@ -542,7 +586,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 entity_name_column=self._ad_name_column,
                 entity_id_output_column=self._ad_pk_column,
             )
-        if self._uses_unified_campaign_stats:
+        if self._campaign_stats_are_unified():
             return HierarchicalLevelTables(
                 entity_table=config.stats_table,
                 stats_table=config.stats_table,
@@ -591,10 +635,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         stats_table_name = tables.stats_table.name
         level = self.context.drill_down_level
         is_entity_level = level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
-        # Every other level (campaign, channel, source, …) reads the campaign bundle.
-        is_unified = (self._uses_unified_entity_stats and is_entity_level) or (
-            self._uses_unified_campaign_stats and not is_entity_level
-        )
+        # Every other level (campaign, channel, source, medium, content, term) reads the
+        # campaign bundle, so they all go through the campaign-grain unified check.
+        is_unified = (self._uses_unified_entity_stats and is_entity_level) or self._campaign_stats_are_unified()
 
         # Entity and report/stats tables can store the same id with different types
         # (e.g. Reddit's ad_groups.id vs ad_group_report.ad_group_id), so cast both
@@ -692,7 +735,11 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Default GROUP BY for hierarchical adapters: campaign columns at every level,
         plus ad-group columns at AD_GROUP/AD, plus ad columns at AD."""
         level = self.context.drill_down_level
-        group_by: list[ast.Expr] = [self._get_campaign_name_field(), self._get_campaign_id_field()]
+        group_by: list[ast.Expr] = []
+        # In unified campaign mode the name is an argMax over the report, not a grouping key.
+        if not self._campaign_stats_are_unified():
+            group_by.append(self._get_campaign_name_field())
+        group_by.append(self._get_campaign_id_field())
         if level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD):
             group_by.extend([self._get_ad_group_name_field(), self._get_ad_group_id_field()])
         if level == MarketingAnalyticsDrillDownLevel.AD:
