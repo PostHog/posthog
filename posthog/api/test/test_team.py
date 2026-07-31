@@ -1664,6 +1664,20 @@ def team_api_test_factory():
             assert settings["widget_identification_form_description"] == "Please provide your details."
             assert settings["widget_placeholder_text"] == "Type your message..."
 
+        @parameterized.expand([("enabled", True), ("disabled", False)])
+        def test_conversations_widget_email_replies_setting_round_trips(self, _name, enabled):
+            self.team.conversations_settings = {"widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_email_replies_enabled": enabled}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_email_replies_enabled"] is enabled
+            assert settings["widget_color"] == "#123456"
+
         def test_enabling_conversations_auto_generates_token(self):
             self.team.conversations_enabled = False
             self.team.conversations_settings = None

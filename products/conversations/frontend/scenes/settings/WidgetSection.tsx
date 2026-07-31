@@ -39,6 +39,7 @@ export function WidgetSection(): JSX.Element {
         identificationFormTitleValue,
         identificationFormDescriptionValue,
         placeholderTextValue,
+        hasVerifiedDefaultEmailChannel,
     } = useValues(supportSettingsLogic)
 
     return (
@@ -82,6 +83,35 @@ export function WidgetSection(): JSX.Element {
                             })
                         }}
                         loading={widgetEnabledLoading}
+                    />
+                </div>
+
+                <LemonDivider />
+
+                <div className="flex items-center gap-4 justify-between">
+                    <div>
+                        <label className="w-40 shrink-0 font-medium">Email widget responses to customers</label>
+                        <p className="text-xs text-muted-alt">
+                            Also send your replies by email, so customers can respond from their inbox instead of
+                            returning to your app. Their email replies appear in the same ticket. This applies to
+                            tickets where the customer's identity is verified and their profile has an email address.
+                        </p>
+                    </div>
+                    <LemonSwitch
+                        checked={!!currentTeam?.conversations_settings?.widget_email_replies_enabled}
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                conversations_settings: {
+                                    ...currentTeam?.conversations_settings,
+                                    widget_email_replies_enabled: checked,
+                                },
+                            })
+                        }}
+                        disabledReason={
+                            hasVerifiedDefaultEmailChannel
+                                ? undefined
+                                : 'Connect an email address in the Email tab and set it as primary first'
+                        }
                     />
                 </div>
 

@@ -76,6 +76,7 @@ export interface supportSettingsLogicValues {
     githubReposLoading: boolean
     githubSelectedRepos: string[]
     greetingInputValue: string | null
+    hasVerifiedDefaultEmailChannel: boolean
     identificationFormDescriptionValue: string | null
     identificationFormTitleValue: string | null
     isAddingDomain: boolean
@@ -527,6 +528,7 @@ export interface supportSettingsLogicMeta {
         slackNudgeEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         slackAlertChannelId: (currentTeam: TeamPublicType | TeamType | null) => string | null
         emailConnected: (emailConfigs: EmailConfigStatus[]) => boolean
+        hasVerifiedDefaultEmailChannel: (emailConfigs: EmailConfigStatus[]) => boolean
         teamsConnected: (currentTeam: TeamPublicType | TeamType | null) => boolean
         teamsTeamId: (currentTeam: TeamPublicType | TeamType | null) => string | null
         teamsTeamName: (currentTeam: TeamPublicType | TeamType | null) => string | null
@@ -1047,6 +1049,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         emailConnected: [
             (s) => [s.emailConfigs],
             (emailConfigs: EmailConfigStatus[]): boolean => emailConfigs.length > 0,
+        ],
+        hasVerifiedDefaultEmailChannel: [
+            (s) => [s.emailConfigs],
+            (emailConfigs: EmailConfigStatus[]): boolean =>
+                emailConfigs.some((config) => config.is_default && config.domain_verified),
         ],
         teamsConnected: [
             (s) => [s.currentTeam],

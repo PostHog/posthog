@@ -1644,10 +1644,14 @@ support_tickets: PostgresTable = PostgresTable(
             name="last_message_text", nullable=True, description="Text of the most recent message."
         ),
         "email_subject": StringDatabaseField(
-            name="email_subject", nullable=True, description="Subject line for email-channel tickets."
+            name="email_subject",
+            nullable=True,
+            description="Subject line for email-channel tickets, and for widget tickets that email replies to the customer.",
         ),
         "email_from": StringDatabaseField(
-            name="email_from", nullable=True, description="Sender address for email-channel tickets."
+            name="email_from",
+            nullable=True,
+            description="The customer's email address on tickets that are delivered by email: the sender's address on email-channel tickets, or the verified requester's address on widget tickets that email replies to the customer.",
         ),
         "session_id": StringDatabaseField(
             name="session_id", nullable=True, description="Session recording id associated with the ticket, if any."

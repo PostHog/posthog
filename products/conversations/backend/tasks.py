@@ -56,6 +56,7 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
+from products.conversations.backend.services.email_delivery import widget_email_replies_enabled
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
@@ -729,6 +730,9 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     settings_dict = ticket.team.conversations_settings or {}
     if not settings_dict.get("email_enabled"):
         _mark_outbox_failed(outbox, "email disabled for team")
+        return
+    if ticket.channel_source == Channel.WIDGET and not widget_email_replies_enabled(ticket.team):
+        _mark_outbox_failed(outbox, "widget email replies disabled for team")
         return
     if not config:
         _mark_outbox_failed(outbox, "no email config")

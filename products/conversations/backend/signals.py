@@ -19,6 +19,7 @@ from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
+from .services.email_delivery import ensure_widget_email_leg, widget_email_replies_enabled
 from .tasks import (
     post_reply_to_github,
     post_reply_to_slack,
@@ -361,7 +362,8 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     Only triggers for:
     - Newly created comments (not edits)
     - Outbound replies (human team or public AI)
-    - Tickets with channel_source="email"
+    - Tickets with channel_source="email", or widget tickets whose team opted into
+      emailing widget responses and whose requester has an attested email address
     """
     if instance.scope != "conversations_ticket":
         return
@@ -388,7 +390,7 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # is down, the row still exists and flush_pending_email_replies will send it.
     ticket = (
         Ticket.objects.select_related("team", "email_config")
-        .filter(id=item_id, team_id=team_id, channel_source=Channel.EMAIL)
+        .filter(id=item_id, team_id=team_id, channel_source__in=[Channel.EMAIL, Channel.WIDGET])
         .first()
     )
     if not ticket:
@@ -398,6 +400,15 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # checked here: every customer-facing reply on an email ticket gets an outbox row, and
     # _process_outbox_row fails undeliverable ones with a reason. Skipping row creation instead
     # would leave the reply looking sent in the agent UI, with no record of why nothing went out.
+    if ticket.channel_source == Channel.WIDGET:
+        if not widget_email_replies_enabled(ticket.team):
+            return
+        try:
+            if not ensure_widget_email_leg(ticket):
+                return
+        except Exception:
+            logger.exception("widget_email_leg_failed", item_id=item_id)
+            return
 
     config = ticket.email_config
     inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or (config.domain if config else None)

@@ -8,6 +8,7 @@ from django.db import transaction
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
+from posthog.models.person.person import Person
 
 from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
@@ -465,6 +466,117 @@ class TestEmailReplySignalGuard(BaseTest):
         )
 
         assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == expected_count
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestWidgetEmailLegSignal(BaseTest):
+    PERSON_LOOKUP = "products.conversations.backend.services.email_delivery.get_persons_by_distinct_ids"
+
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_settings = {"email_enabled": True, "widget_email_replies_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="widgetleg001",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+            is_default=True,
+        )
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="verified-distinct-id",
+            identity_verified=True,
+        )
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="  My  dashboards\nare broken  ",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+
+    def _persons(self, email: str | None):
+        return [Person(team_id=self.team.id, properties={"email": email} if email is not None else {})]
+
+    def _reply(self) -> Comment:
+        return Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Here's the fix",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+    def test_widget_reply_creates_outbox_and_stamps_ticket(self, _mock_on_commit):
+        with patch(self.PERSON_LOOKUP, return_value=self._persons("customer@external.com")):
+            self._reply()
+
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 1
+        self.ticket.refresh_from_db()
+        assert self.ticket.email_from == "customer@external.com"
+        assert self.ticket.email_config_id == self.config.id
+        assert self.ticket.email_subject == "My dashboards are broken"
+        assert self.ticket.channel_source == Channel.WIDGET
+
+    @parameterized.expand(
+        [
+            ("setting_absent", {"email_enabled": True}, {}, {}, "customer@external.com"),
+            ("setting_false", {"email_enabled": True, "widget_email_replies_enabled": False}, {}, {}, "c@ext.com"),
+            ("setting_non_bool", {"email_enabled": True, "widget_email_replies_enabled": "false"}, {}, {}, "c@ext.com"),
+            ("identity_unverified", None, {"identity_verified": False}, {}, "customer@external.com"),
+            ("identity_unknown", None, {"identity_verified": None}, {}, "customer@external.com"),
+            ("channel_not_default", None, {}, {"is_default": False}, "customer@external.com"),
+            ("channel_unverified", None, {}, {"domain_verified": False}, "customer@external.com"),
+            ("person_has_no_email", None, {}, {}, None),
+            ("person_email_invalid", None, {}, {}, "not-an-email"),
+            ("no_person_found", None, {}, {}, "__none__"),
+        ]
+    )
+    def test_widget_email_leg_not_created(
+        self, _mock_on_commit, _name, settings_override, ticket_override, channel_override, person_email
+    ):
+        if settings_override is not None:
+            self.team.conversations_settings = settings_override
+            self.team.save()
+        if ticket_override:
+            for field, field_value in ticket_override.items():
+                setattr(self.ticket, field, field_value)
+            self.ticket.save(update_fields=[*ticket_override, "updated_at"])
+        if channel_override:
+            for field, field_value in channel_override.items():
+                setattr(self.config, field, field_value)
+            self.config.save(update_fields=list(channel_override))
+
+        persons = [] if person_email == "__none__" else self._persons(person_email)
+        with patch(self.PERSON_LOOKUP, return_value=persons):
+            reply = self._reply()
+
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 0
+        assert Comment.objects.filter(id=reply.id).exists()
+        self.ticket.refresh_from_db()
+        assert self.ticket.email_from is None
+        assert self.ticket.email_config_id is None
+
+    def test_person_lookup_failure_is_isolated(self, _mock_on_commit):
+        with patch(self.PERSON_LOOKUP, side_effect=Exception("personhog unavailable")):
+            reply = self._reply()
+
+        assert Comment.objects.filter(id=reply.id).exists()
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 0
+
+    def test_stamped_ticket_skips_person_lookup(self, _mock_on_commit):
+        with patch(self.PERSON_LOOKUP, return_value=self._persons("customer@external.com")) as mock_lookup:
+            self._reply()
+            self._reply()
+
+        mock_lookup.assert_called_once()
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 2
 
 
 class TestIsOutboundReply:

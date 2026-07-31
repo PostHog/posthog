@@ -22,7 +22,7 @@ from products.conversations.backend.mailgun import (
     MailgunPermanentError,
     MailgunTransientError,
 )
-from products.conversations.backend.models import EmailChannel, EmailOutboxMessage
+from products.conversations.backend.models import EmailChannel, EmailMessageMapping, EmailOutboxMessage
 from products.conversations.backend.models.ticket import Ticket
 
 
@@ -1017,6 +1017,59 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         assert outbox.status == EmailOutboxMessage.Status.SENT
         assert outbox.sent_at is not None
+
+    def _create_widget_ticket(self, config: EmailChannel) -> Ticket:
+        """A widget ticket already stamped with an email leg, as the reply signal leaves it."""
+        from products.conversations.backend.models.constants import Channel, Status
+
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            email_config=config,
+            widget_session_id="widget-session",
+            distinct_id="verified-distinct-id",
+            status=Status.NEW,
+            identity_verified=True,
+            email_subject="Dashboards are broken",
+            email_from="customer@test.com",
+        )
+
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_widget_ticket_outbox_row_sends_email(self, mock_send_mime: MagicMock):
+        self.team.conversations_settings = {"email_enabled": True, "widget_email_replies_enabled": True}
+        self.team.save()
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_widget_ticket(config)
+
+        _, outbox = self._run_reply(ticket)
+
+        mock_send_mime.assert_called_once()
+        args, kwargs = mock_send_mime.call_args
+        assert args[0] == "example.com"
+        assert kwargs["recipients"] == ["customer@test.com"]
+        assert b"support@example.com" in args[1]
+        assert outbox.status == EmailOutboxMessage.Status.SENT
+        assert EmailMessageMapping.objects.filter(ticket=ticket, message_id=outbox.message_id).exists()
+
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_widget_outbox_fails_when_setting_disabled(self, mock_send_mime: MagicMock):
+        from products.conversations.backend.tasks import send_email_reply
+
+        self.team.conversations_settings = {"email_enabled": True, "widget_email_replies_enabled": True}
+        self.team.save()
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_widget_ticket(config)
+        comment, outbox = self._create_outbox(ticket)
+
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+
+        send_email_reply(str(outbox.id))
+        outbox.refresh_from_db()
+
+        assert outbox.status == EmailOutboxMessage.Status.FAILED_PERMANENT
+        assert outbox.last_error == "widget email replies disabled for team"
+        mock_send_mime.assert_not_called()
 
     @parameterized.expand(
         [
