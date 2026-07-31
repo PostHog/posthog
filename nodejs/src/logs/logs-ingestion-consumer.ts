@@ -885,7 +885,7 @@ export class LogsIngestionConsumer {
                                 { reason: resolved.reason, team_id: message.teamId.toString() },
                                 1
                             )
-                            recordLogMessageDropped('sampling_all_dropped', message.teamId.toString())
+                            recordLogMessageDropped(resolved.reason, message.teamId.toString())
                             this.addPiiStatsIntoUsage(usageStats, message.teamId, resolved.pii)
                             this.queueSamplingRecordsDroppedByRule(message.teamId, resolved.recordsDroppedByRuleId)
                             this.queueBytesDroppedByRule(message.teamId, resolved.bytesDroppedByRuleId)

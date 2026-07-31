@@ -25,6 +25,7 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from './config'
+import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
 import { LogRecord, decodeLogRecords, encodeLogRecords } from './log-record-avro'
 import {
@@ -195,6 +196,7 @@ describe('LogsIngestionConsumer', () => {
     let team2: Team
     let fixedTime: DateTime
     let logMessageDroppedCounterSpy: jest.SpyInstance
+    let recordLogMessageDroppedSpy: jest.SpyInstance
 
     const createLogsIngestionConsumer = async (
         hub: Hub,
@@ -264,6 +266,7 @@ describe('LogsIngestionConsumer', () => {
 
         await deleteKeysWithPrefix(consumer['redis'], BASE_REDIS_KEY)
         logMessageDroppedCounterSpy = jest.spyOn(logMessageDroppedCounter, 'inc')
+        recordLogMessageDroppedSpy = jest.spyOn(otelMetrics, 'recordLogMessageDropped')
 
         // Default to not quota limited - tests can override this
         jest.spyOn(hub.quotaLimiting, 'isTeamTokenQuotaLimited').mockResolvedValue(false)
@@ -2236,6 +2239,12 @@ describe('LogsIngestionConsumer', () => {
             expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
                 { reason: 'transformations_all_dropped', team_id: team.id.toString() },
                 1
+            )
+            // The OTel counter has to carry the same reason as the Prometheus one above —
+            // they were allowed to disagree, so a transformations drop read as sampling.
+            expect(recordLogMessageDroppedSpy).toHaveBeenCalledWith(
+                'transformations_all_dropped',
+                team.id.toString()
             )
         })
 
