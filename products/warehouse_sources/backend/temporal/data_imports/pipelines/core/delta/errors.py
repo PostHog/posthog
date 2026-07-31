@@ -1,6 +1,5 @@
 from django.db import InterfaceError, OperationalError
 
-import deltalake
 import botocore.exceptions
 import deltalake.exceptions
 
