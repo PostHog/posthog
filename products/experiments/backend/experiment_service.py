@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Any, Literal, get_args
+from typing import Any, Literal, TypedDict, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -114,6 +114,15 @@ logger = structlog.get_logger(__name__)
 # Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
 # experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
 EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
+
+CleanupRepositorySource = Literal["explicit", "single_repo", "ambiguous", "no_integration"]
+
+
+class CleanupRepositoryTarget(TypedDict):
+    repository: str | None
+    source: CleanupRepositorySource
+    candidates: list[str]
+
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -2305,6 +2314,7 @@ class ExperimentService:
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         open_cleanup_pr: bool = False,
+        repository: str | None = None,
         request: Any | None = None,
     ) -> Experiment:
         """End a running experiment: set end_date and mark as stopped.
@@ -2321,6 +2331,8 @@ class ExperimentService:
         experiment.end_date = timezone.now()
         experiment.conclusion = conclusion
         experiment.conclusion_comment = conclusion_comment
+        if open_cleanup_pr and repository:
+            experiment.repository = repository
         experiment.save()
 
         self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
@@ -2410,9 +2422,15 @@ class ExperimentService:
             logger.exception("experiment_cleanup_pr_failed", experiment_id=experiment.id)
 
     def _resolve_cleanup_repository(self, experiment: Experiment) -> str | None:
+        return self.get_cleanup_repository_target(experiment)["repository"]
+
+    def get_cleanup_repository_target(self, experiment: Experiment) -> CleanupRepositoryTarget:
         """Repository the cleanup PR targets: the experiment's explicit `repository`, else the
         team's only cached GitHub repo. Several repos (or no GitHub integration) means there is
         no safe target and the cleanup is skipped — a wrong-repo PR is worse than none.
+
+        Returns how the target was determined (`source`) and the team's connected repositories
+        (`candidates`) so the end-experiment modal can show the target or offer a picker.
         """
         # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
         # request import path.
@@ -2420,20 +2438,27 @@ class ExperimentService:
 
         github = tasks_repo_selection.resolve_team_github_integration(experiment.team_id, team=experiment.team)
         if github is None:
-            return None
+            return {"repository": None, "source": "no_integration", "candidates": []}
         cached = {
-            full_name.lower()
+            full_name.lower(): full_name
             for repo in github.list_all_cached_repositories(max_repos=1000)
             if (full_name := repo.get("full_name"))
         }
+        candidates = sorted(cached.values(), key=str.lower)
         if experiment.repository:
             # An explicit repo must still belong to this team's installation — GitHub
             # installations can be shared, so an unchecked name could reach another
-            # project's private repository through the shared credential.
-            return experiment.repository if experiment.repository.lower() in cached else None
+            # project's private repository through the shared credential. A stale explicit
+            # value does not fall back to the single cached repo: the user pointed at a
+            # specific repo, so ask again rather than silently retarget.
+            if experiment.repository.lower() in cached:
+                return {"repository": experiment.repository, "source": "explicit", "candidates": candidates}
+            return {"repository": None, "source": "ambiguous", "candidates": candidates}
         if len(cached) == 1:
-            return cached.pop()
-        return None
+            return {"repository": candidates[0], "source": "single_repo", "candidates": candidates}
+        if not cached:
+            return {"repository": None, "source": "no_integration", "candidates": []}
+        return {"repository": None, "source": "ambiguous", "candidates": candidates}
 
     def _report_experiment_ended(
         self,
@@ -2618,6 +2643,7 @@ class ExperimentService:
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         open_cleanup_pr: bool = False,
+        repository: str | None = None,
         request: Any,
     ) -> Experiment:
         """Ship a variant and (optionally) end the experiment.
@@ -2691,6 +2717,8 @@ class ExperimentService:
             experiment.conclusion = conclusion
         if conclusion_comment is not None:
             experiment.conclusion_comment = conclusion_comment
+        if open_cleanup_pr and repository:
+            experiment.repository = repository
         experiment.save()
 
         self._report_experiment_variant_shipped(

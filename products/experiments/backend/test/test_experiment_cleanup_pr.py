@@ -153,3 +153,35 @@ class TestExperimentCleanupPr(APIBaseTest):
         else:
             self.assertEqual(mock_create_task.call_args.kwargs["repository"], expected_repository)
             self.assertIsNotNone(experiment.flag_cleanup_task_id)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_repository_picked_at_end_time_targets_the_task(
+        self,
+        mock_resolve_github,
+        mock_create_task,
+        _mock_feature_enabled,
+        _mock_report,
+    ):
+        # Several cached repos would otherwise be ambiguous and skip the cleanup — the
+        # repository picked in the end request must resolve it.
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        experiment = self._running_experiment()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            ExperimentService(team=self.team, user=self.user).end_experiment(
+                experiment,
+                conclusion="won",
+                open_cleanup_pr=True,
+                repository="acme/api",
+                request=self._make_request(),
+            )
+
+        experiment.refresh_from_db()
+        self.assertEqual(mock_create_task.call_args.kwargs["repository"], "acme/api")
+        self.assertEqual(experiment.repository, "acme/api")
