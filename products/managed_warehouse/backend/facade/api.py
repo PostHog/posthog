@@ -37,7 +37,6 @@ __all__ = [
     "duckgres_data_imports_schema",
     "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
-    "duckgres_data_modeling_table_name",
     "get_duckgres_config_for_org",
     "get_duckgres_server_by_team_org",
     "get_duckgres_server_for_organization",
@@ -109,10 +108,6 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
 
 def duckgres_data_modeling_schema(team_id: int) -> str:
     return common.duckgres_data_modeling_schema(team_id)
-
-
-def duckgres_data_modeling_table_name(saved_query_name: str) -> str:
-    return common.duckgres_data_modeling_table_name(saved_query_name)
 
 
 def validate_schema_name(name: str | None) -> str | None:

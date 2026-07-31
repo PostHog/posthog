@@ -32,11 +32,11 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.models.team.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
+
+from products.managed_warehouse.backend.facade.temporal import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
 )
-
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
