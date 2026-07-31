@@ -60,6 +60,7 @@ class TestDuckgresTableNames:
         [
             ("mysql_with_prefix", "MySQL", "SalesEU", "customer_orders", "my_sql_sales_eu_customer_orders"),
             ("bigquery_without_prefix", "BigQuery", None, "daily_stats", "big_query_daily_stats"),
+            ("tiktok_ads_canonical_slug", "TikTokAds", "prod", "ad_report", "tiktok_ads_prod_ad_report"),
             (
                 "long_name",
                 "MySQL",

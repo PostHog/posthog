@@ -69,7 +69,7 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 ### Data Imports and Data Import Registration
 
 - **Schema**: `posthog_data_imports_<cluster_schema_name>` for an onboarded team, or the legacy `posthog_data_imports_team_<team_id>` schema
-- **Table**: `<source_type>_<prefix>_<normalized_name>` using the same snake-case and 63-character shortening convention as the v3 Duckgres sink
+- **Table**: `<source_slug>_<prefix>_<normalized_name>` using the source's canonical slug when defined, then the same snake-case and 63-character shortening convention as the v3 Duckgres sink
 - **Example**: `ducklake.posthog_data_imports_team_123.stripe_prod_invoices`
 - **Registered files**: `s3://<ducklake-bucket>/<ducklake-schema>/<ducklake-table>/_imports/<source-schema-id>/<job-id>/<prepared-relative-path>`
 

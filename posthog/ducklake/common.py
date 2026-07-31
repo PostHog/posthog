@@ -542,6 +542,11 @@ def duckgres_data_imports_schema(team_id: int) -> str:
     return team_state.data_imports_schema(team_id)
 
 
+_DATA_IMPORTS_CANONICAL_SOURCE_SLUGS: dict[str, str] = {
+    "TikTokAds": "tiktok_ads",
+}
+
+
 def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
     """Resolve the duckgres table name the data-import copy workflow writes a schema's snapshot into.
 
@@ -551,7 +556,8 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
     source_type = schema.source.source_type
     prefix = schema.source.prefix
     normalized_name = schema.normalized_name
-    raw_name = f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}"
+    source_slug = _DATA_IMPORTS_CANONICAL_SOURCE_SLUGS.get(source_type, source_type)
+    raw_name = f"{source_slug}_{prefix}_{normalized_name}" if prefix else f"{source_slug}_{normalized_name}"
     return _normalize_duckgres_table_name(raw_name, max_length=63)
 
 
