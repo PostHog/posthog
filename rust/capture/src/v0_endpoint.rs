@@ -8,7 +8,6 @@ use tracing::{instrument, Span};
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     events::{analytics::process_events, recordings::process_replay_events},
-    ingestion_warnings::emit_processing_abort_warning,
     payload::{handle_event_payload, handle_recording_payload, EventQuery},
     prometheus::{report_dropped_events, report_internal_error_metrics},
     router,
@@ -78,12 +77,6 @@ pub async fn event(
             {
                 report_dropped_events(err.to_metric_tag(), event_count);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
-                emit_processing_abort_warning(
-                    state.ingestion_warning_emitter.as_deref(),
-                    &context,
-                    &err,
-                    event_count,
-                );
                 return Err(err);
             }
 

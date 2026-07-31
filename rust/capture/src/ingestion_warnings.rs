@@ -150,16 +150,53 @@ fn unknown_if_missing(value: Option<&str>) -> String {
 /// rather than in `common_ingestion_warnings` so that crate never learns
 /// capture's error taxonomy.
 ///
-/// `None` arms are deliberate, mirroring the exclusions v1 pins in
-/// `from_tag_rejects_unregistered_tags`: transport and parse failures have no
-/// verified token to attribute, auth failures can't be trusted to a team,
-/// quota/rate/restriction drops are surfaced through billing and ops channels,
-/// and sink or internal errors are ours to fix, not the customer's.
+/// `None` arms are deliberate and exhaustive, mirroring the exclusions v1
+/// pins in `from_tag_rejects_unregistered_tags`. There is no catch-all: a new
+/// `CaptureError` variant fails to compile here until someone decides whether
+/// customers should see a warning for it.
 pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
     match err {
         CaptureError::MissingEventName => Some(WarningType::MissingEventName),
         CaptureError::MissingDistinctId => Some(WarningType::MissingDistinctId),
-        _ => None,
+
+        // Transport and parse failures surface before a verified token
+        // exists, so there is no team to attribute a warning to.
+        CaptureError::RequestDecodingError(_)
+        | CaptureError::RequestParsingError(_)
+        | CaptureError::RequestHydrationError(_)
+        | CaptureError::EmptyBatch
+        | CaptureError::EmptyPayload
+        | CaptureError::EmptyPayloadFiltered => None,
+
+        // Auth failures: the token is missing, ambiguous, or invalid, so any
+        // attribution would be untrustworthy.
+        CaptureError::NoTokenError
+        | CaptureError::MultipleTokensError
+        | CaptureError::TokenValidationError(_) => None,
+
+        // Validation conditions with no warning yet (candidates, not
+        // oversights), plus the recordings-only variants this analytics
+        // mapper never sees.
+        CaptureError::InvalidCookielessMode
+        | CaptureError::InvalidTimestamp
+        | CaptureError::EventTooBig(_)
+        | CaptureError::MissingSnapshotData
+        | CaptureError::MissingSessionId
+        | CaptureError::MissingWindowId
+        | CaptureError::InvalidSessionId => None,
+
+        // Quota, rate, and ops-imposed drops are surfaced through billing and
+        // ops channels, not the warnings UI.
+        CaptureError::BillingLimit
+        | CaptureError::RateLimited
+        | CaptureError::GlobalRateLimitExceeded() => None,
+
+        // Sink and server failures are ours to fix, not the customer's.
+        CaptureError::RetryableSinkError
+        | CaptureError::NonRetryableSinkError
+        | CaptureError::ServiceUnavailable(_)
+        | CaptureError::BodyReadTimeout
+        | CaptureError::InternalError(_) => None,
     }
 }
 

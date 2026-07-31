@@ -23,7 +23,9 @@ use crate::{
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
-    ingestion_warnings::{emit_rate_limit_warning, legacy_request_context},
+    ingestion_warnings::{
+        emit_processing_abort_warning, emit_rate_limit_warning, legacy_request_context,
+    },
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7_from_datetime,
@@ -236,6 +238,49 @@ pub fn process_single_event(
 #[instrument(skip_all, fields(events = events.len(), request_id))]
 #[allow(clippy::too_many_arguments)]
 pub async fn process_events(
+    sink: Arc<dyn sinks::Event + Send + Sync>,
+    dropper: Arc<TokenDropper>,
+    restriction_service: Option<EventRestrictionService>,
+    historical_cfg: router::HistoricalConfig,
+    global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    ai_routing: &AiRouting,
+    events: Vec<RawEvent>,
+    context: &ProcessingContext,
+) -> Result<(), CaptureError> {
+    // The whole request fails on the first hard error, so the abort warning
+    // charges the full batch, matching what the endpoint's
+    // `report_dropped_events` records for the same failure. Emitting here
+    // rather than at the endpoint keeps every legacy warning (aborts, rate
+    // limit, and future per-event ones) in this module, mirroring where the
+    // v1 pipeline emits.
+    let event_count = events.len() as u64;
+    let emitter = ingestion_warning_emitter.clone();
+    let result = process_events_inner(
+        sink,
+        dropper,
+        restriction_service,
+        historical_cfg,
+        global_rate_limiter,
+        overflow_limiter,
+        ai_events_overflow_limiter,
+        ingestion_warning_emitter,
+        ai_routing,
+        events,
+        context,
+    )
+    .await;
+
+    if let Err(ref err) = result {
+        emit_processing_abort_warning(emitter.as_deref(), context, err, event_count);
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn process_events_inner(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     dropper: Arc<TokenDropper>,
     restriction_service: Option<EventRestrictionService>,
@@ -2278,6 +2323,98 @@ mod tests {
             serde_json::json!(expected_lib_version)
         );
         assert_eq!(w.extra_details["path"], serde_json::json!("/e/"));
+    }
+
+    #[tokio::test]
+    async fn processing_abort_emits_warning_charging_the_full_batch() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let mut bad_event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+        bad_event.properties.remove("distinct_id");
+        let events = vec![
+            bad_event,
+            create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let collector = Arc::new(CollectingEmitter::new());
+
+        let result = process_events(
+            sink.clone(),
+            Arc::new(limiters::token_dropper::TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            Some(collector.clone()),
+            &AiRouting::Primary,
+            events,
+            &context,
+        )
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::MissingDistinctId)));
+        assert!(sink.get_events().is_empty(), "the whole batch is rejected");
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        let w = &emitted[0];
+        assert_eq!(w.warning, WarningType::MissingDistinctId);
+        assert_eq!(
+            w.source,
+            common_ingestion_warnings::CAPTURE_LEGACY_ANALYTICS
+        );
+        assert_eq!(w.token, "test_token");
+        assert_eq!(w.count, 2, "an abort charges the full submitted batch");
+    }
+
+    #[tokio::test]
+    async fn processing_abort_emits_nothing_for_non_warnable_errors() {
+        // A sink failure aborts the request the same way, but it's ours to
+        // fix, so the customer-facing warning must stay silent.
+        struct RejectingSink;
+        #[async_trait::async_trait]
+        impl sinks::Event for RejectingSink {
+            async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
+                Err(CaptureError::RetryableSinkError)
+            }
+            async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+                Err(CaptureError::RetryableSinkError)
+            }
+        }
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let collector = Arc::new(CollectingEmitter::new());
+
+        let result = process_events(
+            Arc::new(RejectingSink),
+            Arc::new(limiters::token_dropper::TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            Some(collector.clone()),
+            &AiRouting::Primary,
+            events,
+            &context,
+        )
+        .await;
+
+        assert!(matches!(result, Err(CaptureError::RetryableSinkError)));
+        assert!(collector.emitted().is_empty());
     }
 
     #[tokio::test]
