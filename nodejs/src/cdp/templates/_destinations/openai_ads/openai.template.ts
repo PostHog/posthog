@@ -219,6 +219,9 @@ if (inputs.eventType == 'custom') {
     }
     conversion.custom_event_name := inputs.customEventName
 }
+if ((inputs.eventType == 'app_installed' or inputs.eventType == 'app_opened') and inputs.actionSource != 'mobile_app') {
+    throw Error(f'\`actionSource\` must be \`mobile_app\` when the event type is \`{inputs.eventType}\`')
+}
 if (empty(inputs.sourceUrl)) {
     if (inputs.actionSource == 'web') {
         throw Error('\`sourceUrl\` is required when the action source is \`web\`')

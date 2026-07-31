@@ -187,6 +187,11 @@ describe('openai template', () => {
             { sourceUrl: '' },
             '`sourceUrl` is required when the action source is `web`',
         ],
+        [
+            'an app event is not sent from a mobile app',
+            { eventType: 'app_installed' },
+            '`actionSource` must be `mobile_app` when the event type is `app_installed`',
+        ],
     ])('errors when %s', async (_, mappingOverrides, expectedError) => {
         const response = await tester.invokeMapping(
             'Conversion',
@@ -196,6 +201,20 @@ describe('openai template', () => {
         )
         expect(response.finished).toEqual(true)
         expect(response.error).toContain(expectedError)
+    })
+    it('sends app events from a mobile app without a source URL', async () => {
+        const response = await tester.invokeMapping(
+            'Conversion',
+            { pixelId: 'pixel-123', apiKey: 'api-key' },
+            createAdDestinationPayload(),
+            { eventType: 'app_installed', actionSource: 'mobile_app' }
+        )
+        expect(response.error).toBeUndefined()
+        const conversion = getBody(response).events[0]
+        expect(conversion.type).toEqual('app_installed')
+        expect(conversion.action_source).toEqual('mobile_app')
+        expect(conversion.source_url).toBeUndefined()
+        expect(conversion.data).toEqual({ type: 'customer_action' })
     })
     it('omits the amount when no currency is set, as OpenAI rejects one without the other', async () => {
         const response = await tester.invokeMapping(
