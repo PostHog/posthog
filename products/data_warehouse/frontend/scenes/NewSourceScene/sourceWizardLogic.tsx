@@ -235,6 +235,21 @@ export function shouldHydrateSourceFromUrl(
 }
 
 /**
+ * Find the already-connected source a deep link (`?kind=...`) points at, so the caller can
+ * send the user to manage it instead of re-running setup and hitting the backend's
+ * duplicate-source rejection at the end of the wizard.
+ */
+export function findExistingSourceForKind(
+    source: Pick<SourceConfig, 'name' | 'existingSource'> | undefined,
+    dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+): ExternalDataSource | undefined {
+    if (!source?.existingSource) {
+        return undefined
+    }
+    return dataWarehouseSources?.results?.find((s) => s.source_type === source.name)
+}
+
+/**
  * Resolve the `direct_query_enabled` create-payload value. Synced direct-capable sources
  * default to live queries enabled unless the toggle was switched off; the flag is omitted
  * for pure direct sources (backend ignores it) and for sources that can't be live-queried.
@@ -3585,6 +3600,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.toggleManualLinkFormVisible(true)
                 actions.setManualLinkingProvider(manualSource.type)
                 return
+            }
+
+            if (values.currentStep <= 1) {
+                // Deep links (e.g. the marketing analytics "add source" button) bypass the
+                // catalog tile that would otherwise show "Already linked".
+                const existing = findExistingSourceForKind(source, values.dataWarehouseSources)
+                if (existing) {
+                    lemonToast.info(`You already have a ${source?.label ?? source?.name} source connected.`)
+                    router.actions.replace(urls.dataWarehouseSource(existing.id))
+                    return
+                }
             }
 
             if (source) {

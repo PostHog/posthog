@@ -4,10 +4,11 @@ import api from 'lib/api'
 
 import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { ExternalDataSourceSyncSchema } from '~/types'
+import type { ExternalDataSource, ExternalDataSourceSyncSchema } from '~/types'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
+    findExistingSourceForKind,
     getDatabaseSchemaPayload,
     getErrorsForFields,
     mergeRestoredSourceFormValues,
@@ -56,6 +57,45 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
+    describe('findExistingSourceForKind', () => {
+        const metaAdsSource = { name: 'MetaAds', existingSource: true } as SourceConfig
+        const connectedSource = { id: 'abc123', source_type: 'MetaAds' } as ExternalDataSource
+
+        it.each<
+            [
+                string,
+                Pick<SourceConfig, 'name' | 'existingSource'> | undefined,
+                { results: ExternalDataSource[] } | null,
+                ExternalDataSource | undefined,
+            ]
+        >([
+            [
+                'finds the connected source when the connector is already linked',
+                metaAdsSource,
+                { results: [connectedSource] },
+                connectedSource,
+            ],
+            [
+                'ignores connections of a different source type',
+                metaAdsSource,
+                { results: [{ id: 'other', source_type: 'GoogleAds' } as ExternalDataSource] },
+                undefined,
+            ],
+            [
+                // A deep-linked kind whose connector isn't flagged existingSource is a normal
+                // fresh connect, so it must not be redirected even if a same-named row exists.
+                'skips the lookup entirely when the connector is not flagged as existing',
+                { name: 'MetaAds', existingSource: false },
+                { results: [connectedSource] },
+                undefined,
+            ],
+            ['handles no dataWarehouseSources response yet', metaAdsSource, null, undefined],
+            ['handles no matching connector', undefined, { results: [connectedSource] }, undefined],
+        ])('%s', (_description, source, dataWarehouseSources, expected) => {
+            expect(findExistingSourceForKind(source, dataWarehouseSources)).toEqual(expected)
+        })
     })
 
     describe('getDatabaseSchemaPayload', () => {
