@@ -279,7 +279,7 @@ export const cohortsModel = kea<cohortsModelType>([
                     count: response.count,
                     // `groups` is required on CohortType but the basic payload omits it; default
                     // it so entries genuinely match the type rather than lying to the compiler.
-                    results: response.results.map((cohort) => ({ ...cohort, groups: cohort.groups ?? [] })),
+                    results: response.results.map((cohort): CohortType => ({ ...cohort, groups: cohort.groups ?? [] })),
                 }
             },
         },
