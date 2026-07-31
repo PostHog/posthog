@@ -1367,12 +1367,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     // A single dropped fetch shouldn't replace the whole dashboard with an error
                     // state, so transient failures get a couple of attempts before we give up.
+                    // A 404 counts as transient here too: on a dashboard the user owns and just
+                    // navigated to, a one-off 404 is usually a blip that succeeds on retry, so we
+                    // retry to confirm rather than dead-ending on the not-found screen. A genuinely
+                    // deleted dashboard 404s on every attempt and still falls through to `return null`.
                     const getDashboardResponse = async (): Promise<Response> => {
                         for (let attempt = 1; ; attempt++) {
                             try {
                                 return await api.getResponse(apiUrl)
                             } catch (error: any) {
-                                if (attempt >= LOAD_DASHBOARD_MAX_ATTEMPTS || !isRetryableDashboardLoadError(error)) {
+                                const retryable =
+                                    isRetryableDashboardLoadError(error) || error?.status === 404
+                                if (attempt >= LOAD_DASHBOARD_MAX_ATTEMPTS || !retryable) {
                                     throw error
                                 }
                                 await breakpoint(LOAD_DASHBOARD_RETRY_DELAY_MS * attempt)

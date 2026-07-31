@@ -1203,6 +1203,46 @@ describe('dashboardLogic', () => {
             })
             expect(attempts).toBe(2)
         })
+
+        it('recovers from a transient 404 on retry instead of showing not found', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => {
+                        attempts++
+                        return attempts === 1 ? [404, null] : [200, dashboards[5]]
+                    },
+                },
+            })
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadDashboardSuccess']).toMatchValues({
+                error404: false,
+            })
+            expect(attempts).toBe(2)
+        })
+
+        it('still shows not found when a 404 persists across every retry', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => {
+                        attempts++
+                        return [404, null]
+                    },
+                },
+            })
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['dashboardNotFound']).toMatchValues({
+                error404: true,
+            })
+            expect(attempts).toBe(3)
+        })
     })
 
     describe('when a dashboard item API errors', () => {

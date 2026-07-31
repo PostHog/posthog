@@ -133,7 +133,12 @@ function DashboardScene({
     })
 
     if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
-        return <NotFound object="dashboard" />
+        return (
+            <NotFound
+                object="dashboard"
+                caption="We couldn't load this dashboard. It may have been deleted or its sharing settings may have changed. If you just opened or edited it, the load might have failed temporarily, so try refreshing the page."
+            />
+        )
     }
 
     if (accessDeniedToDashboard) {
