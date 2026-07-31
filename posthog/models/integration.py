@@ -663,26 +663,26 @@ def _salesforce_instance_host(instance_url: str | None) -> str | None:
 SALESFORCE_OAUTH_KINDS = ("salesforce", "pardot")
 
 
-# PostHog cross-region connector. Unlike every other OAuth kind — which points at a fixed
-# third-party provider — the `posthog` kind points at *another PostHog cell*, chosen by the user
-# at connect time. So its authorize/token/userinfo URLs and client credentials are resolved per
-# target region rather than baked into a static config. The connecting cell is the OAuth client;
-# the target cell is the authorization server (its /oauth/authorize, /oauth/token, /oauth/userinfo,
+# PostHog connect. Unlike every other OAuth kind — which points at a fixed third-party provider —
+# the `posthog` kind points at *another PostHog project*, in a region chosen by the user at connect
+# time. That region may differ from the connecting project's or be the same one (same-region is just
+# region == your own). So its authorize/token/userinfo URLs and client credentials are resolved per
+# target region rather than baked into a static config. The connecting side is the OAuth client; the
+# target region is the authorization server (its /oauth/authorize, /oauth/token, /oauth/userinfo,
 # /oauth/revoke already exist). `openid`+`email` are always requested on top of the user-selected
 # scopes so /oauth/userinfo can identify the connected account (`sub`/`email`).
-POSTHOG_CROSS_REGION_KIND = "posthog"
-POSTHOG_CROSS_REGION_ALLOWED_REGIONS = ("US", "EU", "DEV")
-POSTHOG_CROSS_REGION_DEFAULT_SCOPES = ("task:read", "task:write")
-POSTHOG_CROSS_REGION_IDENTITY_SCOPES = ("openid", "email")
-# The set a user may pick from at connect time. Deliberately narrow: a cross-region grant is
-# standing delegated access into another cell, so it is capped at the task verbs for v1 rather
-# than exposing `full`. Widen only with a security review. Identity scopes are auto-added and are
-# not part of this user-selectable set.
-POSTHOG_CROSS_REGION_GRANTABLE_SCOPES = frozenset(POSTHOG_CROSS_REGION_DEFAULT_SCOPES)
+POSTHOG_CONNECT_KIND = "posthog"
+POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", "DEV")
+POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write")
+POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
+# The set a user may pick from at connect time. Deliberately narrow: a connection to another PostHog
+# project is standing delegated access, so it is capped at the task verbs for v1 rather than exposing
+# `full`. Widen only with a security review. Identity scopes are auto-added and not user-selectable.
+POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(POSTHOG_CONNECT_DEFAULT_SCOPES)
 
 
-def _posthog_cross_region_target(region: str | None) -> tuple[str, str, str]:
-    """Resolve (base_url, client_id, client_secret) for a cross-region target cell.
+def _posthog_connect_target(region: str | None) -> tuple[str, str, str]:
+    """Resolve (base_url, client_id, client_secret) for a remote target cell.
 
     Raises NotImplementedError for an unknown or unconfigured region so the connect/refresh
     paths fail closed (surfaced to the user as a reconnect error) rather than silently hitting
@@ -691,33 +691,33 @@ def _posthog_cross_region_target(region: str | None) -> tuple[str, str, str]:
     normalized = (region or "").upper()
     targets = {
         "US": (
-            settings.POSTHOG_CROSS_REGION_BASE_URL_US,
-            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_US,
-            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_US,
+            settings.POSTHOG_CONNECT_BASE_URL_US,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_US,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US,
         ),
         "EU": (
-            settings.POSTHOG_CROSS_REGION_BASE_URL_EU,
-            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_EU,
-            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_EU,
+            settings.POSTHOG_CONNECT_BASE_URL_EU,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU,
         ),
         "DEV": (
-            settings.POSTHOG_CROSS_REGION_BASE_URL_DEV,
-            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_DEV,
-            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_DEV,
+            settings.POSTHOG_CONNECT_BASE_URL_DEV,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV,
+            settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV,
         ),
     }
     if normalized not in targets:
-        raise NotImplementedError(f"PostHog cross-region OAuth not supported for region {region!r}")
+        raise NotImplementedError(f"PostHog connect OAuth not supported for region {region!r}")
     base_url, client_id, client_secret = targets[normalized]
     if not base_url or not client_id or not client_secret:
-        raise NotImplementedError(f"PostHog cross-region app not configured for region {normalized}")
+        raise NotImplementedError(f"PostHog connect app not configured for region {normalized}")
     return base_url.rstrip("/"), client_id, client_secret
 
 
-def posthog_cross_region_base_url(region: str | None) -> str:
-    """Public base URL of a cross-region target cell (e.g. https://eu.posthog.com), for callers that
+def posthog_connect_base_url(region: str | None) -> str:
+    """Public base URL of a remote target cell (e.g. https://eu.posthog.com), for callers that
     need to reach its API with a `posthog` integration token. Raises for unknown/unconfigured regions."""
-    base_url, _, _ = _posthog_cross_region_target(region)
+    base_url, _, _ = _posthog_connect_target(region)
     return base_url
 
 
@@ -757,7 +757,7 @@ class OauthIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def oauth_config_for_kind(cls, kind: str, region: str | None = None) -> OauthConfig:
-        # `region` only applies to the `posthog` cross-region kind, whose endpoints depend on the
+        # `region` only applies to the `posthog` remote kind, whose endpoints depend on the
         # target cell. cache_for keys on all args, so each (kind, region) pair caches separately;
         # every other kind is called without region and keeps its single cached entry.
         config = cls._build_oauth_config(kind, region)
@@ -770,7 +770,7 @@ class OauthIntegration:
     @classmethod
     def _build_oauth_config(cls, kind: str, region: str | None = None) -> OauthConfig:
         if kind == "posthog":
-            base_url, client_id, client_secret = _posthog_cross_region_target(region)
+            base_url, client_id, client_secret = _posthog_connect_target(region)
             return OauthConfig(
                 authorize_url=f"{base_url}/oauth/authorize",
                 token_url=f"{base_url}/oauth/token",
@@ -781,7 +781,7 @@ class OauthIntegration:
                 client_secret=client_secret,
                 # Default only; authorize_url overrides with the user-selected scopes (plus the
                 # identity scopes). Token exchange/refresh don't send scope, so this is unused there.
-                scope=" ".join([*POSTHOG_CROSS_REGION_DEFAULT_SCOPES, *POSTHOG_CROSS_REGION_IDENTITY_SCOPES]),
+                scope=" ".join([*POSTHOG_CONNECT_DEFAULT_SCOPES, *POSTHOG_CONNECT_IDENTITY_SCOPES]),
                 id_path="sub",
                 name_path="email",
                 pkce=True,
@@ -1195,8 +1195,8 @@ class OauthIntegration:
             # connecting cell) needs to know which region to exchange the code against — carry it
             # in state. Always append the identity scopes so /oauth/userinfo can name the account.
             state_payload["region"] = (region or "").upper()
-            requested = list(scopes) if scopes else list(POSTHOG_CROSS_REGION_DEFAULT_SCOPES)
-            scope = " ".join(dict.fromkeys([*requested, *POSTHOG_CROSS_REGION_IDENTITY_SCOPES]))
+            requested = list(scopes) if scopes else list(POSTHOG_CONNECT_DEFAULT_SCOPES)
+            scope = " ".join(dict.fromkeys([*requested, *POSTHOG_CONNECT_IDENTITY_SCOPES]))
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -1235,7 +1235,7 @@ class OauthIntegration:
         region: str | None = None
         if kind == "posthog":
             # The target region was stashed in state at authorize time; the token exchange must hit
-            # that same cell. Missing/invalid region fails closed via _posthog_cross_region_target.
+            # that same cell. Missing/invalid region fails closed via _posthog_connect_target.
             region = (parse_qs(params.get("state", "")).get("region", [""])[0] or "").upper()
 
         oauth_config = cls.oauth_config_for_kind(kind, region)
@@ -1254,7 +1254,7 @@ class OauthIntegration:
                 # posthog is a first-party flow we control both ends of — a missing verifier is never
                 # a legacy-provider compat case here, so fail closed rather than exchanging without PKCE.
                 if kind == "posthog":
-                    raise ValidationError("Cross-region authorization failed: missing PKCE verifier. Please retry.")
+                    raise ValidationError("Remote authorization failed: missing PKCE verifier. Please retry.")
 
         # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":

@@ -13,9 +13,9 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.models.integration import Integration
 from posthog.permissions import APIScopePermission
 
-from products.tasks.backend.logic.cross_region import (
-    CrossRegionError,
-    CrossRegionIntegrationError,
+from products.tasks.backend.logic.connect import (
+    PosthogConnectError,
+    PosthogConnectIntegrationError,
     dispatch_remote_task,
     get_remote_task,
 )
@@ -23,7 +23,7 @@ from products.tasks.backend.logic.cross_region import (
 
 class RemoteTaskDispatchSerializer(serializers.Serializer):
     integration_id = serializers.IntegerField(
-        help_text="Id of a `posthog` cross-region integration in this project, identifying the target cell to dispatch into."
+        help_text="Id of a `posthog` connection in this project, identifying the target cell to dispatch into."
     )
     target_team_id = serializers.IntegerField(
         help_text="Team id in the target region to create the task under. The connected user must have task access there."
@@ -56,9 +56,7 @@ class RemoteTaskHandleSerializer(serializers.Serializer):
 
 
 class RemoteTaskStatusQuerySerializer(serializers.Serializer):
-    integration_id = serializers.IntegerField(
-        help_text="Id of the `posthog` cross-region integration used to dispatch."
-    )
+    integration_id = serializers.IntegerField(help_text="Id of the `posthog` connection used to dispatch.")
     target_team_id = serializers.IntegerField(help_text="Team id in the target region the task belongs to.")
     # UUIDField (not CharField): the value is interpolated into the remote URL path, so it must be a
     # canonical UUID and cannot smuggle `../` segments to reach other endpoints on the target cell.
@@ -74,7 +72,7 @@ class RemoteTaskStatusSerializer(serializers.Serializer):
     )
     report = serializers.CharField(
         allow_null=True,
-        help_text="The task's latest output, bounded and scrubbed for cross-region return. Null until a run produces output.",
+        help_text="The task's latest output, bounded and scrubbed for remote return. Null until a run produces output.",
     )
     error_message = serializers.CharField(
         allow_null=True, required=False, help_text="Error from the latest run, if it failed."
@@ -82,7 +80,7 @@ class RemoteTaskStatusSerializer(serializers.Serializer):
 
 
 class RemoteTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Dispatch and poll Tasks that run in another PostHog region, via a `posthog` cross-region integration.
+    """Dispatch and poll Tasks that run in another PostHog region, via a `posthog` connection.
 
     Used when work must execute region-resident — e.g. querying a direct-connect source only reachable
     from the target cell. Only the create request and the bounded, scrubbed report cross the boundary.
@@ -97,7 +95,7 @@ class RemoteTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             return Integration.objects.get(team_id=self.team_id, id=integration_id, kind="posthog")
         except Integration.DoesNotExist:
-            raise NotFound("No posthog cross-region integration with that id in this project.")
+            raise NotFound("No PostHog connection with that id in this project.")
 
     @extend_schema(
         request=RemoteTaskDispatchSerializer,
@@ -107,7 +105,7 @@ class RemoteTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         },
         summary="Dispatch a task to another region",
-        description="Create a Task in the target region identified by a `posthog` cross-region integration, and return a handle to poll it.",
+        description="Create a Task in the target region identified by a `posthog` connection, and return a handle to poll it.",
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
         serializer = RemoteTaskDispatchSerializer(data=request.data)
@@ -122,9 +120,9 @@ class RemoteTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 title=data.get("title") or None,
                 repository=data.get("repository") or None,
             )
-        except CrossRegionIntegrationError as err:
+        except PosthogConnectIntegrationError as err:
             raise ValidationError(str(err))
-        except CrossRegionError as err:
+        except PosthogConnectError as err:
             raise _remote_unavailable(err)
         return Response(RemoteTaskHandleSerializer(handle).data, status=status.HTTP_201_CREATED)
 
@@ -142,9 +140,9 @@ class RemoteTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         integration = self._get_integration(data["integration_id"])
         try:
             result = get_remote_task(integration, target_team_id=data["target_team_id"], task_id=str(data["task_id"]))
-        except CrossRegionIntegrationError as err:
+        except PosthogConnectIntegrationError as err:
             raise ValidationError(str(err))
-        except CrossRegionError as err:
+        except PosthogConnectError as err:
             raise _remote_unavailable(err)
         return Response(RemoteTaskStatusSerializer(result).data)
 
@@ -155,5 +153,5 @@ class _RemoteRegionUnavailable(APIException):
     default_code = "remote_region_unavailable"
 
 
-def _remote_unavailable(err: CrossRegionError) -> _RemoteRegionUnavailable:
+def _remote_unavailable(err: PosthogConnectError) -> _RemoteRegionUnavailable:
     return _RemoteRegionUnavailable(str(err))

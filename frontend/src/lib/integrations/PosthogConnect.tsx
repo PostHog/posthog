@@ -9,22 +9,22 @@ import api from 'lib/api'
 // or shared state to host in a logic, and a logic here would add a generated logicType file for no
 // behavioural gain. If this grows (async validation, listing reachable teams), promote it to a logic.
 
-type CrossRegion = 'US' | 'EU'
+type PosthogConnectRegion = 'US' | 'EU'
 
-const REGION_OPTIONS: { value: CrossRegion; label: string }[] = [
+const REGION_OPTIONS: { value: PosthogConnectRegion; label: string }[] = [
     { value: 'US', label: 'United States (US)' },
     { value: 'EU', label: 'European Union (EU)' },
 ]
 
-// Mirrors POSTHOG_CROSS_REGION_GRANTABLE_SCOPES on the backend. Kept deliberately narrow — a
-// cross-region grant is standing access into another cell.
+// Mirrors POSTHOG_CONNECT_GRANTABLE_SCOPES on the backend. Kept deliberately narrow — a connection
+// to another PostHog project is standing delegated access, so only the task scopes are offered.
 const GRANTABLE_SCOPES: { value: string; label: string }[] = [
     { value: 'task:read', label: 'Read tasks' },
     { value: 'task:write', label: 'Create and manage tasks' },
 ]
 
-export function PosthogCrossRegionConnect({ next }: { next?: string }): JSX.Element {
-    const [region, setRegion] = useState<CrossRegion>('EU')
+export function PosthogConnect({ next }: { next?: string }): JSX.Element {
+    const [region, setRegion] = useState<PosthogConnectRegion>('EU')
     const [scopes, setScopes] = useState<string[]>(['task:read', 'task:write'])
 
     const toggleScope = (scope: string, checked: boolean): void => {
@@ -36,13 +36,13 @@ export function PosthogCrossRegionConnect({ next }: { next?: string }): JSX.Elem
     return (
         <div className="deprecated-space-y-2 max-w-prose">
             <p>
-                Connect another PostHog region to dispatch tasks that must run there — for example, querying a
-                direct-connect source that's only reachable from that region. You'll be sent to that region to sign in
-                and approve the permissions below.
+                Connect another PostHog project to dispatch tasks that run in it. The project can be in another region
+                (for example, to reach a data source only accessible from that region) or in your own. You'll sign in to
+                that PostHog and approve the permissions below.
             </p>
             <div className="flex flex-col gap-1">
-                <label className="font-semibold">Region to connect</label>
-                <LemonSelect<CrossRegion>
+                <label className="font-semibold">PostHog region</label>
+                <LemonSelect<PosthogConnectRegion>
                     value={region}
                     onChange={(value) => setRegion(value ?? 'EU')}
                     options={REGION_OPTIONS}
@@ -65,7 +65,7 @@ export function PosthogCrossRegionConnect({ next }: { next?: string }): JSX.Elem
                 disableClientSideRouting
                 disabledReason={scopes.length === 0 ? 'Select at least one permission' : undefined}
             >
-                Connect {region} region
+                Connect {region}
             </LemonButton>
         </div>
     )

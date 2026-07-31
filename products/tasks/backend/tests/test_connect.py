@@ -10,24 +10,24 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.tasks.backend.logic.cross_region import (
-    CROSS_REGION_REPORT_MAX_CHARS,
-    CrossRegionIntegrationError,
-    CrossRegionRequestError,
+from products.tasks.backend.logic.connect import (
+    REMOTE_REPORT_MAX_CHARS,
+    PosthogConnectIntegrationError,
+    PosthogConnectRequestError,
     dispatch_remote_task,
     get_remote_task,
-    scrub_cross_region_report,
+    scrub_remote_report,
 )
 
-CROSS_REGION_SETTINGS = {
-    "POSTHOG_CROSS_REGION_BASE_URL_EU": "https://eu.posthog.com",
-    "POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_EU": "eu-client-id",
-    "POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_EU": "eu-secret",
+CONNECT_SETTINGS = {
+    "POSTHOG_CONNECT_BASE_URL_EU": "https://eu.posthog.com",
+    "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU": "eu-client-id",
+    "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU": "eu-secret",
 }
 
 
-@override_settings(**CROSS_REGION_SETTINGS)
-class TestCrossRegionTasks(BaseTest):
+@override_settings(**CONNECT_SETTINGS)
+class TestPosthogConnectTasks(BaseTest):
     def _integration(self, kind: str = "posthog") -> Integration:
         return Integration.objects.create(
             team=self.team,
@@ -37,7 +37,7 @@ class TestCrossRegionTasks(BaseTest):
             sensitive_config={"refresh_token": "RT", "access_token": "AT"},
         )
 
-    @patch("products.tasks.backend.logic.cross_region.requests.request")
+    @patch("products.tasks.backend.logic.connect.requests.request")
     def test_dispatch_posts_to_target_region_with_bearer_token(self, mock_request):
         mock_request.return_value = MagicMock(status_code=201)
         mock_request.return_value.json.return_value = {
@@ -66,7 +66,7 @@ class TestCrossRegionTasks(BaseTest):
             "status": "queued",
         }
 
-    @patch("products.tasks.backend.logic.cross_region.requests.request")
+    @patch("products.tasks.backend.logic.connect.requests.request")
     def test_get_remote_task_returns_status_and_scrubbed_report(self, mock_request):
         mock_request.return_value = MagicMock(status_code=200)
         mock_request.return_value.json.return_value = {
@@ -81,34 +81,34 @@ class TestCrossRegionTasks(BaseTest):
         assert result["status"] == "completed"
         assert result["report"] == "the answer is 42"
 
-    @patch("products.tasks.backend.logic.cross_region.requests.request")
+    @patch("products.tasks.backend.logic.connect.requests.request")
     def test_wrong_integration_kind_raises(self, mock_request):
         integration = self._integration(kind="github")
-        with pytest.raises(CrossRegionIntegrationError):
+        with pytest.raises(PosthogConnectIntegrationError):
             dispatch_remote_task(integration, target_team_id=99, description="x")
         mock_request.assert_not_called()
 
-    @patch("products.tasks.backend.logic.cross_region.requests.request")
+    @patch("products.tasks.backend.logic.connect.requests.request")
     def test_missing_access_token_raises(self, mock_request):
         integration = self._integration()
         integration.sensitive_config = {"refresh_token": "RT"}  # no access_token, not expired -> no refresh
         integration.save()
-        with pytest.raises(CrossRegionIntegrationError):
+        with pytest.raises(PosthogConnectIntegrationError):
             dispatch_remote_task(integration, target_team_id=99, description="x")
         mock_request.assert_not_called()
 
     @parameterized.expand([(401,), (403,), (500,)])
     def test_non_2xx_raises_request_error(self, code):
-        with patch("products.tasks.backend.logic.cross_region.requests.request") as mock_request:
+        with patch("products.tasks.backend.logic.connect.requests.request") as mock_request:
             mock_request.return_value = MagicMock(status_code=code, text="nope")
             integration = self._integration()
-            with pytest.raises(CrossRegionRequestError) as exc:
+            with pytest.raises(PosthogConnectRequestError) as exc:
                 dispatch_remote_task(integration, target_team_id=99, description="x")
             assert exc.value.status_code == code
 
-    @patch("products.tasks.backend.logic.cross_region.OauthIntegration.refresh_access_token")
-    @patch("products.tasks.backend.logic.cross_region.OauthIntegration.access_token_expired", return_value=True)
-    @patch("products.tasks.backend.logic.cross_region.requests.request")
+    @patch("products.tasks.backend.logic.connect.OauthIntegration.refresh_access_token")
+    @patch("products.tasks.backend.logic.connect.OauthIntegration.access_token_expired", return_value=True)
+    @patch("products.tasks.backend.logic.connect.requests.request")
     def test_expired_token_is_refreshed_before_use(self, mock_request, _mock_expired, mock_refresh):
         mock_request.return_value = MagicMock(status_code=200)
         mock_request.return_value.json.return_value = {"id": "t", "latest_run": {"status": "queued"}}
@@ -119,16 +119,16 @@ class TestCrossRegionTasks(BaseTest):
         mock_refresh.assert_called_once()
 
 
-class TestScrubCrossRegionReport:
+class TestScrubRemoteReport:
     def test_none_passthrough(self):
-        assert scrub_cross_region_report(None) is None
+        assert scrub_remote_report(None) is None
 
     def test_short_report_unchanged(self):
-        assert scrub_cross_region_report("short") == "short"
+        assert scrub_remote_report("short") == "short"
 
     def test_long_report_is_bounded(self):
-        report = "x" * (CROSS_REGION_REPORT_MAX_CHARS + 100)
-        scrubbed = scrub_cross_region_report(report)
+        report = "x" * (REMOTE_REPORT_MAX_CHARS + 100)
+        scrubbed = scrub_remote_report(report)
         assert scrubbed is not None
-        assert scrubbed.startswith("x" * CROSS_REGION_REPORT_MAX_CHARS)
+        assert scrubbed.startswith("x" * REMOTE_REPORT_MAX_CHARS)
         assert "truncated" in scrubbed

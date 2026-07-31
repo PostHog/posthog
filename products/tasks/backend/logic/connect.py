@@ -1,6 +1,6 @@
 """Dispatch and poll Tasks that must run in another PostHog cell.
 
-A `posthog` cross-region Integration (see `posthog.models.integration`) holds a user-consented,
+A `posthog` remote Integration (see `posthog.models.integration`) holds a user-consented,
 refreshable OAuth grant against a target cell. This module uses that grant to drive the target
 cell's Tasks API over HTTP: create a task there (which runs region-resident, e.g. against a
 direct-connect source only reachable from that region) and poll it back.
@@ -16,34 +16,29 @@ from typing import Any
 import requests
 import structlog
 
-from posthog.models.integration import (
-    POSTHOG_CROSS_REGION_KIND,
-    Integration,
-    OauthIntegration,
-    posthog_cross_region_base_url,
-)
+from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
 
 logger = structlog.get_logger(__name__)
 
 # Cross-cell HTTP calls are user-interactive (dispatch) or polled (get), so keep the timeout tight.
-CROSS_REGION_REQUEST_TIMEOUT_SECONDS = 30
+REMOTE_REQUEST_TIMEOUT_SECONDS = 30
 
 # WS6 residency bound: cap the derived report that crosses back to the connecting cell. A reference
-# to target-cell storage is useless cross-region (the connecting cell can't dereference it), so the
+# to target-cell storage is useless remote (the connecting cell can't dereference it), so the
 # report must cross by value — and therefore must be size-bounded. Kept conservative; the exact
 # limit and scrub policy are pending the residency ruling (see the GATE task).
-CROSS_REGION_REPORT_MAX_CHARS = 50_000
+REMOTE_REPORT_MAX_CHARS = 50_000
 
 
-class CrossRegionError(Exception):
-    """Base error for cross-region task dispatch/polling."""
+class PosthogConnectError(Exception):
+    """Base error for remote task dispatch/polling."""
 
 
-class CrossRegionIntegrationError(CrossRegionError):
+class PosthogConnectIntegrationError(PosthogConnectError):
     """The integration is missing, the wrong kind, or has no usable credential."""
 
 
-class CrossRegionRequestError(CrossRegionError):
+class PosthogConnectRequestError(PosthogConnectError):
     """The target cell rejected the request or was unreachable."""
 
     def __init__(self, message: str, *, status_code: int | None = None) -> None:
@@ -58,8 +53,8 @@ def _usable_access_token(integration: Integration) -> str:
     sandbox. A failed refresh (revoked/expired grant) surfaces as a reconnect error rather than a
     silent 401 downstream.
     """
-    if integration.kind != POSTHOG_CROSS_REGION_KIND:
-        raise CrossRegionIntegrationError(f"Integration {integration.id} is not a posthog cross-region integration")
+    if integration.kind != POSTHOG_CONNECT_KIND:
+        raise PosthogConnectIntegrationError(f"Integration {integration.id} is not a `posthog` connection integration")
 
     oauth = OauthIntegration(integration)
     if oauth.access_token_expired():
@@ -68,14 +63,14 @@ def _usable_access_token(integration: Integration) -> str:
 
     token = integration.sensitive_config.get("access_token")
     if not token:
-        raise CrossRegionIntegrationError(
-            "This cross-region connection has no usable access token — reconnect the integration."
+        raise PosthogConnectIntegrationError(
+            "This remote connection has no usable access token — reconnect the integration."
         )
     return token
 
 
 def _target_base_url(integration: Integration) -> str:
-    return posthog_cross_region_base_url(integration.config.get("region"))
+    return posthog_connect_base_url(integration.config.get("region"))
 
 
 def _request(
@@ -89,13 +84,15 @@ def _request(
             f"{base}{path}",
             json=json,
             headers={"Authorization": f"Bearer {token}"},
-            timeout=CROSS_REGION_REQUEST_TIMEOUT_SECONDS,
+            timeout=REMOTE_REQUEST_TIMEOUT_SECONDS,
             # A compromised/misconfigured target must not be able to 30x us into resending the
             # bearer token to another origin.
             allow_redirects=False,
         )
     except requests.RequestException as err:
-        raise CrossRegionRequestError(f"Could not reach the {integration.config.get('region')} region: {err}") from err
+        raise PosthogConnectRequestError(
+            f"Could not reach the {integration.config.get('region')} region: {err}"
+        ) from err
     return res
 
 
@@ -105,7 +102,7 @@ def _raise_for_status(integration: Integration, res: requests.Response, action: 
     # Deliberately do NOT log the target response body: it originates in the target cell and may
     # contain region-resident data, which must not land in the connecting cell's logs. Status only.
     logger.warning(
-        "cross_region_task_request_failed",
+        "connect_task_request_failed",
         action=action,
         integration_id=integration.id,
         region=integration.config.get("region"),
@@ -116,12 +113,12 @@ def _raise_for_status(integration: Integration, res: requests.Response, action: 
         if res.status_code in (401, 403)
         else f"the target region returned {res.status_code}"
     )
-    raise CrossRegionRequestError(
+    raise PosthogConnectRequestError(
         f"Remote task {action} failed ({res.status_code}): {detail}", status_code=res.status_code
     )
 
 
-def scrub_cross_region_report(report: str | None) -> str | None:
+def scrub_remote_report(report: str | None) -> str | None:
     """Bound (and, once the residency ruling lands, scrub) a report derived from region-resident data
     before it crosses back to the connecting cell.
 
@@ -131,9 +128,9 @@ def scrub_cross_region_report(report: str | None) -> str | None:
     """
     if report is None:
         return None
-    if len(report) <= CROSS_REGION_REPORT_MAX_CHARS:
+    if len(report) <= REMOTE_REPORT_MAX_CHARS:
         return report
-    return report[:CROSS_REGION_REPORT_MAX_CHARS] + "\n\n[truncated — report exceeded cross-region size limit]"
+    return report[:REMOTE_REPORT_MAX_CHARS] + "\n\n[truncated — report exceeded remote size limit]"
 
 
 def dispatch_remote_task(
@@ -184,7 +181,7 @@ def get_remote_task(integration: Integration, *, target_team_id: int, task_id: s
         "target_team_id": target_team_id,
         "task_id": task.get("id"),
         "status": latest_run.get("status"),
-        "report": scrub_cross_region_report(latest_run.get("output")),
+        "report": scrub_remote_report(latest_run.get("output")),
         # error_message is also target-derived, so it crosses the boundary under the same bound as report.
-        "error_message": scrub_cross_region_report(latest_run.get("error_message")),
+        "error_message": scrub_remote_report(latest_run.get("error_message")),
     }

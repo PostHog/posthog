@@ -49,9 +49,9 @@ from posthog.models.integration import (
     ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
-    POSTHOG_CROSS_REGION_ALLOWED_REGIONS,
-    POSTHOG_CROSS_REGION_DEFAULT_SCOPES,
-    POSTHOG_CROSS_REGION_GRANTABLE_SCOPES,
+    POSTHOG_CONNECT_ALLOWED_REGIONS,
+    POSTHOG_CONNECT_DEFAULT_SCOPES,
+    POSTHOG_CONNECT_GRANTABLE_SCOPES,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -1102,13 +1102,13 @@ class IntegrationViewSet(
             scopes: list[str] | None = None
             if kind == "posthog":
                 region = (request.GET.get("region") or "").upper()
-                if region not in POSTHOG_CROSS_REGION_ALLOWED_REGIONS:
-                    raise ValidationError(f"region must be one of {', '.join(POSTHOG_CROSS_REGION_ALLOWED_REGIONS)}")
+                if region not in POSTHOG_CONNECT_ALLOWED_REGIONS:
+                    raise ValidationError(f"region must be one of {', '.join(POSTHOG_CONNECT_ALLOWED_REGIONS)}")
                 raw_scopes = request.GET.get("scopes", "")
-                scopes = [s for s in re.split(r"[,\s]+", raw_scopes) if s] or list(POSTHOG_CROSS_REGION_DEFAULT_SCOPES)
-                invalid = [s for s in scopes if s not in POSTHOG_CROSS_REGION_GRANTABLE_SCOPES]
+                scopes = [s for s in re.split(r"[,\s]+", raw_scopes) if s] or list(POSTHOG_CONNECT_DEFAULT_SCOPES)
+                invalid = [s for s in scopes if s not in POSTHOG_CONNECT_GRANTABLE_SCOPES]
                 if invalid:
-                    raise ValidationError(f"Unsupported cross-region scopes: {', '.join(invalid)}")
+                    raise ValidationError(f"Unsupported remote scopes: {', '.join(invalid)}")
             try:
                 auth_url = OauthIntegration.authorize_url(
                     kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id

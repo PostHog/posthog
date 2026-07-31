@@ -33,8 +33,8 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     CONFIG_LEGACY_OAUTH_CLIENT,
     MISSING_CERT_PATH,
-    POSTHOG_CROSS_REGION_DEFAULT_SCOPES,
-    POSTHOG_CROSS_REGION_IDENTITY_SCOPES,
+    POSTHOG_CONNECT_DEFAULT_SCOPES,
+    POSTHOG_CONNECT_IDENTITY_SCOPES,
     TLS,
     Authority,
     AwsS3Integration,
@@ -1249,17 +1249,17 @@ class TestOauthIntegrationModel(BaseTest):
         assert "is_sandbox" not in integration.config
 
 
-class TestPosthogCrossRegionIntegration(BaseTest):
-    cross_region_settings = {
-        "POSTHOG_CROSS_REGION_BASE_URL_US": "https://us.posthog.com",
-        "POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_US": "us-client-id",
-        "POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_US": "us-secret",
-        "POSTHOG_CROSS_REGION_BASE_URL_EU": "https://eu.posthog.com",
-        "POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_EU": "eu-client-id",
-        "POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_EU": "eu-secret",
-        "POSTHOG_CROSS_REGION_BASE_URL_DEV": "http://localhost:8000",
-        "POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_DEV": "dev-client-id",
-        "POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_DEV": "dev-secret",
+class TestPosthogConnectIntegration(BaseTest):
+    connect_settings = {
+        "POSTHOG_CONNECT_BASE_URL_US": "https://us.posthog.com",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_US": "us-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_US": "us-secret",
+        "POSTHOG_CONNECT_BASE_URL_EU": "https://eu.posthog.com",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU": "eu-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU": "eu-secret",
+        "POSTHOG_CONNECT_BASE_URL_DEV": "http://localhost:8000",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV": "dev-client-id",
+        "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV": "dev-secret",
     }
 
     @parameterized.expand(
@@ -1270,7 +1270,7 @@ class TestPosthogCrossRegionIntegration(BaseTest):
         ]
     )
     def test_authorize_url_targets_selected_region(self, region, expected_base, expected_client_id):
-        with self.settings(**self.cross_region_settings):
+        with self.settings(**self.connect_settings):
             url = OauthIntegration.authorize_url(
                 "posthog", token="tok", next="/projects/test", region=region, scopes=["task:read", "task:write"]
             )
@@ -1290,7 +1290,7 @@ class TestPosthogCrossRegionIntegration(BaseTest):
             assert state["token"] == "tok"
 
     def test_authorize_url_lowercases_region_input(self):
-        with self.settings(**self.cross_region_settings):
+        with self.settings(**self.connect_settings):
             url = OauthIntegration.authorize_url("posthog", token="tok", region="eu", scopes=["task:read"])
             assert url.startswith("https://eu.posthog.com/oauth/authorize")
             outer = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
@@ -1298,22 +1298,22 @@ class TestPosthogCrossRegionIntegration(BaseTest):
             assert state["region"] == "EU"
 
     def test_authorize_url_defaults_to_task_scopes_when_none_selected(self):
-        with self.settings(**self.cross_region_settings):
+        with self.settings(**self.connect_settings):
             url = OauthIntegration.authorize_url("posthog", token="tok", region="US", scopes=None)
             params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
-            expected = " ".join([*POSTHOG_CROSS_REGION_DEFAULT_SCOPES, *POSTHOG_CROSS_REGION_IDENTITY_SCOPES])
+            expected = " ".join([*POSTHOG_CONNECT_DEFAULT_SCOPES, *POSTHOG_CONNECT_IDENTITY_SCOPES])
             assert params["scope"] == expected
 
     def test_authorize_url_unknown_region_raises(self):
-        with self.settings(**self.cross_region_settings):
+        with self.settings(**self.connect_settings):
             with pytest.raises(NotImplementedError):
                 OauthIntegration.authorize_url("posthog", token="tok", region="ASIA", scopes=["task:read"])
 
     def test_authorize_url_unconfigured_region_raises(self):
         unconfigured = {
-            **self.cross_region_settings,
-            "POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_EU": "",
-            "POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_EU": "",
+            **self.connect_settings,
+            "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU": "",
+            "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU": "",
         }
         with self.settings(**unconfigured):
             with pytest.raises(NotImplementedError):
@@ -1322,7 +1322,7 @@ class TestPosthogCrossRegionIntegration(BaseTest):
     @patch("posthog.models.integration.requests.get")
     @patch("posthog.models.integration.requests.post")
     def test_integration_from_oauth_response_persists_region_and_namespaces_id(self, mock_post, mock_get):
-        with self.settings(**self.cross_region_settings):
+        with self.settings(**self.connect_settings):
             mock_post.return_value = MagicMock(status_code=200)
             mock_post.return_value.json.return_value = {
                 "access_token": "AT",
@@ -1353,7 +1353,7 @@ class TestPosthogCrossRegionIntegration(BaseTest):
     def test_integration_from_oauth_response_fails_closed_without_pkce_verifier(self, mock_post):
         # No cached verifier (as if the authorize step was skipped / replayed). A first-party posthog
         # flow must fail closed rather than exchange the code without PKCE.
-        with self.settings(**self.cross_region_settings):
+        with self.settings(**self.connect_settings):
             cache.delete("oauth_pkce_verifier/tok")
             state = urlencode({"next": "/", "token": "tok", "region": "EU"})
             with pytest.raises(ValidationError):
@@ -1364,7 +1364,7 @@ class TestPosthogCrossRegionIntegration(BaseTest):
 
     @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_uses_persisted_region(self, mock_post):
-        with self.settings(**self.cross_region_settings):
+        with self.settings(**self.connect_settings):
             integration = Integration.objects.create(
                 team=self.team,
                 kind="posthog",

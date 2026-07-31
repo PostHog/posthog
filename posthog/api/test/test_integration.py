@@ -5072,7 +5072,7 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1
 
 
-class TestPosthogCrossRegionAuthorize:
+class TestPosthogConnectAuthorize:
     @pytest.fixture(autouse=True)
     def setup_environment(self, db):
         self.organization = Organization.objects.create(name="Test Org")
@@ -5099,12 +5099,12 @@ class TestPosthogCrossRegionAuthorize:
         client.force_login(self.user)
         response = self._authorize(client, region="EU", scopes="organization:read")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Unsupported cross-region scopes" in response.json()["detail"]
+        assert "Unsupported remote scopes" in response.json()["detail"]
 
     @override_settings(
-        POSTHOG_CROSS_REGION_BASE_URL_EU="https://eu.posthog.com",
-        POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_EU="eu-client-id",
-        POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_EU="eu-secret",
+        POSTHOG_CONNECT_BASE_URL_EU="https://eu.posthog.com",
+        POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU="eu-client-id",
+        POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU="eu-secret",
     )
     def test_valid_request_redirects_to_target_region(self, client: HttpClient):
         client.force_login(self.user)
