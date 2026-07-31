@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
@@ -10,7 +10,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { getDefaultEventsSceneQuery, getPersonEventsLinkDateRange } from 'scenes/activity/explore/defaults'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
@@ -39,6 +39,7 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
     const logicProps = { id: props.personId, distinctId: props.distinctId }
     const { person, personLoading } = useValues(personLogic(logicProps))
     const { featureFlags } = useValues(featureFlagLogic)
+    const { hashParams } = useValues(router)
 
     if (personLoading) {
         return <Spinner />
@@ -46,14 +47,17 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
 
     // NOTE: This can happen if the Person was deleted or the events associated with the distinct_id had person processing disabled
     if (!person) {
-        const eventsQuery = getDefaultEventsSceneQuery([
-            {
-                type: PropertyFilterType.EventMetadata,
-                key: 'distinct_id',
-                value: props.distinctId,
-                operator: PropertyOperator.Exact,
-            },
-        ])
+        const eventsQuery = getDefaultEventsSceneQuery(
+            [
+                {
+                    type: PropertyFilterType.EventMetadata,
+                    key: 'distinct_id',
+                    value: props.distinctId,
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+            getPersonEventsLinkDateRange(hashParams)
+        )
         const eventsUrl = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
         return (
             <div className="p-2 max-w-160">

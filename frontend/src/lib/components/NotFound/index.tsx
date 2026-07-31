@@ -1,7 +1,7 @@
 import './NotFound.scss'
 
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
@@ -15,7 +15,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { getDefaultEventsSceneQuery, getPersonEventsLinkDateRange } from 'scenes/activity/explore/defaults'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { urls } from 'scenes/urls'
 
@@ -39,6 +39,7 @@ export interface NotFoundProps {
 export function NotFound({ object, caption, meta, className }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { hashParams } = useValues(router)
 
     const nodeLogic = useNotebookNode()
 
@@ -117,14 +118,17 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
                                 urls.activity(ActivityTab.ExploreEvents),
                                 {},
                                 {
-                                    q: getDefaultEventsSceneQuery([
-                                        {
-                                            type: PropertyFilterType.EventMetadata,
-                                            key: 'distinct_id',
-                                            value: meta.urlId,
-                                            operator: PropertyOperator.Exact,
-                                        },
-                                    ]),
+                                    q: getDefaultEventsSceneQuery(
+                                        [
+                                            {
+                                                type: PropertyFilterType.EventMetadata,
+                                                key: 'distinct_id',
+                                                value: meta.urlId,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                        ],
+                                        getPersonEventsLinkDateRange(hashParams)
+                                    ),
                                 }
                             ).url
                         }
