@@ -135,6 +135,22 @@ export function ScoutConfigForm({
                     />
                 </div>
             ) : null}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Keep running while quiet</span>
+                    <span className="text-[11.5px] text-muted">
+                        A scout that goes two weeks without surfacing anything anyone uses is paused. Turn this on for a
+                        scout whose job is to stay quiet.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.auto_pause_exempt}
+                    disabledReason={controlsDisabledReason}
+                    onChange={(checked) => onUpdate(config.id, { auto_pause_exempt: checked })}
+                    aria-label={`${config.skill_name} keep running while quiet`}
+                />
+            </div>
             <ScoutSlackDestination
                 destination={config.output_destinations?.slack}
                 onChange={(outputDestinations) => onUpdate(config.id, { output_destinations: outputDestinations })}

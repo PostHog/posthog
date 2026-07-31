@@ -340,6 +340,21 @@ export const SideEnumApi = {
 } as const
 
 /**
+ * One emoji reaction on a review comment, with the reactor so the viewer's own can be toggled.
+ */
+export interface PullRequestCommentReactionApi {
+    /** GitHub reaction id (needed to remove it). */
+    readonly id: string
+    /** Reaction key: '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', or 'eyes'. */
+    readonly content: string
+    /**
+     * GitHub login of the user who added the reaction.
+     * @nullable
+     */
+    readonly user_login: string | null
+}
+
+/**
  * One comment on a pull request — a conversation comment or an inline review comment.
  */
 export interface PullRequestCommentApi {
@@ -407,6 +422,8 @@ export interface PullRequestCommentApi {
      * @nullable
      */
     readonly commit_id: string | null
+    /** Emoji reactions on this review comment, one entry per reactor. */
+    readonly reactions: readonly PullRequestCommentReactionApi[]
 }
 
 /**
@@ -414,6 +431,107 @@ export interface PullRequestCommentApi {
  */
 export interface PullRequestCommentsResponseApi {
     readonly comments: readonly PullRequestCommentApi[]
+}
+
+/**
+ * Request body for posting an inline PR review comment as the requesting user.
+ *
+ * Two shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new
+ * thread on a diff line (`body` + `path` + `line`, optionally `side`).
+ */
+export interface PullRequestReviewCommentCreateApi {
+    /**
+     * Comment body (GitHub-flavored markdown).
+     * @maxLength 65536
+     */
+    body: string
+    /**
+     * Numeric id of the thread root comment to reply to. When set, path/line/side are ignored.
+     * @nullable
+     * @pattern ^[0-9]+$
+     */
+    in_reply_to?: string | null
+    /**
+     * File path to anchor a new comment thread to (required when starting a new thread).
+     * @nullable
+     */
+    path?: string | null
+    /**
+     * Diff line to anchor a new comment thread to (required when starting a new thread).
+     * @minimum 1
+     * @nullable
+     */
+    line?: number | null
+    /** Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.
+     *
+     * * `LEFT` - LEFT
+     * * `RIGHT` - RIGHT */
+    side?: SideEnumApi | null
+}
+
+/**
+ * Response after posting a review comment — the created comment in the normalized PR-comment shape.
+ */
+export interface PullRequestReviewCommentCreateResponseApi {
+    readonly comment: PullRequestCommentApi
+}
+
+/**
+ * Request body for editing a review comment's markdown body.
+ */
+export interface PatchedPullRequestReviewCommentUpdateApi {
+    /**
+     * New comment body (GitHub-flavored markdown).
+     * @maxLength 65536
+     */
+    body?: string
+}
+
+/**
+ * * `+1` - +1
+ * * `-1` - -1
+ * * `laugh` - laugh
+ * * `hooray` - hooray
+ * * `confused` - confused
+ * * `heart` - heart
+ * * `rocket` - rocket
+ * * `eyes` - eyes
+ */
+export type ContentEnumApi = (typeof ContentEnumApi)[keyof typeof ContentEnumApi]
+
+export const ContentEnumApi = {
+    '1': '+1',
+    NumberMinus1: '-1',
+    Laugh: 'laugh',
+    Hooray: 'hooray',
+    Confused: 'confused',
+    Heart: 'heart',
+    Rocket: 'rocket',
+    Eyes: 'eyes',
+} as const
+
+/**
+ * Request body for adding an emoji reaction to a review comment.
+ */
+export interface PullRequestReviewCommentReactionCreateApi {
+    /** Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.
+     *
+     * * `+1` - +1
+     * * `-1` - -1
+     * * `laugh` - laugh
+     * * `hooray` - hooray
+     * * `confused` - confused
+     * * `heart` - heart
+     * * `rocket` - rocket
+     * * `eyes` - eyes */
+    content: ContentEnumApi
+}
+
+/**
+ * Response after adding a reaction — the created reaction, so the frontend can track its id.
+ */
+export interface PullRequestReviewCommentReactionCreateResponseApi {
+    readonly reaction: PullRequestCommentReactionApi
 }
 
 export interface SignalReportRefundRequestApi {
@@ -1708,6 +1826,8 @@ export interface SignalScoutConfigOptionsApi {
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+    auto_pause_exempt?: boolean
     /**
      * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
      * @maxLength 100
@@ -1832,6 +1952,15 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly last_run_at: string | null
+    /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
+    readonly consecutive_failure_count: number
+    /**
+     * When `status` last changed. For `pending_pause` this is when the warning was issued (the pause lands about a week later unless the scout surfaces something); for the paused statuses it is when the scout was paused. Null if the status never changed.
+     * @nullable
+     */
+    readonly status_changed_at: string | null
+    /** Whether this scout is exempt from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+    readonly auto_pause_exempt: boolean
     readonly created_at: string
 }
 
@@ -1861,6 +1990,8 @@ export interface SignalScoutConfigCreateApi {
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+    auto_pause_exempt?: boolean
     /**
      * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
      * @maxLength 100
@@ -1896,6 +2027,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
     run_cron_schedule?: string | null
     /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** Exempt this scout from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste. */
+    auto_pause_exempt?: boolean
 }
 
 /**

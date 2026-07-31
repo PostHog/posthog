@@ -17,6 +17,7 @@ import type {
     MCPMissingCapabilityCreateApi,
     MCPSessionIntentApi,
     McpAnalyticsFeedbackListParams,
+    McpAnalyticsIntentClustersRetrieveParams,
     McpAnalyticsMissingCapabilitiesListParams,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsListParams,
@@ -76,8 +77,23 @@ export const mcpAnalyticsFeedbackCreate = async (
     })
 }
 
-export const getMcpAnalyticsIntentClustersRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_analytics/intent_clusters/`
+export const getMcpAnalyticsIntentClustersRetrieveUrl = (
+    projectId: string,
+    params?: McpAnalyticsIntentClustersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_analytics/intent_clusters/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/intent_clusters/`
 }
 
 /**
@@ -85,9 +101,10 @@ export const getMcpAnalyticsIntentClustersRetrieveUrl = (projectId: string) => {
  */
 export const mcpAnalyticsIntentClustersRetrieve = async (
     projectId: string,
+    params?: McpAnalyticsIntentClustersRetrieveParams,
     options?: RequestInit
 ): Promise<MCPIntentClusterSnapshotApi[]> => {
-    return apiMutator<MCPIntentClusterSnapshotApi[]>(getMcpAnalyticsIntentClustersRetrieveUrl(projectId), {
+    return apiMutator<MCPIntentClusterSnapshotApi[]>(getMcpAnalyticsIntentClustersRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

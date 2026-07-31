@@ -18,6 +18,10 @@ from posthog.models import Team
 
 from products.surveys.backend.models import Survey
 
+# Stamped by the frontend editor into a translation's choices when a spot needs a human
+# translation. Must never be treated as real translated content.
+TRANSLATION_NEEDED_PLACEHOLDER = "[Translation needed]"
+
 
 @dataclass(frozen=True)
 class QuestionAnswer:
@@ -38,8 +42,59 @@ class SurveyResponseRow:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+def build_choice_translation_map(question: dict[str, Any]) -> dict[str, str]:
+    """Map each translated choice back to its base-language choice, matched by position.
+
+    Mirrors the frontend twin ``buildChoiceTranslationMap`` in
+    ``frontend/src/scenes/surveys/surveyTranslationUtils.ts``: base choices are seeded last so
+    they win on collision with a translation that reuses another base choice's string.
+    """
+    base_choices = question.get("choices")
+    if not isinstance(base_choices, list):
+        return {}
+    # An untranslated question still needs its base choices mapped, so a missing/malformed
+    # `translations` means "no translated entries", never an early return.
+    translations = question.get("translations")
+    if not isinstance(translations, dict):
+        translations = {}
+
+    mapping: dict[str, str] = {}
+    for translation in translations.values():
+        if not isinstance(translation, dict):
+            continue
+        translated_choices = translation.get("choices")
+        if not isinstance(translated_choices, list):
+            continue
+        # The length guard only catches out-of-band edits (API/Max tool) that change array
+        # length — the editor path preserves length and stamps the placeholder instead (see the
+        # placeholder skip below), which is why that skip is the real guard for that path.
+        if len(translated_choices) != len(base_choices):
+            continue
+        for index, choice in enumerate(translated_choices):
+            base_choice = base_choices[index]
+            # Skip untranslated placeholders and blanks — they carry no real mapping and would
+            # otherwise collapse onto whichever base choice the last language lands on.
+            if (
+                isinstance(choice, str)
+                and choice.strip()
+                and choice != TRANSLATION_NEEDED_PLACEHOLDER
+                and isinstance(base_choice, str)
+            ):
+                mapping[choice] = base_choice
+
+    # Seed base choices last so they take precedence: a translation that reuses another
+    # base-choice string must not remap that base choice to a different option. The tradeoff is
+    # lossy — a translated pick that collides with a different base choice is attributed to that
+    # base option — but it's the safe default (base-language data is never misattributed).
+    for choice in base_choices:
+        if isinstance(choice, str):
+            mapping[choice] = choice
+
+    return mapping
+
+
 def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
-    """Return survey questions with stable `(id, index, text, type, choices)` shape."""
+    """Return survey questions with stable `(id, index, text, type, choices, choice_map)` shape."""
     questions = survey.questions or []
     resolved: list[dict[str, Any]] = []
     for index, question in enumerate(questions):
@@ -52,6 +107,7 @@ def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
                 "text": question.get("question") or "",
                 "type": question.get("type") or "open",
                 "choices": question.get("choices"),
+                "choice_map": build_choice_translation_map(question),
             }
         )
     return resolved

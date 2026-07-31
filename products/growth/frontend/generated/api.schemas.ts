@@ -246,9 +246,10 @@ export const OverallHealthEnumApi = {
  * * `warning` - warning
  * * `danger` - danger
  */
-export type HealthEnumApi = (typeof HealthEnumApi)[keyof typeof HealthEnumApi]
+export type SdkHealthReportHealthEnumApi =
+    (typeof SdkHealthReportHealthEnumApi)[keyof typeof SdkHealthReportHealthEnumApi]
 
-export const HealthEnumApi = {
+export const SdkHealthReportHealthEnumApi = {
     Success: 'success',
     Warning: 'warning',
     Danger: 'danger',
@@ -408,7 +409,7 @@ export interface SdkHealthReportApi {
      * * `success` - success
      * * `warning` - warning
      * * `danger` - danger */
-    health: HealthEnumApi
+    health: SdkHealthReportHealthEnumApi
     /** Number of SDKs that need updating. */
     needs_updating_count: number
     /** Number of distinct PostHog SDKs the project is actively using. */

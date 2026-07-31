@@ -40,6 +40,9 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         run_cron_schedule: null,
         output_destinations: {},
         last_run_at: null,
+        consecutive_failure_count: 0,
+        status_changed_at: null,
+        auto_pause_exempt: false,
         created_at: '2026-07-24T00:00:00Z',
     },
 }
