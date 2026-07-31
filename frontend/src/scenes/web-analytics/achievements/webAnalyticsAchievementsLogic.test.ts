@@ -1,9 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -185,6 +187,32 @@ describe('webAnalyticsAchievementsLogic', () => {
             .toDispatchActions(['loadAchievementsSuccess'])
             .toFinishAllListeners()
         expect(lemonToast.success).not.toHaveBeenCalled()
+    })
+
+    describe('notification deep link', () => {
+        const enableAchievements = (): void => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.WEB_ANALYTICS_ACHIEVEMENTS]: true,
+                [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'daily',
+            })
+        }
+
+        it('opens the modal from ?achievements=open and consumes only that param', async () => {
+            enableAchievements()
+            await expectLogic(logic, () => {
+                router.actions.push(urls.webAnalytics(), { achievements: 'open', date_from: '-30d' })
+            }).toDispatchActions(['openModal'])
+
+            expect(logic.values.modalOpen).toBe(true)
+            // Param is dropped so a later URL write can't reopen the modal, but the rest survives
+            expect(router.values.searchParams).toEqual({ date_from: '-30d' })
+        })
+
+        it('leaves the modal closed on a plain web analytics visit', async () => {
+            enableAchievements()
+            router.actions.push(urls.webAnalytics())
+            expect(logic.values.modalOpen).toBe(false)
+        })
     })
 
     it('refetches on openModal and does not register a poll', async () => {

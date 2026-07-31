@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -27,6 +28,13 @@ import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 const celebrationKey = (trackKey: string, stage: number): string => `${trackKey}:${stage}`
+
+// Notification cards deep-link here with `?achievements=open` so the click lands on the achievements
+// themselves rather than the bare dashboard.
+export const ACHIEVEMENTS_URL_PARAM = 'achievements'
+
+const urlAsksForAchievements = (searchParams: Record<string, any>): boolean =>
+    ['open', 'true', '1'].includes(String(searchParams[ACHIEVEMENTS_URL_PARAM] ?? '').toLowerCase())
 
 function sortByCloseness(
     tracks: AchievementDefinitionApi[],
@@ -369,6 +377,27 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             actions.recordInteraction(InteractionKindEnumApi.Data)
         },
     })),
+    urlToAction(({ actions, values }) => {
+        const openIfRequested = (_: any, searchParams: Record<string, any>): void => {
+            if (
+                !urlAsksForAchievements(searchParams) ||
+                !isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)
+            ) {
+                return
+            }
+            // Consume the param even when the modal is already open — web analytics carries unknown
+            // params forward into every URL it writes, so a leftover would reopen the modal later.
+            const { [ACHIEVEMENTS_URL_PARAM]: _consumed, ...rest } = searchParams
+            router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
+            if (!values.modalOpen) {
+                actions.openModal()
+            }
+        }
+        return {
+            '/web': openIfRequested,
+            '/web/:productTab': openIfRequested,
+        }
+    }),
     afterMount(({ actions, values }) => {
         if (values.preferences && isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
             actions.loadAchievements()

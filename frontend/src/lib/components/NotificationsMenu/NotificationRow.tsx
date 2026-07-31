@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArchive, IconCheckCircle } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import {
     NotificationActionButton,
@@ -145,8 +145,9 @@ export function NotificationRow({
 
     const otherProjectName = projectNameForNotification(notification)
     const describer = getNotificationDescriber(notification)
-    const customBody = describer ? <describer.Component notification={notification} onNavigate={onNavigate} /> : null
-    const rich = !!describer?.takesOverRow && !!notification.metadata
+    const rich = !!describer?.takesOverRow?.(notification)
+    const customBody =
+        rich && describer ? <describer.Component notification={notification} onNavigate={onNavigate} /> : null
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleOpen = (): void => {
@@ -175,9 +176,14 @@ export function NotificationRow({
         handleOpen()
     }
 
-    const resourceLabel = notification.resource_type
-        ? `View ${notification.resource_type.replace(/_/g, ' ')}`
-        : 'Go to source'
+    // Only a rich card can promise where its action goes ("View achievements"), since older payloads
+    // predate the deep link — everything else falls back to the resource type
+    const actionLabel = rich ? describer?.actionLabel : undefined
+    const resourceLabel =
+        actionLabel ??
+        (notification.resource_type ? `View ${notification.resource_type.replace(/_/g, ' ')}` : 'Go to source')
+    // Rich cards get a real button, since a hover-only link reads as a card with no affordances at all
+    const showActionButton = hasNavigationTarget && !!actionLabel
 
     return (
         <div
@@ -190,14 +196,27 @@ export function NotificationRow({
             <div className="flex-1 min-w-0">
                 <NotificationTitle
                     notificationType={notification.notification_type}
-                    title={rich ? 'Web analytics digest' : notification.title}
+                    title={rich ? (describer?.title ?? notification.title) : notification.title}
                 />
                 {rich
                     ? customBody
                     : notification.body && (
                           <div className="text-xs text-secondary mt-2 text-pretty">{notification.body}</div>
                       )}
-                <div className="flex items-center gap-1.5 mt-2">
+                {showActionButton && (
+                    <div className="mt-2">
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            sideIcon={<IconOpenInNew className="size-3" />}
+                            onClick={handleNavigate}
+                        >
+                            {resourceLabel}
+                        </LemonButton>
+                    </div>
+                )}
+                {/* Right padding keeps the meta row clear of the archive/read cluster pinned bottom-right */}
+                <div className="flex items-center gap-1.5 mt-2 pr-12">
                     <span className="text-[10px] text-muted">{dayjs(notification.created_at).fromNow()}</span>
                     {otherProjectName && (
                         <Tooltip title={`Notified on project ${otherProjectName}`}>
@@ -206,10 +225,10 @@ export function NotificationRow({
                             </span>
                         </Tooltip>
                     )}
-                    {hasNavigationTarget && (
+                    {hasNavigationTarget && !showActionButton && (
                         <button
                             onClick={handleNavigate}
-                            className="inline-flex items-center gap-0.5 text-[10px] text-secondary opacity-0 transition-opacity hover:text-primary group-hover/row:opacity-100"
+                            className="inline-flex items-center gap-0.5 text-[10px] text-secondary transition-colors hover:text-primary"
                         >
                             {resourceLabel}
                             <IconOpenInNew className="size-3" />

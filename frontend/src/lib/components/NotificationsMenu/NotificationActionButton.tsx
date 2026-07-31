@@ -5,8 +5,10 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 
+// Hover reveal keeps rows quiet on desktop, but a device that can't hover would never see these
+// actions at all, so they stay visible there.
 export const ROW_ACTION_REVEAL_CLASSES =
-    'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 transition-opacity'
+    'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 pointer-coarse:opacity-100 transition-opacity'
 
 export function ReadToggleIcon({ read }: { read: boolean }): JSX.Element {
     if (read) {

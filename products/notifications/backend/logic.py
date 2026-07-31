@@ -36,11 +36,16 @@ def _publish_to_kafka(event: NotificationEvent) -> None:
                 "title": event.title,
                 "body": event.body,
                 "resource_type": event.resource_type or "",
+                "resource_id": event.resource_id or "",
                 "source_url": event.source_url,
                 "source_type": event.source_type,
                 "source_id": event.source_id,
                 "resolved_user_ids": event.resolved_user_ids,
                 "created_at": event.created_at.isoformat(),
+                # Clients render rich cards straight off this payload, so a live-pushed notification
+                # needs the metadata the API also returns — otherwise the card stays plain text until
+                # the next refetch.
+                "metadata": event.metadata,
             },
             key=str(event.organization_id),
         )
