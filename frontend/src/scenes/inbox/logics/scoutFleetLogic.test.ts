@@ -38,11 +38,14 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     description: 'Finds error trends.',
     scout_origin: 'canonical',
     enabled: true,
+    status: 'active',
+    pause_reason: null,
     emit: true,
     run_interval_minutes: 1440,
     run_cron_schedule: null,
     output_destinations: {},
     last_run_at: null,
+    consecutive_failure_count: 0,
     created_at: '2026-07-22T00:00:00Z',
 }
 
