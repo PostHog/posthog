@@ -44,6 +44,8 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # also stops the orphaned query from burning ClickHouse for the full default 600s.
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
 
+RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
+
 
 @dataclasses.dataclass
 class ExperimentMetricsRecalculationWorkflowInputs:

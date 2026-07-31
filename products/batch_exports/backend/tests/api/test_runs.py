@@ -9,9 +9,18 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
+from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.batch_exports.backend.tests.api.fixtures import (
+    create_batch_export,
+    create_destination,
+    create_organization,
+    create_run,
+    create_team,
+    create_user,
+)
 from products.batch_exports.backend.tests.api.operations import (
     backfill_batch_export_ok,
+    cancel_batch_export_run,
     cancel_batch_export_run_ok,
     create_batch_export_ok,
     get_batch_export,
@@ -197,4 +206,21 @@ def test_cancelling_a_batch_export_run(client: HttpClient, temporal, organizatio
         assert run["status"] == "Cancelled"
 
 
-# TODO - add a test to ensure we can't cancel a completed run?
+def test_cannot_cancel_completed_batch_export_run(client: HttpClient, team, user):
+    destination = create_destination()
+    batch_export = create_batch_export(team, destination)
+    run = create_run(
+        batch_export,
+        status=BatchExportRun.Status.COMPLETED,
+        data_interval_start=dt.datetime(2023, 10, 23, tzinfo=dt.UTC),
+        data_interval_end=dt.datetime(2023, 10, 24, tzinfo=dt.UTC),
+    )
+    client.force_login(user)
+
+    response = cancel_batch_export_run(client, team.pk, batch_export.id, run.id)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Cannot cancel a run that is in 'Completed' status"
+
+    run.refresh_from_db()
+    assert run.status == BatchExportRun.Status.COMPLETED
