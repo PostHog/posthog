@@ -22,6 +22,8 @@ from opentelemetry.sdk._logs.export import BatchLogRecordProcessor, LogExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import TraceFlags
 
+from posthog.security.outbound_proxy import internal_requests_session
+
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME as _SERVICE_NAME
 from products.engineering_analytics.backend.logic.job_logs.thinning import ThinnedLine
 
@@ -77,15 +79,31 @@ class JobLogsEmitter:
     def __init__(
         self, *, endpoint: str | None = None, token: str | None = None, exporter: LogExporter | None = None
     ) -> None:
-        self._provider = LoggerProvider(resource=Resource.create({"service.name": _SERVICE_NAME}))
+        # This resource must ALSO be passed to every hand-built LogRecord below: Logger.emit(record)
+        # attaches only the instrumentation scope, and a record constructed without resource= defaults
+        # to Resource.create({}) — i.e. the pod's OTEL_SERVICE_NAME/OTEL_RESOURCE_ATTRIBUTES env, which
+        # on the worker is the k8s workload name. Records then land under that service.name and the
+        # failure-logs read filter (service.name = github-ci-logs) never matches them.
+        self._resource = Resource.create({"service.name": _SERVICE_NAME})
+        self._provider = LoggerProvider(resource=self._resource)
         if exporter is None and endpoint and token:
-            exporter = OTLPLogExporter(endpoint=endpoint, headers={"authorization": f"Bearer {token}"})
+            # capture-logs is in-cluster (a private ClusterIP). The worker's HTTP_PROXY/HTTPS_PROXY
+            # point at the Smokescreen egress proxy, which denies private-range hosts (407) — so the
+            # OTLP POST must bypass it. internal_requests_session sets trust_env=False; without it
+            # every batch export silently 407s and nothing lands in Logs.
+            exporter = OTLPLogExporter(
+                endpoint=endpoint,
+                headers={"authorization": f"Bearer {token}"},
+                session=internal_requests_session(),
+            )
         self._enabled = exporter is not None
         if exporter is not None:
             self._provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
         else:
             logger.warning("github_ci_logs_emit_disabled", detail="no endpoint/token configured; skipping export")
-        self._logger = self._provider.get_logger(_SERVICE_NAME)
+        # capture-logs stores the scope as "{name}@{version}"; without a version the stored value
+        # ends in a dangling "@".
+        self._logger = self._provider.get_logger(_SERVICE_NAME, version="1")
 
     def emit_log_archive(
         self,
@@ -138,6 +156,7 @@ class JobLogsEmitter:
                     severity_number=severity_number,
                     body=body,
                     attributes=attrs,
+                    resource=self._resource,
                 )
             )
             emitted += 1

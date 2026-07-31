@@ -7,6 +7,7 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.property import action_to_expr
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.test.test_event_model import filter_by_actions_factory
 
 from products.actions.backend.models.action import Action
@@ -30,11 +31,12 @@ def _get_events_for_action(action: Action) -> list[MockEvent]:
     formatted_query, params = format_action_filter(
         team_id=action.team_id, action=action, prepend="", hogql_context=hogql_context
     )
+    events_table = events_read_table(hogql_context.uses_new_events_schema())
     query = f"""
         SELECT
             events.uuid,
             events.distinct_id
-        FROM events
+        FROM {events_table} AS events
         WHERE {formatted_query}
         AND events.team_id = %(team_id)s
         ORDER BY events.timestamp DESC
@@ -47,7 +49,9 @@ def _get_events_for_action(action: Action) -> list[MockEvent]:
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
 
-EVENT_UUID_QUERY = "SELECT uuid FROM events WHERE {} AND team_id = %(team_id)s"
+def _event_uuid_query(new_events_schema: bool) -> str:
+    events_table = events_read_table(new_events_schema)
+    return f"SELECT uuid FROM {events_table} AS events WHERE {{}} AND team_id = %(team_id)s"
 
 
 class TestActions(
@@ -91,9 +95,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 }
             ],
         )
-        query, params = filter_event(action1.steps[0])
+        new_events_schema = use_new_events_schema(self.team.pk)
+        query, params = filter_event(action1.steps[0], use_new_events_schema=new_events_schema)
 
-        full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
+        full_query = _event_uuid_query(new_events_schema).format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
 
         self.assertEqual(len(result), 1)
@@ -135,9 +140,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 }
             ],
         )
-        query, params = filter_event(action1.steps[0])
+        new_events_schema = use_new_events_schema(self.team.pk)
+        query, params = filter_event(action1.steps[0], use_new_events_schema=new_events_schema)
 
-        full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
+        full_query = _event_uuid_query(new_events_schema).format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
 
         self.assertEqual(len(result), 2)
@@ -173,9 +179,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             name="action1",
             steps_json=[{"event": "$autocapture", "url": "https://posthog.com/feedback/123"}],
         )
-        query, params = filter_event(action1.steps[0])
+        new_events_schema = use_new_events_schema(self.team.pk)
+        query, params = filter_event(action1.steps[0], use_new_events_schema=new_events_schema)
 
-        full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
+        full_query = _event_uuid_query(new_events_schema).format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
         self.assertEqual(len(result), 2)
 
@@ -212,9 +219,10 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
                 }
             ],
         )
-        query, params = filter_event(action1.steps[0])
+        new_events_schema = use_new_events_schema(self.team.pk)
+        query, params = filter_event(action1.steps[0], use_new_events_schema=new_events_schema)
 
-        full_query = EVENT_UUID_QUERY.format(" AND ".join(query))
+        full_query = _event_uuid_query(new_events_schema).format(" AND ".join(query))
         result = sync_execute(full_query, {**params, "team_id": self.team.pk}, team_id=self.team.pk)
         self.assertEqual(len(result), 2)
 

@@ -31,6 +31,7 @@ from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
 
 from products.conversations.backend.api.serializers import (
+    WIDGET_TICKETS_DEFAULT_LIMIT,
     WidgetMarkReadSerializer,
     WidgetMessageSerializer,
     WidgetMessagesQuerySerializer,
@@ -109,6 +110,34 @@ class WidgetMessageView(APIView):
         serializer = WidgetMessageSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in WidgetMessageView", extra={"errors": serializer.errors})
+            try:
+                # Track rejected submissions server-side so they're queryable even when the
+                # client-side event is blocked (ad blockers, network drops). Field names and
+                # value lengths only — never message content. An over-long auto-captured
+                # session_context value (e.g. current_url) is a known rejection cause.
+                # This endpoint is public and unauthenticated, so session_context is
+                # attacker-controlled: bound both the number of fields and the key length we
+                # record so a request stuffed with many keys can't inflate the event payload.
+                raw_session_context = request.data.get("session_context")
+                session_context_field_count = len(raw_session_context) if isinstance(raw_session_context, dict) else 0
+                session_context_field_lengths = {}
+                if isinstance(raw_session_context, dict):
+                    for key, value in list(raw_session_context.items())[:20]:
+                        if isinstance(key, str) and isinstance(value, str):
+                            session_context_field_lengths[key[:100]] = len(value)
+                report_team_action(
+                    team,
+                    "support ticket send failed",
+                    {
+                        "channel_source": "widget",
+                        "reason": "validation_error",
+                        "error_fields": sorted(serializer.errors.keys()),
+                        "session_context_field_count": session_context_field_count,
+                        "session_context_field_lengths": session_context_field_lengths,
+                    },
+                )
+            except Exception as e:
+                capture_exception(e)
             return Response(
                 {"error": "Invalid request data", "details": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -172,6 +201,10 @@ class WidgetMessageView(APIView):
                 if session_context:
                     ticket.session_context.update(session_context)
 
+                # HMAC-verified requests are server-attested — mark the identity trusted.
+                if verified_distinct_id is not None:
+                    ticket.identity_verified = True
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
                 ticket.save(
@@ -181,6 +214,7 @@ class WidgetMessageView(APIView):
                         "session_id",
                         "session_context",
                         "unread_team_count",
+                        "identity_verified",
                         "updated_at",
                     ]
                 )
@@ -207,6 +241,7 @@ class WidgetMessageView(APIView):
                 unread_team_count=1,
                 session_id=session_id,
                 session_context=session_context,
+                identity_verified=verified_distinct_id is not None,
             )
 
             try:
@@ -413,8 +448,12 @@ class WidgetTicketsView(APIView):
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
-        # Check cache for first page (most common case for polling)
-        if offset == 0:
+        # Only cache the default first page (WIDGET_TICKETS_DEFAULT_LIMIT, offset=0)
+        # used by widget polling. Custom limit/offset must bypass the cache — its
+        # key doesn't include limit/offset, so serving it for other page sizes
+        # returns the wrong slice (e.g. ?limit=2 getting the full cached page back).
+        use_cache = offset == 0 and limit == WIDGET_TICKETS_DEFAULT_LIMIT
+        if use_cache:
             cached = get_cached_tickets(team.id, cache_key_id, status_filter)
             if cached is not None:
                 return Response(cached)
@@ -454,7 +493,7 @@ class WidgetTicketsView(APIView):
         response_data = {"count": total_count, "results": ticket_list}
 
         # Cache first page (skip empty results to avoid stale cache after restore/migration)
-        if offset == 0 and total_count > 0:
+        if use_cache and total_count > 0:
             set_cached_tickets(team.id, cache_key_id, response_data, status_filter)
 
         return Response(response_data)

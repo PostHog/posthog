@@ -7,15 +7,20 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { safeHttpUrl } from 'scenes/inbox/utils/reportPresentation'
 
-import type { PgAnalyzeIssueReference, PgAnalyzeIssueSignalExtra } from '~/queries/schema/schema-signals'
+import type {
+    PgAnalyzeIssueReferenceApi,
+    PgAnalyzeIssueSignalExtraApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { ExternalSignalCard } from './ExternalSignalCard'
 import type { SignalCardEntry, SignalCardProps } from './types'
 
 /** Narrows a signal's `extra` to a pganalyze issue payload. */
-export function isPgAnalyzeExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & PgAnalyzeIssueSignalExtra {
+export function isPgAnalyzeExtra(value: unknown): value is Record<string, unknown> & PgAnalyzeIssueSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return 'references' in extra && Array.isArray(extra.references) && 'synced_at' in extra
 }
 
@@ -42,7 +47,7 @@ function sentenceCase(value: string): string {
     return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase()
 }
 
-function ReferenceRow({ reference }: { reference: PgAnalyzeIssueReference }): JSX.Element | null {
+function ReferenceRow({ reference }: { reference: PgAnalyzeIssueReferenceApi }): JSX.Element | null {
     if (reference.name === null && reference.url === null && reference.queryText === null) {
         return null
     }
@@ -75,7 +80,7 @@ function ReferenceRow({ reference }: { reference: PgAnalyzeIssueReference }): JS
 }
 
 export function PgAnalyzeSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const extra = signal.extra as Record<string, unknown> & PgAnalyzeIssueSignalExtra
+    const extra = signal.extra as Record<string, unknown> & PgAnalyzeIssueSignalExtraApi
 
     const serverLabel = extra.server_name ?? extra.server_human_id
     const metaChips = (

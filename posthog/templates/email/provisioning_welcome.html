@@ -2,6 +2,11 @@
 <p>
     Welcome to PostHog! Your account was created{% if partner_name %} via {{ partner_name }}{% endif %}.
 </p>
+{% if repository %}
+<p>
+    We're setting up PostHog in <strong>{{ repository }}</strong> in the background — a pull request will appear on the repository shortly.
+</p>
+{% endif %}
 <p>
     Set a password to log in to PostHog directly.
 </p>

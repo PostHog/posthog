@@ -13,12 +13,8 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
@@ -27,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 
 @dataclasses.dataclass
@@ -94,9 +91,14 @@ class TestGetPartitionSettings:
 
     def test_returns_none_when_fetch_raises(self, logger):
         impl = _FakeImplementation(raises_on_stats=True)
-        assert impl.get_partition_settings(MagicMock(), "db", "t", logger) is None
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation"
+        with patch(f"{module}.capture_exception") as mock_capture:
+            assert impl.get_partition_settings(MagicMock(), "db", "t", logger) is None
         # We still called through to the driver hook.
         assert len(impl.fetch_table_stats_calls) == 1
+        # Best-effort probe: a raised stats query must not flood error tracking — it degrades to
+        # None here and resurfaces in the real extraction query if it's a genuine problem.
+        mock_capture.assert_not_called()
 
     def test_single_partition_fallback_when_partition_count_is_zero(self, logger):
         # Tiny table: 100 bytes, 2 rows → avg_row_size = 50 → partition_size huge

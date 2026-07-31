@@ -22,7 +22,7 @@ use super::constants::{
 type HmacSha256 = Hmac<Sha256>;
 
 const GATEWAY_PREFIX: &str = "$ai_gateway";
-const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
+pub const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 
 /// Stamped from the signed header (not the client value) so billing can dedup
 /// exemptions by it.

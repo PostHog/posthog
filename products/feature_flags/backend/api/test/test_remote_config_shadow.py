@@ -6,7 +6,12 @@ from django.test import override_settings
 
 from rest_framework.response import Response
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, TeamSecretTokenAuthentication
+from posthog.auth import (
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    TeamSecretTokenAuthentication,
+)
 
 from products.feature_flags.backend.api import remote_config_shadow as shadow
 
@@ -59,7 +64,10 @@ def test_unsupported_auth_is_skipped(authenticator):
         counter.labels.assert_called_once_with(result="skipped")
 
 
-@pytest.mark.parametrize("authenticator", [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication])
+@pytest.mark.parametrize(
+    "authenticator",
+    [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
+)
 def test_supported_auth_is_compared(authenticator):
     with (
         patch.object(shadow, "_SHADOW_SESSION") as session,
@@ -71,7 +79,10 @@ def test_supported_auth_is_compared(authenticator):
         counter.labels.assert_called_once_with(result="match")
 
 
-@pytest.mark.parametrize("authenticator", [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication])
+@pytest.mark.parametrize(
+    "authenticator",
+    [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
+)
 def test_non_header_credential_is_skipped(authenticator):
     # Django also authenticates via ?personal_api_key= / request body, but Rust reads only the
     # Authorization header — so a non-header credential 401s on Rust. Skip rather than log a false mismatch.

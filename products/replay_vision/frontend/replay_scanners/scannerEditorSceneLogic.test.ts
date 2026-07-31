@@ -60,17 +60,17 @@ describe('scannerEditorSceneLogic', () => {
     })
 
     describe('visibleSteps', () => {
-        it('shows all three steps for a new scanner', async () => {
+        it('shows all four steps for a new scanner', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('new'))
             await expectLogic(logic).toMatchValues({
-                visibleSteps: ['template', 'configure', 'triggers'],
+                visibleSteps: ['template', 'configure', 'triggers', 'self_driving'],
             })
         })
 
-        it('hides the template step for an existing scanner', async () => {
+        it('hides only the template step for an existing scanner', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('abc-123'))
             await expectLogic(logic).toMatchValues({
-                visibleSteps: ['configure', 'triggers'],
+                visibleSteps: ['configure', 'triggers', 'self_driving'],
             })
         })
     })

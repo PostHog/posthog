@@ -1223,6 +1223,28 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
         assert updated_tile["widget"]["config"]["orderBy"] == "last_seen"
 
     @override_settings(IN_UNIT_TESTING=True)
+    def test_config_patch_preserves_fields_unknown_to_stale_clients(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="activity_events_list",
+            config={
+                "limit": 5,
+                "properties": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+            },
+        )
+        tile = dashboard_json["tiles"][0]
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 10}}])
+
+        assert response.status_code == status.HTTP_200_OK
+        updated_config = response.json()["tiles"][0]["widget"]["config"]
+        assert updated_config["limit"] == 10
+        assert updated_config["properties"] == [
+            {"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}
+        ]
+
+    @override_settings(IN_UNIT_TESTING=True)
     def test_sets_session_replay_saved_filter_id(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(

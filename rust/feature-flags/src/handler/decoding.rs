@@ -10,7 +10,7 @@ use crate::{
 use axum::http::{header::CONTENT_TYPE, header::USER_AGENT, HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
-use common_compression;
+use common_compression::{self, has_gzip_magic_header};
 use common_metrics::inc;
 use percent_encoding::percent_decode;
 
@@ -117,7 +117,7 @@ pub(crate) fn decode_body(
 
     // Fallback: Auto-detect gzip by checking magic bytes (0x1f, 0x8b)
     // This handles cases where clients send gzipped data without proper headers
-    if body.len() >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+    if has_gzip_magic_header(&body) {
         tracing::debug!("Auto-detected gzip compression from magic bytes");
         inc(
             FLAG_REQUEST_KLUDGE_COUNTER,

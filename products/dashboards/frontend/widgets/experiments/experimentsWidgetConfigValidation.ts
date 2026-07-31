@@ -29,6 +29,7 @@ export const EXPERIMENTS_WIDGET_STATUS_OPTIONS: { value: ExperimentsListWidgetSt
     { value: 'draft', label: 'Draft' },
     { value: 'running', label: 'Running' },
     { value: 'paused', label: 'Paused' },
+    { value: 'exposure_frozen', label: 'Exposure frozen' },
     { value: 'stopped', label: 'Complete' },
 ]
 

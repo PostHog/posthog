@@ -6,6 +6,8 @@ import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 
 const taskTrackerUrl = (): string => '/tasks'
@@ -48,8 +50,10 @@ const TASKS: Task[] = [
         title: 'Add retention graph export',
         description: 'Let users download the retention graph as a CSV from the insight menu.',
         origin_product: OriginProduct.USER_CREATED,
+        runtime: RuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
+        signal_report: null,
         json_schema: null,
         internal: false,
         latest_run: mockRun('task-1', TaskRunStatus.COMPLETED, '2024-01-15T09:30:00Z', '2024-01-15T09:48:00Z'),
@@ -64,8 +68,10 @@ const TASKS: Task[] = [
         title: 'Fix cohort empty state in query builder',
         description: 'Handle an empty cohort gracefully instead of throwing in the query builder.',
         origin_product: OriginProduct.USER_CREATED,
+        runtime: RuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
+        signal_report: null,
         json_schema: null,
         internal: false,
         latest_run: mockRun('task-2', TaskRunStatus.COMPLETED, '2024-01-15T11:40:00Z', '2024-01-15T11:52:00Z'),
@@ -80,8 +86,10 @@ const TASKS: Task[] = [
         title: 'Investigate slow dashboard load',
         description: 'Profile the dashboard scene and find the slowest tiles on first paint.',
         origin_product: OriginProduct.USER_CREATED,
+        runtime: RuntimeEnumApi.Acp,
         repository: 'PostHog/posthog',
         github_integration: 1,
+        signal_report: null,
         json_schema: null,
         internal: false,
         latest_run: null,
@@ -322,7 +330,7 @@ const MOBILE_PARAMETERS = {
     testOptions: { viewport: MOBILE_VIEWPORT },
 }
 
-// Mobile: the list fills the screen and scrolls with the page, with a floating "New task" button.
+// Mobile: the list fills the screen in its own scroll container, with a floating "New task" button.
 export const MobileList: Story = {
     parameters: MOBILE_PARAMETERS,
 }

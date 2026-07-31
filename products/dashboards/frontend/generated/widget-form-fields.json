@@ -35,6 +35,12 @@
             "configTypeExport": "SessionReplayWidgetConfig",
             "formSchemaExport": "sessionReplayWidgetFormSchema",
             "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts"]
+        },
+        "survey_results": {
+            "configSchemaExport": "surveyResultsWidgetConfigSchema",
+            "configTypeExport": "SurveyResultsWidgetConfig",
+            "formSchemaExport": "surveyResultsWidgetFormSchema",
+            "formFields": ["surveyId", "limit", "dateRange"]
         }
     }
 }

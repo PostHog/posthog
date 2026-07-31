@@ -7,7 +7,9 @@ import {
     IconClock,
     IconCompass,
     IconDatabase,
+    IconEye,
     IconGithub,
+    IconGraph,
     IconList,
     IconReceipt,
     IconRefresh,
@@ -17,8 +19,9 @@ import {
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
 
-import { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
+import type { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
+import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
 /**
  * Single source of truth for per-priority color. P0–P4 each get a DISTINCT hue so
@@ -31,6 +34,22 @@ export const PRIORITY_TAG_TYPE: Record<SignalReportPriority, LemonTagType> = {
     P2: 'caution', // amber
     P3: 'highlight', // blue
     P4: 'muted', // gray
+}
+
+/**
+ * Human meaning of each priority code, mirroring the criteria the research agent judges against
+ * (see products/signals/backend/report_generation/research.py). Surfaced in the priority badge
+ * tooltip and the priority filter so users don't have to guess what P0–P4 mean.
+ */
+export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; description: string }> = {
+    P0: {
+        label: 'Critical',
+        description: 'Production errors, a broken core flow, data loss, or a security vulnerability.',
+    },
+    P1: { label: 'High', description: 'Significant user-facing impact or a clear regression.' },
+    P2: { label: 'Medium', description: 'A clear improvement opportunity, or a contained issue with workarounds.' },
+    P3: { label: 'Low', description: 'A minor improvement or low-impact issue.' },
+    P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
 }
 
 /** Matching CSS accent per priority, for non-LemonTag surfaces (filter dots, monograms). */
@@ -62,13 +81,15 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'session_replay', label: 'Session replay', icon: <IconRewindPlay /> },
+    { value: 'replay_vision', label: 'Replay vision', icon: <IconEye /> },
     { value: 'error_tracking', label: 'Error tracking', icon: <IconBug /> },
     { value: 'llm_analytics', label: 'AI observability', icon: <IconBrain /> },
     { value: 'github', label: 'GitHub', icon: <IconGithub /> },
     { value: 'linear', label: 'Linear', icon: <IconStack /> },
     { value: 'zendesk', label: 'Zendesk', icon: <IconReceipt /> },
-    { value: 'conversations', label: 'Conversations', icon: <IconSupport /> },
+    { value: 'conversations', label: 'Support', icon: <IconSupport /> },
     { value: 'pganalyze', label: 'pganalyze', icon: <IconDatabase /> },
+    { value: 'analytics', label: 'Product analytics', icon: <IconGraph /> },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
 ]
 
@@ -87,12 +108,19 @@ export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): stri
     return [...selected].sort().join(', ')
 }
 
-export function inboxSourceFilterLabel(selected: string[]): string {
-    if (selected.length === 0) {
-        return 'All sources'
-    }
+export function inboxSourceFilterLabel(selected: string[], selectedScouts: string[] = []): string {
+    const parts: string[] = []
     if (selected.length === 1) {
-        return INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0]
+        parts.push(INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0])
+    } else if (selected.length > 1) {
+        parts.push(`${selected.length} sources`)
     }
-    return `${selected.length} sources`
+    if (selectedScouts.length === 1) {
+        // "Scout · " disambiguates from same-named source products (e.g. the error tracking
+        // scout vs the error tracking source), matching the report rows' attribution label.
+        parts.push(`Scout · ${prettifyScoutSkillName(selectedScouts[0])}`)
+    } else if (selectedScouts.length > 1) {
+        parts.push(`${selectedScouts.length} scouts`)
+    }
+    return parts.length > 0 ? parts.join(' · ') : 'All sources'
 }

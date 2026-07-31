@@ -8,9 +8,9 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.settings import (
     SQUARE_ENDPOINTS,
     SquareEndpointConfig,
@@ -195,9 +195,10 @@ def get_rows(
 
     restarts_remaining = MAX_CURSOR_RESTARTS
     while True:
-        # Square encodes the original query in the cursor, so subsequent pages are
-        # requested with the cursor alone — re-sending filters/sort can error.
-        params = {"cursor": cursor} if cursor else initial_params
+        # Square ties a cursor to the exact query it was issued for, so every follow-up
+        # request must repeat the original params and add the cursor. Sending the cursor
+        # alone drops sort/filter/limit, which Square rejects as an incompatible cursor.
+        params = {**initial_params, "cursor": cursor} if cursor else initial_params
         try:
             data = fetch_page(params)
         except SquareInvalidCursorError:

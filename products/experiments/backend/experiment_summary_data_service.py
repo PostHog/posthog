@@ -37,7 +37,7 @@ from products.experiments.backend.hogql_queries.experiment_exposures_query_runne
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, get_experiment_rule
 
 
 @dataclass
@@ -173,8 +173,7 @@ class ExperimentSummaryDataService:
         if not feature_flag:
             raise ValueError(f"Experiment {experiment_id} has no feature flag")
 
-        multivariate = feature_flag.filters.get("multivariate", {})
-        variants = [v.get("key") for v in multivariate.get("variants", []) if v.get("key")]
+        variants = [v.get("key") for v in get_experiment_rule(experiment).variants if v.get("key")]
         stats_method = get_experiment_stats_method(experiment)
         # PostHog AI gets one shot at the data — unlike the frontend it can't poll, so a
         # stale metric returned as "pending" is silently dropped from the summary. Always
@@ -205,6 +204,7 @@ class ExperimentSummaryDataService:
                         limit_context=LimitContext.QUERY_ASYNC,
                         # Runs for the requesting Max user, so warehouse access is enforced against them.
                         user=self._user,
+                        error_event_context="agent",
                     )
                     result = query_runner.run(
                         execution_mode=execution_mode,
@@ -257,6 +257,7 @@ class ExperimentSummaryDataService:
                             query=exposure_query,
                             team=experiment.team,
                             limit_context=LimitContext.QUERY_ASYNC,
+                            error_event_context="agent",
                         )
                         exposure_result = exposure_runner.run(
                             execution_mode=execution_mode,

@@ -1,23 +1,18 @@
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import { IconBug, IconCursorClick, IconGlobe, IconKeyboard, IconPlay } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconGlobe, IconKeyboard } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
-import ViewRecordingButton, {
-    RecordingPlayerType,
-    useRecordingButton,
-} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { getExportsContentRetrieveUrl } from '~/generated/core/api'
-import type { SessionProblemEventEntry, SessionProblemSignalExtra } from '~/queries/schema/schema-signals'
+import type {
+    SessionProblemEventEntryApi,
+    SessionProblemSignalExtraApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -25,7 +20,7 @@ import type { SignalCardEntry, SignalCardProps } from './types'
 /** How many timeline events to show before collapsing the rest behind a toggle. */
 const TIMELINE_PREVIEW_COUNT = 4
 
-const PROBLEM_TYPE_TAG: Record<SessionProblemSignalExtra['problem_type'], { label: string; type: LemonTagType }> = {
+const PROBLEM_TYPE_TAG: Record<SessionProblemSignalExtraApi['problem_type'], { label: string; type: LemonTagType }> = {
     blocking_exception: { label: 'Blocking exception', type: 'danger' },
     failure: { label: 'Failure', type: 'danger' },
     non_blocking_exception: { label: 'Exception', type: 'warning' },
@@ -34,9 +29,11 @@ const PROBLEM_TYPE_TAG: Record<SessionProblemSignalExtra['problem_type'], { labe
 }
 
 /** Narrows a raw `extra` payload to the live session-problem shape. */
-export function isSessionProblemExtra(
-    extra: Record<string, unknown>
-): extra is Record<string, unknown> & SessionProblemSignalExtra {
+export function isSessionProblemExtra(value: unknown): value is Record<string, unknown> & SessionProblemSignalExtraApi {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return typeof extra.session_id === 'string' && 'problem_type' in extra
 }
 
@@ -53,7 +50,7 @@ function recordingSeekTime(sessionStartTime: string | undefined, offset: string 
 }
 
 /** Picks a glyph for a timeline event based on its interaction type. */
-function EventGlyph({ entry }: { entry: SessionProblemEventEntry }): JSX.Element {
+function EventGlyph({ entry }: { entry: SessionProblemEventEntryApi }): JSX.Element {
     const className = 'size-3.5 shrink-0 text-tertiary'
     switch (entry.event_type) {
         case 'click':
@@ -77,7 +74,7 @@ function TimelineRow({
     sessionId,
     sessionStartTime,
 }: {
-    entry: SessionProblemEventEntry
+    entry: SessionProblemEventEntryApi
     sessionId: string
     sessionStartTime: string | undefined
 }): JSX.Element {
@@ -103,37 +100,14 @@ function TimelineRow({
     )
 }
 
-/** Live card for a session-replay problem segment: thumbnail preview, replay link-out, and an event timeline. */
+/** Live card for a session-replay problem segment: a replay link-out and an event timeline. */
 export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
     const [showAllEvents, setShowAllEvents] = useState(false)
-    const [thumbnailFailed, setThumbnailFailed] = useState(false)
 
-    const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtra
+    const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtraApi
     const problemTag = PROBLEM_TYPE_TAG[extra.problem_type]
 
-    const hasThumbnail = extra.exported_asset_id !== undefined && currentTeamId !== null && !thumbnailFailed
-    const thumbnailSrc = hasThumbnail
-        ? getExportsContentRetrieveUrl(String(currentTeamId), extra.exported_asset_id as number)
-        : undefined
-
-    const segmentSeekTime = recordingSeekTime(extra.session_start_time, extra.start_time)
-
-    // Mirror ViewRecordingButton's `checkRecordingExists`: batch-check the recording so the play
-    // affordance disables (rather than opening an empty player) when the recording wasn't captured.
-    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
-    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
-    useEffect(() => {
-        checkRecordingInfo(extra.session_id)
-    }, [extra.session_id, checkRecordingInfo])
-    const hasRecording = getRecordingExists(extra.session_id)
-
-    const { onClick: openRecording, disabledReason } = useRecordingButton({
-        sessionId: extra.session_id,
-        timestamp: segmentSeekTime,
-        openPlayerIn: RecordingPlayerType.Modal,
-        hasRecording,
-    })
+    const segmentSeekTime = recordingSeekTime(extra.session_start_time ?? undefined, extra.start_time)
 
     const events = extra.event_history ?? []
     const visibleEvents = showAllEvents ? events : events.slice(0, TIMELINE_PREVIEW_COUNT)
@@ -161,35 +135,17 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 </LemonMarkdown>
             )}
 
-            {/* The 16:9 preview frame is itself the play affordance — clicking it opens the recording at the segment. */}
-            <button
-                type="button"
-                onClick={openRecording}
-                disabled={!!disabledReason}
-                title={typeof disabledReason === 'string' ? disabledReason : undefined}
-                aria-label="Play recording"
-                className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
-            >
-                {thumbnailSrc && (
-                    <img
-                        src={thumbnailSrc}
-                        alt={`Recording preview for ${extra.segment_title}`}
-                        className="absolute inset-0 size-full object-cover"
-                        onError={() => setThumbnailFailed(true)}
-                    />
-                )}
-                <div
-                    className={clsx(
-                        'absolute inset-0 flex items-center justify-center transition-colors',
-                        thumbnailSrc ? 'bg-black/20 group-hover:bg-black/30' : 'group-hover:bg-fill-highlight-100'
-                    )}
-                >
-                    <IconPlay
-                        className={clsx('size-10 drop-shadow', thumbnailSrc ? 'text-white' : 'text-tertiary')}
-                        aria-hidden
-                    />
-                </div>
-            </button>
+            {/* Opens the recording at the segment in the player modal; disables when it wasn't captured. */}
+            <ViewRecordingButton
+                sessionId={extra.session_id}
+                timestamp={segmentSeekTime}
+                openPlayerIn={RecordingPlayerType.Modal}
+                checkRecordingExists
+                label="View replay"
+                type="secondary"
+                size="small"
+                className="mb-2"
+            />
 
             {/* Dot-separated meta line: affected user, segment window, active/total duration. */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-tertiary mb-2">
@@ -219,7 +175,7 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                                 key={`${entry.timestamp}-${index}`}
                                 entry={entry}
                                 sessionId={extra.session_id}
-                                sessionStartTime={extra.session_start_time}
+                                sessionStartTime={extra.session_start_time ?? undefined}
                             />
                         ))}
                     </ul>

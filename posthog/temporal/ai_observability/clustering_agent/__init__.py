@@ -8,37 +8,22 @@ duplicate; the level-specific prompts, tools, and state TypedDicts live with
 each individual agent so per-level prompt iteration stays local.
 """
 
-import os
-
-from django.conf import settings
-
 from langchain_openai import ChatOpenAI
 
-from posthog.cloud_utils import is_cloud
+from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
 from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel
 
 
 def get_labeling_llm(model: str, timeout: float) -> ChatOpenAI:
-    """Return an OpenAI chat client configured for cluster labeling.
+    """Return a ChatOpenAI client for cluster labeling.
 
-    Enforces the same environment guardrails the trace clustering agent has
-    always used: AI features only run in Cloud or local DEBUG builds, and the
-    OpenAI key must be explicitly configured.
+    Shared by the trace and evaluation labeling agents. Routes through the
+    ai-gateway when configured; see
+    ``posthog.temporal.ai_observability.llm_endpoint``. Enforces the same
+    guardrail as before: AI features only run in Cloud or local DEBUG builds.
     """
-    if not settings.DEBUG and not is_cloud():
-        raise Exception("AI features are only available in PostHog Cloud")
-
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise Exception("OpenAI API key is not configured")
-
-    return ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        timeout=timeout,
-        max_retries=2,
-    )
+    return build_langchain_chat_client(model, timeout, ai_product="aio_clustering")
 
 
 def fill_missing_labels(

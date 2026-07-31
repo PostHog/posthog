@@ -27,9 +27,19 @@ def get_s3_client():
 
 
 @contextlib.asynccontextmanager
-async def aget_s3_client():
-    # Defaults for localhost dev and test suites
+async def aget_s3_client(*, fresh_instance: bool = False):
+    # fresh_instance=True bypasses the fsspec instance cache: a new S3FileSystem bound to the current
+    # event loop, closed on context exit. The cached default hands every caller the same instance
+    # regardless of loop, so async_to_sync-driven code (each call runs on a fresh, short-lived loop)
+    # gets an aiobotocore client bound to an already-closed loop ("Event loop is closed") and a
+    # dircache that goes stale whenever delta-rs writes to S3 through its own object store behind
+    # s3fs's back. Reserve it for low-frequency, correctness-critical paths (repartition purge/swap):
+    # every fresh instance pays connection setup + credential resolution, so defaulting it on would
+    # hammer the credential provider from hot paths.
+    uncached = fresh_instance or settings.USE_LOCAL_SETUP
     if settings.USE_LOCAL_SETUP:
+        # Defaults for localhost dev and test suites. skip_instance_cache avoids "Event loop is
+        # closed" errors when the loop changes between test modules.
         s3 = s3fs.S3FileSystem(
             key=settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY,
             secret=settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET,
@@ -38,11 +48,24 @@ async def aget_s3_client():
             asynchronous=True,
         )
     else:
-        s3 = s3fs.S3FileSystem(asynchronous=True)
+        s3 = s3fs.S3FileSystem(asynchronous=True, skip_instance_cache=fresh_instance)
 
     await s3.set_session()
 
-    yield s3
+    if not uncached:
+        yield s3
+        return
+
+    try:
+        yield s3
+    finally:
+        # Uncached instances aren't finalized by the fsspec registry, so close the aiobotocore client
+        # explicitly (s3fs's set_session docs: "to be closed later with await .close()") to avoid
+        # leaking HTTP connections in long-lived workers. Never close the shared cached instance —
+        # other callers hold references to it.
+        with contextlib.suppress(Exception):
+            if s3._s3 is not None:
+                await s3._s3.close()
 
 
 def get_size_of_folder(path: str) -> float:

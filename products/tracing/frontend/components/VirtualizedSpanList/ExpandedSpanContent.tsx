@@ -7,8 +7,7 @@ export interface ExpandedSpanContentProps {
     span: Span
     /**
      * Render the "Span details" KVP table alongside the attributes. The drawer's summary header
-     * already surfaces these facts, so it passes false; the span-list expand-row (no header) keeps
-     * the default. @default true
+     * already surfaces these facts, so it passes false. @default true
      */
     showDetails?: boolean
 }

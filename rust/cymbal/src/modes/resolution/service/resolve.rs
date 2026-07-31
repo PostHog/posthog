@@ -293,7 +293,7 @@ async fn resolve_one_exception(
         exception
     };
 
-    FrameResolver::resolve_exception_frames(team_id, exception, &debug_images, stage)
+    FrameResolver::resolve_exception_frames(team_id, exception, Arc::new(debug_images), stage)
         .await
         .map_err(|err| capture_unhandled(team_id, err))
 }

@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { getExperimentVariants } from 'scenes/experiments/utils'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyEnableToggle } from 'scenes/surveys/SurveySettings'
@@ -190,7 +191,7 @@ export function QuickSurveyForm({ context, info, onCancel, showFollowupToggle }:
                     {context.type === QuickSurveyType.EXPERIMENT && (
                         <>
                             <VariantSelector
-                                variants={context.experiment.parameters?.feature_flag_variants || []}
+                                variants={getExperimentVariants(context.experiment)}
                                 defaultOptionText="All users exposed to this experiment"
                             />
                             <EventSelector />

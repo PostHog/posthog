@@ -2,9 +2,47 @@ import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
 
-import { InsightMetaContent } from './InsightMeta'
+import { getEffectiveDateOverride, InsightMetaContent } from './InsightMeta'
 
-describe('InsightMetaContent', () => {
+describe('InsightMeta', () => {
+    describe('getEffectiveDateOverride', () => {
+        it.each([
+            {
+                label: 'backend-resolved tile dates override raw dashboard and tile inputs',
+                filterOverrideContext: {
+                    dashboard: null,
+                    tile: { date_from: '-7d' },
+                    overridden_dashboard: { date_from: '-30d' },
+                },
+                filtersOverride: { date_from: '-30d' },
+                tileFiltersOverride: { date_from: '-3d' },
+                expected: { dateFromOverride: '-7d', dateToOverride: undefined },
+            },
+            {
+                label: 'tile override without dates (properties-only) → keeps dashboard dates (merge)',
+                filtersOverride: { date_from: '-30d' },
+                tileFiltersOverride: { properties: [] },
+                expected: { dateFromOverride: '-30d', dateToOverride: undefined },
+            },
+            {
+                label: 'no tile override → uses dashboard override dates',
+                filtersOverride: { date_from: '-30d' },
+                tileFiltersOverride: undefined,
+                expected: { dateFromOverride: '-30d', dateToOverride: undefined },
+            },
+            {
+                label: 'no overrides at all → no date override',
+                filtersOverride: undefined,
+                tileFiltersOverride: undefined,
+                expected: { dateFromOverride: undefined, dateToOverride: undefined },
+            },
+        ])('$label', ({ filterOverrideContext, filtersOverride, tileFiltersOverride, expected }) => {
+            expect(getEffectiveDateOverride(filterOverrideContext, filtersOverride, tileFiltersOverride)).toEqual(
+                expected
+            )
+        })
+    })
+
     const description = 'Test description content'
 
     // The caller (InsightMeta) computes showDescription from tile.show_description:

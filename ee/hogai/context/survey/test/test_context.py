@@ -37,7 +37,7 @@ class TestSurveyContext(BaseTest):
         )
 
     def test_format_questions_rating(self):
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         formatted = context.format_questions(self.survey)
 
         assert "How likely are you to recommend us?" in formatted
@@ -47,7 +47,7 @@ class TestSurveyContext(BaseTest):
         assert "Optional: No" in formatted
 
     def test_format_questions_open(self):
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         formatted = context.format_questions(self.survey)
 
         assert "What could we improve?" in formatted
@@ -58,19 +58,19 @@ class TestSurveyContext(BaseTest):
         self.survey.questions = []
         self.survey.save()
 
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         formatted = context.format_questions(self.survey)
 
         assert formatted == "No questions defined."
 
     def test_format_targeting_url(self):
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         formatted = context.format_targeting(self.survey)
 
         assert "URL targeting: /pricing" in formatted
 
     def test_format_targeting_wait_period(self):
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         formatted = context.format_targeting(self.survey)
 
         assert "Wait period: 30 seconds" in formatted
@@ -79,13 +79,13 @@ class TestSurveyContext(BaseTest):
         self.survey.conditions = {}
         self.survey.save()
 
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         formatted = context.format_targeting(self.survey)
 
         assert formatted == "No specific targeting configured (shows to all users)."
 
     def test_get_status_draft(self):
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         status = context._get_status(self.survey)
         assert status == "draft"
 
@@ -95,7 +95,7 @@ class TestSurveyContext(BaseTest):
         self.survey.start_date = timezone.now()
         self.survey.save()
 
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         status = context._get_status(self.survey)
         assert status == "active"
 
@@ -106,7 +106,7 @@ class TestSurveyContext(BaseTest):
         self.survey.end_date = timezone.now()
         self.survey.save()
 
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         status = context._get_status(self.survey)
         assert status == "completed"
 
@@ -114,13 +114,13 @@ class TestSurveyContext(BaseTest):
         self.survey.archived = True
         self.survey.save()
 
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         status = context._get_status(self.survey)
         assert status == "archived"
 
     @pytest.mark.asyncio
     async def test_aget_survey(self):
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         survey = await context.aget_survey()
 
         assert survey is not None
@@ -128,7 +128,7 @@ class TestSurveyContext(BaseTest):
 
     @pytest.mark.asyncio
     async def test_aget_survey_not_found(self):
-        context = SurveyContext(team=self.team, survey_id="00000000-0000-0000-0000-000000000000")
+        context = SurveyContext(team=self.team, user=self.user, survey_id="00000000-0000-0000-0000-000000000000")
         survey = await context.aget_survey()
 
         assert survey is None
@@ -138,7 +138,7 @@ class TestSurveyContext(BaseTest):
         with patch.object(SurveyContext, "aget_response_count", new_callable=AsyncMock) as mock_count:
             mock_count.return_value = 42
 
-            context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+            context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
             result = await context.execute_and_format(self.survey)
 
             assert "Test NPS Survey" in result
@@ -174,7 +174,7 @@ class TestSurveyContextChoiceQuestions(BaseTest):
         )
 
     def test_format_questions_single_choice(self):
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         formatted = context.format_questions(self.survey)
 
         assert "What feature do you use most?" in formatted
@@ -182,7 +182,7 @@ class TestSurveyContextChoiceQuestions(BaseTest):
         assert "Choices: Dashboard, Insights, Session Replay" in formatted
 
     def test_format_questions_multiple_choice(self):
-        context = SurveyContext(team=self.team, survey_id=str(self.survey.id))
+        context = SurveyContext(team=self.team, user=self.user, survey_id=str(self.survey.id))
         formatted = context.format_questions(self.survey)
 
         assert "Which products interest you?" in formatted

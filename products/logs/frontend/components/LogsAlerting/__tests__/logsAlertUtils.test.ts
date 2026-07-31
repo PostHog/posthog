@@ -1,6 +1,9 @@
 import { FilterLogicalOperator, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LogsAlertConfigurationApi, ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertConfigurationApi,
+    LogsAlertThresholdOperatorEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertFormType } from '../logsAlertFormLogic'
 import { buildLogsAlertFilterConfig, groupLogsAlertDestinations, runPreEnableChecks } from '../logsAlertUtils'
@@ -17,7 +20,7 @@ const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType
     severityLevels: ['error'],
     serviceNames: [],
     filterGroup: { type: FilterLogicalOperator.And, values: [] },
-    thresholdOperator: ThresholdOperatorEnumApi.Above,
+    thresholdOperator: LogsAlertThresholdOperatorEnumApi.Above,
     thresholdCount: 1,
     windowMinutes: 5,
     evaluationPeriods: 1,
@@ -50,6 +53,7 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `slack-${id}`,
                 enabled,
+                template: { id: 'template-slack' },
                 inputs: { channel: { value: channel } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -59,16 +63,17 @@ describe('logsAlertUtils', () => {
                 id,
                 name: `webhook-${id}`,
                 enabled,
+                template: { id: 'template-webhook' },
                 inputs: { url: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType
 
-        // The Microsoft Teams template stores its URL under `webhookUrl`, not `url`.
         const teamsHf = (id: string, url: string, enabled = true): HogFunctionType =>
             ({
                 id,
                 name: `teams-${id}`,
                 enabled,
+                template: { id: 'template-microsoft-teams' },
                 inputs: { webhookUrl: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType

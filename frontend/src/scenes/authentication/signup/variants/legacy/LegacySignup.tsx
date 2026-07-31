@@ -3,10 +3,10 @@ import { router } from 'kea-router'
 
 import { IconCheckCircle } from '@posthog/icons'
 
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { AuthShell } from 'scenes/authentication/shared/AuthShell'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -27,7 +27,7 @@ function Signup(): JSX.Element | null {
     }
 
     return !user ? (
-        <AuthShell
+        <BridgePage
             view="signup"
             sideLogo
             leftContainerContent={<SignupLeftContainer />}
@@ -45,7 +45,7 @@ function Signup(): JSX.Element | null {
                 <div data-attr="signup-aa-test-variant" data-variant={signupAATestVariant} className="hidden" />
             )}
             <SignupForm />
-        </AuthShell>
+        </BridgePage>
     ) : null
 }
 

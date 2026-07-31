@@ -1,6 +1,7 @@
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
     DEFAULT_MAX_EXECUTION_SECONDS,
+    MIN_SAMPLING_RATE,
     SAMPLE_RATE_PRECISION,
     SETTLE_INTERVAL,
     CandidateSession,
@@ -20,6 +21,7 @@ __all__ = [
     "DEFAULT_MAX_EXECUTION_SECONDS",
     "ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS",
     "ESTIMATE_STALE_AFTER",
+    "MIN_SAMPLING_RATE",
     "SAMPLE_RATE_PRECISION",
     "SETTLE_INTERVAL",
     "CandidateSession",

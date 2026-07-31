@@ -4,8 +4,8 @@
 {% block content %}
 <p>Provision a new managed warehouse for an organization and its first team. This runs the same
 flow as the in-product provision API: the duckgres control-plane <code>/provision</code> call, then
-the <code>DuckgresServer</code> and <code>DuckgresServerTeam</code>
-records for the team. The organization's <code>data-warehouse-scene</code> feature flag is
+the local <code>DuckgresServer</code> connection record and the control-plane team row.
+The organization's <code>data-warehouse-scene</code> feature flag is
 <strong>not</strong> required here.</p>
 <p><strong>This makes a real control-plane call.</strong> In environments where
 <code>DUCKGRES_API_URL</code> is unset, it returns "not configured" and persists nothing.</p>
@@ -26,9 +26,9 @@ records for the team. The organization's <code>data-warehouse-scene</code> featu
         <p class="help">Becomes the connection's SNI subdomain — 3-63 chars, lowercase letters, numbers and hyphens, starting with a letter.</p>
     </div>
     <div style="margin: 20px 0;">
-        <label for="table_name" style="display: block; margin-bottom: 5px; font-weight: bold;">Table suffix:</label>
-        <input type="text" id="table_name" name="table_name" style="width: 400px; padding: 8px;" required />
-        <p class="help">The team's per-environment table suffix — lowercase letters, numbers and underscores. The backfill writes to <code>events_&lt;suffix&gt;</code> / <code>persons_&lt;suffix&gt;</code>.</p>
+        <label for="schema_name" style="display: block; margin-bottom: 5px; font-weight: bold;">Schema name:</label>
+        <input type="text" id="schema_name" name="schema_name" style="width: 400px; padding: 8px;" required />
+        <p class="help">The team's schema in the warehouse (lowercase letters, numbers and underscores). The schema name cannot be changed later.</p>
     </div>
     <div style="margin-top: 20px;">
         <input type="submit" class="default" value="Provision" style="padding: 10px 20px;" />

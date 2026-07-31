@@ -4,8 +4,9 @@ import {
     sanitizeResourceName,
 } from 'lib/components/TerraformExporter/hclExporterFormattingUtils'
 
-import { AlertType } from '~/lib/components/Alerts/types'
 import { DashboardBasicType, DashboardType, HogFunctionType, InsightModel } from '~/types'
+
+import { AlertType } from 'products/alerts/frontend/types'
 
 import { generateDashboardLayoutHCL } from './dashboardLayoutHclExporter'
 import { FieldMapping, HclExportOptions, HclExportResult, ResourceExporter, generateHCL } from './hclExporter'

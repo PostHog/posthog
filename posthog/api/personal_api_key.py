@@ -74,6 +74,13 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     is_legacy_hashing = serializers.SerializerMethodField(
         help_text="Whether this key uses legacy PBKDF2 hashing and should be rolled to upgrade."
     )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=1000,
+        help_text="Optional description of what the key is used for and where",
+    )
     scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
     scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
@@ -83,6 +90,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "label",
+            "description",
             "value",
             "is_legacy_hashing",
             "mask_value",
@@ -111,6 +119,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     def get_is_legacy_hashing(self, obj: PersonalAPIKey) -> bool:
         # Keys created before 2024-02 use PBKDF2 hashing, which is significantly slower per request
         return bool(obj.secure_value and obj.secure_value.startswith(LEGACY_HASH_PREFIX))
+
+    def validate_description(self, description: str | None) -> str | None:
+        # Normalize "" to None so an absent description has a single canonical representation
+        return description or None
 
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user

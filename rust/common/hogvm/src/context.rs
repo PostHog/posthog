@@ -1,6 +1,7 @@
+use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde_json::{json, Value as JsonValue};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::{
@@ -10,6 +11,10 @@ use crate::{
     vm::HogVM,
     HogLiteral, HogValue,
 };
+
+/// Function names that always suspend, mirroring the reference VM's `ASYNC_STL`. These are async
+/// regardless of host configuration; `with_async_functions` registers additional ones.
+const BUILTIN_ASYNC_FNS: &[&str] = &["sleep"];
 
 /// Default native-function and symbol tables, built once from the process-static STL and shared via
 /// `Arc` by every [`ExecutionContext::with_defaults`] so the maps aren't rebuilt per context.
@@ -50,6 +55,17 @@ pub struct ExecutionContext {
     // copy-on-write via `Arc::make_mut`.
     native_fns: Arc<HashMap<String, NativeFunction>>,
     symbol_table: Arc<HashMap<Symbol, ExportedFunction>>, // Flattened symbol table of all imported hog modules
+    // Names of global functions that suspend the VM instead of executing inline (the reference VM's
+    // `asyncFunctions` + `ASYNC_STL`). When the VM hits a `CALL_GLOBAL` for one of these and the
+    // async-step budget still allows it, execution suspends and the host performs the side effect
+    // (e.g. `fetch`) out-of-band, then resumes. See `HogVM::execute_resumable` / `resume`.
+    async_fns: HashSet<String>,
+    // How many async suspensions a single run may take before the VM errors instead of suspending
+    // (the reference VM's `maxAsyncSteps`). Default 0: no async allowed (matches the sync consumers).
+    pub(crate) max_async_steps: usize,
+    // When set, the VM records a per-opcode execution trace (the reference's `telemetry`), surfaced
+    // in the snapshot for the playground/debugger. Off by default (it has a per-step cost).
+    pub(crate) collect_telemetry: bool,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -77,20 +93,30 @@ impl ExecutionContext {
             coerce_comparisons: false,
             native_fns: Arc::new(native_fns),
             symbol_table: Arc::new(flatten_modules(&modules)),
+            async_fns: HashSet::new(),
+            max_async_steps: 0,
+            collect_telemetry: false,
         }
     }
 
     pub fn with_defaults(bytecode: Program) -> Self {
-        // TODO - these limits are basically randomly chosen
         Self {
             program: bytecode,
             globals: json!({}),
-            max_stack_depth: 128,
+            // Operand-stack ceiling. The reference (Node) VM imposes no operand-stack limit — it is
+            // bounded only by memory — so the old default of 128 spuriously overflowed valid programs
+            // that build large array/object literals. `max_steps` below already caps total pushes (a
+            // program can't push more values than it executes ops), so this is a generous safety
+            // ceiling rather than a functional bound (a prod hog-function survey hit 128 on real fns).
+            max_stack_depth: 1 << 20,
             max_heap_size: 1024 * 1024,
             max_steps: 10_000,
             coerce_comparisons: false,
             native_fns: DEFAULT_NATIVE_FNS.clone(),
             symbol_table: DEFAULT_SYMBOL_TABLE.clone(),
+            async_fns: HashSet::new(),
+            max_async_steps: 0,
+            collect_telemetry: false,
         }
     }
 
@@ -130,6 +156,32 @@ impl ExecutionContext {
     pub fn with_coercing_comparisons(mut self) -> Self {
         self.coerce_comparisons = true;
         self
+    }
+
+    /// Register the global function names that suspend the VM (the reference `asyncFunctions`). Pair
+    /// with [`Self::with_max_async_steps`] to allow at least one suspension, otherwise the VM errors
+    /// the moment it calls one. Accumulates across calls, like [`Self::with_ext_fns`].
+    pub fn with_async_functions(mut self, names: HashSet<String>) -> Self {
+        self.async_fns.extend(names);
+        self
+    }
+
+    /// How many async suspensions a single run may take before erroring (reference `maxAsyncSteps`).
+    pub fn with_max_async_steps(mut self, max_async_steps: usize) -> Self {
+        self.max_async_steps = max_async_steps;
+        self
+    }
+
+    /// Opt into per-opcode telemetry (the reference's execution trace), surfaced in the snapshot.
+    pub fn with_telemetry(mut self) -> Self {
+        self.collect_telemetry = true;
+        self
+    }
+
+    pub fn is_async(&self, name: &str) -> bool {
+        // The reference's `ASYNC_STL` (currently just `sleep`) is always async, regardless of the
+        // host-registered `asyncFunctions`. Host registrations are additive on top.
+        BUILTIN_ASYNC_FNS.contains(&name) || self.async_fns.contains(name)
     }
 
     pub fn with_max_stack_depth(mut self, max_stack_depth: usize) -> Self {
@@ -174,6 +226,12 @@ impl ExecutionContext {
             .ok_or(VmError::UnknownSymbol(symbol.to_string()))
     }
 
+    // Whether `name` is a registered native (STL/ext) function — used to resolve first-class
+    // references to native functions in GetGlobal.
+    pub fn has_native(&self, name: &str) -> bool {
+        self.native_fns.contains_key(name)
+    }
+
     pub fn execute_native_function_call(
         &self,
         vm: &mut HogVM,
@@ -202,6 +260,17 @@ impl ExecutionContext {
 
     pub fn version(&self) -> u64 {
         self.program.version()
+    }
+
+    /// The root program's full bytecode (header included), for a snapshot's `bytecodes.root`.
+    pub fn program_tokens(&self) -> &[JsonValue] {
+        self.program.tokens()
+    }
+
+    /// Header-token count of the root program — the offset between our body-relative `ip` and the
+    /// reference VM's header-inclusive per-frame `ip` for the root chunk.
+    pub fn program_header_len(&self) -> usize {
+        self.program.header_len()
     }
 }
 
@@ -237,18 +306,29 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
         }
     };
 
+    // Arrays and tuples emplace identically; only the rebuilt variant differs (tuples must stay
+    // tuples so they keep their `(a, b)` printing and "tuple" typeof through the heap).
+    let is_tuple = matches!(literal, HogLiteral::Tuple(_));
+
     match literal {
-        HogLiteral::Array(arr) => {
+        HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
+            let rebuild = |v: Vec<HogValue>| {
+                if is_tuple {
+                    HogLiteral::Tuple(v)
+                } else {
+                    HogLiteral::Array(v)
+                }
+            };
             // Fast path: when every element is a plain (non-container, non-reference) literal there
             // is nothing to emplace, so skip the per-element walk + re-collect entirely. Native STL
             // results are overwhelmingly flat numeric/string arrays, and this walk was the single
             // hottest function in the interpreter (~25% of instructions) before this guard.
             let emplaced_arr = if arr.iter().all(is_flat_literal) {
-                HogLiteral::Array(arr)
+                rebuild(arr)
             } else {
                 let walked: Result<Vec<HogValue>, _> =
                     arr.into_iter().map(|i| walk_emplacing(vm, i)).collect();
-                HogLiteral::Array(walked?)
+                rebuild(walked?)
             };
 
             if let Some(ptr) = existing_location {
@@ -261,7 +341,7 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
             }
         }
         HogLiteral::Object(obj) => {
-            let emplaced_obj: Result<HashMap<String, HogValue>, _> = obj
+            let emplaced_obj: Result<IndexMap<String, HogValue>, _> = obj
                 .into_iter()
                 .map(|(k, v)| Ok((k, walk_emplacing(vm, v)?)))
                 .collect();

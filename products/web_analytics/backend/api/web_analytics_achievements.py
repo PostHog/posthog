@@ -32,6 +32,7 @@ from products.web_analytics.backend.achievements.tasks import (
 from products.web_analytics.backend.models import (
     WebAnalyticsAchievementProgress,
     WebAnalyticsInteraction,
+    WebAnalyticsUserConfig,
     WebAnalyticsVisit,
 )
 
@@ -115,6 +116,15 @@ class RecordInteractionRequestSerializer(serializers.Serializer):
 
 class RecordInteractionResponseSerializer(serializers.Serializer):
     recorded = serializers.BooleanField(help_text="True once the interaction has been counted for the user.")
+
+
+class WebAnalyticsUserPreferencesSerializer(serializers.Serializer):
+    achievements_opt_out = serializers.BooleanField(
+        help_text=(
+            "When true, the requesting user has hidden the Web analytics achievements gamification UI and "
+            "suppressed achievement-unlocked notifications for this project. Scoped per (project, user)."
+        )
+    )
 
 
 def _serialize_progress(progress: WebAnalyticsAchievementProgress) -> dict[str, object]:
@@ -304,3 +314,36 @@ class WebAnalyticsAchievementsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVi
         except Exception as e:
             capture_exception(e)
         return Response({"recorded": True})
+
+    @extend_schema(
+        methods=["GET"],
+        operation_id="web_analytics_achievements_preferences",
+        summary="Get Web analytics achievements preferences",
+        description="Returns the requesting user's per-project Web analytics achievements preferences.",
+        responses={200: WebAnalyticsUserPreferencesSerializer},
+    )
+    @extend_schema(
+        methods=["POST"],
+        operation_id="web_analytics_achievements_update_preferences",
+        summary="Update Web analytics achievements preferences",
+        description="Sets the requesting user's per-project Web analytics achievements preferences.",
+        request=WebAnalyticsUserPreferencesSerializer,
+        responses={200: WebAnalyticsUserPreferencesSerializer},
+    )
+    @action(detail=False, methods=["get", "post"], url_path="preferences")
+    def preferences(self, request: Request, **kwargs: object) -> Response:
+        user = cast(User, request.user)
+        canonical_team_id = self.team.parent_team_id or self.team.id
+        if request.method == "POST":
+            request_serializer = WebAnalyticsUserPreferencesSerializer(data=request.data)
+            request_serializer.is_valid(raise_exception=True)
+            opted_out = request_serializer.validated_data["achievements_opt_out"]
+            WebAnalyticsUserConfig.objects.update_or_create(
+                team_id=canonical_team_id,
+                user_id=user.id,
+                defaults={"achievements_opt_out": opted_out},
+            )
+        else:
+            config = WebAnalyticsUserConfig.objects.filter(team_id=canonical_team_id, user_id=user.id).first()
+            opted_out = config.achievements_opt_out if config else False
+        return Response(WebAnalyticsUserPreferencesSerializer({"achievements_opt_out": opted_out}).data)

@@ -33,8 +33,8 @@ def landing_url(next_url: str | None, team_id: int | None) -> str:
     if next_url and is_relative_url(next_url):
         return next_url
     if team_id is not None:
-        return f"/project/{team_id}/settings/project-integrations"
-    return "/settings/environment-integrations"
+        return f"/project/{team_id}/integrations/github"
+    return "/integrations/github"
 
 
 def redirect_from_finish_result(result: FinishResult) -> HttpResponseRedirect:

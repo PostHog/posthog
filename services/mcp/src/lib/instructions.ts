@@ -21,14 +21,16 @@ export function buildActiveEnvironmentContextPrompt(
     if (org || project) {
         const projectName = project?.name ?? 'Unknown'
         const projectId = project?.id ?? 'unknown'
+        const projectToken = project?.api_token ?? 'unknown'
+
         if (org) {
             const orgName = org.name ?? 'Unknown'
             const orgId = org.id ?? 'unknown'
             lines.push(
-                `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
+                `You are currently in project "${projectName}" (id: ${projectId}, token: ${projectToken}) within organization "${orgName}" (id: ${orgId}).`
             )
         } else {
-            lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
+            lines.push(`You are currently in project "${projectName}" (id: ${projectId}, token: ${projectToken}).`)
         }
     }
     if (regionalBaseUrl) {
@@ -41,6 +43,11 @@ export function buildActiveEnvironmentContextPrompt(
     }
     if (project) {
         lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
+        if (project.test_account_filters_default_checked) {
+            lines.push(
+                'This project filters out internal and test users by default. `query-*` tools apply this automatically when `filterTestAccounts` is omitted; when composing queries for other tools (e.g. insight-create), set `filterTestAccounts: true` unless the user asks to include internal/test data.'
+            )
+        }
         const poeValue = project.person_on_events_querying_enabled as string | boolean | null | undefined
         if (poeValue === true || poeValue === 'true') {
             lines.push(

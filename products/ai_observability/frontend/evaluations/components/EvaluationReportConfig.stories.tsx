@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import type { ReportScheduleCadence, ReportScheduleWeekday } from '../evaluationReportLogic'
 import { ScheduleConfig } from './EvaluationReportConfig'
 
 type Story = StoryObj<typeof ScheduleConfig>
@@ -17,18 +18,22 @@ const meta: Meta<typeof ScheduleConfig> = {
 export default meta
 
 function Template(): JSX.Element {
-    const [rrule, setRrule] = useState('FREQ=DAILY')
-    const [startsAt, setStartsAt] = useState<string | null>('2026-01-15T09:30:00.000Z')
-    const [timezoneName, setTimezoneName] = useState('UTC')
+    const [cadence, setCadence] = useState<ReportScheduleCadence>('weekly')
+    const [weekdays, setWeekdays] = useState<ReportScheduleWeekday[]>(['MO', 'FR'])
+    const toggleWeekday = (weekday: ReportScheduleWeekday): void => {
+        setWeekdays((current) =>
+            current.includes(weekday)
+                ? current.filter((currentWeekday) => currentWeekday !== weekday)
+                : [...current, weekday]
+        )
+    }
     return (
         <div className="w-100">
             <ScheduleConfig
-                rrule={rrule}
-                startsAt={startsAt}
-                timezoneName={timezoneName}
-                onRruleChange={setRrule}
-                onStartsAtChange={setStartsAt}
-                onTimezoneChange={setTimezoneName}
+                cadence={cadence}
+                weekdays={weekdays}
+                onCadenceChange={setCadence}
+                onWeekdayToggle={toggleWeekday}
             />
         </div>
     )

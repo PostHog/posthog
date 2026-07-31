@@ -137,6 +137,7 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
                 completion_token: outputTokenPrice,
                 cache_read_token: finiteNumberOrUndefined(event.properties['$ai_cache_read_token_price']),
                 cache_write_token: finiteNumberOrUndefined(event.properties['$ai_cache_write_token_price']),
+                cache_write_1h_token: finiteNumberOrUndefined(event.properties['$ai_cache_write_1h_token_price']),
                 request: finiteNumberOrUndefined(event.properties['$ai_request_price']),
                 web_search: finiteNumberOrUndefined(event.properties['$ai_web_search_price']),
             },

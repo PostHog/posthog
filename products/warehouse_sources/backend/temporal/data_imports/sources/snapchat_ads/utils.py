@@ -2,6 +2,7 @@ import copy
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -10,6 +11,9 @@ from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import (
     BASE_URL,
@@ -24,6 +28,96 @@ SNAPCHAT_DATE_FORMAT = "%Y-%m-%dT00:00:00"
 # HTTP status codes that should trigger a retry
 # https://developers.snap.com/api/marketing-api/Ads-API/errors
 RETRYABLE_STATUS_CODES = [429, 500, 503]
+
+
+AD_ACCOUNTS_PAGE_LIMIT = 50
+# Guards against a malformed/looping `next_link`; far above any real org count.
+MAX_AD_ACCOUNT_PAGES = 100
+
+# Every pagination request carries the bearer token, so we only ever follow a `next_link`
+# that stays on Snapchat's API host over HTTPS.
+_EXPECTED_API_HOST = urlsplit(BASE_URL).hostname
+
+
+def _validate_pagination_url(url: str) -> None:
+    """Reject a `next_link` that isn't HTTPS on Snapchat's API host.
+
+    Each pagination request attaches the OAuth bearer token, so a cross-origin
+    `next_link` would leak it to another host. Defense-in-depth behind the egress
+    proxy: fail closed rather than follow an unexpected origin.
+    """
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname != _EXPECTED_API_HOST:
+        raise IntegrationAccountListingError(
+            "Snapchat returned an unexpected pagination link while listing ad accounts. Please try again."
+        )
+
+
+def _raise_for_in_body_failure(body: dict) -> None:
+    """Snapchat can report failure in a 200 body via `request_status`, so `raise_for_status()` alone
+    would let it through and leave the user with a silently empty picker."""
+    request_status = body.get("request_status")
+    if request_status is None or request_status == "SUCCESS":
+        return
+    message = body.get("debug_message") or body.get("display_message") or "Unknown API error"
+    raise IntegrationAccountListingError(f"Snapchat could not list your ad accounts: {message}")
+
+
+def list_ad_accounts(access_token: str) -> list[tuple[dict, str | None]]:
+    """Snapchat nests them: `organizations[].organization.ad_accounts[]`, with a per-organization
+    `sub_request_status` we skip unless it succeeded.
+    """
+    session = make_tracked_session(allow_redirects=False)
+    url = f"{BASE_URL}/me/organizations"
+    params: dict | None = {"with_ad_accounts": "true", "limit": AD_ACCOUNTS_PAGE_LIMIT}
+
+    accounts: list[tuple[dict, str | None]] = []
+    saw_organization = False
+    saw_successful_organization = False
+
+    for _ in range(MAX_AD_ACCOUNT_PAGES):
+        response = session.get(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            params=params,
+            timeout=30,
+        )
+        response.raise_for_status()
+        body = response.json()
+        _raise_for_in_body_failure(body)
+
+        for wrapper in body.get("organizations") or []:
+            saw_organization = True
+            if wrapper.get("sub_request_status") != "SUCCESS":
+                continue
+            saw_successful_organization = True
+            organization = wrapper.get("organization") or {}
+            organization_name = organization.get("name")
+            for account in organization.get("ad_accounts") or []:
+                accounts.append((account, organization_name))
+
+        next_link = (body.get("paging") or {}).get("next_link")
+        if not next_link:
+            break
+        # next_link is an absolute URL that already carries the cursor and the original query.
+        # Validate its origin before re-attaching the bearer token to it.
+        _validate_pagination_url(next_link)
+        url, params = next_link, None
+    else:
+        # Hitting the cap means a looping/oversized result set; returning the accounts gathered so
+        # far would silently present a truncated (or cursor-duplicated) picker as complete.
+        raise IntegrationAccountListingError(
+            "Snapchat returned too many pages while listing ad accounts. Please try again."
+        )
+
+    if saw_organization and not saw_successful_organization:
+        # Every org failed, so an empty list here means "we couldn't read them", not "you have none".
+        raise IntegrationAccountListingError(
+            "Snapchat could not return the ad accounts for any of your organizations. "
+            "Please make sure the connected account can access them and try again."
+        )
+
+    return accounts
 
 
 def fetch_account_metadata(ad_account_id: str, access_token: str) -> tuple[str | None, str | None]:

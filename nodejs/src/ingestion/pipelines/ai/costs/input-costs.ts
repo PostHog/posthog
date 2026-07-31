@@ -1,21 +1,11 @@
 import bigDecimal from 'js-big-decimal'
 
 import { logger } from '~/common/utils/logger'
+import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { numericProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
-
-/**
- * Multiply a per-token rate by a token count via js-big-decimal, coercing a
- * non-finite rate to zero first. `bigDecimal.multiply` throws "Parameter is not
- * a number" on any non-numeric operand, so this guards the rate operand against
- * a malformed custom price or a corrupt model-cost row reaching the library.
- */
-const multiplyRate = (rate: number | undefined, tokens: string | number): string => {
-    const safeRate = typeof rate === 'number' && Number.isFinite(rate) ? rate : 0
-    return bigDecimal.multiply(safeRate, tokens)
-}
 
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
     if (!event.properties) {
@@ -50,6 +40,14 @@ const usesInclusiveAnthropicInputTokens = (event: PluginEvent): boolean => {
     return provider === 'gateway' && framework === 'vercel'
 }
 
+const hasNumericProperty = (event: PluginEvent, key: string): boolean => {
+    const value = event.properties?.[key]
+    return (
+        (typeof value === 'number' && Number.isFinite(value)) ||
+        (typeof value === 'string' && value.length > 0 && Number.isFinite(Number(value)))
+    )
+}
+
 export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
     if (!event.properties) {
         return false
@@ -60,18 +58,21 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
         return explicit
     }
 
-    if (!matchProvider(event, 'anthropic')) {
-        return false
-    }
-
-    if (!usesInclusiveAnthropicInputTokens(event)) {
+    const anthropicStyle = matchProvider(event, 'anthropic')
+    if (anthropicStyle && !usesInclusiveAnthropicInputTokens(event)) {
         return true
     }
 
     const inputTokens = numericProperty(event, '$ai_input_tokens')
     const cacheReadTokens = numericProperty(event, '$ai_cache_read_input_tokens')
     const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
-    return inputTokens < cacheReadTokens + cacheWriteTokens
+    const provablyExclusive = inputTokens < cacheReadTokens + cacheWriteTokens
+
+    if (provablyExclusive) {
+        aiCacheExclusiveFallbackCounter.labels({ prior: anthropicStyle ? 'anthropic_inclusive' : 'inclusive' }).inc()
+    }
+
+    return provablyExclusive
 }
 
 /**
@@ -107,9 +108,9 @@ const computeAudioInputCost = (event: PluginEvent, cost: ResolvedModelCost, audi
     }
     if (cost.cost.audio === undefined) {
         warnMissingModalityRate(event, cost, 'audio')
-        return multiplyRate(cost.cost.prompt_token, audioInputTokens)
+        return bigDecimal.multiply(cost.cost.prompt_token, audioInputTokens)
     }
-    return multiplyRate(cost.cost.audio, audioInputTokens)
+    return bigDecimal.multiply(cost.cost.audio, audioInputTokens)
 }
 
 const computeImageInputCost = (event: PluginEvent, cost: ResolvedModelCost, imageInputTokens: number): string => {
@@ -118,9 +119,9 @@ const computeImageInputCost = (event: PluginEvent, cost: ResolvedModelCost, imag
     }
     if (cost.cost.image === undefined) {
         warnMissingModalityRate(event, cost, 'image')
-        return multiplyRate(cost.cost.prompt_token, imageInputTokens)
+        return bigDecimal.multiply(cost.cost.prompt_token, imageInputTokens)
     }
-    return multiplyRate(cost.cost.image, imageInputTokens)
+    return bigDecimal.multiply(cost.cost.image, imageInputTokens)
 }
 
 /**
@@ -138,13 +139,13 @@ const computeCachedAudioInputCost = (
         return '0'
     }
     if (cost.cost.input_audio_cache !== undefined) {
-        return multiplyRate(cost.cost.input_audio_cache, cachedAudioTokens)
+        return bigDecimal.multiply(cost.cost.input_audio_cache, cachedAudioTokens)
     }
     warnMissingModalityRate(event, cost, 'audio_cache')
     if (cost.cost.cache_read_token !== undefined) {
-        return multiplyRate(cost.cost.cache_read_token, cachedAudioTokens)
+        return bigDecimal.multiply(cost.cost.cache_read_token, cachedAudioTokens)
     }
-    return bigDecimal.multiply(multiplyRate(cost.cost.prompt_token, 0.5), cachedAudioTokens)
+    return bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cachedAudioTokens)
 }
 
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
@@ -188,17 +189,33 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     const cachedTextTokens = cacheReadTokens - cachedAudioInputTokens
 
     if (matchProvider(event, 'anthropic')) {
-        const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
+        const aggregateCacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
+        const cacheWrite5mTokens = numericProperty(event, '$ai_cache_creation_5m_input_tokens')
+        const cacheWrite1hTokens = numericProperty(event, '$ai_cache_creation_1h_input_tokens')
+        const hasCacheWriteBreakdown =
+            hasNumericProperty(event, '$ai_cache_creation_5m_input_tokens') &&
+            hasNumericProperty(event, '$ai_cache_creation_1h_input_tokens')
+        const cacheWriteTokens = hasCacheWriteBreakdown
+            ? cacheWrite5mTokens + cacheWrite1hTokens
+            : aggregateCacheWriteTokens
 
-        const writeCost =
-            cost.cost.cache_write_token !== undefined
-                ? multiplyRate(cost.cost.cache_write_token, cacheWriteTokens)
-                : bigDecimal.multiply(multiplyRate(cost.cost.prompt_token, 1.25), cacheWriteTokens)
+        const cacheWrite5mRate = cost.cost.cache_write_token ?? bigDecimal.multiply(cost.cost.prompt_token, 1.25)
+        const cacheWrite1hRate =
+            cost.cost.cache_write_1h_token ??
+            (cost.provider === 'custom' && cost.cost.cache_write_token !== undefined
+                ? cost.cost.cache_write_token
+                : bigDecimal.multiply(cost.cost.prompt_token, 2))
+        const writeCost = hasCacheWriteBreakdown
+            ? bigDecimal.add(
+                  bigDecimal.multiply(cacheWrite5mRate, cacheWrite5mTokens),
+                  bigDecimal.multiply(cacheWrite1hRate, cacheWrite1hTokens)
+              )
+            : bigDecimal.multiply(cacheWrite5mRate, cacheWriteTokens)
 
         const cacheReadCost =
             cost.cost.cache_read_token !== undefined
-                ? multiplyRate(cost.cost.cache_read_token, cachedTextTokens)
-                : bigDecimal.multiply(multiplyRate(cost.cost.prompt_token, 0.1), cachedTextTokens)
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cachedTextTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cachedTextTokens)
 
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const baseUncachedTokens = exclusive
@@ -208,7 +225,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
             bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageInputTokens),
             hasModalityTokens
         )
-        const uncachedCost = multiplyRate(cost.cost.prompt_token, uncachedTextTokens)
+        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTextTokens)
 
         return bigDecimal.add(bigDecimal.add(totalCacheCost, uncachedCost), modalityInputCost)
     }
@@ -223,7 +240,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
     if (cost.cost.cache_read_token !== undefined) {
         // Use explicit cache read cost if available
-        cacheReadCost = multiplyRate(cost.cost.cache_read_token, cachedTextTokens)
+        cacheReadCost = bigDecimal.multiply(cost.cost.cache_read_token, cachedTextTokens)
     } else {
         // Use default multiplier of 0.5 for all providers when cache_read_token is not defined
         const multiplier = 0.5
@@ -236,10 +253,10 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
             })
         }
 
-        cacheReadCost = bigDecimal.multiply(multiplyRate(cost.cost.prompt_token, multiplier), cachedTextTokens)
+        cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, multiplier), cachedTextTokens)
     }
 
-    const regularCost = multiplyRate(cost.cost.prompt_token, regularTextTokens)
+    const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTextTokens)
 
     return bigDecimal.add(bigDecimal.add(cacheReadCost, regularCost), modalityInputCost)
 }

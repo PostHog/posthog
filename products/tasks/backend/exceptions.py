@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any, Optional
 
 from temporalio.exceptions import ApplicationError
@@ -18,6 +19,8 @@ class ProcessTaskError(ApplicationError):
         if cause is not None and capture:
             capture_exception(cause, self.context)
 
+        # Retry policies match non_retryable_error_types against this type; the SDK omits it unless set.
+        kwargs.setdefault("type", type(self).__name__)
         super().__init__(message, self.context, **kwargs)
 
 
@@ -55,6 +58,32 @@ class TaskRunNotReadyError(ProcessTaskTransientError):
         ProcessTaskError.__init__(self, message, context, None, non_retryable=False)
 
 
+class GitHubRateLimitedError(ProcessTaskTransientError):
+    """GitHub rate-limited a call (or our egress budget shed it before it was sent).
+
+    An expected, recoverable condition rather than a fault. Kept retryable so the
+    activity's retry policy recovers once the limit window passes, but intentionally
+    not captured to error tracking — there is nothing to investigate, and capturing
+    it mints a noisy issue for something we expect to happen. ``retry_after`` (seconds)
+    drives ``next_retry_delay`` so the retry lands after the window instead of burning
+    every attempt inside it, and is folded into the message so the surfaced error names
+    a real wait instead of an empty reset time.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], retry_after: int):
+        # Bypass ProcessTaskTransientError.__init__ to pass cause=None with capture=False,
+        # skipping the capture_exception() call in ProcessTaskError (mirrors TaskRunNotReadyError).
+        ProcessTaskError.__init__(
+            self,
+            message,
+            context,
+            None,
+            capture=False,
+            non_retryable=False,
+            next_retry_delay=timedelta(seconds=retry_after),
+        )
+
+
 class TaskInvalidStateError(ProcessTaskFatalError):
     pass
 
@@ -73,6 +102,18 @@ class SandboxNotFoundError(ProcessTaskFatalError):
 
 class SandboxExecutionError(ProcessTaskTransientError):
     """Error during sandbox command execution."""
+
+    pass
+
+
+class SandboxMissingRepositoryError(ProcessTaskFatalError):
+    """The repository directory the agent-server needs as its cwd is absent from the sandbox.
+
+    Happens when a run reaches agent-server start without a clone — no snapshot restored and no
+    usable GitHub credentials. Retrying cannot make the directory appear, so fail immediately
+    with the real reason instead of burning health-check timeouts on a server that can never
+    open a session.
+    """
 
     pass
 
@@ -141,6 +182,18 @@ class GitHubAuthenticationError(ProcessTaskFatalError):
     """Failed to authenticate with GitHub."""
 
     pass
+
+
+class CredentialUnavailableError(ProcessTaskFatalError):
+    """A sandbox credential can never be resolved again for this run — the backing
+    integration row was deleted mid-run or the user must re-authorize.
+
+    Not retriable, and an expected customer-initiated state rather than a systemic
+    failure, so it is not captured to error tracking.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any], cause: Exception | None = None):
+        ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
 
 
 class PersonalAPIKeyError(ProcessTaskTransientError):

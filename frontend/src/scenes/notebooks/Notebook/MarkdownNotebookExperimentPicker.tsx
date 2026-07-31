@@ -21,11 +21,9 @@ export function MarkdownNotebookExperimentPicker({
 }: MarkdownNotebookExperimentPickerProps): JSX.Element {
     const { loadExperiments, closeModal } = useActions(addExperimentsToNotebookModalLogic)
 
-    // The table reads from the shared experiments logic; the legacy modal seeds it on open, so this
-    // picker (which doesn't toggle that modal's open state) must drive that lifecycle itself: load on
+    // The table reads from the shared experiments logic, so this picker drives its lifecycle: load on
     // open, and reset filters on close so a stale search query doesn't carry over to the next open.
-    // `closeModal` resets the filters without triggering a fetch (no listener), and the shared modal's
-    // open flag is already unused here.
+    // `closeModal` resets the filters without triggering a fetch (no listener).
     useEffect(() => {
         if (isOpen) {
             loadExperiments()

@@ -1,3 +1,6 @@
+import json
+import hashlib
+import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -21,14 +24,20 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.constants import (
+    MAX_SNAPSHOT_CLUSTERS,
+    MCP_MISSING_CAPABILITY_EVENT,
+    MCP_TOOL_CALL_EVENT,
+)
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
-# How long a snapshot may sit in COMPUTING before we assume the task died and
-# auto-recover. Generous because a real recompute completes in well under a
-# minute even at the top_n=500 cap; anything past 10 minutes is a dead task.
-STALE_COMPUTING_THRESHOLD = timedelta(minutes=10)
+# How long a snapshot may sit in COMPUTING before we assume the run died and
+# auto-recover. Must exceed the compute activity's schedule_to_close budget
+# (400s, covering queue wait + both attempts — see intent_clustering
+# constants); past that, nothing can still legitimately write a final status,
+# so the row is a dead run whose worker never reached _mark_error.
+STALE_COMPUTING_THRESHOLD = timedelta(minutes=8)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -43,8 +52,9 @@ FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
     AND $session_id = {session_id}
-ORDER BY timestamp ASC
-LIMIT 500
+ORDER BY timestamp ASC, event_id ASC
+LIMIT {limit}
+OFFSET {offset}
 """
 
 
@@ -331,6 +341,272 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
     return summary
 
 
+INTENT_DIGEST_CACHE_TTL = 60 * 60
+# Floor on how often a project can trigger a fresh generation. The corpus hash alone cannot bound
+# this: a busy server cycles its hundred most recent intents in well under a minute, so every
+# dashboard refresh would miss the content-addressed key and call the LLM again. Serving the
+# previous digest for a few minutes costs nothing: the card answers "what are agents working on
+# lately", not "what happened in the last thirty seconds".
+INTENT_DIGEST_MIN_REGENERATE_SECONDS = 10 * 60
+
+
+def _cached_digest(cached: object) -> contracts.IntentDigest | None:
+    """Rehydrate a cached digest, or None when the payload is absent or predates the current shape.
+
+    Returning None sends the caller back to the LLM rather than raising, so a shape change that
+    outlives its cache key degrades into one extra generation instead of a 500.
+    """
+    if not isinstance(cached, dict) or not isinstance(cached.get("themes"), list):
+        return None
+    try:
+        themes = [contracts.IntentTheme(**theme) for theme in cached["themes"]]
+    except TypeError:
+        return None
+    # Frozen dataclasses don't validate, so a payload with the right keys and wrong value types
+    # would construct here and only fail later in the serializer, past the 503 handler.
+    if any(not isinstance(theme.intent_count, int) or not isinstance(theme.tools, list) for theme in themes):
+        return None
+    return contracts.IntentDigest(
+        digest=cached.get("summary"), intent_count=cached.get("intent_count", 0), themes=themes
+    )
+
+
+def generate_intent_digest(team: Team) -> contracts.IntentDigest:
+    """Return a project-level LLM digest of what agents are trying to do, for the activity tab.
+
+    A one-sentence summary plus up to five semantic themes. The LLM only groups the intents and
+    names each group; counts, tools, and the verbatim example are resolved from the corpus by
+    ``intent_generation.resolve_themes``, so nothing countable on the card is model-generated.
+
+    Two cache layers, because the two ends of the volume range want opposite things. The
+    content-addressed key means a quiet project never pays for a regeneration while its intents sit
+    unchanged. The recency key bounds a busy project, whose corpus is different on every request, to
+    one generation per ``INTENT_DIGEST_MIN_REGENERATE_SECONDS``. ``intent_count`` travels in the
+    payload so a served digest always reports the corpus it was actually derived from, keeping the
+    theme shares consistent with the total the card displays.
+
+    A project with no recorded intents returns a null digest without an LLM call. Raises
+    ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
+    """
+    intents = intent_generation.fetch_recent_project_intents(team)
+    if not intents:
+        return contracts.IntentDigest(digest=None, intent_count=0)
+
+    corpus_hash = hashlib.sha256("\x00".join(f"{intent}\x01{tool}" for intent, tool in intents).encode()).hexdigest()
+    corpus_key = generate_cache_key(team.pk, f"mcp_intent_digest_v3/{corpus_hash}")
+    recent_key = generate_cache_key(team.pk, "mcp_intent_digest_v3/recent")
+    for key in (corpus_key, recent_key):
+        cached = _cached_digest(cache.get(key))
+        if cached is not None:
+            return cached
+
+    parsed = intent_generation.summarize_project_intents(intents, team)
+    themes = intent_generation.resolve_themes(parsed, intents)
+    payload = {
+        "summary": parsed.summary,
+        "intent_count": len(intents),
+        "themes": [dataclasses.asdict(theme) for theme in themes],
+    }
+    cache.set(corpus_key, payload, INTENT_DIGEST_CACHE_TTL)
+    cache.set(recent_key, payload, INTENT_DIGEST_MIN_REGENERATE_SECONDS)
+    return contracts.IntentDigest(digest=parsed.summary, intent_count=len(intents), themes=themes)
+
+
+# The activity queries read `properties.*`, which decompresses the properties column for
+# every matching row, and the view is reachable at any project volume. 30 days is
+# effectively all-time for the low-volume servers the activity stage exists for, and a
+# hard cap on the scan for high-volume projects that open the tab.
+ACTIVITY_WINDOW = timedelta(days=30)
+ACTIVITY_TOP_TOOLS_LIMIT = 5
+ACTIVITY_CLIENTS_LIMIT = 6
+ACTIVITY_RECENT_CALLS_LIMIT = 20
+
+_ACTIVITY_STATS_SQL = """
+SELECT
+    countIf(event = {tool_call_event}) AS total_calls,
+    uniqIf(properties.$mcp_tool_name, event = {tool_call_event}) AS distinct_tools,
+    uniqIf($session_id, event = {tool_call_event} AND $session_id != '') AS distinct_sessions,
+    uniqIf(properties.$mcp_client_name, event = {tool_call_event} AND coalesce(properties.$mcp_client_name, '') != '') AS distinct_clients,
+    countIf(event = {tool_call_event} AND coalesce(properties.$mcp_intent, '') != '') AS calls_with_intent,
+    countIf(event = {tool_call_event} AND toString(properties.$mcp_is_error) IN ('true', '1')) AS error_calls,
+    countIf(event = {missing_capability_event}) AS missing_capability_reports
+FROM events
+WHERE event IN ({tool_call_event}, {missing_capability_event}) AND timestamp >= {date_from}
+"""
+
+_ACTIVITY_TOP_TOOLS_SQL = """
+SELECT
+    properties.$mcp_tool_name AS tool,
+    count() AS calls,
+    countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
+FROM events
+WHERE event = {tool_call_event} AND properties.$mcp_tool_name IS NOT NULL AND timestamp >= {date_from}
+GROUP BY tool
+ORDER BY calls DESC
+LIMIT {limit}
+"""
+
+# Agents report the same client under many spellings — "claude-code", "Claude Code",
+# "CLAUDE_CODE" — so grouping on the raw property splits one client across several rows
+# and lets each land below the top-N cut. Case and separators are both normalised away
+# for grouping (matching the frontend's harness-label rules, which already treat
+# `[ ._-]` as interchangeable), and the most-seen spelling becomes the display name.
+_ACTIVITY_CLIENTS_SQL = """
+SELECT
+    argMax(client_name, spelling_calls) AS client,
+    sum(spelling_calls) AS calls
+FROM (
+    SELECT
+        properties.$mcp_client_name AS client_name,
+        replaceRegexpAll(lower(properties.$mcp_client_name), '[ ._-]+', '') AS client_key,
+        count() AS spelling_calls
+    FROM events
+    WHERE event = {tool_call_event} AND timestamp >= {date_from}
+    GROUP BY client_name, client_key
+)
+GROUP BY client_key
+ORDER BY calls DESC
+LIMIT {limit}
+"""
+
+_ACTIVITY_RECENT_CALLS_SQL = """
+SELECT
+    timestamp,
+    properties.$mcp_tool_name AS tool,
+    properties.$mcp_intent AS intent,
+    toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
+    if(toString(properties.$mcp_is_error) IN ('true', '1'),
+       coalesce(nullIf(toString(properties.$mcp_error_message), ''), toString(properties.$mcp_response)),
+       NULL) AS error_raw,
+    toFloat(properties.$mcp_duration_ms) AS duration_ms,
+    properties.$mcp_client_name AS client_name
+FROM events
+WHERE event = {tool_call_event} AND timestamp >= {date_from}
+ORDER BY timestamp DESC
+LIMIT {limit}
+"""
+
+
+def _extract_error_message(raw: Any) -> str | None:
+    """Pull the human-readable text out of a failed call's error payload.
+
+    ``$mcp_error_message`` is used verbatim when the SDK set it; otherwise ``$mcp_response``
+    is an MCP content envelope ({"content": [{"type": "text", "text": ...}]}) to unwrap.
+    """
+    value = str(raw).strip() if raw is not None else ""
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        # HogQL's property accessor strips a string value's outer quotes but keeps the
+        # inner escapes; re-wrap to unescape, then parse the payload it encodes.
+        try:
+            parsed = json.loads(json.loads(f'"{value}"'))
+        except (json.JSONDecodeError, ValueError):
+            return value
+    if isinstance(parsed, dict):
+        content = parsed.get("content")
+        if isinstance(content, list):
+            for chunk in content:
+                if isinstance(chunk, dict) and chunk.get("type") == "text" and isinstance(chunk.get("text"), str):
+                    return chunk["text"] or None
+        message = parsed.get("message")
+        if isinstance(message, str) and message:
+            return message
+    return value
+
+
+def _run_activity_query(team: Team, sql: str, name: str, placeholders: dict[str, ast.Constant]) -> list[Any]:
+    query = parse_select(sql, placeholders={**placeholders})
+    with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name=name):
+        response = execute_hogql_query(query=query, team=team)
+    return response.results or []
+
+
+def get_activity_overview(team: Team) -> contracts.ActivityOverview:
+    """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
+
+    Always computed fresh: the view's whole point is watching data arrive, so callers
+    poll this endpoint rather than a stale cache.
+    """
+    date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
+    tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
+
+    stats_rows = _run_activity_query(
+        team,
+        _ACTIVITY_STATS_SQL,
+        "mcp_analytics_activity_stats",
+        {
+            "tool_call_event": tool_call_event,
+            "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+            "date_from": date_from,
+        },
+    )
+    stats_row = stats_rows[0] if stats_rows else [0] * 7
+    stats = contracts.ActivityStats(
+        total_calls=_parse_int(stats_row[0]) or 0,
+        distinct_tools=_parse_int(stats_row[1]) or 0,
+        distinct_sessions=_parse_int(stats_row[2]) or 0,
+        distinct_clients=_parse_int(stats_row[3]) or 0,
+        calls_with_intent=_parse_int(stats_row[4]) or 0,
+        error_calls=_parse_int(stats_row[5]) or 0,
+        missing_capability_reports=_parse_int(stats_row[6]) or 0,
+    )
+
+    top_tools = [
+        contracts.ActivityToolRow(tool=str(row[0] or ""), calls=_parse_int(row[1]) or 0, errors=_parse_int(row[2]) or 0)
+        for row in _run_activity_query(
+            team,
+            _ACTIVITY_TOP_TOOLS_SQL,
+            "mcp_analytics_activity_top_tools",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
+            },
+        )
+    ]
+
+    clients = [
+        contracts.ActivityClientRow(client=str(row[0]) if row[0] else "", calls=_parse_int(row[1]) or 0)
+        for row in _run_activity_query(
+            team,
+            _ACTIVITY_CLIENTS_SQL,
+            "mcp_analytics_activity_clients",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
+            },
+        )
+    ]
+
+    recent_calls = [
+        contracts.ActivityRecentCall(
+            timestamp=row[0],
+            tool=str(row[1] or ""),
+            intent=str(row[2]) if row[2] else None,
+            is_error=bool(row[3]),
+            error_message=_extract_error_message(row[4]),
+            duration_ms=float(row[5]) if row[5] is not None else None,
+            client_name=str(row[6]) if row[6] else None,
+        )
+        for row in _run_activity_query(
+            team,
+            _ACTIVITY_RECENT_CALLS_SQL,
+            "mcp_analytics_activity_recent_calls",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
+            },
+        )
+    ]
+
+    return contracts.ActivityOverview(stats=stats, top_tools=top_tools, clients=clients, recent_calls=recent_calls)
+
+
 def _resolve_persons(team_id: int, distinct_ids: list[str]) -> dict[str, Person]:
     unique_ids = list({distinct_id for distinct_id in distinct_ids if distinct_id})
     if not unique_ids:
@@ -370,13 +646,22 @@ def _to_session_contract(
     )
 
 
-def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None = None) -> list[contracts.MCPToolCall]:
-    """List a session's $mcp_tool_call events in chronological order.
+def list_mcp_tool_calls(
+    team: Team,
+    session_id: str,
+    limit: int,
+    offset: int,
+    date_from: datetime | None = None,
+) -> contracts.MCPToolCallsPage:
+    """List a page of a session's $mcp_tool_call events in chronological order.
 
     ``date_from`` is the timestamp lower bound that lets the events sort key prune the scan
     (``$session_id`` alone isn't in the sort key). The caller passes the session's start so the
     detail view stays correct for sessions older than the default ``SESSION_EVENTS_LOOKBACK``;
     when omitted it falls back to that window for param-less API/token callers.
+
+    ``limit`` / ``offset`` page through the session's calls; over-fetch one row to report
+    ``has_next`` without a separate count query.
     """
     query = parse_select(
         _MCP_TOOL_CALLS_SQL,
@@ -384,13 +669,17 @@ def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None 
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "date_from": ast.Constant(value=date_from or (timezone.now() - intent_generation.SESSION_EVENTS_LOOKBACK)),
             "session_id": ast.Constant(value=session_id),
+            "limit": ast.Constant(value=limit + 1),
+            "offset": ast.Constant(value=offset),
         },
     )
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_tool_calls"
     ):
         response = execute_hogql_query(query=query, team=team)
-    return [
+    rows = response.results or []
+    has_next = len(rows) > limit
+    results = [
         contracts.MCPToolCall(
             event_id=str(row[0]) if row[0] else "",
             timestamp=row[1],
@@ -400,8 +689,9 @@ def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None 
             error_message=row[5] or "",
             duration_ms=_parse_int(row[6]),
         )
-        for row in (response.results or [])
+        for row in rows[:limit]
     ]
+    return contracts.MCPToolCallsPage(results=results, has_next=has_next)
 
 
 def _parse_int(value: str | int | None) -> int | None:
@@ -421,9 +711,9 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
 
     Defensive side effect: any row stuck in COMPUTING past
     STALE_COMPUTING_THRESHOLD is auto-flipped to ERROR so the UI can offer
-    a retry. The Celery task may have died between writing COMPUTING and
-    writing its final status (worker restart, OOM, etc.) and otherwise has
-    no path back to a usable state.
+    a retry. The Temporal activity may have died between writing COMPUTING
+    and writing its final status (no worker on the queue, worker OOM, etc.)
+    and otherwise has no path back to a usable state.
     """
     MCPIntentClusterSnapshot.objects.filter(
         team=team,
@@ -431,7 +721,7 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
         updated_at__lt=timezone.now() - STALE_COMPUTING_THRESHOLD,
     ).update(
         status=MCPIntentClusterSnapshot.Status.ERROR,
-        error_message="Recompute task did not complete within the expected window. Retry to try again.",
+        error_message="Clustering didn't finish in time. Retry to start a new run.",
     )
 
     snapshot = MCPIntentClusterSnapshot.objects.filter(team=team).select_related("last_computed_by").first()
@@ -448,6 +738,16 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
     blob = snapshot.clusters or {}
     clusters_raw = blob.get("clusters", []) if isinstance(blob, dict) else []
     meta_raw = blob.get("computed_with") if isinstance(blob, dict) else None
+
+    # Snapshots persisted before build_snapshot capped its output can hold
+    # hundreds of clusters — cap at read time too, keeping the highest-volume
+    # ones (the same ranking build_snapshot persists).
+    if len(clusters_raw) > MAX_SNAPSHOT_CLUSTERS:
+        clusters_raw = sorted(
+            (item for item in clusters_raw if isinstance(item, dict)),
+            key=lambda item: int(item.get("call_count", 0) or 0),
+            reverse=True,
+        )[:MAX_SNAPSHOT_CLUSTERS]
 
     return contracts.IntentClusterSnapshot(
         status=snapshot.status,

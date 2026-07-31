@@ -2,7 +2,7 @@ from django.db import models
 
 
 class EvaluationConfig(models.Model):
-    """Team-level configuration and usage tracking for evaluations"""
+    """Team-level configuration for evaluations"""
 
     team = models.OneToOneField(
         "posthog.Team",
@@ -10,10 +10,6 @@ class EvaluationConfig(models.Model):
         primary_key=True,
         related_name="evaluation_config",
     )
-
-    # Trial evaluations (permanent limit for alpha)
-    trial_eval_limit = models.IntegerField(default=100)
-    trial_evals_used = models.IntegerField(default=0)
 
     # Active BYOK key (single source of truth)
     active_provider_key = models.ForeignKey(
@@ -32,11 +28,3 @@ class EvaluationConfig(models.Model):
 
     def __str__(self):
         return f"EvaluationConfig for team {self.team_id}"
-
-    @property
-    def trial_evals_remaining(self) -> int:
-        return max(0, self.trial_eval_limit - self.trial_evals_used)
-
-    @property
-    def trial_limit_reached(self) -> bool:
-        return self.trial_evals_used >= self.trial_eval_limit

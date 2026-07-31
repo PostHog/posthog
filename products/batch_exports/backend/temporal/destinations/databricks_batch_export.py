@@ -1,6 +1,7 @@
 import io
 import json
 import time
+import socket
 import typing as t
 import asyncio
 import datetime as dt
@@ -50,7 +51,11 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
+)
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -74,8 +79,8 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksSchemaNotFoundError",
     # Raised when the Databricks warehouse is stopped.
     "DatabricksWarehouseStoppedError",
-    # Raised when the destination table's column types are incompatible with the exported data
-    # (e.g. the table column is VARIANT but the export is configured to write STRING).
+    # Raised when the destination table's column names or types are incompatible with the exported
+    # data (e.g. the table column is VARIANT but the export is configured to write STRING).
     "DatabricksIncompatibleSchemaError",
 ]
 
@@ -90,9 +95,15 @@ SIX_HOURS = 6 * 60 * 60
 
 
 class DatabricksConnectionError(Exception):
-    """Error for Databricks connection."""
+    """Represents an error connecting to Databricks.
 
-    pass
+    `retryable` is False only for failures that definitively indicate invalid configuration,
+    so we don't spend minutes backing off before telling the user to fix their settings.
+    """
+
+    def __init__(self, message: str, retryable: bool = True):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class DatabricksIntegrationNotFoundError(Exception):
@@ -154,26 +165,28 @@ class DatabricksWarehouseStoppedError(DatabricksOperationError):
 
 
 class DatabricksIncompatibleSchemaError(DatabricksOperationError):
-    """Raised when the destination table's column types are incompatible with the exported data.
+    """Raised when the destination table's columns are incompatible with the exported data.
 
-    This happens when an existing table column has a type that can't accept the data we're
-    exporting into it. One common cause is the export's `use_variant_type` setting not matching
-    the existing table (e.g. a column is VARIANT in the table but the export is configured to
-    write STRING, or vice versa).
+    This happens, for example, when an existing table column has a type that can't accept the data
+    we're exporting into it. One common cause is the export's `use_variant_type` setting not
+    matching the existing table (e.g. a column is VARIANT in the table but the export is configured
+    to write STRING, or vice versa).
     """
 
-    def __init__(self, operation: str, reason: str, export_schema: list[DatabricksField] | None = None):
+    def __init__(
+        self, operation: str, reason: str, export_schema: collections.abc.Iterable[DatabricksField] | None = None
+    ):
         detail = reason
         if export_schema is not None:
             # We only report the schema of the data we're exporting (which the user already controls)
             # and deliberately not the destination table's schema: this error is surfaced to users via
             # the batch export run APIs, and the table could be any table the integration can reach.
             export_schema_str = ", ".join(f"`{name}` {type_name}" for name, type_name in export_schema)
-            detail += f" Exported data schema: {export_schema_str}."
+            detail += f". Exported data schema: {export_schema_str}"
         super().__init__(
             operation,
             detail,
-            "This means the destination table's column types don't match the data being exported. "
+            "This means the destination table's column names/types don't match the data being exported. "
             "Please check the schema of your destination table.",
         )
 
@@ -213,6 +226,14 @@ class DatabricksClient:
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
     DEFAULT_POLL_INTERVAL = 1.0
 
+    # Timeout (seconds) for the TCP reachability preflight in `_check_host_reachable`.
+    DEFAULT_CONNECT_TIMEOUT = 30.0
+
+    # How many times to attempt the initial connection before giving up. Databricks outages are
+    # usually brief, so ~3 minutes of jittered backoff (2s, 8s, 18s, 32s, 32s, ...) resolves most
+    # blips without meaningfully delaying feedback on definitive config errors (not retried).
+    DEFAULT_CONNECT_MAX_ATTEMPTS = 8
+
     def __init__(
         self,
         server_hostname: str,
@@ -222,6 +243,8 @@ class DatabricksClient:
         catalog: str,
         schema: str,
         statement_timeout_seconds: float | None = None,
+        connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT,
+        connect_max_attempts: int = DEFAULT_CONNECT_MAX_ATTEMPTS,
     ):
         self.server_hostname = server_hostname
         self.http_path = http_path
@@ -233,6 +256,8 @@ class DatabricksClient:
         # to be longer than the client-side per-call timeouts so the client fires first and the
         # server only kicks in as a last resort.
         self.statement_timeout_seconds = statement_timeout_seconds
+        self.connect_timeout_seconds = connect_timeout_seconds
+        self.connect_max_attempts = connect_max_attempts
 
         self._connection: None | Connection = None
 
@@ -245,6 +270,8 @@ class DatabricksClient:
         inputs: DatabricksInsertInputs,
         integration: DatabricksIntegration,
         statement_timeout_seconds: float | None = None,
+        connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT,
+        connect_max_attempts: int = DEFAULT_CONNECT_MAX_ATTEMPTS,
     ) -> t.Self:
         """Initialize a DatabricksClient from `DatabricksInsertInputs` and `DatabricksIntegration`.
 
@@ -260,6 +287,8 @@ class DatabricksClient:
             catalog=inputs.catalog,
             schema=inputs.schema,
             statement_timeout_seconds=statement_timeout_seconds,
+            connect_timeout_seconds=connect_timeout_seconds,
+            connect_max_attempts=connect_max_attempts,
         )
 
     @property
@@ -271,15 +300,40 @@ class DatabricksClient:
             raise Exception("Not connected, open a connection by calling `connect`")
         return self._connection
 
-    async def _connect(self):
-        """Establish a raw Databricks connection in a separate thread.
+    async def _check_host_reachable(self) -> None:
+        """Fail fast on an unreachable/invalid host before calling ``sql.connect``.
 
-        Known hang risk: ``oauth_service_principal(config)`` triggers an OIDC endpoint discovery
-        HTTP call inside ``sql.connect``. That call uses the Databricks SDK's own client timeout
-        (~5 minutes, not configurable here), and doesn't respect the ``_socket_timeout`` / ``_retry_stop_after_*``
-        settings. So if the host is unreachable or DNS hangs, this method can block for
-        up to ~5 minutes before raising. See https://github.com/databricks/databricks-sdk-py/issues/1046.
+        ``sql.connect`` triggers an OIDC endpoint discovery HTTP call (via ``oauth_service_principal``)
+        whose client retries for ~5 minutes and ignores the ``_socket_timeout`` / ``_retry_stop_after_*``
+        settings we pass, so an invalid host blocks the worker thread for the full ~5 minutes before
+        raising (https://github.com/databricks/databricks-sdk-py/issues/1046). A short TCP probe catches
+        that case in ``connect_timeout_seconds`` and, unlike wrapping ``sql.connect`` in a timeout,
+        leaves no stranded thread — the socket terminates on its own timeout and the SDK call is never
+        started.
         """
+
+        def probe() -> None:
+            with socket.create_connection((self.server_hostname, 443), timeout=self.connect_timeout_seconds):
+                pass
+
+        try:
+            await asyncio.to_thread(probe)
+        except OSError as err:
+            self.logger.info("Could not reach Databricks host '%s': %s", self.server_hostname, err)
+            # EAI_NONAME/EAI_FAIL mean the hostname does not exist, so no amount of retrying will
+            # help. Other errors are worth retrying.
+            if isinstance(err, socket.gaierror) and err.errno in (socket.EAI_NONAME, socket.EAI_FAIL):
+                raise DatabricksConnectionError(
+                    "Could not resolve Databricks server hostname. Please check that the server hostname is valid.",
+                    retryable=False,
+                ) from err
+            raise DatabricksConnectionError(
+                "Failed to connect to Databricks. Please check that your connection details are valid."
+            ) from err
+
+    async def _connect(self):
+        """Establish a raw Databricks connection in a separate thread."""
+        await self._check_host_reachable()
 
         def get_credential_provider():
             config = Config(
@@ -319,7 +373,7 @@ class DatabricksClient:
                 self.http_path,
             )
             raise DatabricksConnectionError(
-                f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
+                "Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
         # for some reason, Databricks reports some connection failures as a ValueError
         except (ValueError, urllib3.exceptions.HTTPError, urllib3.exceptions.MaxRetryError) as err:
@@ -339,9 +393,31 @@ class DatabricksClient:
                 self.server_hostname,
                 self.http_path,
             )
+            # Invalid credentials won't fix themselves, anything else (e.g. a
+            # momentarily-unavailable warehouse) is worth retrying.
+            if _is_invalid_credentials_error(err):
+                raise DatabricksConnectionError(
+                    "Failed to connect to Databricks: invalid credentials. "
+                    "Please check that your client_id and client_secret are valid.",
+                    retryable=False,
+                ) from err
             raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
 
         return result
+
+    async def _connect_with_retries(self) -> Connection:
+        """Establish a connection, retrying transient failures with exponential backoff."""
+
+        def is_retryable(err: Exception) -> bool:
+            return isinstance(err, DatabricksConnectionError) and err.retryable
+
+        connect = make_retryable_with_exponential_backoff(
+            self._connect,
+            max_attempts=self.connect_max_attempts,
+            retryable_exceptions=(DatabricksConnectionError,),
+            is_exception_retryable=is_retryable,
+        )
+        return await connect()
 
     @contextlib.asynccontextmanager
     async def connect(self, set_context: bool = True):
@@ -354,7 +430,7 @@ class DatabricksClient:
         """
         self.logger.info("Initializing Databricks connection")
 
-        self._connection = await self._connect()
+        self._connection = await self._connect_with_retries()
         self.logger.info("Connected to Databricks")
 
         # Verify the connection is responsive before proceeding
@@ -772,6 +848,19 @@ class DatabricksClient:
         try:
             async with handle_common_errors("Merge into target table", timeout):
                 await self.execute_async_query(merge_query, fetch_results=False, timeout=timeout)
+        except ServerOperationError as err:
+            if err.message and "[DELTA_MERGE_UNRESOLVED_EXPRESSION]" in err.message:
+                # don't return the full error message as it reveals information about the
+                # destination table schema
+                raise DatabricksIncompatibleSchemaError(
+                    operation=f"MERGE INTO `{target_table}`",
+                    reason="[DELTA_MERGE_UNRESOLVED_EXPRESSION]",
+                    export_schema=source_table_fields,
+                ) from err
+            self.logger.exception(
+                "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
+            )
+            raise
         except Exception:
             self.logger.exception(
                 "Merge failed", with_schema_evolution=with_schema_evolution, query="MERGE", query_details=merge_query
@@ -1000,6 +1089,16 @@ def _is_insufficient_permissions_error(err: DatabaseError) -> bool:
         or "PERMISSION_DENIED" in err.message
         or "AuthorizationFailure" in err.message
     )
+
+
+def _is_invalid_credentials_error(err: BaseException) -> bool:
+    """Check if a connect-time error indicates the OAuth credentials are rejected.
+
+    A 5xx error is transient and retryable, but a 401 (and the OAuth "invalid_client"/"unauthorized"
+    markers) means the client_id/client_secret are wrong and retrying won't help.
+    """
+    message = str(err)
+    return "invalid_client" in message or "unauthorized" in message or "Status 401" in message
 
 
 @contextlib.asynccontextmanager

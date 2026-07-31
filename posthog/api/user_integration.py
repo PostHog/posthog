@@ -40,9 +40,11 @@ from posthog.api.integration import (
     GitHubReposQuerySerializer,
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
+    github_rate_limited_response,
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
@@ -51,7 +53,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
 
-from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url
 
 logger = structlog.get_logger(__name__)
@@ -84,6 +86,11 @@ class UserGitHubIntegrationItemSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Installation account metadata from GitHub.",
     )
+    github_login = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The connected user's own GitHub login (distinct from the installation account).",
+    )
     uses_shared_installation = serializers.BooleanField(
         help_text="True when this installation id matches a team-level GitHub integration on the active project.",
     )
@@ -105,7 +112,7 @@ class UserGitHubLinkStartRequestSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.",
+        help_text="Optional team/project id (e.g. PostHog Desktop); web UI uses the session's current team.",
     )
     connect_from = serializers.CharField(
         required=False,
@@ -227,6 +234,13 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     http_method_names = ["get", "post", "delete"]
     serializer_class = UserGitHubIntegrationItemSerializer
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # Personal-GitHub actions (repos, branches, refresh) raise the same egress
+        # GitHubRateLimitError as the team integration endpoints — same 429 mapping.
+        if isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
+        return super().handle_exception(exc)
 
     def _get_user(self) -> User:
         """Resolve the target user from the nested ``parent_lookup_uuid`` (same rules as ``UserViewSet``)."""
@@ -560,7 +574,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 continue
             # Feature-flag check per workspace so an org that hasn't rolled out
             # the flag yet doesn't show up in another org's picker.
-            if not slack_oauth_link_enabled(integration, integration.integration_id):
+            if not is_slack_app_oauth_enabled(integration, integration.integration_id):
                 continue
             # `(config or {}).get("team", {})` doesn't defend against an explicit
             # ``config["team"] = None`` — dict.get returns the literal None
@@ -618,7 +632,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "This project has no Slack workspace connected. Ask an admin to install the Slack app first."
             )
 
-        if not slack_oauth_link_enabled(workspace, workspace.integration_id):
+        if not is_slack_app_oauth_enabled(workspace, workspace.integration_id):
             raise exceptions.PermissionDenied("Slack identity linking is not enabled for this organization.")
 
         if UserIntegration.objects.filter(
@@ -664,7 +678,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 def _resolve_team_for_github_start(user: User, request: Request):
     """Resolve which team to use for team-level GitHub install discovery.
 
-    PostHog Code passes ``team_id`` (project/team) in the JSON body because the
+    PostHog Desktop passes ``team_id`` (project/team) in the JSON body because the
     session's ``user.current_team`` may not match the app UI. The web app omits
     it and uses ``current_team``.
     """
@@ -705,13 +719,12 @@ def _has_unlinked_github_installations(user: User) -> bool | None:
         return None
 
     try:
-        response = requests.get(
+        # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
+        response = github_request(
+            "GET",
             "https://api.github.com/user/installations",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            source="integration",
+            headers={"Authorization": f"Bearer {token}"},
             params={"per_page": 100},
             timeout=10,
         )
@@ -784,6 +797,9 @@ def _serialize_github_integration(
         "installation_id": integration.integration_id,
         "repository_selection": integration.config.get("repository_selection"),
         "account": integration.config.get("account"),
+        # The user's own GitHub login (distinct from `account`, which is the installation's
+        # org/user). Lets the frontend tell which PR comments/reactions are the user's own.
+        "github_login": (integration.config.get("github_user") or {}).get("login"),
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
         "created_at": integration.created_at,
     }

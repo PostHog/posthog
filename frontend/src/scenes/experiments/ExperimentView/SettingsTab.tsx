@@ -12,6 +12,7 @@ import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/t
 import { DEFAULT_LOOKBACK_DAYS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getBaselineVariantKey } from '../utils'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
 import { CupedModal } from './CupedModal'
 import { resolveSequentialEnabled } from './sequential'
@@ -90,7 +91,7 @@ export function SettingsTab(): JSX.Element {
             <div>
                 <h2 className="font-semibold text-lg">Baseline variant</h2>
                 <LemonSelect
-                    value={experiment.stats_config?.baseline_variant_key ?? 'control'}
+                    value={getBaselineVariantKey(experiment)}
                     options={variants.map((v) => ({
                         value: v.key,
                         label: v.key,

@@ -12,6 +12,8 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -20,6 +22,7 @@ from posthog.models.event.util import create_event
 from posthog.tasks.ai_observability_usage_report import (
     AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS,
     _get_all_ai_observability_reports,
+    capture_ai_observability_report,
     get_all_ai_dimension_breakdowns,
     get_all_ai_metrics,
     get_llm_feedback_survey_metrics,
@@ -39,11 +42,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
 
         # Stop merges to prevent row collapsing
         sync_execute("SYSTEM STOP MERGES")
-
-        # Clear existing data
-        sync_execute("TRUNCATE TABLE events")
-        sync_execute("TRUNCATE TABLE person")
-        sync_execute("TRUNCATE TABLE person_distinct_id")
 
     def tearDown(self) -> None:
         sync_execute("SYSTEM START MERGES")
@@ -146,7 +144,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_metric_count == 1
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
-        assert metrics.ai_trial_evaluation_count == 3
         assert metrics.ai_llm_judge_evaluation_count == 3
         assert metrics.ai_hog_evaluation_count == 2
         assert metrics.ai_sentiment_evaluation_count == 1
@@ -573,7 +570,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert org_1_report["organization_name"] == self.organization.name
         assert org_1_report["ai_generation_count"] == 13  # 10 + 3
         assert org_1_report["ai_evaluation_count"] == 5
-        assert org_1_report["ai_trial_evaluation_count"] == 3
         assert org_1_report["ai_llm_judge_evaluation_count"] == 3
         assert org_1_report["ai_hog_evaluation_count"] == 1
         assert org_1_report["ai_sentiment_evaluation_count"] == 1
@@ -731,7 +727,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         # Counts should be aggregated across both teams
         assert org_report["ai_generation_count"] == 15  # 10 + 5
         assert org_report["ai_evaluation_count"] == 5  # 3 + 2
-        assert org_report["ai_trial_evaluation_count"] == 3
         assert org_report["ai_llm_judge_evaluation_count"] == 3
         assert org_report["ai_hog_evaluation_count"] == 0
         assert org_report["ai_sentiment_evaluation_count"] == 2
@@ -1105,45 +1100,125 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert report_dict["ai_generation_count"] == 5
         assert report_dict["ai_embedding_count"] == 0  # Jan 9th events not included
 
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
     @parameterized.expand(
         [
-            ("mixed", 5, 3, 2, 5),
-            ("only_byok", 0, 4, 0, 0),
-            ("only_posthog", 3, 0, 0, 3),
-            ("no_key_type", 0, 0, 5, 0),
-        ],
+            ("scheduled", None, False, "2022-01-10T00:00:00+00:00", "scheduled"),
+            ("manual_by_date", "2022-01-06", False, "2022-01-06T00:00:00+00:00", "manual"),
+            ("manual_by_org_filter", None, True, "2022-01-10T00:00:00+00:00", "manual"),
+        ]
     )
-    def test_trial_evaluation_count(
-        self, _name: str, posthog_count: int, byok_count: int, no_key_count: int, expected: int
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_reports_get_deterministic_timestamp_and_trigger_source(
+        self,
+        _name: str,
+        at: str | None,
+        filter_by_org: bool,
+        expected_at_date: str,
+        expected_trigger: str,
+        mock_feature_enabled: MagicMock,
+        mock_get_reports: MagicMock,
+        mock_capture_report: MagicMock,
     ) -> None:
-        distinct_id = str(uuid4())
-        _create_person(distinct_ids=[distinct_id], team=self.team)
+        org_id = str(uuid4())
+        mock_get_reports.return_value = {
+            org_id: {
+                "organization_id": org_id,
+                "organization_name": "Test Org",
+                "ai_generation_count": 5,
+            }
+        }
+        organization_ids = [org_id] if filter_by_org else None
 
-        period_start, period_end = get_previous_day()
+        send_ai_observability_usage_reports(at=at, organization_ids=organization_ids)
 
-        if posthog_count:
-            self._create_ai_events(
-                self.team,
-                distinct_id,
-                "$ai_evaluation",
-                posthog_count,
-                properties={"$ai_evaluation_key_type": "posthog"},
-            )
-        if byok_count:
-            self._create_ai_events(
-                self.team,
-                distinct_id,
-                "$ai_evaluation",
-                byok_count,
-                properties={"$ai_evaluation_key_type": "byok"},
-            )
-        if no_key_count:
-            self._create_ai_events(self.team, distinct_id, "$ai_evaluation", no_key_count)
+        assert mock_capture_report.delay.call_count == 1
+        call_kwargs = mock_capture_report.delay.call_args.kwargs
+        assert call_kwargs["at_date"] == expected_at_date
+        assert call_kwargs["report_dict"]["triggered_by"] == expected_trigger
 
-        team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
-        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+    @parameterized.expand(
+        [
+            ("retryable", 0, False, "warning", "error", "[AIO Usage Error] teams query failed"),
+            (
+                "terminal",
+                send_ai_observability_usage_reports.max_retries,
+                False,
+                "error",
+                None,
+                "[AIO Usage Error] usage report run failed permanently",
+            ),
+            (
+                "direct_call",
+                0,
+                True,
+                "error",
+                None,
+                "[AIO Usage Error] usage report run failed permanently",
+            ),
+        ]
+    )
+    @patch("posthog.tasks.ai_observability_usage_report.logger")
+    @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events", side_effect=Exception("CH down"))
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_send_task_failure_log_level(
+        self,
+        _name: str,
+        retries: int,
+        called_directly: bool,
+        expected_level: str,
+        forbidden_level: str | None,
+        expected_message: str,
+        mock_feature_enabled: MagicMock,
+        mock_get_teams: MagicMock,
+        mock_logger: MagicMock,
+    ) -> None:
+        task = send_ai_observability_usage_reports
+        task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
+        try:
+            with pytest.raises(Exception, match="CH down"):
+                task.run()
+        finally:
+            task.pop_request()
 
-        total = posthog_count + byok_count + no_key_count
-        metrics = all_metrics[self.team.id]
-        assert metrics.ai_evaluation_count == total
-        assert metrics.ai_trial_evaluation_count == expected
+        log_fn = getattr(mock_logger, expected_level)
+        assert log_fn.call_count == 1
+        assert log_fn.call_args.args[0] == expected_message
+        if forbidden_level:
+            assert not getattr(mock_logger, forbidden_level).called
+
+    @parameterized.expand(
+        [
+            ("retryable", 0, False, "warning", "error"),
+            ("terminal", capture_ai_observability_report.max_retries, False, "error", "warning"),
+            ("direct_call", 0, True, "error", "warning"),
+        ]
+    )
+    @patch("posthog.tasks.ai_observability_usage_report.logger")
+    @patch("posthog.tasks.ai_observability_usage_report.capture_event", side_effect=Exception("capture down"))
+    @patch("posthog.tasks.ai_observability_usage_report.get_ph_client")
+    def test_capture_report_failure_log_level(
+        self,
+        _name: str,
+        retries: int,
+        called_directly: bool,
+        expected_level: str,
+        forbidden_level: str,
+        mock_get_ph_client: MagicMock,
+        mock_capture_event: MagicMock,
+        mock_logger: MagicMock,
+    ) -> None:
+        task = capture_ai_observability_report
+        task.push_request(retries=retries, called_directly=called_directly, is_eager=True)
+        try:
+            with pytest.raises(Exception, match="capture down"):
+                task.run(organization_id=str(uuid4()), report_dict={}, at_date=None)
+        finally:
+            task.pop_request()
+
+        assert getattr(mock_logger, expected_level).called
+        assert not getattr(mock_logger, forbidden_level).called

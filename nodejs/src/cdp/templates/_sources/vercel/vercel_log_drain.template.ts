@@ -95,7 +95,8 @@ if (empty(logs)) {
 }
 
 // Technical limitation: Hog functions can only call postHogCapture once per invocation.
-// If Vercel batches multiple logs in one request, we capture only the first one.
+// If Vercel batches multiple logs in one request, we emit only one (the first, or the
+// first page-route log when page_routes_only is enabled — see the selection below).
 // Configure Vercel to send logs individually for complete coverage.
 let droppedCount := length(logs) - 1
 if (droppedCount > 0) {
@@ -103,7 +104,6 @@ if (droppedCount > 0) {
 }
 
 let log := logs[1]
-let proxy := log.proxy ?? {}
 
 let limit := toInt(inputs.max_message_len ?? 262144)
 
@@ -154,6 +154,59 @@ fun extractPathname(url) {
     }
     return url
 }
+
+// Extension of the last path segment, lowercased; '' when there is none.
+fun pathExtension(p) {
+    if (empty(p) or typeof(p) != 'string') {
+        return ''
+    }
+    let segments := splitByString('/', p)
+    let lastSegment := segments[length(segments)]
+    if (empty(lastSegment)) {
+        return ''
+    }
+    let parts := splitByString('.', lastSegment)
+    if (length(parts) <= 1) {
+        return ''
+    }
+    return lower(parts[length(parts)])
+}
+
+// Top-level document request: a path with no file extension (e.g. /pricing,
+// /docs/x) or an HTML document. Everything else is a sub-resource (JS, CSS,
+// image, font, JSON, source map).
+fun isPageRoute(p) {
+    let ext := pathExtension(p)
+    return ext == '' or ext == 'html' or ext == 'htm'
+}
+
+fun logPathname(l) {
+    let p := l.proxy ?? {}
+    return extractPathname(p.path ?? l.path ?? '')
+}
+
+// With page_routes_only enabled, emit the first page-route log in the batch, so a page
+// view is not lost when an asset request happens to come first in the same batch. Vercel
+// can send several logs per request but only one event can be emitted per invocation.
+if (inputs.page_routes_only) {
+    let selected := null
+    for (let _, candidate in logs) {
+        if (selected == null and isPageRoute(logPathname(candidate))) {
+            selected := candidate
+        }
+    }
+    if (selected == null) {
+        // No page-route request in this batch — ack with 200 so Vercel does not retry.
+        return {
+            'httpResponse': {
+                'status': 200,
+                'body': 'OK'
+            }
+        }
+    }
+    log := selected
+}
+let proxy := log.proxy ?? {}
 
 // Distinct ID: configurable strategy. Default is a fixed salted hash of (ip, host, ua) —
 // one stable ID per client. The active strategy is recorded as $distinct_id_strategy
@@ -347,6 +400,16 @@ return {
             type: 'boolean',
             label: 'Log payloads',
             description: 'Logs the incoming request for debugging',
+            secret: false,
+            required: false,
+            default: false,
+        },
+        {
+            key: 'page_routes_only',
+            type: 'boolean',
+            label: 'Only capture page routes',
+            description:
+                'When enabled, only top-level document requests are captured — paths with no file extension (e.g. /pricing, /docs/x) or ending in .html/.htm. Sub-resource requests (JS, CSS, images, fonts, JSON, source maps) are skipped and acknowledged with 200 so Vercel does not retry them. A single page view fans out into many sub-resource requests, so this keeps $http_log close to a document/pageview stream and cuts ingested volume substantially. Off by default (the full HTTP access log is captured). Note: extension-less API routes (e.g. /api/x) are also kept.',
             secret: false,
             required: false,
             default: false,

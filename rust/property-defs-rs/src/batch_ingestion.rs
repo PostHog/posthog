@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
+use futures::stream::{FuturesUnordered, StreamExt};
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -9,14 +10,14 @@ use uuid::Uuid;
 use crate::{
     config::Config,
     metrics_consts::{
-        ISSUE_FAILED, V2_EVENT_DEFS_BATCH_ATTEMPT, V2_EVENT_DEFS_BATCH_CACHE_TIME,
-        V2_EVENT_DEFS_BATCH_ROWS_AFFECTED, V2_EVENT_DEFS_BATCH_SIZE,
-        V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_REMOVED, V2_EVENT_PROPS_BATCH_ATTEMPT,
-        V2_EVENT_PROPS_BATCH_CACHE_TIME, V2_EVENT_PROPS_BATCH_ROWS_AFFECTED,
-        V2_EVENT_PROPS_BATCH_SIZE, V2_EVENT_PROPS_BATCH_WRITE_TIME, V2_EVENT_PROPS_CACHE_REMOVED,
-        V2_PROP_DEFS_BATCH_ATTEMPT, V2_PROP_DEFS_BATCH_CACHE_TIME,
-        V2_PROP_DEFS_BATCH_ROWS_AFFECTED, V2_PROP_DEFS_BATCH_SIZE, V2_PROP_DEFS_BATCH_WRITE_TIME,
-        V2_PROP_DEFS_CACHE_REMOVED,
+        ISSUE_FAILED, V2_BATCH_ROWS_DROPPED_FK, V2_EVENT_DEFS_BATCH_ATTEMPT,
+        V2_EVENT_DEFS_BATCH_CACHE_TIME, V2_EVENT_DEFS_BATCH_ROWS_AFFECTED,
+        V2_EVENT_DEFS_BATCH_SIZE, V2_EVENT_DEFS_BATCH_WRITE_TIME, V2_EVENT_DEFS_CACHE_REMOVED,
+        V2_EVENT_PROPS_BATCH_ATTEMPT, V2_EVENT_PROPS_BATCH_CACHE_TIME,
+        V2_EVENT_PROPS_BATCH_ROWS_AFFECTED, V2_EVENT_PROPS_BATCH_SIZE,
+        V2_EVENT_PROPS_BATCH_WRITE_TIME, V2_EVENT_PROPS_CACHE_REMOVED, V2_PROP_DEFS_BATCH_ATTEMPT,
+        V2_PROP_DEFS_BATCH_CACHE_TIME, V2_PROP_DEFS_BATCH_ROWS_AFFECTED, V2_PROP_DEFS_BATCH_SIZE,
+        V2_PROP_DEFS_BATCH_WRITE_TIME, V2_PROP_DEFS_CACHE_REMOVED, V2_PROP_DEFS_DROPPED_UNCACHED,
     },
     types::{
         EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType, Update,
@@ -26,6 +27,40 @@ use crate::{
 
 const V2_BATCH_MAX_RETRY_ATTEMPTS: u64 = 3;
 const V2_BATCH_RETRY_DELAY_MS: u64 = 50;
+// How many distinct FK-violating tenants a single batch write will strip-and-rewrite
+// around before falling back to the normal retry path. Bounds the failed-INSERT loop
+// when a batch is riddled with rows for deleted teams/projects.
+const V2_BATCH_MAX_FK_STRIPS: u64 = 3;
+
+// Retains only the elements of `v` whose index holds `true` in `mask`.
+fn retain_by_mask<T>(v: &mut Vec<T>, mask: &[bool]) {
+    let mut idx = 0;
+    v.retain(|_| {
+        let keep = mask[idx];
+        idx += 1;
+        keep
+    });
+}
+
+/// Extracts the offending column/value from a Postgres foreign-key violation
+/// (SQLSTATE 23503) error detail, e.g.
+/// `Key (team_id)=(522607) is not present in table "posthog_team".`
+/// Returns None for any other error, or when the detail isn't a single integer
+/// key (composite keys, unexpected formats) — callers then use the normal
+/// retry path, so parsing can only ever narrow behavior, never break it.
+fn fk_violation_key(e: &sqlx::Error) -> Option<(String, i64)> {
+    let sqlx::Error::Database(db) = e else {
+        return None;
+    };
+    if db.code().as_deref() != Some("23503") {
+        return None;
+    }
+    let pg = db.try_downcast_ref::<sqlx::postgres::PgDatabaseError>()?;
+    let rest = pg.detail()?.strip_prefix("Key (")?;
+    let (column, rest) = rest.split_once(")=(")?;
+    let (value, _) = rest.split_once(')')?;
+    Some((column.to_string(), value.parse().ok()?))
+}
 
 // Derived hash since these are keyed on all fields in the DB
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -81,6 +116,32 @@ impl EventPropertiesBatch {
         }
 
         timer.fin();
+    }
+
+    // Strips rows referencing a missing FK target (deleted team/project); returns how many
+    // were removed. Their `cached` entries are removed too, so a later uncache_batch can't
+    // evict them from the shared dedup cache: staying cached is what stops the dead
+    // tenant's events from re-issuing the same failing write.
+    pub fn remove_rows_for_fk(&mut self, column: &str, value: i64) -> usize {
+        let keep: Vec<bool> = match column {
+            "team_id" => self
+                .team_ids
+                .iter()
+                .map(|id| i64::from(*id) != value)
+                .collect(),
+            "project_id" => self.project_ids.iter().map(|id| *id != value).collect(),
+            _ => return 0,
+        };
+        let removed = keep.iter().filter(|k| !**k).count();
+        if removed == 0 {
+            return 0;
+        }
+        retain_by_mask(&mut self.team_ids, &keep);
+        retain_by_mask(&mut self.project_ids, &keep);
+        retain_by_mask(&mut self.event_names, &keep);
+        retain_by_mask(&mut self.property_names, &keep);
+        retain_by_mask(&mut self.cached, &keep);
+        removed
     }
 }
 
@@ -141,6 +202,30 @@ impl EventDefinitionsBatch {
 
         timer.fin();
     }
+
+    // See EventPropertiesBatch::remove_rows_for_fk.
+    pub fn remove_rows_for_fk(&mut self, column: &str, value: i64) -> usize {
+        let keep: Vec<bool> = match column {
+            "team_id" => self
+                .team_ids
+                .iter()
+                .map(|id| i64::from(*id) != value)
+                .collect(),
+            "project_id" => self.project_ids.iter().map(|id| *id != value).collect(),
+            _ => return 0,
+        };
+        let removed = keep.iter().filter(|k| !**k).count();
+        if removed == 0 {
+            return 0;
+        }
+        retain_by_mask(&mut self.ids, &keep);
+        retain_by_mask(&mut self.names, &keep);
+        retain_by_mask(&mut self.team_ids, &keep);
+        retain_by_mask(&mut self.project_ids, &keep);
+        retain_by_mask(&mut self.last_seen_ats, &keep);
+        retain_by_mask(&mut self.cached, &keep);
+        removed
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -156,6 +241,10 @@ pub struct PropertyDefinitionsBatch {
     pub group_type_indices: Vec<Option<i16>>,
     // note: I left off deprecated fields we null out on writes
     pub cached: Vec<Update>,
+    // Group propdefs dropped for an unresolved group_type_index. They're never written, but
+    // the producer already inserted them (as Unresolved) into the shared dedup cache, so we
+    // evict them post-batch to avoid poisoning the cache against a later resolvable retry.
+    pub dropped_unresolved: Vec<Update>,
 }
 
 impl PropertyDefinitionsBatch {
@@ -171,6 +260,7 @@ impl PropertyDefinitionsBatch {
             event_types: Vec::with_capacity(batch_size),
             group_type_indices: Vec::with_capacity(batch_size),
             cached: Vec::with_capacity(batch_size),
+            dropped_unresolved: Vec::new(),
         }
     }
 
@@ -195,6 +285,11 @@ impl PropertyDefinitionsBatch {
             // during the transaction (which we do if we don't have a group-type index for a
             // group property), the entire transaction is aborted, so instead we just warn
             // loudly about this (above, and at resolve time), and drop the update.
+            //
+            // Record it so we can evict the producer's (Unresolved) shared-cache entry after
+            // the batch: without this, a transient resolution miss (new group type not yet
+            // visible to personhog) permanently blocks the def from ever persisting.
+            self.dropped_unresolved.push(Update::Property(pd));
             return;
         }
 
@@ -221,7 +316,19 @@ impl PropertyDefinitionsBatch {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        // Dropped-unresolved entries carry no write, but they still need a flush so their
+        // shared-cache entries get evicted, so a batch with only drops is not "empty".
+        self.len() == 0 && self.dropped_unresolved.is_empty()
+    }
+
+    // Evict the shared-cache entries for group propdefs we dropped for an unresolved
+    // group_type_index. The producer inserted them as Unresolved and the resolver preserves
+    // that form on a miss, so these keys match the originals directly (no revert needed).
+    pub fn uncache_dropped(&self, cache: &Arc<Cache>) {
+        for update in &self.dropped_unresolved {
+            cache.remove(update);
+            metrics::counter!(V2_PROP_DEFS_DROPPED_UNCACHED).increment(1);
+        }
     }
 
     pub fn uncache_batch(&self, cache: &Arc<Cache>) {
@@ -247,10 +354,44 @@ impl PropertyDefinitionsBatch {
 
         timer.fin();
     }
+
+    // See EventPropertiesBatch::remove_rows_for_fk. `dropped_unresolved` is untouched:
+    // those entries were never part of the write.
+    pub fn remove_rows_for_fk(&mut self, column: &str, value: i64) -> usize {
+        let keep: Vec<bool> = match column {
+            "team_id" => self
+                .team_ids
+                .iter()
+                .map(|id| i64::from(*id) != value)
+                .collect(),
+            "project_id" => self.project_ids.iter().map(|id| *id != value).collect(),
+            _ => return 0,
+        };
+        let removed = keep.iter().filter(|k| !**k).count();
+        if removed == 0 {
+            return 0;
+        }
+        retain_by_mask(&mut self.ids, &keep);
+        retain_by_mask(&mut self.team_ids, &keep);
+        retain_by_mask(&mut self.project_ids, &keep);
+        retain_by_mask(&mut self.names, &keep);
+        retain_by_mask(&mut self.are_numerical, &keep);
+        retain_by_mask(&mut self.event_types, &keep);
+        retain_by_mask(&mut self.property_types, &keep);
+        retain_by_mask(&mut self.group_type_indices, &keep);
+        retain_by_mask(&mut self.cached, &keep);
+        removed
+    }
 }
 
 // HACK: making this public so the test suite file can live under "../tests/" dir
-pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, batch: Vec<Update>) {
+pub async fn process_batch(
+    config: &Config,
+    cache: Arc<Cache>,
+    pool: &PgPool,
+    batch: Vec<Update>,
+    handle: &lifecycle::Handle,
+) {
     // prep reshaped, isolated data batch bufffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.write_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.write_batch_size);
@@ -323,9 +464,13 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
         }));
     }
 
-    // Execute final batch handles concurrently
-    let final_results = futures::future::join_all(handles).await;
-    for result in final_results {
+    // Drain the chunk writes as they complete, beating the consumer heartbeat on each
+    // completion. Heartbeats track real progress: a long batch of slow-but-advancing
+    // writes no longer trips the lifecycle stall detector, while a wedged consumer
+    // (no chunk completing within the liveness deadline) still does.
+    let mut in_flight: FuturesUnordered<_> = handles.into_iter().collect();
+    while let Some(result) = in_flight.next().await {
+        handle.report_healthy();
         match result {
             Ok(batch_result) => match batch_result {
                 Ok(_) => continue,
@@ -344,11 +489,12 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
 
 async fn write_event_properties_batch(
     cache: Arc<Cache>,
-    batch: EventPropertiesBatch,
+    mut batch: EventPropertiesBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_WRITE_TIME, &[]);
     let mut tries = 1;
+    let mut fk_strips: u64 = 0;
 
     loop {
         let result = sqlx::query(
@@ -369,6 +515,35 @@ async fn write_event_properties_batch(
 
         match result {
             Err(e) => {
+                // Rows referencing a deleted team/project can never be written; strip them
+                // (they stay cached, suppressing future re-issues) and rewrite the survivors.
+                // Unparseable FK errors, no matching rows, or an exhausted strip budget all
+                // fall through to the normal retry path below, so parsing can only ever
+                // narrow behavior, never change it.
+                if fk_strips < V2_BATCH_MAX_FK_STRIPS {
+                    if let Some((column, value)) = fk_violation_key(&e) {
+                        let removed = batch.remove_rows_for_fk(&column, value);
+                        if removed > 0 {
+                            fk_strips += 1;
+                            metrics::counter!(
+                                V2_EVENT_PROPS_BATCH_ATTEMPT,
+                                &[("result", "dropped_fk")]
+                            )
+                            .increment(1);
+                            metrics::counter!(V2_BATCH_ROWS_DROPPED_FK, &[("table", "eventprops")])
+                                .increment(removed as u64);
+                            warn!(
+                                "Dropped {removed} event property rows referencing missing {column}={value}"
+                            );
+                            if batch.is_empty() {
+                                total_time.fin();
+                                return Ok(());
+                            }
+                            continue;
+                        }
+                    }
+                }
+
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
@@ -416,17 +591,39 @@ async fn write_event_properties_batch(
 
 async fn write_property_definitions_batch(
     cache: Arc<Cache>,
-    batch: PropertyDefinitionsBatch,
+    mut batch: PropertyDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_PROP_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
+    let mut fk_strips: u64 = 0;
+
+    // A batch may contain only dropped-unresolved entries (nothing to write). Skip the empty
+    // INSERT but still evict those poisoned shared-cache entries so they can be retried.
+    // Not `is_empty()`: that intentionally returns false when only drops are present (they
+    // still need a flush to evict); here we specifically mean "no writable rows".
+    #[allow(clippy::len_zero)]
+    if batch.len() == 0 {
+        batch.uncache_dropped(&cache);
+        total_time.fin();
+        return Ok(());
+    }
 
     loop {
         // what if we just ditch properties without a property_type set? why update on conflict at all?
+        //
+        // SELECT DISTINCT ON collapses rows that share the ON CONFLICT key before they reach the
+        // insert, so a property name repeated within one batch (e.g. `brand` seen as None then
+        // Numeric) can't make Postgres raise "ON CONFLICT DO UPDATE command cannot affect row a
+        // second time" (SQLSTATE 21000) and roll back the whole batch. The ORDER BY
+        // must lead with the DISTINCT ON keys; the trailing keys make the surviving row deterministic
+        // and pick the most useful one to write - a non-null property_type (then is_numerical),
+        // mirroring the DO UPDATE that only fills a NULL property_type.
         let result = sqlx::query(r#"
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
-                (SELECT * FROM UNNEST(
+                SELECT DISTINCT ON (COALESCE(project_id, team_id::bigint), name, type, COALESCE(group_type_index, -1))
+                    id, name, type, group_type_index, is_numerical, team_id, project_id, property_type
+                FROM UNNEST(
                     $1::uuid[],
                     $2::varchar[],
                     $3::smallint[],
@@ -434,7 +631,11 @@ async fn write_property_definitions_batch(
                     $5::boolean[],
                     $6::int[],
                     $7::bigint[],
-                    $8::varchar[]))
+                    $8::varchar[])
+                    AS t(id, name, type, group_type_index, is_numerical, team_id, project_id, property_type)
+                ORDER BY
+                    COALESCE(project_id, team_id::bigint), name, type, COALESCE(group_type_index, -1),
+                    (property_type IS NOT NULL) DESC, is_numerical DESC
                 ON CONFLICT (
                     COALESCE(project_id, team_id::bigint), name, type,
                     COALESCE(group_type_index, -1))
@@ -455,6 +656,39 @@ async fn write_property_definitions_batch(
 
         match result {
             Err(e) => {
+                // Rows referencing a deleted team/project can never be written; strip them
+                // (they stay cached, suppressing future re-issues) and rewrite the survivors.
+                // Unparseable FK errors, no matching rows, or an exhausted strip budget all
+                // fall through to the normal retry path below, so parsing can only ever
+                // narrow behavior, never change it.
+                if fk_strips < V2_BATCH_MAX_FK_STRIPS {
+                    if let Some((column, value)) = fk_violation_key(&e) {
+                        let removed = batch.remove_rows_for_fk(&column, value);
+                        if removed > 0 {
+                            fk_strips += 1;
+                            metrics::counter!(
+                                V2_PROP_DEFS_BATCH_ATTEMPT,
+                                &[("result", "dropped_fk")]
+                            )
+                            .increment(1);
+                            metrics::counter!(V2_BATCH_ROWS_DROPPED_FK, &[("table", "propdefs")])
+                                .increment(removed as u64);
+                            warn!(
+                                "Dropped {removed} property definition rows referencing missing {column}={value}"
+                            );
+                            // Not `is_empty()`: that returns false when only dropped-unresolved
+                            // entries remain, and here we mean "no writable rows left".
+                            #[allow(clippy::len_zero)]
+                            if batch.len() == 0 {
+                                total_time.fin();
+                                batch.uncache_dropped(&cache);
+                                return Ok(());
+                            }
+                            continue;
+                        }
+                    }
+                }
+
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
@@ -468,6 +702,7 @@ async fn write_property_definitions_batch(
                     // remove all entries from cache so they get another shot
                     // at persisting on future event submissions
                     batch.uncache_batch(&cache);
+                    batch.uncache_dropped(&cache);
 
                     return Err(e);
                 }
@@ -493,6 +728,10 @@ async fn write_property_definitions_batch(
                     count
                 );
 
+                // Dropped group propdefs were never written; evict their (Unresolved) shared-cache
+                // entries so a later, now-resolvable $groupidentify is not filtered out.
+                batch.uncache_dropped(&cache);
+
                 return Ok(());
             }
         }
@@ -501,11 +740,12 @@ async fn write_property_definitions_batch(
 
 async fn write_event_definitions_batch(
     cache: Arc<Cache>,
-    batch: EventDefinitionsBatch,
+    mut batch: EventDefinitionsBatch,
     pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
     let total_time = common_metrics::timing_guard(V2_EVENT_DEFS_BATCH_WRITE_TIME, &[]);
     let mut tries: u64 = 1;
+    let mut fk_strips: u64 = 0;
 
     loop {
         // last_seen_ats are manipulated on event defs for cache expiration
@@ -520,16 +760,26 @@ async fn write_event_definitions_batch(
 
         // TODO: see if we can eliminate last_seen_at from being exposed in the UI,
         // then convert this stmt to ON CONFLICT DO NOTHING
+        //
+        // SELECT DISTINCT ON collapses rows that share the ON CONFLICT key before they reach the
+        // insert, so an event name repeated within one batch can't make Postgres raise "ON CONFLICT
+        // DO UPDATE command cannot affect row a second time" (SQLSTATE 21000) and roll back the whole
+        // batch. last_seen_at is bound to a single per-attempt timestamp for every
+        // row above, so the ORDER BY tiebreak is a no-op today, but keeps the survivor deterministic.
         let result = sqlx::query(
             r#"
             INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at)
-                (SELECT * FROM UNNEST (
+                SELECT DISTINCT ON (COALESCE(project_id, team_id::bigint), name)
+                    id, name, team_id, project_id, last_seen_at, created_at
+                FROM UNNEST (
                     $1::uuid[],
                     $2::varchar[],
                     $3::int[],
                     $4::bigint[],
                     $5::timestamptz[],
-                    $5::timestamptz[]))
+                    $5::timestamptz[])
+                    AS t(id, name, team_id, project_id, last_seen_at, created_at)
+                ORDER BY COALESCE(project_id, team_id::bigint), name, last_seen_at DESC
                 ON CONFLICT (coalesce(project_id, team_id::bigint), name) DO UPDATE
                     SET last_seen_at=EXCLUDED.last_seen_at,
                         created_at=COALESCE(posthog_eventdefinition.created_at, EXCLUDED.created_at)
@@ -545,6 +795,35 @@ async fn write_event_definitions_batch(
 
         match result {
             Err(e) => {
+                // Rows referencing a deleted team/project can never be written; strip them
+                // (they stay cached, suppressing future re-issues) and rewrite the survivors.
+                // Unparseable FK errors, no matching rows, or an exhausted strip budget all
+                // fall through to the normal retry path below, so parsing can only ever
+                // narrow behavior, never change it.
+                if fk_strips < V2_BATCH_MAX_FK_STRIPS {
+                    if let Some((column, value)) = fk_violation_key(&e) {
+                        let removed = batch.remove_rows_for_fk(&column, value);
+                        if removed > 0 {
+                            fk_strips += 1;
+                            metrics::counter!(
+                                V2_EVENT_DEFS_BATCH_ATTEMPT,
+                                &[("result", "dropped_fk")]
+                            )
+                            .increment(1);
+                            metrics::counter!(V2_BATCH_ROWS_DROPPED_FK, &[("table", "eventdefs")])
+                                .increment(removed as u64);
+                            warn!(
+                                "Dropped {removed} event definition rows referencing missing {column}={value}"
+                            );
+                            if batch.is_empty() {
+                                total_time.fin();
+                                return Ok(());
+                            }
+                            continue;
+                        }
+                    }
+                }
+
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
@@ -585,5 +864,112 @@ async fn write_event_definitions_batch(
                 return Ok(());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{GroupType, PropertyDefinition, PropertyParentType};
+
+    fn group_pd(team_id: i32, group_name: &str, prop: &str) -> PropertyDefinition {
+        PropertyDefinition {
+            team_id,
+            project_id: team_id as i64,
+            name: prop.to_string(),
+            is_numerical: false,
+            property_type: None,
+            event_type: PropertyParentType::Group,
+            group_type_index: Some(GroupType::Unresolved(group_name.to_string())),
+            property_type_format: None,
+            volume_30_day: None,
+            query_usage_30_day: None,
+        }
+    }
+
+    #[test]
+    fn unresolved_group_pd_is_dropped_and_recorded_for_eviction() {
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        batch.append(group_pd(1, "org", "seats"));
+
+        // Nothing to write (the CHECK constraint forbids a NULL group_type_index)...
+        assert_eq!(batch.len(), 0);
+        assert!(batch.cached.is_empty());
+        // ...but it's recorded so its shared-cache entry gets evicted, and a drop-only batch
+        // must still flush.
+        assert_eq!(batch.dropped_unresolved.len(), 1);
+        assert!(!batch.is_empty());
+    }
+
+    #[test]
+    fn uncache_dropped_evicts_the_producer_inserted_key() {
+        let cache = Arc::new(Cache::new(10, 10, 10));
+        let pd = group_pd(1, "org", "seats");
+
+        // The producer inserts the Unresolved form before resolution runs.
+        cache.insert(Update::Property(pd.clone()));
+        assert!(cache.contains_key(&Update::Property(pd.clone())));
+
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        batch.append(pd.clone());
+        batch.uncache_dropped(&cache);
+
+        // The poisoned entry is gone, so a later resolvable $groupidentify won't be filtered.
+        assert!(!cache.contains_key(&Update::Property(pd)));
+    }
+
+    #[test]
+    fn resolved_group_pd_is_written_not_dropped() {
+        let mut batch = PropertyDefinitionsBatch::new(100);
+        let mut pd = group_pd(1, "org", "seats");
+        pd.group_type_index = Some(GroupType::Resolved("org".to_string(), 2));
+        batch.append(pd);
+
+        assert_eq!(batch.len(), 1);
+        assert!(batch.dropped_unresolved.is_empty());
+        assert_eq!(batch.group_type_indices, vec![Some(2)]);
+    }
+
+    fn event_prop(team_id: i32, prop: &str) -> EventProperty {
+        EventProperty {
+            team_id,
+            project_id: team_id as i64,
+            event: "$pageview".to_string(),
+            property: prop.to_string(),
+        }
+    }
+
+    // UNNEST pads mismatched input arrays with NULLs instead of erroring, so a desync
+    // between the parallel vecs would corrupt writes silently. Guard that a strip keeps
+    // every vec (including `cached`) aligned, across both FK columns.
+    #[test]
+    fn remove_rows_for_fk_keeps_parallel_vecs_aligned() {
+        for column in ["team_id", "project_id"] {
+            let mut batch = EventPropertiesBatch::new(100);
+            batch.append(event_prop(1, "a"));
+            batch.append(event_prop(999, "b"));
+            batch.append(event_prop(1, "c"));
+            batch.append(event_prop(999, "d"));
+
+            assert_eq!(batch.remove_rows_for_fk(column, 999), 2);
+            assert_eq!(batch.len(), 2);
+            assert_eq!(batch.team_ids, vec![1, 1]);
+            assert_eq!(batch.project_ids, vec![1, 1]);
+            assert_eq!(batch.property_names, vec!["a", "c"]);
+            assert_eq!(batch.event_names.len(), 2);
+            assert_eq!(batch.cached.len(), 2);
+        }
+    }
+
+    #[test]
+    fn remove_rows_for_fk_ignores_unknown_columns_and_missing_values() {
+        let mut batch = EventPropertiesBatch::new(100);
+        batch.append(event_prop(1, "a"));
+
+        // an FK column we don't carry (e.g. a composite or exotic constraint) strips nothing
+        assert_eq!(batch.remove_rows_for_fk("organization_id", 1), 0);
+        // and neither does a value no row references
+        assert_eq!(batch.remove_rows_for_fk("team_id", 42), 0);
+        assert_eq!(batch.len(), 1);
     }
 }

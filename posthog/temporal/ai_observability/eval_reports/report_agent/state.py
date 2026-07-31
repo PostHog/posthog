@@ -28,6 +28,8 @@ class EvalReportAgentState(TypedDict):
     evaluation_description: str
     evaluation_prompt: str
     evaluation_type: str
+    evaluation_target: str
+    output_type: str
     period_start: str
     period_end: str
     previous_period_start: str
@@ -35,3 +37,4 @@ class EvalReportAgentState(TypedDict):
 
     # Working state — the agent builds this up via tool calls
     report: EvalReportContent
+    trace_id_allowlist: list[str]

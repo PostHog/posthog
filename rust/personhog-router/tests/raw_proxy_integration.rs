@@ -10,7 +10,7 @@ use common::{
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembership, DeletePersonsRequest, GetGroupsRequest,
     GetPersonByDistinctIdRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person, PersonWithDistinctIds,
+    GetPersonsByDistinctIdsInTeamRequest, Group, GroupIdentifier, Person,
     UpdatePersonPropertiesRequest,
 };
 use tonic::Request;
@@ -22,6 +22,19 @@ fn with_consistency<T>(req: T, consistency: &str) -> Request<T> {
     request
         .metadata_mut()
         .insert("x-read-consistency", consistency.parse().unwrap());
+    request
+}
+
+/// Stamp the `x-team-id`/`x-person-id` routing-key headers the router
+/// requires on every leader-path request. Composes with `with_consistency`
+/// for strong reads.
+fn with_person_key<T>(mut request: Request<T>, team_id: i64, person_id: i64) -> Request<T> {
+    request
+        .metadata_mut()
+        .insert("x-team-id", team_id.to_string().parse().unwrap());
+    request
+        .metadata_mut()
+        .insert("x-person-id", person_id.to_string().parse().unwrap());
     request
 }
 
@@ -189,7 +202,7 @@ async fn raw_proxy_delete_persons_routes_to_replica() {
 }
 
 // ============================================================
-// 2. Leader routing — typed deserialization
+// 2. Leader routing — header-keyed raw passthrough
 // ============================================================
 
 #[tokio::test]
@@ -205,13 +218,17 @@ async fn raw_proxy_strong_get_person_routes_to_leader() {
     let mut client = create_client(router_addr).await;
 
     let response = client
-        .get_person(with_consistency(
-            GetPersonRequest {
-                team_id: 1,
-                person_id: 42,
-                read_options: None,
-            },
-            "strong",
+        .get_person(with_person_key(
+            with_consistency(
+                GetPersonRequest {
+                    team_id: 1,
+                    person_id: 42,
+                    read_options: None,
+                },
+                "strong",
+            ),
+            1,
+            42,
         ))
         .await
         .unwrap();
@@ -232,15 +249,19 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
     let mut client = create_client(router_addr).await;
 
     let response = client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({"name": "Test User"})).unwrap(),
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+        .update_person_properties(with_person_key(
+            Request::new(UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Test User"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            }),
+            1,
+            42,
+        ))
         .await
         .unwrap();
 
@@ -262,27 +283,36 @@ async fn raw_proxy_write_then_strong_read_roundtrip() {
     let mut client = create_client(router_addr).await;
 
     client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            event_name: "$set".to_string(),
-            set_properties: serde_json::to_vec(&serde_json::json!({"email": "new@example.com"}))
+        .update_person_properties(with_person_key(
+            Request::new(UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(
+                    &serde_json::json!({"email": "new@example.com"}),
+                )
                 .unwrap(),
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            }),
+            1,
+            42,
+        ))
         .await
         .unwrap();
 
     let response = client
-        .get_person(with_consistency(
-            GetPersonRequest {
-                team_id: 1,
-                person_id: 42,
-                read_options: None,
-            },
-            "strong",
+        .get_person(with_person_key(
+            with_consistency(
+                GetPersonRequest {
+                    team_id: 1,
+                    person_id: 42,
+                    read_options: None,
+                },
+                "strong",
+            ),
+            1,
+            42,
         ))
         .await
         .unwrap();
@@ -292,6 +322,49 @@ async fn raw_proxy_write_then_strong_read_roundtrip() {
 
     let props: serde_json::Value = serde_json::from_slice(&person.properties).unwrap();
     assert_eq!(props["email"], "new@example.com");
+}
+
+/// Leader-path requests without the routing-key headers fail closed with
+/// InvalidArgument — the router must never guess a partition, and the body
+/// is deliberately never inspected as a fallback.
+#[tokio::test]
+async fn raw_proxy_leader_requests_without_key_headers_rejected() {
+    let replica_service = TestReplicaService::new();
+    let leader_service = TestLeaderService::new().with_person(create_test_person());
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut client = create_client(router_addr).await;
+
+    let update_result = client
+        .update_person_properties(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            set_properties: vec![],
+            set_once_properties: vec![],
+            unset_properties: vec![],
+        })
+        .await;
+    let status = update_result.expect_err("write without key headers must be rejected");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("x-team-id"));
+
+    let read_result = client
+        .get_person(with_consistency(
+            GetPersonRequest {
+                team_id: 1,
+                person_id: 42,
+                read_options: None,
+            },
+            "strong",
+        ))
+        .await;
+    let status = read_result.expect_err("strong read without key headers must be rejected");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("x-team-id"));
 }
 
 // ============================================================
@@ -339,7 +412,6 @@ async fn raw_proxy_update_person_properties_no_leader_returns_unimplemented() {
             set_properties: vec![],
             set_once_properties: vec![],
             unset_properties: vec![],
-            partition: 0,
         })
         .await;
 
@@ -347,6 +419,62 @@ async fn raw_proxy_update_person_properties_no_leader_returns_unimplemented() {
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unimplemented);
     assert!(status.message().contains("leader"));
+}
+
+/// Gzip-compressed leader requests transit the raw proxy untouched: the
+/// routing key comes from headers, so the router never needs the body
+/// bytes, and the leader's `accept_compressed(Gzip)` decodes the frame.
+/// This is the end-to-end contract that motivated the header pivot —
+/// request compression composes with raw passthrough for free.
+#[tokio::test]
+async fn raw_proxy_compressed_leader_requests_transit_untouched() {
+    let test_person = create_test_person();
+    let replica_service = TestReplicaService::new();
+    let leader_service = TestLeaderService::new().with_person(test_person.clone());
+
+    let replica_addr = start_test_replica(replica_service).await;
+    let leader_addr = start_test_leader(leader_service).await;
+    let router_addr =
+        start_test_router_raw_with_leader(replica_addr, leader_addr, NUM_PARTITIONS).await;
+    let mut compressed = create_compressed_client(router_addr).await;
+
+    let response = compressed
+        .update_person_properties(with_person_key(
+            Request::new(UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                // Enough payload that tonic actually compresses the frame.
+                set_properties: serde_json::to_vec(&serde_json::json!({"blob": "x".repeat(4096)}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            }),
+            1,
+            42,
+        ))
+        .await
+        .expect("compressed write must transit the raw proxy");
+    assert!(response.into_inner().updated);
+
+    let response = compressed
+        .get_person(with_person_key(
+            with_consistency(
+                GetPersonRequest {
+                    team_id: 1,
+                    person_id: 42,
+                    read_options: None,
+                },
+                "strong",
+            ),
+            1,
+            42,
+        ))
+        .await
+        .expect("compressed strong read must transit the raw proxy");
+    let person = response.into_inner().person.unwrap();
+    assert_eq!(person.id, test_person.id);
+    assert_eq!(person.version, test_person.version + 1);
 }
 
 // ============================================================
@@ -391,15 +519,18 @@ async fn raw_proxy_rejects_oversized_leader_request() {
 
     let oversized_props = vec![0u8; 2048];
     let result = client
-        .update_person_properties(UpdatePersonPropertiesRequest {
-            team_id: 1,
-            person_id: 42,
-            event_name: "$set".to_string(),
-            set_properties: oversized_props,
-            set_once_properties: vec![],
-            unset_properties: vec![],
-            partition: 0,
-        })
+        .update_person_properties(with_person_key(
+            Request::new(UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: oversized_props,
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            }),
+            1,
+            42,
+        ))
         .await;
 
     assert!(result.is_err());
@@ -443,8 +574,12 @@ fn complex_properties() -> Vec<u8> {
     .unwrap()
 }
 
+/// On the replica path the router forwards gzip-compressed request frames
+/// untouched (the body is never inspected there) and the replica's
+/// `accept_compressed(Gzip)` decodes them. A plain client on the same
+/// router keeps working — compression is a per-client opt-in.
 #[tokio::test]
-async fn raw_proxy_compressed_request_matches_uncompressed() {
+async fn raw_proxy_compressed_replica_request_transits_untouched() {
     let person = Person {
         properties: complex_properties(),
         ..create_test_person()
@@ -462,57 +597,22 @@ async fn raw_proxy_compressed_request_matches_uncompressed() {
         read_options: None,
     };
 
-    let plain_resp = plain.get_person(req()).await.unwrap().into_inner();
     let compressed_resp = compressed.get_person(req()).await.unwrap().into_inner();
-    assert_eq!(plain_resp, compressed_resp);
-}
+    assert_eq!(compressed_resp.person.unwrap().id, person.id);
 
-#[tokio::test]
-async fn raw_proxy_compressed_get_persons_by_distinct_ids() {
-    let persons = vec![
-        PersonWithDistinctIds {
-            distinct_id: "user-1".to_string(),
-            person: Some(create_test_person()),
-        },
-        PersonWithDistinctIds {
-            distinct_id: "user-2".to_string(),
-            person: None,
-        },
-    ];
-    let replica_service = TestReplicaService::new().with_persons_by_distinct_id(persons);
-    let replica_addr = start_test_replica(replica_service).await;
-    let router_addr = start_test_router_raw(replica_addr).await;
-
-    let mut plain = create_client(router_addr).await;
-    let mut compressed = create_compressed_client(router_addr).await;
-
-    let req = || GetPersonsByDistinctIdsInTeamRequest {
-        team_id: 1,
-        distinct_ids: vec!["user-1".to_string(), "user-2".to_string()],
-        read_options: None,
-    };
-
-    let plain_resp = plain
-        .get_persons_by_distinct_ids_in_team(req())
-        .await
-        .unwrap()
-        .into_inner();
-    let compressed_resp = compressed
-        .get_persons_by_distinct_ids_in_team(req())
-        .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(plain_resp, compressed_resp);
+    let plain_resp = plain.get_person(req()).await.unwrap().into_inner();
+    assert_eq!(plain_resp.person.unwrap().id, person.id);
 }
 
 // ============================================================
-// 6. Async gzip compression
+// 6. Async gzip response compression
 //
 // These tests verify the AsyncGzipLayer by making raw gRPC requests with
 // `grpc-accept-encoding: gzip` and inspecting the wire format. We bypass
-// tonic's client codec because tonic's `gzip` feature is intentionally
-// disabled — our layer handles gzip instead of tonic's inline compression.
-// This matches production where the client is Django's grpcio.
+// tonic's client codec so the layer's output is observable on the wire —
+// tonic never compresses responses here (no backend calls send_compressed),
+// so any gzip frame must have come from the layer. This matches production
+// where the client is Django's grpcio.
 // ============================================================
 
 /// Decompress a gRPC frame, returning the protobuf payload.

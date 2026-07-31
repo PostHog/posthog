@@ -28,7 +28,9 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
+import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
+import { AnnouncementsTabContent } from './components/Announcements/AnnouncementsTabContent'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
@@ -77,9 +79,12 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         reportCustomerAnalyticsViewed()
     })
 
-    // Accounts is gated by CUSTOMER_ANALYTICS_CSP; without it the tab does not
-    // exist, so a guessed `/customer_analytics/accounts` URL is a 404.
-    if (activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+    // Accounts, Notes and Announcements are gated by CUSTOMER_ANALYTICS_CSP; without it the tabs do
+    // not exist, so guessed `/customer_analytics/{accounts,notes,announcements}` URLs are 404s.
+    if (
+        (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'announcements') &&
+        !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
+    ) {
         return <NotFound object="page" />
     }
 
@@ -108,6 +113,18 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             label: 'Accounts',
             content: <AccountsTabContent />,
             link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
+        })
+        tabs.push({
+            key: 'notes',
+            label: 'Notes',
+            content: <AccountNotesTabContent />,
+            link: combineUrl(urls.customerAnalyticsNotes(), searchParams).url,
+        })
+        tabs.push({
+            key: 'announcements',
+            label: 'Announcements',
+            content: <AnnouncementsTabContent />,
+            link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
         })
     }
 

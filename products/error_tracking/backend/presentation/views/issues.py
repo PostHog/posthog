@@ -204,10 +204,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         try:
-            issues_facade.merge_issues(self.team.id, UUID(str(pk)), ids)
+            merge_result = issues_facade.merge_issues(self.team.id, UUID(str(pk)), ids)
         except IssueNotFoundError:
             raise NotFound("Issue not found")
-        return Response({"success": True})
+        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
+            raise NotFound("Issue not found")
+        if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_FINGERPRINTS:
+            raise ValidationError("Issue fingerprints changed before merge. Please retry.")
+        return Response({"success": merge_result == issues_facade.ErrorTrackingIssueMergeResult.MERGED})
 
     @validated_request(
         request_serializer=ErrorTrackingIssueSplitRequestSerializer,

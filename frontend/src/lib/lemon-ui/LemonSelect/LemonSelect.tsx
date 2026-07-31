@@ -79,7 +79,7 @@ export interface LemonSelectPropsBase<T> extends Pick<
     className?: string
     placeholder?: string
     size?: LemonButtonProps['size']
-    menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
+    menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside' | 'onVisibilityChange'>
     visible?: LemonDropdownProps['visible']
     startVisible?: LemonDropdownProps['startVisible']
     truncateText?: { maxWidthClass: string }
@@ -150,6 +150,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 .flatMap((i) => (isLemonMenuSection(i) ? i.items.filter(Boolean) : i))
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
+            onVisibilityChange={menu?.onVisibilityChange}
             visible={visible}
             startVisible={startVisible}
         >
@@ -187,11 +188,28 @@ export function LemonSelect<T extends string | number | boolean | null>({
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf
                           ? activeLeaf.label
-                          : ((value ?? placeholder) as React.ReactNode)}
+                          : formatValueFallback(value, placeholder)}
                 </span>
             </LemonButton>
         </LemonMenu>
     )
+}
+
+// `value` is typed as a scalar, but data from JSON-backed sources can violate that at
+// runtime, and objects aren't valid React children (React error #31) — show them as
+// JSON rather than crash the page.
+function formatValueFallback(value: unknown, placeholder: string): React.ReactNode {
+    if (value == null) {
+        return placeholder
+    }
+    if (typeof value === 'object') {
+        try {
+            return JSON.stringify(value)
+        } catch {
+            return String(value)
+        }
+    }
+    return value as React.ReactNode
 }
 
 /**

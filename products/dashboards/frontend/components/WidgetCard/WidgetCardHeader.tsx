@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { type ComponentType } from 'react'
+import React, { Suspense } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
@@ -13,6 +13,7 @@ import { dateFilterToText } from 'lib/utils/dateFilters'
 import { DashboardPlacement } from '~/types'
 
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
+import type { DashboardWidgetSlot } from '../../widgets/registry'
 
 /** Props a widget type's optional TopHeading override receives so it can compose its own
  * CardTopHeadingRow — e.g. resolving a saved filter's name the generic header can't derive from config. */
@@ -33,8 +34,9 @@ export type WidgetCardHeaderProps = {
     widgetTypeLabel?: string
     config?: Record<string, unknown>
     headerMeta?: DashboardWidgetHeaderMeta
-    /** Optional per-widget-type top heading row; falls back to the type + date range when absent. */
-    TopHeading?: ComponentType<DashboardWidgetTopHeadingProps>
+    /** Optional per-widget-type top heading row; falls back to the type + date range when absent.
+     * A `DashboardWidgetSlot` so the registry can code-split it (rendered inside a Suspense below). */
+    TopHeading?: DashboardWidgetSlot<DashboardWidgetTopHeadingProps>
     description?: string
     showDescription?: boolean
     loading?: boolean
@@ -191,12 +193,14 @@ export function WidgetCardHeader({
             // saved filter name in place of the now-overridden date range); otherwise fall back to the
             // type + date range.
             TopHeading ? (
-                <TopHeading
-                    config={config ?? {}}
-                    widgetTypeLabel={widgetTypeLabel}
-                    showWidgetType={showWidgetType}
-                    dateText={dateText}
-                />
+                <Suspense fallback={null}>
+                    <TopHeading
+                        config={config ?? {}}
+                        widgetTypeLabel={widgetTypeLabel}
+                        showWidgetType={showWidgetType}
+                        dateText={dateText}
+                    />
+                </Suspense>
             ) : (
                 <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
             )

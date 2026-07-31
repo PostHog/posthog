@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aircall.source import AircallSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AircallSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aircall import (
+    AircallSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -47,9 +49,10 @@ class TestAircallSource:
         [
             "401 Client Error: Unauthorized for url: https://api.aircall.io/v1/calls?per_page=50",
             "403 Client Error: Forbidden for url: https://api.aircall.io/v1/contacts",
+            "400 Client Error: Bad Request for url: https://api.aircall.io/v1/contacts?per_page=50&page=201",
         ],
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error):
+    def test_non_retryable_errors_match_aircall_client_errors(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
@@ -130,6 +133,8 @@ class TestAircallSource:
         assert kwargs["api_id"] == "api-id"
         assert kwargs["api_token"] == "api-token"
         assert kwargs["endpoint"] == "calls"
+        assert kwargs["team_id"] is inputs.team_id
+        assert kwargs["job_id"] is inputs.job_id
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000

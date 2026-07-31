@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -30,7 +31,10 @@ from posthog.rate_limit import (
     get_route_from_path,
 )
 
-from products.feature_flags.backend.api.feature_flag import RemoteConfigThrottle
+from products.feature_flags.backend.api.feature_flag import (
+    RemoteConfigProjectSecretApiKeyTeamThrottle,
+    RemoteConfigThrottle,
+)
 
 
 class TestUserAPI(APIBaseTest):
@@ -716,6 +720,26 @@ class TestUserAPI(APIBaseTest):
             self.assertEqual(throttle.num_requests, 1200)
             self.assertEqual(throttle.duration, 60)  # 1 minute in seconds
 
+    def test_remote_config_team_throttle_uses_custom_rate_for_team(self):
+        throttle = RemoteConfigProjectSecretApiKeyTeamThrottle()
+
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("products.feature_flags.backend.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {123: "1200/minute"}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # The per-team throttle must apply the team's REMOTE_CONFIG_RATE_LIMITS override too, not
+            # just the per-key throttle, otherwise a configured per-team cap silently has no effect.
+            self.assertEqual(throttle.rate, "1200/minute")
+            self.assertEqual(throttle.num_requests, 1200)
+            self.assertEqual(throttle.duration, 60)
+
     @parameterized.expand(
         [
             # Test Django route pattern normalization
@@ -834,6 +858,39 @@ class TestPersonalOrProjectSecretApiKeyRateThrottle(APIBaseTest):
 
     def test_psak_requests_use_per_key_cache_bucket(self):
         self.assertTrue(_PSAKThrottleForTest().get_cache_key(self._psak_request(key_id=42), Mock()).endswith("psak:42"))
+
+
+class TestAIObservabilitySummarizationRateThrottle(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
+    def tearDown(self) -> None:
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            ("burst", rate_limit.AIObservabilitySummarizationBurstThrottle),
+            ("sustained", rate_limit.AIObservabilitySummarizationSustainedThrottle),
+            ("daily", rate_limit.AIObservabilitySummarizationDailyThrottle),
+        ]
+    )
+    @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False)
+    @patch("posthog.rate_limit.PersonalAPIKeyAuthentication.find_key_with_source", return_value=None)
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_session_requests_are_rate_limited(
+        self,
+        _name: str,
+        throttle_class: type[rate_limit.PersonalApiKeyRateThrottle],
+        _rate_limit_enabled: Mock,
+        _find_personal_api_key: Mock,
+        _team_can_bypass: Mock,
+    ) -> None:
+        request = Mock(user=Mock(is_authenticated=True), path="/api/projects/1/llm_analytics/evaluation_summary/")
+        view = Mock(team_id=1)
+
+        with patch.object(throttle_class, "rate", "1/minute"):
+            self.assertTrue(throttle_class().allow_request(request, view))
+            self.assertFalse(throttle_class().allow_request(request, view))
 
 
 class _PSAKTeamThrottleForTest(rate_limit.ProjectSecretApiKeyTeamRateThrottle):

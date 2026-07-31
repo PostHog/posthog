@@ -1,4 +1,4 @@
-import { createXAxisTickCallback } from './dates'
+import { createTooltipDateFormatter, createXAxisTickCallback } from './dates'
 
 function weeklyDates(start: string, count: number): string[] {
     const dates: string[] = []
@@ -28,6 +28,12 @@ describe('createXAxisTickCallback', () => {
             interval: undefined,
             allDays: ['2025-01-01', '2025-02-01', '2025-03-01'],
             expected: ['2025', 'February', 'March'],
+        },
+        {
+            scenario: 'inferred quarter interval from ~90 day gaps',
+            interval: undefined,
+            allDays: ['2025-04-01', '2025-07-01', '2025-10-01'],
+            expected: ['Q2', 'Q3', 'Q4'],
         },
         {
             scenario: 'inferred day interval from 1 day gaps',
@@ -76,6 +82,18 @@ describe('createXAxisTickCallback', () => {
             interval: 'month' as const,
             allDays: ['2025-11-01', '2025-12-01', '2026-01-01', '2026-02-01'],
             expected: ['November', 'December', '2026', 'February'],
+        },
+        {
+            scenario: 'quarterly, cross year → year at Q1 boundary, [Q]Q otherwise',
+            interval: 'quarter' as const,
+            allDays: ['2025-07-01', '2025-10-01', '2026-01-01', '2026-04-01'],
+            expected: ['Q3', 'Q4', '2026', 'Q2'],
+        },
+        {
+            scenario: 'yearly → plain years',
+            interval: 'year' as const,
+            allDays: ['2024-01-01', '2025-01-01', '2026-01-01'],
+            expected: ['2024', '2025', '2026'],
         },
         {
             scenario: 'daily, short span → full month name on 1st, MMM D otherwise',
@@ -280,5 +298,31 @@ describe('createXAxisTickCallback', () => {
             })
             expect(callback?.('some-label', 5)).toBe('some-label')
         })
+    })
+})
+
+describe('createTooltipDateFormatter', () => {
+    it.each([
+        { interval: 'second' as const, label: '2026-06-06 14:30:05', expected: 'Sat, Jun 6, 14:30:05' },
+        { interval: 'minute' as const, label: '2026-06-06 14:30:00', expected: 'Sat, Jun 6, 14:30' },
+        { interval: 'hour' as const, label: '2026-06-06 14:00:00', expected: 'Sat, Jun 6, 14:00' },
+        { interval: 'day' as const, label: '2026-06-06', expected: 'Sat, Jun 6, 2026' },
+        // Week/month buckets span multiple days, so a weekday would mislead
+        { interval: 'week' as const, label: '2026-06-01', expected: 'Jun 1, 2026' },
+        { interval: 'month' as const, label: '2026-06-01', expected: 'Jun 2026' },
+    ])('formats a $interval bucket header', ({ interval, label, expected }) => {
+        const format = createTooltipDateFormatter({ interval, timezone: 'UTC' })
+        expect(format(label)).toBe(expected)
+    })
+
+    it('resolves the weekday in the given timezone, not the browser one', () => {
+        // 2026-06-07T02:00 UTC is still Saturday June 6 in US/Pacific
+        const format = createTooltipDateFormatter({ interval: 'hour', timezone: 'US/Pacific' })
+        expect(format('2026-06-07T02:00:00Z')).toBe('Sat, Jun 6, 19:00')
+    })
+
+    it('passes non-date labels through unchanged', () => {
+        const format = createTooltipDateFormatter({ interval: 'day', timezone: 'UTC' })
+        expect(format('not-a-date')).toBe('not-a-date')
     })
 })

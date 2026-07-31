@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
-use tracing::{info, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 // Add thread-local imports for test-specific counter
 #[cfg(test)]
@@ -206,7 +206,7 @@ async fn fetch_person_and_cohorts(
 
     let mut conn = match conn_result {
         Ok(conn) => {
-            info!(
+            debug!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
                 "persons_reader connection acquired for person+cohort query"
             );
@@ -270,7 +270,7 @@ async fn fetch_person_and_cohorts(
             "Slow person query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = person_query_duration.as_millis(),
             distinct_id = distinct_id,
             team_id = team_id,
@@ -317,7 +317,7 @@ async fn fetch_person_and_cohorts(
                     "Slow cohort query detected"
                 );
             } else {
-                info!(
+                debug!(
                     duration_ms = cohort_query_duration.as_millis(),
                     person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
@@ -377,7 +377,7 @@ async fn fetch_group_properties(
 
     let mut conn = match conn_result {
         Ok(conn) => {
-            info!(
+            debug!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
                 "persons_reader connection acquired for group query"
             );
@@ -454,7 +454,7 @@ async fn fetch_group_properties(
             "Slow group query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = group_query_duration.as_millis(),
             team_id = team_id,
             group_pair_count = group_type_to_key.len(),
@@ -501,7 +501,7 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
         state.set_cohort_matches(cohort_matches);
     }
 
-    let person_properties: HashMap<String, Value> = if let Some(ref person) = result.person {
+    let mut person_properties: HashMap<String, Value> = if let Some(ref person) = result.person {
         match person.properties.as_object() {
             Some(obj) => obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             None => HashMap::new(),
@@ -509,6 +509,26 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
     } else {
         HashMap::new()
     };
+
+    // PersonMetadata fields (top-level columns on the persons table) are written under a
+    // sentinel prefix to avoid colliding with user-set properties of the same name (e.g.
+    // a customer setting `properties.created_at` for their own analytics). The matcher
+    // applies the prefix when `filter.prop_type == PersonMetadata` — see `match_property`.
+    // The field list lives in `PERSON_METADATA_FIELDS`; each field needs a match arm below
+    // mapping it to the persons-table column to read. A field added to that list without an arm
+    // here falls through `_ => continue` and is silently never injected, so keep the two in sync.
+    if let Some(ref person) = result.person {
+        for field in crate::properties::property_matching::PERSON_METADATA_FIELDS {
+            let value = match *field {
+                "created_at" => Value::String(person.created_at.to_rfc3339()),
+                _ => continue,
+            };
+            person_properties.insert(
+                crate::properties::property_matching::person_metadata_key(field),
+                value,
+            );
+        }
+    }
 
     state.set_person_properties(person_properties);
     person_processing_timer.fin();
@@ -542,7 +562,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     // Log pool stats before attempting connections
     if let Some(stats) = reader.as_ref().get_pool_stats() {
-        info!(
+        debug!(
             pool_size = stats.size,
             pool_idle = stats.num_idle,
             pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
@@ -611,10 +631,13 @@ fn are_overrides_useful_for_flag(
         return false;
     }
 
-    // Check if overrides contain at least one property the flag needs
-    property_filters
-        .iter()
-        .any(|filter| overrides.contains_key(&filter.key))
+    // Check if overrides contain at least one property the flag needs.
+    // Use `lookup_key_for` so PersonMetadata filters match on the sentinel-prefixed key rather
+    // than the raw key — see the note on `requires_db_property`.
+    property_filters.iter().any(|filter| {
+        overrides
+            .contains_key(crate::properties::property_matching::lookup_key_for(filter).as_ref())
+    })
 }
 
 /// Determines if a FlagError should trigger a retry
@@ -821,7 +844,7 @@ async fn try_get_feature_flag_hash_key_overrides(
             "Slow hash override lookup query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = query_duration.as_millis(),
             team_id = team_id,
             distinct_id_count = distinct_id_and_hash_key_override.len(),
@@ -1036,7 +1059,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow person data query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = person_query_duration.as_millis(),
                 team_id = team_id,
                 distinct_id_count = distinct_ids.len(),
@@ -1110,7 +1133,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow active flags query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = flags_query_duration.as_millis(),
                 team_id = team_id,
                 "Active flags query completed in set_hash_key_overrides"
@@ -1177,7 +1200,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow bulk insert query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = insert_duration.as_millis(),
                 team_id = team_id,
                 row_count = person_ids_to_insert.len(),
@@ -2594,5 +2617,46 @@ mod tests {
         assert_eq!(properties.len(), 3);
         assert!(!properties.contains_key("$initial_email"));
         assert!(!properties.contains_key("$initial_name"));
+    }
+
+    #[test]
+    fn test_apply_person_cohort_to_state_injects_person_metadata_sentinel_key() {
+        use crate::properties::property_matching::person_metadata_key;
+        use chrono::{TimeZone, Utc};
+        use uuid::Uuid;
+
+        let created_at = Utc.with_ymd_and_hms(2024, 1, 15, 9, 30, 0).unwrap();
+        // Capture the expected RFC3339 value before `person` is moved into the result.
+        let expected = created_at.to_rfc3339();
+
+        let person = Person {
+            id: 1,
+            created_at,
+            team_id: 1,
+            uuid: Uuid::new_v4(),
+            properties: json!({}),
+            is_identified: true,
+            is_user_id: None,
+            version: Some(0),
+        };
+
+        let mut state = FlagEvaluationState::default();
+        let result = PersonCohortResult {
+            person: Some(person),
+            cohort_matches: None,
+        };
+
+        apply_person_cohort_to_state(&mut state, result);
+
+        // The injection arm writes Person.created_at under the sentinel prefix so that
+        // person_metadata filters resolve against it (see match_property). If this arm
+        // regresses, the filter silently matches nobody.
+        let props = state
+            .get_person_properties()
+            .expect("person properties should be set");
+        assert_eq!(
+            props.get(&person_metadata_key("created_at")),
+            Some(&Value::String(expected))
+        );
     }
 }

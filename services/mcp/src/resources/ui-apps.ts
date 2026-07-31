@@ -29,6 +29,43 @@ export function buildAppStubHtml(appDir: string, baseUrl: string): string {
 </body></html>`
 }
 
+export interface UiAppResourceMeta {
+    [key: string]: unknown
+    ui: McpUiResourceMeta
+    'openai/widgetCSP': {
+        connect_domains: string[]
+        resource_domains: string[]
+    }
+}
+
+/**
+ * Build the `_meta` object for a UI app resource, declaring which domains the
+ * host must allow in the app iframe's CSP.
+ *
+ * Declared in two formats: `ui.csp` per the MCP Apps spec (Claude), and
+ * `openai/widgetCSP` for ChatGPT — ChatGPT ignores `ui.csp` and only extends
+ * its iframe CSP with its own key, so without it assets on MCP_APPS_BASE_URL
+ * are blocked whenever that host differs from the connected server origin
+ * (e.g. mcp.us.posthog.com assets vs mcp.posthog.com origin).
+ */
+export function buildUiAppResourceMeta(baseUrl: string, analyticsBaseUrl: string | undefined): UiAppResourceMeta {
+    const resourceDomains: string[] = [baseUrl]
+    const connectDomains: string[] = []
+
+    if (analyticsBaseUrl) {
+        connectDomains.push(analyticsBaseUrl)
+        resourceDomains.push(analyticsBaseUrl)
+    }
+
+    return {
+        ui: { csp: { connectDomains, resourceDomains } },
+        'openai/widgetCSP': {
+            connect_domains: connectDomains,
+            resource_domains: resourceDomains,
+        },
+    }
+}
+
 /**
  * Registers UI app resources with the MCP server.
  * These resources provide interactive visualizations for tool results
@@ -66,22 +103,7 @@ function registerApp(
     { name, uri, description, appDir }: RegisterAppParams,
     baseUrl: string
 ): void {
-    const analyticsBaseUrl = context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
-    const uiMetadata: McpUiResourceMeta = {}
-
-    const resourceDomains: string[] = [baseUrl]
-    const connectDomains: string[] = []
-
-    if (analyticsBaseUrl) {
-        connectDomains.push(analyticsBaseUrl)
-        resourceDomains.push(analyticsBaseUrl)
-    }
-
-    uiMetadata.csp = {
-        connectDomains,
-        resourceDomains,
-    }
-
+    const meta = buildUiAppResourceMeta(baseUrl, context.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL)
     const html = buildAppStubHtml(appDir, baseUrl)
 
     server.registerResource(name, uri, { mimeType: RESOURCE_MIME_TYPE, description }, async (uri) => {
@@ -91,7 +113,7 @@ function registerApp(
                     uri: uri.toString(),
                     mimeType: RESOURCE_MIME_TYPE,
                     text: html,
-                    _meta: { ui: uiMetadata },
+                    _meta: meta,
                 },
             ],
         }

@@ -1,4 +1,4 @@
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -10,6 +10,8 @@ const TOKEN_PROPERTIES = [
     '$ai_reasoning_tokens',
     '$ai_cache_read_input_tokens',
     '$ai_cache_creation_input_tokens',
+    '$ai_cache_creation_5m_input_tokens',
+    '$ai_cache_creation_1h_input_tokens',
 ] as const
 
 /**

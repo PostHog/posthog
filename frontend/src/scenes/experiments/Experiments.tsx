@@ -3,11 +3,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -16,6 +17,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -62,6 +64,8 @@ import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -144,6 +148,7 @@ const ExperimentsTableFilters = ({
                                 { label: 'Draft', value: ExperimentStatus.Draft },
                                 { label: 'Running', value: ExperimentStatus.Running },
                                 { label: 'Paused', value: ExperimentStatus.Paused },
+                                { label: 'Exposure frozen', value: ExperimentStatus.ExposureFrozen },
                                 { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
@@ -250,7 +255,14 @@ const ExperimentsTable = ({
                                 )}
                             </>
                         }
-                        description={experiment.description}
+                        description={
+                            experiment.description ? (
+                                // Hypotheses can run many paragraphs, so clamp to keep list rows compact
+                                <LemonMarkdown className="max-w-[30rem] line-clamp-2" lowKeyHeadings disableImages>
+                                    {experiment.description}
+                                </LemonMarkdown>
+                            ) : undefined
+                        }
                     />
                 )
             },
@@ -332,7 +344,8 @@ const ExperimentsTable = ({
                     [ExperimentStatus.Draft]: 1,
                     [ExperimentStatus.Running]: 2,
                     [ExperimentStatus.Paused]: 3,
-                    [ExperimentStatus.Stopped]: 4,
+                    [ExperimentStatus.ExposureFrozen]: 4,
+                    [ExperimentStatus.Stopped]: 5,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1
             },
@@ -499,7 +512,7 @@ const ExperimentsTable = ({
                         docsURL="https://posthog.com/docs/experiments"
                         action={() => router.actions.push(urls.experiment('new'))}
                         isEmpty={shouldShowEmptyState}
-                        customHog={ExperimentsHog}
+                        customHog={HedgehogExperiment}
                         className="my-0"
                         mcpSurfaceKey="experiments.create"
                     />

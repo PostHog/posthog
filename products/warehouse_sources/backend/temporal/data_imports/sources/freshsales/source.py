@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales import (
     FreshsalesResumeConfig,
     check_credentials,
@@ -29,12 +26,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshsalesSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshsales import (
+    FreshsalesSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class FreshsalesSource(ResumableSource[FreshsalesSourceConfig, FreshsalesResumeConfig]):
+    api_docs_url = "https://developers.freshworks.com/crm/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -92,6 +93,7 @@ Both are available under **Profile settings → API settings** in Freshsales.
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -108,7 +110,11 @@ Both are available under **Profile settings → API settings** in Freshsales.
         return schemas
 
     def validate_credentials(
-        self, config: FreshsalesSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FreshsalesSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         ok, error, status = check_credentials(config.api_key, config.domain, schema_name)
         if ok:

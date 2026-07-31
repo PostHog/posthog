@@ -34,15 +34,11 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
@@ -50,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     IncrementalFieldFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Column, Table
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.types import PartitionSettings
 
 
@@ -308,8 +305,13 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
         try:
             stats = self.fetch_table_stats(cursor, schema, table_name, logger)
         except Exception as e:
+            # Partition sizing is a best-effort optimization: returning None just falls back to
+            # default partition settings and the sync proceeds. Any genuine problem (missing table,
+            # permissions) resurfaces in the real extraction query and is classified through the
+            # normal retryable/non-retryable path, while transient connection drops here stay
+            # retryable there too. Capturing it would only flood error tracking with handled
+            # duplicates, so log at debug and fall back.
             logger.debug(f"get_partition_settings: Error fetching stats: {e}. Returning None", exc_info=e)
-            capture_exception(e)
             return None
 
         if stats is None or stats.row_count == 0:

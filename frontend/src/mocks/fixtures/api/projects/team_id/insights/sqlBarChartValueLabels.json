@@ -1,0 +1,135 @@
+{
+  "id": 24,
+  "short_id": "qJ3UMv9L",
+  "name": "SQL with value labels",
+  "derived_name": null,
+  "filters": {},
+  "query": {
+    "kind": "DataVisualizationNode",
+    "source": {
+      "kind": "HogQLQuery",
+      "query": "SELECT\n    toStartOfMonth(timestamp) AS month,\n    countIf(event = '$pageview') AS pageviews,\n    countIf(event = 'signed_up') AS signups\nFROM events\nGROUP BY month\nORDER BY month"
+    },
+    "display": "ActionsBar",
+    "chartSettings": {
+      "xAxis": {
+        "column": "month"
+      },
+      "yAxis": [
+        {
+          "column": "pageviews",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "signups",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        }
+      ],
+      "showValuesOnSeries": true
+    },
+    "tableSettings": {
+      "columns": [
+        {
+          "column": "month",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "pageviews",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "signups",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        }
+      ]
+    }
+  },
+  "order": null,
+  "deleted": false,
+  "dashboards": [],
+  "dashboard_tiles": [],
+  "last_refresh": "2026-03-04T16:10:59.052768Z",
+  "cache_target_age": "2026-03-04T22:10:59.052768Z",
+  "next_allowed_client_refresh": "2026-03-04T16:11:59.052768Z",
+  "result": [
+    ["2021-10-01", 340, 120],
+    ["2021-11-01", 520, 210],
+    ["2021-12-01", 610, 260],
+    ["2022-01-01", 480, 190],
+    ["2022-02-01", 720, 310],
+    ["2022-03-01", 890, 400]
+  ],
+  "hasMore": false,
+  "columns": ["month", "pageviews", "signups"],
+  "created_at": "2026-03-04T16:11:08.460573Z",
+  "created_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "description": null,
+  "updated_at": "2026-03-04T16:11:08.460609Z",
+  "favorited": false,
+  "saved": true,
+  "last_modified_at": "2026-03-04T16:11:08.456506Z",
+  "last_modified_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "is_sample": false,
+  "effective_restriction_level": 21,
+  "effective_privilege_level": 37,
+  "user_access_level": "manager",
+  "timezone": "UTC",
+  "is_cached": true,
+  "query_status": null,
+  "hogql": "SELECT\n    toStartOfMonth(timestamp) AS month,\n    countIf(equals(event, '$pageview')) AS pageviews,\n    countIf(equals(event, 'signed_up')) AS signups\nFROM\n    events\nGROUP BY\n    month\nORDER BY\n    month ASC\nLIMIT 101\nOFFSET 0",
+  "types": [
+    ["month", "Date"],
+    ["pageviews", "UInt64"],
+    ["signups", "UInt64"]
+  ],
+  "resolved_date_range": null,
+  "alerts": [],
+  "last_viewed_at": "2026-03-04T16:11:30.018817Z",
+  "tags": [],
+  "filters_hash": "cache_1_eb04b61fff884f29a4c74600aea3684fb7769ff1fa6e0d4e59865ee187c3b58c"
+}

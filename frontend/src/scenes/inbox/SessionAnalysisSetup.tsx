@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -19,8 +19,8 @@ const SUGGESTIONS = ['Just logged-in sessions', 'Sessions where users used our p
 function SessionAnalysisSetupIntro(): JSX.Element {
     return (
         <div className="flex flex-col items-center text-center">
-            <div className="flex *:h-full *:w-10 p-1">
-                <Logomark />
+            <div className="flex p-1">
+                <Logomark size="sm" />
             </div>
             <h3 className="text-base font-bold mb-0.5">Configure session filters</h3>
             <p className="text-xs text-secondary max-w-sm mb-0">

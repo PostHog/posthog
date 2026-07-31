@@ -171,6 +171,25 @@ describe('codeOwnersModalLogic', () => {
             .toMatchValues({ savingLoading: false })
 
         expect(loadRulesSpy).toHaveBeenCalledWith(ErrorTrackingRuleType.Assignment)
-        expect(lemonToast.error).toHaveBeenCalledWith('Failed to save assignment rules')
+        // The backend rejection reason is surfaced instead of a generic message, so a failed
+        // import points at the real cause.
+        expect(lemonToast.error).toHaveBeenCalledWith('Failed to save assignment rules: nope')
+    })
+
+    it('deduplicates repeated rejection reasons across failed creates', async () => {
+        silenceKeaLoadersErrors()
+        createRuleSpy.mockReset()
+        createRuleSpy.mockRejectedValue(new Error('assignee not found'))
+
+        await expectLogic(logic, () => {
+            logic.actions.setRawText('a/** @team/backend\nb/** @team/frontend')
+            logic.actions.setOwnerAssignee('@team/backend', { type: 'role', id: 'backend' })
+            logic.actions.setOwnerAssignee('@team/frontend', { type: 'role', id: 'frontend' })
+            logic.actions.saveAll()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ savingLoading: false })
+
+        expect(lemonToast.error).toHaveBeenCalledWith('Failed to save assignment rules: assignee not found')
     })
 })

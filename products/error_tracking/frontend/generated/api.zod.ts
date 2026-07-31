@@ -101,6 +101,52 @@ export const ErrorTrackingAssignmentRulesReorderPartialUpdateBody = /* @__PURE__
     disabled_data: zod.unknown().optional(),
 })
 
+export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters.'
+        ),
+})
+
+export const ErrorTrackingBypassRulesReorderPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .unknown()
+        .optional()
+        .describe('Property-group filters that define which incoming error events bypass rate limiting.'),
+    order_key: zod
+        .number()
+        .optional()
+        .describe("Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order."),
+    disabled_data: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active.'
+        ),
+})
+
 export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
     integration_id: zod
         .number()
@@ -439,7 +485,6 @@ export const errorTrackingQueryIssueEventsCreateBodyLimitMax = 20
 export const errorTrackingQueryIssueEventsCreateBodyOffsetDefault = 0
 export const errorTrackingQueryIssueEventsCreateBodyOffsetMin = 0
 
-export const errorTrackingQueryIssueEventsCreateBodyVerbosityDefault = `summary`
 export const errorTrackingQueryIssueEventsCreateBodyOnlyAppFramesDefault = true
 
 export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.object({
@@ -485,6 +530,10 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -500,7 +549,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'not_in',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
                             ),
                         zod.enum(['']),
                         zod.null(),
@@ -514,6 +563,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'event_metadata',
                                 'feature',
                                 'person',
+                                'person_metadata',
                                 'cohort',
                                 'element',
                                 'static-cohort',
@@ -531,15 +581,17 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'log',
                                 'log_attribute',
                                 'log_resource_attribute',
+                                'metric_attribute',
                                 'span',
                                 'span_attribute',
                                 'span_resource_attribute',
                                 'revenue_analytics',
+                                'account_custom_property',
                                 'flag',
                                 'workflow_variable',
                             ])
                             .describe(
-                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
+                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `person_metadata` - person_metadata\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `metric_attribute` - metric_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `account_custom_property` - account_custom_property\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])
@@ -569,12 +621,26 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
         .min(errorTrackingQueryIssueEventsCreateBodyOffsetMin)
         .default(errorTrackingQueryIssueEventsCreateBodyOffsetDefault)
         .describe('Pagination offset.'),
-    verbosity: zod
-        .enum(['summary', 'stack', 'raw'])
-        .describe('\* `summary` - summary\n\* `stack` - stack\n\* `raw` - raw')
-        .default(errorTrackingQueryIssueEventsCreateBodyVerbosityDefault)
+    include: zod
+        .array(
+            zod
+                .enum([
+                    'exception',
+                    'stacktrace',
+                    'code_variables',
+                    'environment',
+                    'release',
+                    'navigation',
+                    'correlation',
+                    'diagnostics',
+                ])
+                .describe(
+                    '\* `exception` - exception\n\* `stacktrace` - stacktrace\n\* `code_variables` - code_variables\n\* `environment` - environment\n\* `release` - release\n\* `navigation` - navigation\n\* `correlation` - correlation\n\* `diagnostics` - diagnostics'
+                )
+        )
+        .optional()
         .describe(
-            'Controls exception detail size: summary, stack, or raw. Defaults to summary.\n\n\* `summary` - summary\n\* `stack` - stack\n\* `raw` - raw'
+            'Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace.'
         ),
     onlyAppFrames: zod
         .boolean()
@@ -681,6 +747,10 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -696,7 +766,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'not_in',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `gte` - gte\n\* `lte` - lte\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before\n\* `in` - in\n\* `not_in` - not_in'
                             ),
                         zod.enum(['']),
                         zod.null(),
@@ -710,6 +780,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'event_metadata',
                                 'feature',
                                 'person',
+                                'person_metadata',
                                 'cohort',
                                 'element',
                                 'static-cohort',
@@ -727,15 +798,17 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'log',
                                 'log_attribute',
                                 'log_resource_attribute',
+                                'metric_attribute',
                                 'span',
                                 'span_attribute',
                                 'span_resource_attribute',
                                 'revenue_analytics',
+                                'account_custom_property',
                                 'flag',
                                 'workflow_variable',
                             ])
                             .describe(
-                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
+                                '\* `event` - event\n\* `event_metadata` - event_metadata\n\* `feature` - feature\n\* `person` - person\n\* `person_metadata` - person_metadata\n\* `cohort` - cohort\n\* `element` - element\n\* `static-cohort` - static-cohort\n\* `dynamic-cohort` - dynamic-cohort\n\* `precalculated-cohort` - precalculated-cohort\n\* `group` - group\n\* `recording` - recording\n\* `log_entry` - log_entry\n\* `behavioral` - behavioral\n\* `session` - session\n\* `hogql` - hogql\n\* `data_warehouse` - data_warehouse\n\* `data_warehouse_person_property` - data_warehouse_person_property\n\* `error_tracking_issue` - error_tracking_issue\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute\n\* `metric_attribute` - metric_attribute\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute\n\* `revenue_analytics` - revenue_analytics\n\* `account_custom_property` - account_custom_property\n\* `flag` - flag\n\* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])

@@ -4,9 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2023-07-07">
-    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2023-07-07">
-    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2023-07-07">
+    {# Absolute app-origin URLs: reverse-proxy domains don't serve Django staticfiles. #}
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ site_url }}/static/icons/apple-touch-icon.png?v=2023-07-07">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ site_url }}/static/icons/favicon-32x32.png?v=2023-07-07">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ site_url }}/static/icons/favicon-16x16.png?v=2023-07-07">
     <title>{{ error_title }}</title>
     <style>
         :root {

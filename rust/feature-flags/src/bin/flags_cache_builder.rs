@@ -44,7 +44,7 @@ use tracing_subscriber::EnvFilter;
 
 use feature_flags::flags::cache_builder::build_flags_cache;
 use feature_flags::flags::cache_invalidation::FlagsCacheInvalidation;
-use feature_flags::flags::cache_writer::{self, persist_flags_cache};
+use feature_flags::flags::cache_writer::{self, persist_flags_cache, PersistOutcome};
 use feature_flags::server::create_redis_client;
 
 common_alloc::used!();
@@ -442,7 +442,7 @@ async fn process_team(
 ) -> Vec<Offset> {
     match build_with_retry(pg_reader, writer, team_id, cfg).await {
         Ok(()) => {
-            metrics::counter!(BUILDS_TOTAL, "result" => "ok").increment(1);
+            metrics::counter!(BUILDS_TOTAL, "result" => "success").increment(1);
             let latency = (Utc::now() - team_batch.oldest_emitted_at)
                 .num_milliseconds()
                 .max(0) as f64
@@ -450,7 +450,7 @@ async fn process_team(
             metrics::histogram!(E2E_LATENCY_SECONDS).record(latency);
         }
         Err(failure) => {
-            metrics::counter!(BUILDS_TOTAL, "result" => "error", "reason" => failure.category)
+            metrics::counter!(BUILDS_TOTAL, "result" => "failure", "reason" => failure.category)
                 .increment(1);
             tracing::error!(team_id, category = failure.category, error = %failure.message, "Cache build failed after retries; routing to DLQ");
             // The message is a trigger, not a payload, so reconstruct it for the
@@ -466,7 +466,7 @@ async fn process_team(
     // — the later commit subsumes it. A DLQ-produce failure (rare; same cluster
     // as the source topic) therefore loses the triage record, but never flag data:
     // the lazy request-path fill rebuilds on the next /flags request. That failure
-    // is surfaced loudly via the error log above and the DLQ_PRODUCED{result=error}
+    // is surfaced loudly via the error log above and the DLQ_PRODUCED{result=failure}
     // counter — alert on it rather than wedging the partition.
     team_batch.offsets
 }
@@ -518,8 +518,17 @@ async fn build_with_retry(
         attempt += 1;
         let start = Instant::now();
         match build_once(pg_reader, writer, team_id, cfg.cache_ttl_seconds).await {
-            Ok(()) => {
-                metrics::histogram!(BUILD_DURATION_SECONDS).record(start.elapsed().as_secs_f64());
+            Ok(outcome) => {
+                let elapsed = start.elapsed();
+                metrics::histogram!(BUILD_DURATION_SECONDS).record(elapsed.as_secs_f64());
+                tracing::info!(
+                    team_id,
+                    attempt,
+                    duration_ms = elapsed.as_millis() as u64,
+                    size_bytes = outcome.size_bytes,
+                    etag = %outcome.etag,
+                    "Built flags cache"
+                );
                 return Ok(());
             }
             Err(failure) => {
@@ -556,7 +565,7 @@ async fn build_once(
     writer: &HyperCacheWriter,
     team_id: TeamId,
     ttl_seconds: u64,
-) -> Result<(), BuildFailure> {
+) -> Result<PersistOutcome, BuildFailure> {
     let cache = build_flags_cache(pg_reader.clone(), team_id)
         .await
         .map_err(BuildFailure::database)?;
@@ -628,9 +637,9 @@ async fn dlq_produce(
     .await;
 
     match results.into_iter().next() {
-        Some(Ok(())) => metrics::counter!(DLQ_PRODUCED, "result" => "ok").increment(1),
+        Some(Ok(())) => metrics::counter!(DLQ_PRODUCED, "result" => "success").increment(1),
         Some(Err(e)) => {
-            metrics::counter!(DLQ_PRODUCED, "result" => "error").increment(1);
+            metrics::counter!(DLQ_PRODUCED, "result" => "failure").increment(1);
             tracing::error!(team_id = message.team_id, error = %e, "Failed to produce to DLQ");
         }
         None => {}

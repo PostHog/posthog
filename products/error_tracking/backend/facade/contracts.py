@@ -211,6 +211,16 @@ class ErrorTrackingSuppressionRule:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingBypassRule:
+    id: UUID
+    filters: dict
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssueBasics:
     id: UUID
     name: str | None

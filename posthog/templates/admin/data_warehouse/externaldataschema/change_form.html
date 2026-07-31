@@ -91,6 +91,9 @@
     <form id="unpause-schedule-action-form" method="post" action="{{ unpause_schedule_url }}" style="display:none;">
         {% csrf_token %}
     </form>
+    <form id="recreate-schedule-action-form" method="post" action="{{ recreate_schedule_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
 {% endblock %}
 
 {# Suppress the default bottom submit_row — we render it inside `after_field_sets` #}
@@ -323,6 +326,18 @@
                 <button type="submit" form="unpause-schedule-action-form" class="default"
                         onclick="return confirm('Unpause the Temporal schedule for this schema?');">
                     Unpause schedule
+                </button>
+            </div>
+            <p class="help">
+                If the schedule is missing entirely (pause/unpause/sync fail with "workflow not found",
+                typically after an interrupted source creation), recreate it below. This also works as a
+                repair when the schedule exists: it is updated in place. No run is triggered; kick one
+                off with "Trigger sync" below, which is non-billable by default.
+            </p>
+            <div class="partitioning-controls">
+                <button type="submit" form="recreate-schedule-action-form" class="default"
+                        onclick="return confirm('Recreate the Temporal schedule for this schema? No sync run is triggered.');">
+                    Recreate schedule
                 </button>
             </div>
         </div>

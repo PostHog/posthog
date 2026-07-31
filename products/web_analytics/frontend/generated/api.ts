@@ -13,6 +13,7 @@ import type {
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
     HeatmapEventsResponseApi,
+    HeatmapPrewarmRequestApi,
     HeatmapScreenshotResponseApi,
     HeatmapScreenshotsContentRetrieveParams,
     HeatmapsEventsRetrieveParams,
@@ -31,6 +32,7 @@ import type {
     WebAnalyticsFilterPresetsListParams,
     WebAnalyticsRecapParams,
     WebAnalyticsRecapResponseApi,
+    WebAnalyticsUserPreferencesApi,
     WebAnalyticsWeeklyDigestParams,
     WeeklyDigestResponseApi,
 } from './api.schemas'
@@ -271,6 +273,26 @@ export const savedRegenerateCreate = async (
     })
 }
 
+export const getSavedPrewarmCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/prewarm/`
+}
+
+/**
+ * Speculatively render a screenshot for a page URL ahead of heatmap creation, so it's ready (or closer to ready) by the time the user reaches the generation screen. Renders a single preview width. Idempotent within a short window: returns the existing in-flight or completed prewarm render for the same URL and consent setting if one exists (200), otherwise starts a new one (201). The result is reused when a heatmap is later created for the same URL.
+ */
+export const savedPrewarmCreate = async (
+    projectId: string,
+    heatmapPrewarmRequestApi: HeatmapPrewarmRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedPrewarmCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapPrewarmRequestApi),
+    })
+}
+
 export const getWebAnalyticsRecapUrl = (projectId: string, params?: WebAnalyticsRecapParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -372,6 +394,45 @@ export const webAnalyticsAchievementsOverview = async (
     return apiMutator<AchievementsListResponseApi>(getWebAnalyticsAchievementsOverviewUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getWebAnalyticsAchievementsPreferencesUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/preferences/`
+}
+
+/**
+ * Returns the requesting user's per-project Web analytics achievements preferences.
+ * @summary Get Web analytics achievements preferences
+ */
+export const webAnalyticsAchievementsPreferences = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WebAnalyticsUserPreferencesApi> => {
+    return apiMutator<WebAnalyticsUserPreferencesApi>(getWebAnalyticsAchievementsPreferencesUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsAchievementsUpdatePreferencesUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_achievements/preferences/`
+}
+
+/**
+ * Sets the requesting user's per-project Web analytics achievements preferences.
+ * @summary Update Web analytics achievements preferences
+ */
+export const webAnalyticsAchievementsUpdatePreferences = async (
+    projectId: string,
+    webAnalyticsUserPreferencesApi: WebAnalyticsUserPreferencesApi,
+    options?: RequestInit
+): Promise<WebAnalyticsUserPreferencesApi> => {
+    return apiMutator<WebAnalyticsUserPreferencesApi>(getWebAnalyticsAchievementsUpdatePreferencesUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(webAnalyticsUserPreferencesApi),
     })
 }
 

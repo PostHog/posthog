@@ -307,7 +307,7 @@ Display type: (ActionsLineGraph/ActionsBar/ActionsAreaGraph/ActionsLineGraphCumu
 Show legend: yes/no
 Show values on series: yes/no
 Y-axis scale: linear/log10
-Axis format: numeric/duration/duration_ms/percentage/percentage_scaled/currency
+Axis format: numeric/duration/duration_ms/duration_ns/percentage/percentage_scaled/currency
 Axis prefix: (e.g., "$")
 Axis postfix: (e.g., " clicks")
 Decimal places: (number)

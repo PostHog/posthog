@@ -1,9 +1,11 @@
-import { kea } from 'kea'
+import { MakeLogicType, kea } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isValidRegexp } from 'lib/utils/regexp'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     CompareFilter,
@@ -22,11 +24,16 @@ import {
     ChartDisplayType,
     InsightLogicProps,
     IntervalType,
+    PathCleaningFilter,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
+    TeamPublicType,
+    TeamType,
 } from '~/types'
 
+import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+import type { QueryLogTags } from '../../queries/schema/schema-general'
 import {
     DeviceTab,
     GeographyTab,
@@ -40,15 +47,12 @@ import {
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebTileLayout,
+    eventPropertiesToPathClean,
     parseWebAnalyticsURL,
 } from './common'
 import { PROPERTY_PATHNAME } from './constants'
-import type { pageReportsLogicType } from './pageReportsLogicType'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
-
-export interface PageURLSearchResult {
-    url: string
-}
+import type { DateFilterState } from './webAnalyticsLogic'
 
 /**
  * Creates property filters for URL matching that handles query parameters consistently
@@ -57,9 +61,15 @@ export interface PageURLSearchResult {
  * @param stripQueryParams Whether to strip query parameters (used as fallback for regex)
  * @returns An array of property filters for the URL
  */
+export interface PageURLSearchResult {
+    url: string
+}
+
 export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilters {
-    // Always try to parse as full URL first - this enables pre-aggregated table optimizations on backend
-    const parsed = parseWebAnalyticsURL(url)
+    // kea-router JSON-parses query params (?pageURL=123 arrives as a number) and pageUrl is
+    // persisted, so a non-string value would otherwise crash `url.split` below on every recompute
+    const urlString: string = String(url ?? '')
+    const parsed = parseWebAnalyticsURL(urlString)
 
     if (parsed.isValid && parsed.host && parsed.pathname) {
         return [
@@ -82,18 +92,128 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     return [
         {
             key: '$current_url',
-            value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
+            value: stripQueryParams ? `^${urlString.split('?')[0]}(\\?.*)?$` : urlString,
             operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         },
     ]
 }
 
+function safeDecode(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
+export function applyPathCleaningToFilters(
+    filters: WebAnalyticsPropertyFilters,
+    isPathCleaningEnabled: boolean
+): WebAnalyticsPropertyFilters {
+    if (!isPathCleaningEnabled) {
+        return filters
+    }
+    return filters.map((filter) => {
+        if (
+            filter.type === PropertyFilterType.Event &&
+            filter.operator === PropertyOperator.Exact &&
+            typeof filter.key === 'string' &&
+            eventPropertiesToPathClean.has(filter.key)
+        ) {
+            return {
+                ...filter,
+                operator: PropertyOperator.IsCleanedPathExact,
+                // decode because `new URL()` percent-encodes cleaning aliases (`<id>` → `%3Cid%3E`), which never match
+                value: typeof filter.value === 'string' ? safeDecode(filter.value) : filter.value,
+            }
+        }
+        return filter
+    })
+}
+
+export function cleanPathnameForDisplay(pathname: string, filters: PathCleaningFilter[]): string {
+    return filters.reduce((cleaned, filter) => {
+        if (!filter.regex || !isValidRegexp(filter.regex)) {
+            return cleaned
+        }
+        return cleaned.replace(new RegExp(filter.regex, 'gi'), filter.alias ?? '')
+    }, pathname)
+}
+
+export function cleanPageURLForDisplay(url: string, filters: PathCleaningFilter[]): string {
+    if (filters.length === 0) {
+        return url
+    }
+    const parsed = parseWebAnalyticsURL(url)
+    if (parsed.isValid && parsed.pathname) {
+        const cleanedPathname = cleanPathnameForDisplay(safeDecode(parsed.pathname), filters)
+        return parsed.host ? `${parsed.host}${cleanedPathname}` : cleanedPathname
+    }
+    return cleanPathnameForDisplay(url, filters)
+}
+
+export interface PageURLOption {
+    key: string
+    label: string
+}
+
+export function buildPageUrlOptions(
+    pagesUrls: PageURLSearchResult[],
+    pageUrl: string | null,
+    filters: PathCleaningFilter[],
+    isPathCleaningEnabled: boolean
+): PageURLOption[] {
+    if (!isPathCleaningEnabled || filters.length === 0) {
+        return pagesUrls.map(({ url }) => ({ key: url, label: url }))
+    }
+
+    const representativeByCleaned = new Map<string, string>()
+    if (typeof pageUrl === 'string' && pageUrl) {
+        representativeByCleaned.set(cleanPageURLForDisplay(pageUrl, filters), pageUrl)
+    }
+    for (const { url } of pagesUrls) {
+        const cleaned = cleanPageURLForDisplay(url, filters)
+        if (!representativeByCleaned.has(cleaned)) {
+            representativeByCleaned.set(cleaned, url)
+        }
+    }
+
+    return [...representativeByCleaned.entries()].map(([label, key]) => ({ key, label }))
+}
+
+function createHostFilter(host: string | null): WebAnalyticsPropertyFilters {
+    return host ? [{ type: PropertyFilterType.Event, key: '$host', operator: PropertyOperator.Exact, value: host }] : []
+}
+
+/**
+ * Builds the property filters for a page report: the page URL filter, with the selected host (when
+ * set) taking precedence over the host embedded in the URL. This lets the host dropdown re-scope every
+ * report tile — e.g. comparing the same pathname across different domains — instead of leaving the
+ * tiles pinned to the host baked into the picked URL.
+ */
+export function createPageReportsFilters(
+    url: string,
+    stripQueryParams: boolean,
+    selectedHost: string | null,
+    isPathCleaningEnabled: boolean = false
+): WebAnalyticsPropertyFilters {
+    const filters = createUrlPropertyFilter(url, stripQueryParams)
+
+    // Drop the URL's own host so the explicitly selected host wins, then apply it.
+    const withSelectedHost = selectedHost
+        ? [...filters.filter((filter) => filter.key !== '$host'), ...createHostFilter(selectedHost)]
+        : filters
+
+    return applyPathCleaningToFilters(withSelectedHost, isPathCleaningEnabled)
+}
+
 const createTimeOnPageTrendsQuery = (
     pathname: string,
     filterTestAccounts: boolean,
     interval: IntervalType,
-    dateRange: { date_from: string | null; date_to: string | null }
+    dateRange: { date_from: string | null; date_to: string | null },
+    isPathCleaningEnabled: boolean
 ): InsightVizNode<TrendsQuery> => {
     return {
         kind: NodeKind.InsightVizNode,
@@ -114,8 +234,10 @@ const createTimeOnPageTrendsQuery = (
                         {
                             type: PropertyFilterType.Event,
                             key: '$prev_pageview_pathname',
-                            operator: PropertyOperator.Exact,
-                            value: pathname,
+                            operator: isPathCleaningEnabled
+                                ? PropertyOperator.IsCleanedPathExact
+                                : PropertyOperator.Exact,
+                            value: isPathCleaningEnabled ? safeDecode(pathname) : pathname,
                         },
                         {
                             type: PropertyFilterType.Event,
@@ -138,6 +260,337 @@ const createTimeOnPageTrendsQuery = (
     }
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface pageReportsLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    compareFilter: CompareFilter // webAnalyticsLogic
+    controls: {
+        filterTestAccounts: boolean
+        includeHostPath: boolean
+        isPathCleaningEnabled: boolean
+        shouldStripQueryParams: boolean
+        useWebAnalyticsPrecompute: boolean | undefined
+    } // webAnalyticsLogic
+    dateFilter: DateFilterState // webAnalyticsLogic
+    isPathCleaningEnabled: boolean // webAnalyticsLogic
+    selectedHost: string | null // webAnalyticsLogic
+    shouldFilterTestAccounts: boolean // webAnalyticsLogic
+    webAnalyticsFilters: WebAnalyticsPropertyFilters // webAnalyticsLogic
+    webAnalyticsTiles: WebAnalyticsTile[] // webAnalyticsLogic
+    combinedMetricsQuery: (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>
+    createInsightProps: (tileId: TileId, tabId?: string | undefined) => InsightLogicProps<QuerySchema>
+    hasPageUrl: boolean
+    isInitialLoad: boolean
+    isLoading: boolean
+    pageUrl: string | null
+    pageUrlOptions: PageURLOption[]
+    pageUrlSearchTerm: string
+    pagesUrls: PageURLSearchResult[]
+    pagesUrlsLoading: boolean
+    pathCleaningFilters: PathCleaningFilter[]
+    queries:
+        | {
+              avgTimeOnPageTrendQuery: InsightVizNode<TrendsQuery> | undefined
+              browserQuery: QuerySchema | undefined
+              channelsQuery: QuerySchema | undefined
+              citiesQuery: QuerySchema | undefined
+              countriesQuery: QuerySchema | undefined
+              deviceTypeQuery: QuerySchema | undefined
+              entryPathsQuery: QuerySchema | undefined
+              exitPathsQuery: QuerySchema | undefined
+              languagesQuery: QuerySchema | undefined
+              osQuery: QuerySchema | undefined
+              outboundClicksQuery: QuerySchema | undefined
+              prevPathsQuery: {
+                  embedded: boolean
+                  full: boolean
+                  kind: NodeKind
+                  showActions: boolean
+                  source: {
+                      breakdownBy: WebStatsBreakdown
+                      compareFilter: CompareFilter
+                      dateRange: {
+                          date_from: string | null
+                          date_to: string | null
+                      }
+                      doPathCleaning: boolean
+                      filterTestAccounts: boolean
+                      kind: NodeKind
+                      limit: number
+                      properties: WebAnalyticsPropertyFilters
+                      tags: QueryLogTags
+                  }
+              }
+              referrersQuery: QuerySchema | undefined
+              regionsQuery: QuerySchema | undefined
+              timezonesQuery: QuerySchema | undefined
+              topEventsQuery: QuerySchema | undefined
+              utmCampaignQuery: QuerySchema | undefined
+              utmContentQuery: QuerySchema | undefined
+              utmMediumQuery: QuerySchema | undefined
+              utmSourceQuery: QuerySchema | undefined
+              utmTermQuery: QuerySchema | undefined
+          }
+        | {
+              avgTimeOnPageTrendQuery: undefined
+              browserQuery: undefined
+              channelsQuery: undefined
+              citiesQuery: undefined
+              countriesQuery: undefined
+              deviceTypeQuery: undefined
+              entryPathsQuery: undefined
+              exitPathsQuery: undefined
+              languagesQuery: undefined
+              osQuery: undefined
+              outboundClicksQuery: undefined
+              prevPathsQuery?: undefined
+              referrersQuery: undefined
+              regionsQuery: undefined
+              timezonesQuery: undefined
+              topEventsQuery: undefined
+              utmCampaignQuery: undefined
+              utmContentQuery: undefined
+              utmMediumQuery: undefined
+              utmSourceQuery: undefined
+              utmTermQuery: undefined
+          }
+    stripQueryParams: boolean
+    tileVisualizations: Record<TileId, TileVisualizationOption>
+    tiles: SectionTile[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface pageReportsLogicActions {
+    setDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    } // webAnalyticsLogic
+    setDomainFilter: (domain: string | null) => {
+        domain: string | null
+    } // webAnalyticsLogic
+    setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => {
+        isPathCleaningEnabled: boolean
+    } // webAnalyticsLogic
+    loadPages: (searchTerm?: string) => {
+        searchTerm: string
+    }
+    loadPagesUrls: ({ searchTerm }: { searchTerm: string }) => {
+        searchTerm: string
+    }
+    loadPagesUrlsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPagesUrlsSuccess: (
+        pagesUrls: PageURLSearchResult[],
+        payload?: {
+            searchTerm: string
+        }
+    ) => {
+        pagesUrls: PageURLSearchResult[]
+        payload?: {
+            searchTerm: string
+        }
+    }
+    setPageUrl: (url: string | string[] | null) => {
+        url: string | string[] | null
+    }
+    setPageUrlSearchTerm: (searchTerm: string) => {
+        searchTerm: string
+    }
+    setTileVisualization: (
+        tileId: TileId,
+        visualization: TileVisualizationOption
+    ) => {
+        tileId: TileId
+        visualization: TileVisualizationOption
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface pageReportsLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        hasPageUrl: (pageUrl: string | null) => boolean
+        isLoading: (pagesUrlsLoading: boolean, isInitialLoad: boolean) => boolean
+        pathCleaningFilters: (currentTeam: TeamPublicType | TeamType | null) => PathCleaningFilter[]
+        pageUrlOptions: (
+            pagesUrls: PageURLSearchResult[],
+            pageUrl: string | null,
+            pathCleaningFilters: PathCleaningFilter[],
+            isPathCleaningEnabled: boolean
+        ) => PageURLOption[]
+        queries: (
+            webAnalyticsTiles: WebAnalyticsTile[],
+            pageUrl: string | null,
+            stripQueryParams: boolean,
+            dateFilter: DateFilterState,
+            shouldFilterTestAccounts: boolean,
+            compareFilter: CompareFilter,
+            isPathCleaningEnabled: boolean,
+            selectedHost: string | null
+        ) =>
+            | {
+                  avgTimeOnPageTrendQuery: InsightVizNode<TrendsQuery> | undefined
+                  browserQuery: QuerySchema | undefined
+                  channelsQuery: QuerySchema | undefined
+                  citiesQuery: QuerySchema | undefined
+                  countriesQuery: QuerySchema | undefined
+                  deviceTypeQuery: QuerySchema | undefined
+                  entryPathsQuery: QuerySchema | undefined
+                  exitPathsQuery: QuerySchema | undefined
+                  languagesQuery: QuerySchema | undefined
+                  osQuery: QuerySchema | undefined
+                  outboundClicksQuery: QuerySchema | undefined
+                  prevPathsQuery: {
+                      embedded: boolean
+                      full: boolean
+                      kind: NodeKind
+                      showActions: boolean
+                      source: {
+                          breakdownBy: WebStatsBreakdown
+                          compareFilter: CompareFilter
+                          dateRange: {
+                              date_from: string | null
+                              date_to: string | null
+                          }
+                          doPathCleaning: boolean
+                          filterTestAccounts: boolean
+                          kind: NodeKind
+                          limit: number
+                          properties: WebAnalyticsPropertyFilters
+                          tags: QueryLogTags
+                      }
+                  }
+                  referrersQuery: QuerySchema | undefined
+                  regionsQuery: QuerySchema | undefined
+                  timezonesQuery: QuerySchema | undefined
+                  topEventsQuery: QuerySchema | undefined
+                  utmCampaignQuery: QuerySchema | undefined
+                  utmContentQuery: QuerySchema | undefined
+                  utmMediumQuery: QuerySchema | undefined
+                  utmSourceQuery: QuerySchema | undefined
+                  utmTermQuery: QuerySchema | undefined
+              }
+            | {
+                  avgTimeOnPageTrendQuery: undefined
+                  browserQuery: undefined
+                  channelsQuery: undefined
+                  citiesQuery: undefined
+                  countriesQuery: undefined
+                  deviceTypeQuery: undefined
+                  entryPathsQuery: undefined
+                  exitPathsQuery: undefined
+                  languagesQuery: undefined
+                  osQuery: undefined
+                  outboundClicksQuery: undefined
+                  prevPathsQuery?: undefined
+                  referrersQuery: undefined
+                  regionsQuery: undefined
+                  timezonesQuery: undefined
+                  topEventsQuery: undefined
+                  utmCampaignQuery: undefined
+                  utmContentQuery: undefined
+                  utmMediumQuery: undefined
+                  utmSourceQuery: undefined
+                  utmTermQuery: undefined
+              }
+        combinedMetricsQuery: (
+            pageUrl: string | null,
+            stripQueryParams: boolean,
+            shouldFilterTestAccounts: boolean,
+            selectedHost: string | null,
+            isPathCleaningEnabled: boolean
+        ) => (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>
+        tiles: (
+            queries:
+                | {
+                      avgTimeOnPageTrendQuery: InsightVizNode<TrendsQuery> | undefined
+                      browserQuery: QuerySchema | undefined
+                      channelsQuery: QuerySchema | undefined
+                      citiesQuery: QuerySchema | undefined
+                      countriesQuery: QuerySchema | undefined
+                      deviceTypeQuery: QuerySchema | undefined
+                      entryPathsQuery: QuerySchema | undefined
+                      exitPathsQuery: QuerySchema | undefined
+                      languagesQuery: QuerySchema | undefined
+                      osQuery: QuerySchema | undefined
+                      outboundClicksQuery: QuerySchema | undefined
+                      prevPathsQuery: {
+                          embedded: boolean
+                          full: boolean
+                          kind: NodeKind
+                          showActions: boolean
+                          source: {
+                              breakdownBy: WebStatsBreakdown
+                              compareFilter: CompareFilter
+                              dateRange: {
+                                  date_from: string | null
+                                  date_to: string | null
+                              }
+                              doPathCleaning: boolean
+                              filterTestAccounts: boolean
+                              kind: NodeKind
+                              limit: number
+                              properties: WebAnalyticsPropertyFilters
+                              tags: QueryLogTags
+                          }
+                      }
+                      referrersQuery: QuerySchema | undefined
+                      regionsQuery: QuerySchema | undefined
+                      timezonesQuery: QuerySchema | undefined
+                      topEventsQuery: QuerySchema | undefined
+                      utmCampaignQuery: QuerySchema | undefined
+                      utmContentQuery: QuerySchema | undefined
+                      utmMediumQuery: QuerySchema | undefined
+                      utmSourceQuery: QuerySchema | undefined
+                      utmTermQuery: QuerySchema | undefined
+                  }
+                | {
+                      avgTimeOnPageTrendQuery: undefined
+                      browserQuery: undefined
+                      channelsQuery: undefined
+                      citiesQuery: undefined
+                      countriesQuery: undefined
+                      deviceTypeQuery: undefined
+                      entryPathsQuery: undefined
+                      exitPathsQuery: undefined
+                      languagesQuery: undefined
+                      osQuery: undefined
+                      outboundClicksQuery: undefined
+                      prevPathsQuery?: undefined
+                      referrersQuery: undefined
+                      regionsQuery: undefined
+                      timezonesQuery: undefined
+                      topEventsQuery: undefined
+                      utmCampaignQuery: undefined
+                      utmContentQuery: undefined
+                      utmMediumQuery: undefined
+                      utmSourceQuery: undefined
+                      utmTermQuery: undefined
+                  },
+            pageUrl: string | null,
+            createInsightProps: (tileId: TileId, tabId?: string | undefined) => InsightLogicProps<QuerySchema>,
+            combinedMetricsQuery: (dateFilter: DateFilterState) => InsightVizNode<TrendsQuery>,
+            dateFilter: DateFilterState,
+            featureFlags: FeatureFlagsSet
+        ) => SectionTile[]
+    }
+}
+
+export type pageReportsLogicType = MakeLogicType<
+    pageReportsLogicValues,
+    pageReportsLogicActions,
+    Record<string, any>,
+    pageReportsLogicMeta
+>
+
 export const pageReportsLogic = kea<pageReportsLogicType>({
     path: ['scenes', 'web-analytics', 'pageReportsLogic'],
 
@@ -151,12 +604,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 'compareFilter',
                 'webAnalyticsFilters',
                 'isPathCleaningEnabled',
+                'selectedHost',
                 'controls',
             ],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
         ],
-        actions: [webAnalyticsLogic, ['setDates']],
+        actions: [webAnalyticsLogic, ['setDates', 'setDomainFilter', 'setIsPathCleaningEnabled']],
     },
 
     actions: () => ({
@@ -218,7 +674,19 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         date_to: values.dateFilter.dateTo,
                     }
 
+                    const hostFilter = createHostFilter(values.selectedHost)
+
                     if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
+                        const properties: WebAnalyticsPropertyFilters = [...hostFilter]
+                        if (searchTerm) {
+                            properties.push({
+                                type: PropertyFilterType.Event,
+                                key: PROPERTY_PATHNAME,
+                                operator: PropertyOperator.IContains,
+                                value: searchTerm,
+                            })
+                        }
+
                         const response = await api.query<WebStatsTableQuery>(
                             setLatestVersionsOnQuery({
                                 kind: NodeKind.WebStatsTableQuery,
@@ -234,17 +702,9 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 includeBounceRate: true,
                                 useWebAnalyticsPrecompute: values.controls.useWebAnalyticsPrecompute,
                                 dateRange,
-                                properties: searchTerm
-                                    ? [
-                                          {
-                                              type: PropertyFilterType.Event,
-                                              key: PROPERTY_PATHNAME,
-                                              operator: PropertyOperator.IContains,
-                                              value: searchTerm,
-                                          },
-                                      ]
-                                    : [],
+                                properties,
                                 limit: 100,
+                                doPathCleaning: values.isPathCleaningEnabled,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                             })
                         )
@@ -261,7 +721,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             searchTerm: searchTerm,
                             stripQueryParams: true,
                             dateRange,
-                            properties: [],
+                            properties: hostFilter,
                             tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                         })
                     )
@@ -278,6 +738,21 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad],
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
+        pathCleaningFilters: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | TeamPublicType | null): PathCleaningFilter[] =>
+                (currentTeam && 'path_cleaning_filters' in currentTeam ? currentTeam.path_cleaning_filters : null) ??
+                [],
+        ],
+        pageUrlOptions: [
+            (s) => [s.pagesUrls, s.pageUrl, s.pathCleaningFilters, s.isPathCleaningEnabled],
+            (
+                pagesUrls: PageURLSearchResult[],
+                pageUrl: string | null,
+                pathCleaningFilters: PathCleaningFilter[],
+                isPathCleaningEnabled: boolean
+            ): PageURLOption[] => buildPageUrlOptions(pagesUrls, pageUrl, pathCleaningFilters, isPathCleaningEnabled),
+        ],
         stripQueryParams: [() => [], () => true],
         queries: [
             (s) => [
@@ -288,6 +763,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 s.shouldFilterTestAccounts,
                 s.compareFilter,
                 s.isPathCleaningEnabled,
+                s.selectedHost,
             ],
             (
                 webAnalyticsTiles: WebAnalyticsTile[],
@@ -296,7 +772,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
                 shouldFilterTestAccounts: boolean,
                 compareFilter: CompareFilter,
-                isPathCleaningEnabled: boolean
+                isPathCleaningEnabled: boolean,
+                selectedHost: string | null
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
@@ -324,9 +801,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     }
                 }
 
-                const pageReportsPropertyFilters: WebAnalyticsPropertyFilters = [
-                    ...createUrlPropertyFilter(pageUrl, stripQueryParams),
-                ]
+                const pageReportsPropertyFilters: WebAnalyticsPropertyFilters = createPageReportsFilters(
+                    pageUrl,
+                    stripQueryParams,
+                    selectedHost,
+                    isPathCleaningEnabled
+                )
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
 
                 // Helper function to get query from a tile by tab ID
@@ -371,7 +851,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             ],
                         },
                         properties: [
-                            ...(pageUrl ? createUrlPropertyFilter(pageUrl, stripQueryParams) : []),
+                            ...pageReportsPropertyFilters,
                             {
                                 key: 'event',
                                 value: ['$pageview', '$pageleave'],
@@ -412,7 +892,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                               parsedUrl.pathname,
                               shouldFilterTestAccounts,
                               dateFilter.interval,
-                              dateRange
+                              dateRange,
+                              isPathCleaningEnabled
                           )
                         : undefined
 
@@ -459,8 +940,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
-            (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
+            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts, s.selectedHost, s.isPathCleaningEnabled],
+            (
+                pageUrl: string | null,
+                stripQueryParams: boolean,
+                shouldFilterTestAccounts: boolean,
+                selectedHost: string | null,
+                isPathCleaningEnabled: boolean
+            ) =>
                 (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
@@ -495,7 +982,9 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             showLegend: true,
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
-                        properties: pageUrl ? createUrlPropertyFilter(pageUrl, stripQueryParams) : [],
+                        properties: pageUrl
+                            ? createPageReportsFilters(pageUrl, stripQueryParams, selectedHost, isPathCleaningEnabled)
+                            : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     embedded: true,
@@ -790,6 +1279,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 actions.loadPages(values.pageUrlSearchTerm)
             }
         },
+        setDomainFilter: () => {
+            actions.loadPages(values.pageUrlSearchTerm)
+        },
+        setIsPathCleaningEnabled: () => {
+            actions.loadPages(values.pageUrlSearchTerm)
+        },
     }),
 
     afterMount: ({ actions }: { actions: pageReportsLogicType['actions'] }) => {
@@ -798,8 +1293,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
     urlToAction: ({ actions, values }) => ({
         '/web/page-reports': (_, searchParams) => {
-            if (searchParams.pageURL && searchParams.pageURL !== values.pageUrl) {
-                actions.setPageUrl(searchParams.pageURL)
+            // kea-router JSON-parses query params, so ?pageURL=123 arrives as a number
+            const pageURL = searchParams.pageURL == null ? null : String(searchParams.pageURL)
+            if (pageURL && pageURL !== values.pageUrl) {
+                actions.setPageUrl(pageURL)
             }
         },
     }),

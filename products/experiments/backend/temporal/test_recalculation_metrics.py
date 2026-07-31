@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import ActivityInboundInterceptor
 
 from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder
@@ -14,14 +15,35 @@ from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
     ExperimentsRecalculationMetricsInterceptor,
+    _failure_error_type,
     increment_workflow_finished,
 )
 
 
-def test_registered_on_general_purpose_queue():
-    # Pins the interceptor's `task_queue` ClassVar — without it, `is_task_queue_supported` filters the
-    # interceptor out of every worker and the metrics emit nothing.
-    assert is_task_queue_supported(settings.GENERAL_PURPOSE_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor)
+@parameterized.expand(
+    [
+        # ApplicationError.type carries the activity's classification (backpressure class names, permanent
+        # taxonomy strings); anything else falls back to the exception class. If this drifts, backpressure
+        # bounces become indistinguishable from real failures on the failures counter.
+        (
+            "application_error_with_type",
+            ApplicationError("m", type="ConcurrencyLimitExceeded"),
+            "ConcurrencyLimitExceeded",
+        ),
+        ("application_error_without_type", ApplicationError("m"), "ApplicationError"),
+        ("plain_exception", RuntimeError("m"), "RuntimeError"),
+    ]
+)
+def test_failure_error_type_label(name: str, exc: BaseException, expected: str):
+    assert _failure_error_type(exc) == expected
+
+
+def test_registered_on_recalculation_queue():
+    # Pins the interceptor's `task_queue` ClassVar to the recalc worker's queue — without a match,
+    # `is_task_queue_supported` filters the interceptor out of every worker and the metrics emit nothing.
+    assert is_task_queue_supported(
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor
+    )
 
 
 def test_buckets_sorted_ascending_and_floats():

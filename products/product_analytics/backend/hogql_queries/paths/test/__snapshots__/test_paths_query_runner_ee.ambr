@@ -39,7 +39,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -127,7 +127,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -215,7 +215,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -302,7 +302,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -389,7 +389,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -476,7 +476,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -563,7 +563,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -650,7 +650,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -737,7 +737,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -824,7 +824,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -919,7 +919,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -1008,7 +1008,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -1119,7 +1119,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1240,7 +1240,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1361,7 +1361,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1482,7 +1482,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1603,7 +1603,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1724,7 +1724,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1845,7 +1845,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -1966,7 +1966,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2087,7 +2087,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2195,7 +2195,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -2306,7 +2306,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2361,7 +2361,7 @@
                                                             (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                       and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
                                                              FROM
-                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
+                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
@@ -2488,7 +2488,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2543,7 +2543,7 @@
                                                             (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                       and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
                                                              FROM
-                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
+                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
@@ -2646,7 +2646,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2701,7 +2701,7 @@
                                                             (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                       and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
                                                              FROM
-                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
+                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
@@ -2828,7 +2828,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -2883,7 +2883,7 @@
                                                             (SELECT person_id AS person_id, joined_path_tuple.1 AS path, joined_path_tuple.2 AS conversion_time, joined_path_tuple.3 AS prev_path, event_in_session_index, session_index AS session_index, arrayPopFront(arrayPushBack(path_basic, '')) AS path_basic_0, arrayMap((x, y) -> if(ifNull(equals(x, y), isNull(x)
                                                                                                                                                                                                                                                                                                                                                       and isNull(y)), 0, 1), path_basic, path_basic_0) AS mapping, arrayFilter((x, y) -> y, time, mapping) AS timings, arrayFilter((x, y) -> y, path_basic, mapping) AS compact_path, indexOf(compact_path, NULL) AS target_index, joined_path_tuple.4 AS final_uuid, joined_path_tuple.5 AS final_timestamp, joined_path_tuple.6 AS final_session_id, joined_path_tuple.7 AS final_window_id, arrayFilter((x, y) -> y, uuid_items, mapping) AS uuid, arrayFilter((x, y) -> y, timestamp_items, mapping) AS timestamp, arrayFilter((x, y) -> y, session_id_items, mapping) AS session_id, arrayFilter((x, y) -> y, window_id_items, mapping) AS window_id, if(ifNull(greater(target_index, 0), 0), arraySlice(compact_path, target_index), compact_path) AS filtered_path, arraySlice(filtered_path, 1, 5) AS limited_path, if(ifNull(greater(target_index, 0), 0), arraySlice(timings, target_index), timings) AS filtered_timings, arraySlice(filtered_timings, 1, 5) AS limited_timings, if(ifNull(greater(target_index, 0), 0), arraySlice(uuid, target_index), uuid) AS filtered_uuid, arraySlice(filtered_uuid, 1, 5) AS limited_uuid, if(ifNull(greater(target_index, 0), 0), arraySlice(timestamp, target_index), timestamp) AS filtered_timestamp, arraySlice(filtered_timestamp, 1, 5) AS limited_timestamp, if(ifNull(greater(target_index, 0), 0), arraySlice(session_id, target_index), session_id) AS filtered_session_id, arraySlice(filtered_session_id, 1, 5) AS limited_session_id, if(ifNull(greater(target_index, 0), 0), arraySlice(window_id, target_index), window_id) AS filtered_window_id, arraySlice(filtered_window_id, 1, 5) AS limited_window_id, arrayDifference(limited_timings) AS timings_diff, concat(ifNull(toString(length(limited_path)), ''), '_', ifNull(toString(limited_path[-1]), '')) AS path_dropoff_key, arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, '')), limited_uuid, limited_timestamp, limited_session_id, limited_window_id) AS limited_path_timings
                                                              FROM
-                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
+                                                               (SELECT person_id AS person_id, path_time_tuple.1 AS path_basic, path_time_tuple.2 AS time, session_index, arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple, arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths, path_time_tuple.4 AS uuid_items, path_time_tuple.5 AS timestamp_items, path_time_tuple.6 AS session_id_items, path_time_tuple.7 AS window_id_items
                                                                 FROM
                                                                   (SELECT person_id AS person_id, groupArray(timestamp) AS timing_list, groupArray(path_item) AS path_list, groupArray(uuid) AS uuid_list, groupArray(timestamp) AS timestamp_list, groupArray(session_id) AS session_id_list, groupArray(window_id) AS window_id_list
                                                                    FROM
@@ -3138,13 +3138,13 @@
                                                 timestamp_list,
                                                 session_id_list,
                                                 window_id_list) AS paths_tuple,
-                                                arraySplit(x -> if(ifNull(less(x.3,
-                                                                                1800), 0), 0,
-                                                                                           1), paths_tuple) AS session_paths,
-                                                                                               path_time_tuple.4 AS uuid_items,
-                                                                                               path_time_tuple.5 AS timestamp_items,
-                                                                                               path_time_tuple.6 AS session_id_items,
-                                                                                               path_time_tuple.7 AS window_id_items
+                                                arraySplit(x -> if(less(x.3,
+                                                                         1800), 0,
+                                                                                1), paths_tuple) AS session_paths,
+                                                                                    path_time_tuple.4 AS uuid_items,
+                                                                                    path_time_tuple.5 AS timestamp_items,
+                                                                                    path_time_tuple.6 AS session_id_items,
+                                                                                    path_time_tuple.7 AS window_id_items
   FROM (
   SELECT person_id AS person_id,
          groupArray(timestamp) AS timing_list,
@@ -3400,13 +3400,13 @@
                                                   timestamp_list,
                                                   session_id_list,
                                                   window_id_list) AS paths_tuple,
-                                                  arraySplit(x -> if(ifNull(less(x.3,
-                                                                                  1800), 0), 0,
-                                                                                             1), paths_tuple) AS session_paths,
-                                                                                                 path_time_tuple.4 AS uuid_items,
-                                                                                                 path_time_tuple.5 AS timestamp_items,
-                                                                                                 path_time_tuple.6 AS session_id_items,
-                                                                                                 path_time_tuple.7 AS window_id_items
+                                                  arraySplit(x -> if(less(x.3,
+                                                                           1800), 0,
+                                                                                  1), paths_tuple) AS session_paths,
+                                                                                      path_time_tuple.4 AS uuid_items,
+                                                                                      path_time_tuple.5 AS timestamp_items,
+                                                                                      path_time_tuple.6 AS session_id_items,
+                                                                                      path_time_tuple.7 AS window_id_items
     FROM (
     SELECT person_id AS person_id,
            groupArray(timestamp) AS timing_list,
@@ -3555,7 +3555,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -3646,7 +3646,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -3764,7 +3764,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -3868,7 +3868,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -3986,7 +3986,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4086,7 +4086,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4174,7 +4174,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4261,7 +4261,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4370,7 +4370,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4491,7 +4491,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4590,7 +4590,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4699,7 +4699,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -4798,7 +4798,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -4907,7 +4907,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -5028,7 +5028,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -5149,7 +5149,7 @@
                      path_time_tuple.2 AS time,
                      session_index,
                      arrayZip(path_list, timing_list, arrayDifference(timing_list), uuid_list, timestamp_list, session_id_list, window_id_list) AS paths_tuple,
-                     arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths,
+                     arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths,
                      path_time_tuple.4 AS uuid_items,
                      path_time_tuple.5 AS timestamp_items,
                      path_time_tuple.6 AS session_id_items,
@@ -5248,7 +5248,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,
@@ -5335,7 +5335,7 @@
                   path_time_tuple.2 AS time,
                   session_index,
                   arrayZip(path_list, timing_list, arrayDifference(timing_list)) AS paths_tuple,
-                  arraySplit(x -> if(ifNull(less(x.3, 1800), 0), 0, 1), paths_tuple) AS session_paths
+                  arraySplit(x -> if(less(x.3, 1800), 0, 1), paths_tuple) AS session_paths
            FROM
              (SELECT person_id AS person_id,
                      groupArray(timestamp) AS timing_list,

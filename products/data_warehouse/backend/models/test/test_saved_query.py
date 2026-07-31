@@ -8,8 +8,7 @@ from django.db.models.query import QuerySet as DjangoQuerySet
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 DELETE_SAVED_QUERY_SCHEDULE = (
     "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"

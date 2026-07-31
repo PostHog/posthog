@@ -277,5 +277,42 @@ describe('cohortsModel', () => {
                 key: expectedCriteriaKey,
             })
         })
+
+        it('restores a saved person_metadata criterion to editor format (value -> value_property)', () => {
+            const cohort = {
+                id: 5,
+                name: 'First seen cohort',
+                count: 0,
+                groups: [],
+                is_calculating: false,
+                is_static: false,
+                filters: {
+                    properties: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: 'person_metadata',
+                                key: 'created_at',
+                                operator: 'is_date_after',
+                                value: '2024-01-01',
+                                negation: false,
+                            },
+                        ],
+                    },
+                },
+            } as unknown as CohortType
+
+            const result = processCohort(cohort)
+            const group = result.filters.properties.values[0]
+            // value carries the behavioral row key the editor renders against; the actual
+            // filter value moves to value_property. Without this, criteriaToBehavioralFilterType
+            // returns the raw date and ROWS[date] is undefined, crashing CohortCriteriaRowBuilder.
+            expect((group as any).values[0]).toMatchObject({
+                type: 'person_metadata',
+                key: 'created_at',
+                value: 'have_property',
+                value_property: '2024-01-01',
+            })
+        })
     })
 })

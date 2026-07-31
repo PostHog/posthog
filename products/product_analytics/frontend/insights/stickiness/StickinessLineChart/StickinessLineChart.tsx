@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -19,6 +19,8 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
@@ -26,7 +28,6 @@ import {
     resolveGroupTypeLabel,
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
@@ -45,11 +46,11 @@ interface StickinessLineChartProps {
 const handleChartError = makeChartErrorHandler('stickiness-line-chart')
 
 export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
-    const theme = useMemo(() => buildTheme(), [])
+    const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
+    const tooltipConfig = STICKINESS_TOOLTIP_CONFIG
 
     const legendConfig = useInsightsLegendConfig({ insightProps })
-    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -58,11 +59,10 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         yAxisScaleType,
         showMultipleYAxes,
         getTrendsColor,
-        getTrendsHidden,
         currentPeriodResult,
         breakdownFilter,
         trendsFilter,
-        formula,
+        stickinessFilter,
         labelGroupType,
         hasPersonsModal,
         querySource,
@@ -99,27 +99,28 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 display: display ?? undefined,
                 getColor: getTrendsColor,
-                // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
-                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
-                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
+                // instead of being dropped here, so the legend can restore them.
+                getHidden: undefined,
                 getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, display, getTrendsColor, getTrendsHidden, getLabel, showMultipleYAxes, quillLegendEnabled]
+        [indexedResults, display, getTrendsColor, getLabel, showMultipleYAxes]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
+    const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
         () => ({
             ...buildStickinessLineTimeSeriesConfig({
                 yAxisScaleType,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
-                tooltip: STICKINESS_TOOLTIP_CONFIG,
+                tooltip: tooltipConfig,
             }),
+            curve: chartStyleCurve(stickinessFilter?.chartStyle),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, showValuesOnSeries, legendConfig]
+        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -153,30 +154,27 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                       handleStickinessChartClick(seriesKey, datum.dataIndex, clickDeps)
                   }
                 : undefined
-            return (
-                <TrendsTooltip
-                    context={ctx}
-                    timezone={timezone}
-                    interval={interval ?? undefined}
-                    breakdownFilter={breakdownFilter ?? undefined}
-                    trendsFilter={trendsFilter}
-                    formula={formula}
-                    showPercentView={true}
-                    isPercentStackView={false}
-                    baseCurrency={baseCurrency}
-                    groupTypeLabel={resolvedGroupTypeLabel}
-                    formatCompareLabel={context?.formatCompareLabel}
-                    onRowClick={onRowClick}
-                    altTitle={altTitle}
-                />
-            )
+            const sharedProps = {
+                context: ctx,
+                timezone,
+                interval: interval ?? undefined,
+                breakdownFilter: breakdownFilter ?? undefined,
+                trendsFilter,
+                showPercentView: true as const,
+                isPercentStackView: false as const,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+                altTitle,
+            }
+            return <InsightSeriesTooltip {...sharedProps} />
         },
         [
             timezone,
             interval,
             breakdownFilter,
             trendsFilter,
-            formula,
             baseCurrency,
             resolvedGroupTypeLabel,
             context?.formatCompareLabel,
@@ -187,7 +185,13 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="line"
+            />
+        )
     }
 
     return (

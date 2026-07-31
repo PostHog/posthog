@@ -12,7 +12,7 @@ use crate::metric_consts::{
 };
 
 use crate::teams::TeamManager;
-use crate::{error::UnhandledError, issue_resolution::Issue, types::OutputErrProps};
+use crate::{error::UnhandledError, issue_resolution::Issue, types::ProcessedExceptionProperties};
 
 #[derive(Debug, Clone)]
 pub struct NewAssignment {
@@ -218,9 +218,25 @@ pub async fn try_assignment_rules(
     con: &mut PgConnection,
     team_manager: &TeamManager,
     issue: Issue,
-    exception_properties: &OutputErrProps,
+    exception_properties: &ProcessedExceptionProperties,
 ) -> Result<Option<NewAssignment>, UnhandledError> {
     let timing = common_metrics::timing_guard(ASSIGNMENT_RULES_PROCESSING_TIME, &[]);
+
+    let mut rules = team_manager
+        .get_assignment_rules(&mut *con, issue.team_id)
+        .await?;
+
+    metrics::counter!(ASSIGNMENT_RULES_FOUND).increment(rules.len() as u64);
+
+    // Most teams have no assignment rules; skip serializing the issue and the
+    // (expensive) event properties unless a rule might actually match.
+    if rules.is_empty() {
+        timing.label("outcome", "no_match").fin();
+        return Ok(None);
+    }
+
+    rules.sort_unstable_by_key(|r| r.order_key);
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct IssueJson {
         status: String,
@@ -235,14 +251,6 @@ pub async fn try_assignment_rules(
     })?;
 
     let props_json = serde_json::to_value(exception_properties)?;
-
-    let mut rules = team_manager
-        .get_assignment_rules(&mut *con, issue.team_id)
-        .await?;
-
-    metrics::counter!(ASSIGNMENT_RULES_FOUND).increment(rules.len() as u64);
-
-    rules.sort_unstable_by_key(|r| r.order_key);
 
     for rule in rules {
         match rule.try_match(&issue_json, &props_json) {

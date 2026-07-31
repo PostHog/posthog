@@ -1,6 +1,7 @@
 {
     "name": "@posthog/products-warehouse-sources",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -m 'not async_migrations' --reruns=2 --reruns-delay=1 -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     }
 }

@@ -35,6 +35,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonPropertie
 
     return (
         <Properties
+            key={id}
             properties={person.properties || {}}
             pinnedProperties={pinnedPersonProperties}
             onPin={pinPersonProperty}

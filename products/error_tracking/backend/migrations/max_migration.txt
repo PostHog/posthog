@@ -1,1 +1,1 @@
-0017_migrate_cohorts_models
+0021_remove_errortrackingsettings_autocapture_exceptions_opt_in

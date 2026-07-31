@@ -1,14 +1,14 @@
 import { useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutRunSummary } from '../../../types'
 import {
@@ -23,6 +23,7 @@ import {
     scoutReportActivityLabel,
     SCOUT_RUNS_WINDOW_SPAN,
 } from '../../../utils/scoutRunsWindow'
+import { ScoutTimestamp } from './ScoutTimestamp'
 
 const FILTERS: { value: ScoutRunFilter; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -30,6 +31,15 @@ const FILTERS: { value: ScoutRunFilter; label: string }[] = [
     { value: 'quiet', label: 'Quiet' },
     { value: 'failed', label: 'Failed' },
 ]
+
+function captureOpenLinkedReport(skillName: string, reportId: string, relationship: 'authored' | 'edited'): void {
+    captureScoutAction({
+        actionType: 'open_linked_report',
+        surface: 'scout_detail',
+        skillName,
+        extra: { signal_report_id: reportId, report_relationship: relationship },
+    })
+}
 
 /** Truncated mono id (run ids are long ULIDs; only the leading chunk earns a row footer). */
 function truncateId(value: string): string {
@@ -56,8 +66,17 @@ function RunGlyph({ run }: { run: SignalScoutRunSummary }): JSX.Element {
  * One run in the history list. Shares the collapse/expand grammar of `ScoutEmissionCard`: a header
  * (chevron · glyph · timestamp · duration · failure · emitted count) that stays visible, the run
  * summary markdown (2-line preview collapsed, full expanded), and an id/task-run footer when open.
+ *
+ * Memoized because the 60s runs-window poll re-renders the whole history list; `loadRunsWindow`
+ * reconciles run identity (see `reconcileById`) so unchanged runs keep their reference and skip here.
  */
-function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
+const ScoutRunRow = memo(function ScoutRunRow({
+    run,
+    skillName,
+}: {
+    run: SignalScoutRunSummary
+    skillName: string
+}): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const now = new Date()
     const status = normalizeRunStatus(run.status)
@@ -72,7 +91,15 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
         <div className="flex flex-col rounded border border-primary bg-bg-light">
             <button
                 type="button"
-                onClick={() => setExpanded((value) => !value)}
+                onClick={() => {
+                    captureScoutAction({
+                        actionType: expanded ? 'collapse_run' : 'expand_run',
+                        surface: 'scout_detail',
+                        skillName,
+                        extra: { run_id: run.run_id, run_status: status, emitted_count: emitted },
+                    })
+                    setExpanded((value) => !value)
+                }}
                 className="flex items-center gap-2 px-3 py-2 text-left"
                 aria-expanded={expanded}
             >
@@ -80,9 +107,7 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                     className={`size-4 shrink-0 text-muted transition-transform ${expanded ? '' : '-rotate-90'}`}
                 />
                 <RunGlyph run={run} />
-                <span className="whitespace-nowrap text-[11px] text-muted">
-                    {humanFriendlyDetailedTime(run.started_at)}
-                </span>
+                <ScoutTimestamp time={run.started_at} />
                 {duration && <span className="whitespace-nowrap text-[11px] text-muted">· {duration}</span>}
                 {failureKind && (
                     <span className="whitespace-nowrap text-[11px] text-warning">
@@ -127,6 +152,7 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                                     key={reportId}
                                     to={urls.inboxReport('reports', reportId)}
                                     className="flex items-center gap-1 font-medium shrink-0"
+                                    onClick={() => captureOpenLinkedReport(skillName, reportId, 'authored')}
                                 >
                                     Authored report <IconArrowRight className="size-3" />
                                 </Link>
@@ -136,6 +162,7 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                                     key={reportId}
                                     to={urls.inboxReport('reports', reportId)}
                                     className="flex items-center gap-1 font-medium shrink-0"
+                                    onClick={() => captureOpenLinkedReport(skillName, reportId, 'edited')}
                                 >
                                     Edited report <IconArrowRight className="size-3" />
                                 </Link>
@@ -143,7 +170,18 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                             {run.task_url && (
                                 <>
                                     <span className="flex-1" />
-                                    <Link to={run.task_url} className="flex items-center gap-1 font-medium shrink-0">
+                                    <Link
+                                        to={run.task_url}
+                                        className="flex items-center gap-1 font-medium shrink-0"
+                                        onClick={() =>
+                                            captureScoutAction({
+                                                actionType: 'open_task_run',
+                                                surface: 'scout_detail',
+                                                skillName,
+                                                extra: { run_id: run.run_id, run_status: status },
+                                            })
+                                        }
+                                    >
                                         Open task run <IconExternal className="size-3" />
                                     </Link>
                                 </>
@@ -154,7 +192,7 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
             )}
         </div>
     )
-}
+})
 
 /**
  * The Runs section on the scout detail surface: this scout's runs in the recent window, newest
@@ -197,7 +235,18 @@ export function ScoutRunHistorySection({ skillName }: { skillName: string }): JS
                         size="xsmall"
                         type="tertiary"
                         active={filter === entry.value}
-                        onClick={() => setFilter(entry.value)}
+                        onClick={() => {
+                            captureScoutAction({
+                                actionType: 'filter_runs',
+                                surface: 'scout_detail',
+                                skillName,
+                                extra: {
+                                    filter: entry.value,
+                                    filter_match_count: filterCounts.get(entry.value) ?? 0,
+                                },
+                            })
+                            setFilter(entry.value)
+                        }}
                     >
                         {entry.label} {filterCounts.get(entry.value) ?? 0}
                     </LemonButton>
@@ -217,7 +266,7 @@ export function ScoutRunHistorySection({ skillName }: { skillName: string }): JS
             ) : (
                 <>
                     {filteredRuns.map((run) => (
-                        <ScoutRunRow key={run.run_id} run={run} />
+                        <ScoutRunRow key={run.run_id} run={run} skillName={skillName} />
                     ))}
                     {!runsWindowComplete && (
                         <span className="text-xs text-muted">

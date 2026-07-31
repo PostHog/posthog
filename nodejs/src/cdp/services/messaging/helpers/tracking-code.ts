@@ -18,6 +18,18 @@ export const trackingCodeFormatCounter = new Counter({
     labelNames: ['format', 'source'],
 })
 
+// Mint-time signal: counts every code generate() produces, labelled by whether a signing key was
+// available. Unlike the parse-time counter above (which only sees codes that come back via the SES
+// webhook or click endpoints), this fires on the send path itself. Now that generate() fails closed,
+// an `unsigned` sample means a keyless deployment attempted a mint right before the send was refused —
+// a config alarm, not a benign tail. Note it counts per generate() call (header + pixel + each redirect
+// link), not per email, so it is a rate signal, not an email count.
+export const trackingCodeMintCounter = new Counter({
+    name: 'email_tracking_code_mint_total',
+    help: 'Count of email tracking codes minted by signature format (signed when a key is configured)',
+    labelNames: ['format'],
+})
+
 function toBase64UrlSafe(input: string | Buffer): string {
     const b64 = Buffer.isBuffer(input) ? input.toString('base64') : Buffer.from(input, 'utf8').toString('base64')
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -43,6 +55,21 @@ export type TrackingInvocation = Pick<CyclotronJobInvocationHogFunction, 'functi
 
 export type TrackingCodeFormat = 'signed' | 'unsigned'
 
+// Parses the comma-separated ENCRYPTION_SALT_KEYS into the usable key list. Shared by the signer
+// and the boot-time guard so "is a signing key configured?" has a single definition.
+function parseSigningKeys(encryptionSaltKeys: string): string[] {
+    return (encryptionSaltKeys || '')
+        .split(',')
+        .map((key) => key.trim())
+        .filter(Boolean)
+}
+
+// Whether at least one email tracking-code signing key is configured. The boot-time guard uses this
+// to refuse to start an email-sending deployment that would otherwise mint unsigned tracking links.
+export function hasEmailSigningKey(encryptionSaltKeys: string): boolean {
+    return parseSigningKeys(encryptionSaltKeys).length > 0
+}
+
 export type ParsedTrackingCode = {
     functionId: string
     invocationId: string
@@ -65,10 +92,7 @@ export class EmailTrackingCodeSigner {
         encryptionSaltKeys: string,
         private trackingUrl: string
     ) {
-        this.signingKeys = (encryptionSaltKeys || '')
-            .split(',')
-            .map((key) => key.trim())
-            .filter(Boolean)
+        this.signingKeys = parseSigningKeys(encryptionSaltKeys)
     }
 
     private signPayload(payload: string, key: string): string {
@@ -154,9 +178,16 @@ export class EmailTrackingCodeSigner {
             `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${isTest ? '1' : ''}:${distinctId}`
         )
         if (this.signingKeys.length === 0) {
-            // Fail open while signing rolls out so sends never break; tighten to throw once enforced (#62624).
-            return payload
+            // Fail closed (#62624): a deployment with no signing key must never mint unsigned tracking
+            // links. Email-sending deployments are guarded at boot (see hasEmailSigningKey), so this is
+            // unreachable in prod; the counter still records the attempt before we refuse, keeping the
+            // failure attributable if the guard is ever bypassed.
+            trackingCodeMintCounter.inc({ format: 'unsigned' })
+            throw new Error(
+                'Cannot mint email tracking code: no signing key configured (ENCRYPTION_SALT_KEYS is empty)'
+            )
         }
+        trackingCodeMintCounter.inc({ format: 'signed' })
         return `${payload}.${this.signPayload(payload, this.signingKeys[0])}`
     }
 

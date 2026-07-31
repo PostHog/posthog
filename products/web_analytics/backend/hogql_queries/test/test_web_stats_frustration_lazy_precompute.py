@@ -10,7 +10,6 @@ from parameterized import parameterized
 from posthog.schema import (
     CompareFilter,
     DateRange,
-    EventPropertyFilter,
     HogQLQueryModifiers,
     PropertyOperator,
     SessionPropertyFilter,
@@ -197,7 +196,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_rejected_for_non_event_property_filter(self):
-        # SessionPropertyFilter is not in the gate's allowlist (only EventPropertyFilter on $host).
+        # Precompute only serves event/person filters; session/cohort fall through to live.
         with self._enable_lazy():
             assert (
                 can_use_lazy_precompute(
@@ -207,21 +206,6 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                                 SessionPropertyFilter(
                                     key="$entry_pathname", operator=PropertyOperator.EXACT, value="/x"
                                 )
-                            ]
-                        )
-                    )
-                )
-                is False
-            )
-
-    def test_rejected_for_unsupported_filter_key(self):
-        with self._enable_lazy():
-            assert (
-                can_use_lazy_precompute(
-                    self._runner(
-                        self._build_query(
-                            properties=[
-                                EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
                             ]
                         )
                     )
@@ -306,3 +290,32 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "errors": row[3][0],
             }
         return out
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_stale_served_enqueues_background_revalidation(self):
+        # Without the `result.stale` hook this family would serve stale for the whole
+        # 6h grace and never refresh (the revalidate half of stale-while-revalidate).
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+        from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
+            execute_lazy_precomputed_read,
+        )
+
+        with (
+            tags_context(),
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute.ensure_web_stats_frustration_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[], stale=True),
+            ),
+            patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation.revalidate_web_analytics_precompute.apply_async"
+            ) as delay,
+        ):
+            reset_query_tags()
+            runner = self._runner(self._build_query())
+            execute_lazy_precomputed_read(runner, limit=10, offset=0)
+
+        assert delay.call_count == 1
+        assert delay.call_args.kwargs["kwargs"]["team_id"] == self.team.pk

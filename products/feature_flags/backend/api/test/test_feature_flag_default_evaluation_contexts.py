@@ -294,7 +294,7 @@ class TestEvaluationContextSuggestions(APIBaseTest):
     def test_hide_is_idempotent(self):
         self._create_context("production")
 
-        with patch("posthog.api.team.report_user_action") as mock_report:
+        with patch("posthog.api.project.report_user_action") as mock_report:
             self.client.post(self.url, {"context_name": "production"}, format="json")
             self.assertEqual(mock_report.call_count, 1)
 
@@ -307,7 +307,7 @@ class TestEvaluationContextSuggestions(APIBaseTest):
         ctx.hidden_from_suggestions = True
         ctx.save()
 
-        with patch("posthog.api.team.report_user_action") as mock_report:
+        with patch("posthog.api.project.report_user_action") as mock_report:
             response = self.client.delete(self.url + "?context_name=production")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(mock_report.call_count, 1)
@@ -354,31 +354,12 @@ class TestEvaluationContextSuggestions(APIBaseTest):
         self.assertIn("production", data["available_contexts"])
         self.assertNotIn("production", data["hidden_contexts"])
 
-    def test_member_adding_hidden_context_as_default_does_not_unhide_it(self):
-        ctx = self._create_context("production")
-        ctx.hidden_from_suggestions = True
-        ctx.save()
-
+    def test_member_cannot_write_default_evaluation_contexts(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         response = self.client.post(self.get_url, {"context_name": "production"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["created"])
-
-        ctx.refresh_from_db()
-        self.assertTrue(ctx.hidden_from_suggestions)
-
-        data = self.client.get(self.get_url).json()
-        self.assertNotIn("production", data["available_contexts"])
-        self.assertIn("production", data["hidden_contexts"])
-
-    def test_member_can_post_but_not_delete_default_evaluation_contexts(self):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        response = self.client.post(self.get_url, {"context_name": "production"}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         response = self.client.delete(self.get_url, {"context_name": "production"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

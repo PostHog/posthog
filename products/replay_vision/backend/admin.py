@@ -69,7 +69,17 @@ class ReplayQuotaGrantAdmin(admin.ModelAdmin):
 
 @admin.register(VisionAction)
 class VisionActionAdmin(admin.ModelAdmin):
-    list_display = ("name", "team", "scanner", "trigger_type", "mode", "enabled", "next_run_at", "created_at")
+    list_display = (
+        "name",
+        "team",
+        "scanner",
+        "trigger_type",
+        "mode",
+        "enabled",
+        "max_observations",
+        "next_run_at",
+        "created_at",
+    )
     list_filter = ("trigger_type", "mode", "enabled")
     search_fields = ("name",)
     raw_id_fields = ("team", "scanner", "hog_flow", "created_by")

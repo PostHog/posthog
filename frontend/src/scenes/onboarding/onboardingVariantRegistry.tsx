@@ -1,6 +1,6 @@
 import { LegacyOnboarding } from './legacy/LegacyOnboarding'
 import type { OnboardingFlowVariant } from './onboardingVariants'
-import { RedesignOnboarding } from './redesign/RedesignOnboarding'
+import { SelfDrivingOnboarding } from './self-driving/SelfDrivingOnboarding'
 
 /**
  * Maps each shipped variant to its host component. Add a variant here and in
@@ -8,5 +8,5 @@ import { RedesignOnboarding } from './redesign/RedesignOnboarding'
  */
 export const onboardingVariantRegistry: Record<OnboardingFlowVariant, () => JSX.Element | null> = {
     legacy: LegacyOnboarding,
-    redesign: RedesignOnboarding,
+    'self-driving': SelfDrivingOnboarding,
 }

@@ -86,13 +86,11 @@ class ExperimentQueryBuilder:
         ] = None,
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
-        funnel_steps_data_disabled: bool = False,
         cuped_config: CupedQueryConfig | None = None,
     ):
         self.team = team
         self.metric = metric
         self.only_count_matured_users = only_count_matured_users
-        self.funnel_steps_data_disabled = funnel_steps_data_disabled
         self.feature_flag_key = feature_flag_key
         self.variants = variants
         self.date_range_query = date_range_query
@@ -120,7 +118,6 @@ class ExperimentQueryBuilder:
             entity_key=self.entity_key,
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
-            funnel_steps_data_disabled=self.funnel_steps_data_disabled,
             cuped_config=self.cuped_config,
         )
 
@@ -246,6 +243,11 @@ class ExperimentQueryBuilder:
         Returns a HAVING clause expression to filter out users whose conversion window
         hasn't elapsed yet, or None if the feature is not enabled.
 
+        Anchored on the user's first exposure (min timestamp), matching how the
+        variant is assigned. Anchoring on the last exposure would keep resetting the
+        window for flags re-evaluated repeatedly (e.g. backend flags), so active users
+        would never mature. Callers pass an exposure-only timestamp expression.
+
         Retention metrics handle maturity separately in their own start_events CTE
         via _build_retention_maturity_having_clause; this function intentionally
         returns None for them.
@@ -263,7 +265,7 @@ class ExperimentQueryBuilder:
 
         now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
         return parse_expr(
-            f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
+            f"min({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
             placeholders={
                 "maturity_seconds": ast.Constant(value=maturity_seconds),
                 "now": ast.Constant(value=now),

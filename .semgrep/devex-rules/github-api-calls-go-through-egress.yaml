@@ -1,0 +1,44 @@
+rules:
+    - id: github-api-calls-go-through-egress
+      message: |
+          Outbound GitHub API calls must go through the gated, recorded egress transport —
+          never raw `requests`.
+
+          Use one of:
+          - `GitHubIntegrationBase.api_request(...)` when you hold a `GitHubIntegration` /
+            `UserGitHubIntegration` — it owns token refresh, the 401 refresh-retry,
+            rate-limit raising (`GitHubRateLimitError`), and telemetry attribution via the
+            instance's `source`.
+          - `posthog.egress.github.transport.github_request(...)` for token-agnostic calls
+            (user OAuth tokens, PATs, App JWTs). Pass `installation_id` only when the call
+            is metered against that installation's budget — user-token and App-JWT calls
+            are identity-blind (`installation_id=None`).
+
+          Why: a raw call bypasses the shared per-installation rate-limit budget and the
+          egress telemetry (request volume + `X-RateLimit-*` gauges), so it can burn a
+          customer's GitHub budget invisibly. See `posthog/egress/README.md`.
+
+          This rule only catches literal/f-string URLs; keep URLs inline at the call site.
+          Suppress a legitimate exception with
+          `# nosemgrep: github-api-calls-go-through-egress -- <reason>`.
+      languages: [python]
+      severity: ERROR
+      patterns:
+          - pattern-either:
+                - patterns:
+                      - pattern: requests.$METHOD($URL, ...)
+                      - metavariable-regex:
+                            metavariable: $METHOD
+                            regex: ^(get|post|put|patch|delete|head)$
+                - pattern: requests.request($METHOD, $URL, ...)
+          - metavariable-regex:
+                metavariable: $URL
+                regex: .*(api|uploads)\.github\.com.*
+      paths:
+          include:
+              - common/**/*.py
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+          exclude:
+              - posthog/egress/**
