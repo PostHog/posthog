@@ -2242,10 +2242,7 @@ describe('LogsIngestionConsumer', () => {
             )
             // The OTel counter has to carry the same reason as the Prometheus one above —
             // they were allowed to disagree, so a transformations drop read as sampling.
-            expect(recordLogMessageDroppedSpy).toHaveBeenCalledWith(
-                'transformations_all_dropped',
-                team.id.toString()
-            )
+            expect(recordLogMessageDroppedSpy).toHaveBeenCalledWith('transformations_all_dropped', team.id.toString())
         })
 
         it('attributes the full-message drop to transformations when sampling kept survivors', async () => {
