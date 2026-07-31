@@ -1,11 +1,7 @@
-import { useValues } from 'kea'
-import { router } from 'kea-router'
+import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
-
-import { isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
-import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -19,7 +15,8 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { scannerOverviewLogic } from '../scannerOverviewLogic'
+import { getReplayVisionRecordingViewDisabledReason } from '../../utils/accessControl'
+import { OVERVIEW_CHART_INTERVAL, scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -75,7 +72,7 @@ function buildQuery(
                 formulaNodes: [{ formula: 'A / B * 100', custom_name: 'Yes rate' }],
             },
             dateRange,
-            interval: 'day',
+            interval: OVERVIEW_CHART_INTERVAL,
         }
     }
     if (scannerType === 'classifier') {
@@ -98,7 +95,7 @@ function buildQuery(
             },
             trendsFilter: { display: ChartDisplayType.ActionsAreaGraph },
             dateRange,
-            interval: 'day',
+            interval: OVERVIEW_CHART_INTERVAL,
         }
     }
     if (scannerType === 'scorer') {
@@ -118,7 +115,7 @@ function buildQuery(
             ],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             dateRange,
-            interval: 'day',
+            interval: OVERVIEW_CHART_INTERVAL,
         }
     }
     return {
@@ -134,29 +131,8 @@ function buildQuery(
         ],
         trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
         dateRange,
-        interval: 'day',
+        interval: OVERVIEW_CHART_INTERVAL,
     }
-}
-
-/**
- * Search params for drilling from a chart data point into the Observations tab: the clicked day as an
- * inclusive date range, plus the clicked tag for classifier breakdown series. Returns null when the
- * clicked bucket isn't a plain date (nothing sensible to drill into).
- */
-export function observationsDrilldownSearchParams(
-    day: string | number | undefined,
-    breakdown?: unknown
-): Record<string, string> | null {
-    if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(day)) {
-        return null
-    }
-    const date = day.slice(0, 10)
-    const params: Record<string, string> = { tab: 'observations', date_from: date, date_to: date }
-    const tag = Array.isArray(breakdown) ? breakdown[0] : breakdown
-    if (typeof tag === 'string' && tag && !isOtherBreakdown(tag) && !isNullBreakdown(tag)) {
-        params.tags = tag
-    }
-    return params
 }
 
 function chartTitle(scannerType: ScannerType): string {
@@ -203,18 +179,13 @@ export function ScannerInsightsChart({
         }),
         [scannerId]
     )
-    // Drill-down goes to the Observations tab filtered to the clicked day (and tag, for classifier series):
-    // that's where each scanned session shows its verdict/tags/score, unlike the generic persons modal,
-    // which can't represent these server-emitted events (see VisionInsightChart).
+    const { drillIntoObservations } = useActions(scannerOverviewLogic({ scannerId }))
     const onDataPointClick = useCallback<NonNullable<QueryContext['onDataPointClick']>>(
-        (series) => {
-            const searchParams = observationsDrilldownSearchParams(series.day, series.breakdown)
-            if (searchParams) {
-                router.actions.push(urls.replayVision(scannerId), searchParams)
-            }
-        },
-        [scannerId]
+        (series) => drillIntoObservations(series.day, series.breakdown),
+        [drillIntoObservations]
     )
+    // The Observations tab requires session_recording read access; without it the chart stays static.
+    const canDrillIntoObservations = !getReplayVisionRecordingViewDisabledReason()
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
@@ -239,7 +210,7 @@ export function ScannerInsightsChart({
                 query={chartQuery}
                 insightProps={chartInsightProps}
                 className="InsightCard h-80"
-                onDataPointClick={onDataPointClick}
+                onDataPointClick={canDrillIntoObservations ? onDataPointClick : undefined}
             />
         </div>
     )

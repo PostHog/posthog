@@ -21,6 +21,21 @@ interface VisionInsightChartProps {
     onDataPointClick?: QueryContext['onDataPointClick']
 }
 
+/** Vision events all belong to one synthetic person, so the generic persons modal would only list meaningless actors. */
+export function embeddedVisionChartQuery(query: InsightVizNode): InsightVizNode {
+    return { ...query, hidePersonsModal: true }
+}
+
+/** Only `new-AdHoc.`-keyed props push `query` into insightDataLogic (its `propsQuery` selector), which is what lets `hidePersonsModal` stick. */
+export function adHocInsightProps(insightProps: InsightLogicProps, query: InsightVizNode): InsightLogicProps {
+    const id = insightProps.dashboardItemId ?? 'vision-chart'
+    return {
+        ...insightProps,
+        dashboardItemId: id.startsWith('new-AdHoc.') ? (id as `new-${string}`) : `new-AdHoc.${id}`,
+        query,
+    }
+}
+
 export type ChartOverlayState = 'none' | 'loading' | 'error'
 
 /**
@@ -49,21 +64,21 @@ export function VisionInsightChart({
     className,
     onDataPointClick,
 }: VisionInsightChartProps): JSX.Element {
-    const logic = insightVizDataLogic(insightProps)
+    const chartQuery = useMemo(() => embeddedVisionChartQuery(query), [query])
+    const chartProps = useMemo(() => adHocInsightProps(insightProps, chartQuery), [insightProps, chartQuery])
+    const context = useMemo<QueryContext>(
+        () => ({ insightProps: chartProps, onDataPointClick }),
+        [chartProps, onDataPointClick]
+    )
+    const logic = insightVizDataLogic(chartProps)
     const { insightData, insightDataLoading } = useValues(logic)
     const { loadData } = useActions(logic)
 
     const overlay = chartOverlayState(insightData, insightDataLoading)
 
-    // These charts count server-emitted $recording_observed events, which all belong to one synthetic
-    // "replay-vision" person, so the generic persons modal would only show meaningless actors and stays off.
-    // Products drill down via onDataPointClick instead. Memoized so the query prop doesn't churn per render.
-    const chartQuery = useMemo<InsightVizNode>(() => ({ ...query, hidePersonsModal: true }), [query])
-    const context = useMemo<QueryContext>(() => ({ insightProps, onDataPointClick }), [insightProps, onDataPointClick])
-
     return (
         <div className={clsx('relative', className)}>
-            <Query query={chartQuery} readOnly embedded inSharedMode={!onDataPointClick} context={context} />
+            <Query query={chartQuery} readOnly embedded inSharedMode context={context} />
             {overlay !== 'none' && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg-light">
                     {overlay === 'loading' ? (

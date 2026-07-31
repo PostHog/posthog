@@ -26,6 +26,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 from posthog.utils import relative_date_parse
@@ -491,6 +492,13 @@ class _ObservationOrderByFilter(OrderByFilter):
         return self._order_nulls_last(qs, "_order_verdict", descending)
 
 
+class _TeamAwareFilterBackend(DjangoFilterBackend):
+    """Passes the viewset's team into the filterset so date bounds can use the project timezone."""
+
+    def get_filterset_kwargs(self, request: Request, queryset: QuerySet, view: Any) -> dict[str, Any]:
+        return {**super().get_filterset_kwargs(request, queryset, view), "team": getattr(view, "team", None)}
+
+
 class ReplayObservationFilter(django_filters.FilterSet):
     status = MultiChoiceFilter(
         field_name="status",
@@ -526,13 +534,16 @@ class ReplayObservationFilter(django_filters.FilterSet):
     )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
-        help_text="Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.",
+        help_text=(
+            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
+            "values without an explicit offset are interpreted in the project's timezone."
+        ),
     )
     date_to = django_filters.CharFilter(
         method="_filter_date_to",
         help_text=(
             "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
-            "date-only values include the whole day."
+            "date-only values include the whole day, interpreted in the project's timezone."
         ),
     )
     labeled = django_filters.BooleanFilter(
@@ -554,6 +565,15 @@ class ReplayObservationFilter(django_filters.FilterSet):
     class Meta:
         model = ReplayObservation
         fields = ["status", "triggered_by", "session_id"]
+
+    def __init__(self, *args: Any, team: Team | None = None, **kwargs: Any) -> None:
+        self._team = team
+        super().__init__(*args, **kwargs)
+
+    @property
+    def _timezone_info(self) -> ZoneInfo:
+        # Date bounds come from UI date pickers, so users mean them in the project timezone, not UTC.
+        return self._team.timezone_info if self._team else ZoneInfo("UTC")
 
     @classmethod
     def schema_parameters(cls) -> list[OpenApiParameter]:
@@ -578,12 +598,12 @@ class ReplayObservationFilter(django_filters.FilterSet):
     def _filter_date_from(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
     ) -> QuerySet[ReplayObservation]:
-        return queryset.filter(created_at__gte=relative_date_parse(value, ZoneInfo("UTC")))
+        return queryset.filter(created_at__gte=relative_date_parse(value, self._timezone_info))
 
     def _filter_date_to(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
     ) -> QuerySet[ReplayObservation]:
-        parsed = relative_date_parse(value, ZoneInfo("UTC"))
+        parsed = relative_date_parse(value, self._timezone_info)
         # Date-only values include the whole day; relative values stay exact.
         if not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
             parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -684,7 +704,7 @@ class ReplayObservationViewSet(
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [_TeamAwareFilterBackend]
     filterset_class = ReplayObservationFilter
 
     def _scanner_for_url(self) -> ReplayScanner:
@@ -749,7 +769,9 @@ class ReplayObservationViewSet(
         # Empty values (`?status=`) are no-ops in the filterset, so they must not opt out of the fast path.
         if not any(self.request.query_params.get(key) for key in ReplayObservationFilter.base_filters):
             return self._unfiltered_neighbors(observation, siblings)
-        filterset = ReplayObservationFilter(self.request.query_params, queryset=siblings, request=self.request)
+        filterset = ReplayObservationFilter(
+            self.request.query_params, queryset=siblings, request=self.request, team=self.team
+        )
         if not filterset.is_valid():
             # Same 400 the list endpoint gives for the identical bad query string.
             raise ValidationError(filterset.errors)
