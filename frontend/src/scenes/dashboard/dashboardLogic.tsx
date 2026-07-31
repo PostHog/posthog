@@ -1376,8 +1376,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             try {
                                 return await api.getResponse(apiUrl)
                             } catch (error: any) {
-                                const retryable =
-                                    isRetryableDashboardLoadError(error) || error?.status === 404
+                                const retryable = isRetryableDashboardLoadError(error) || error?.status === 404
                                 if (attempt >= LOAD_DASHBOARD_MAX_ATTEMPTS || !retryable) {
                                     throw error
                                 }
