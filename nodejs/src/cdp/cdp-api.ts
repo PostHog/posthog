@@ -415,7 +415,7 @@ export class CdpApi {
 
             if (functionType === 'transformation_log') {
                 // Log transformations run against a log record, not an event
-                if (!globals?.record || typeof globals.record !== 'object') {
+                if (!globals?.record || typeof globals.record !== 'object' || Array.isArray(globals.record)) {
                     res.status(400).json({ error: 'Missing record' })
                     return
                 }
@@ -598,9 +598,13 @@ export class CdpApi {
                     })
                 }
 
-                const sensitiveValues = Object.values(compoundConfiguration.encrypted_inputs ?? {})
-                    .map((input) => input?.value)
-                    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+                // Derive from the resolved inputs (which merge inputs + encrypted_inputs) like the
+                // destination test path does — Django resolves stored secrets into `inputs`, so
+                // collecting from `encrypted_inputs` alone would leave them unredacted in test logs.
+                const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                    compoundConfiguration,
+                    (hogGlobals.inputs ?? {}) as Record<string, any>
+                )
 
                 const outcome = executeLogTransformation(compoundConfiguration.bytecode, record, hogGlobals, {
                     sensitiveValues,
