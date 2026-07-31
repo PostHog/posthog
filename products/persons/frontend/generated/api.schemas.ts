@@ -257,19 +257,19 @@ export interface MessageAssetApi {
     function_name: string
     /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
     parent_run_id: string
-    /** Asset kind. Currently always 'email'. */
+    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoint currently returns only 'email'. */
     kind: string
     /** The recipient's distinct_id. */
     distinct_id: string
     /** The recipient's person UUID, if resolved. */
     person_id: string
-    /** The recipient email address. */
+    /** Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'. */
     recipient: string
-    /** The email subject line. */
+    /** The email subject line, or the push notification title. */
     subject: string
-    /** Delivery status at capture time. Currently always 'sent'. */
+    /** Delivery status at capture time. Currently always 'sent' - only delivered messages are captured. */
     status: string
-    /** When the email was sent. */
+    /** When the message was sent. */
     sent_at: string
 }
 
