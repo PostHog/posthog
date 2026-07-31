@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from products.conversations.backend.temporal.channel_summary.coordinator import _collect_due_channels
 from products.conversations.backend.temporal.channel_summary.summarize import (
+    _build_transcript,
     _fetch_period_messages,
     _include_message,
     _message_refs,
@@ -115,6 +116,24 @@ class TestSummarizeHelpers:
     )
     def test_include_message(self, _name, message, expected):
         assert _include_message(message) is expected
+
+    def test_truncated_transcript_returns_only_the_kept_threads(self):
+        # Audit refs and message_count come from the returned threads: a thread the
+        # transcript dropped must drop out of the audit too, or the count overclaims.
+        old_thread = ({"text": "x" * 300, "ts": "100.0", "user": "U1"}, [])
+        new_thread = ({"text": "y" * 300, "ts": "200.0", "user": "U1"}, [])
+        client = MagicMock()
+        team = MagicMock()
+        team.timezone_info = UTC
+
+        with patch("products.conversations.backend.temporal.channel_summary.summarize.MAX_TRANSCRIPT_CHARS", 400):
+            transcript, covered = _build_transcript(
+                client, team, "C1", [old_thread, new_thread], period_start=50.0, cache={"U1": "alice"}
+            )
+
+        assert covered == [new_thread]
+        assert "(earlier messages omitted: transcript truncated)" in transcript
+        assert "yyy" in transcript and "xxx" not in transcript
 
     def test_message_refs_cover_every_message_with_metadata_only(self):
         parent = {"text": "secret question", "ts": "1721999999.123456", "thread_ts": "1721999999.123456", "user": "U1"}

@@ -204,7 +204,9 @@ def _build_transcript(
     threads: list[tuple[dict, list[dict]]],
     period_start: float,
     cache: dict[str, str],
-) -> str:
+) -> tuple[str, list[tuple[dict, list[dict]]]]:
+    """The transcript plus the threads that actually made it in — count and audit refs
+    must come from the returned threads, or a truncated transcript overclaims coverage."""
     tz = team.timezone_info
     blocks: list[str] = []
     for parent, replies in threads:
@@ -217,6 +219,7 @@ def _build_transcript(
     # Keep the newest threads when over budget: recent context matters most for the
     # open-asks section, and the truncation is disclosed to the model.
     kept: list[str] = []
+    kept_thread_count = 0
     total = 0
     for block in reversed(blocks):
         total += len(block) + 2
@@ -224,7 +227,8 @@ def _build_transcript(
             kept.append("(earlier messages omitted: transcript truncated)")
             break
         kept.append(block)
-    return "\n\n".join(reversed(kept))
+        kept_thread_count += 1
+    return "\n\n".join(reversed(kept)), threads[len(threads) - kept_thread_count :]
 
 
 def _message_refs(
@@ -241,10 +245,6 @@ def _message_refs(
         for parent, replies in threads
         for message in (parent, *replies)
     ]
-
-
-def _message_count(threads: list[tuple[dict, list[dict]]]) -> int:
-    return sum(1 + len(replies) for _, replies in threads)
 
 
 async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
@@ -300,11 +300,14 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
         return ChannelSummaryOutput(summary_id=None, message_count=0)
 
     # One shared name cache: after the transcript resolves every author, the refs pass
-    # is lookup-free. Both stay off the event loop — cache misses call Slack.
+    # is lookup-free. Both stay off the event loop — cache misses call Slack. Refs come
+    # from the threads the transcript kept, so a truncated transcript never overclaims.
     def build_transcript_and_refs() -> tuple[str, list[dict]]:
         cache: dict[str, str] = {}
-        transcript = _build_transcript(client, team, input.slack_channel_id, threads, period_start.timestamp(), cache)
-        return transcript, _message_refs(client, input.slack_channel_id, threads, cache)
+        transcript, covered_threads = _build_transcript(
+            client, team, input.slack_channel_id, threads, period_start.timestamp(), cache
+        )
+        return transcript, _message_refs(client, input.slack_channel_id, covered_threads, cache)
 
     transcript, message_refs = await asyncio.to_thread(build_transcript_and_refs)
 
@@ -336,13 +339,13 @@ async def _summarize(input: ChannelSummaryInput) -> ChannelSummaryOutput:
             period_start=period_start,
             period_end=period_end,
             content=content,
-            message_count=_message_count(threads),
+            message_count=len(message_refs),
             messages=message_refs,
             model_name=SUMMARY_MODEL,
         ),
         thread_sensitive=False,
     )()
-    return ChannelSummaryOutput(summary_id=summary_id, message_count=_message_count(threads))
+    return ChannelSummaryOutput(summary_id=summary_id, message_count=len(message_refs))
 
 
 @activity.defn
