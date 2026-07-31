@@ -12,6 +12,7 @@ import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, InheritedAccessLevelReason } from '~/types'
 
 import type { InheritedAccess } from '../accessControlLogic'
@@ -86,6 +87,7 @@ function MemberHeader({ member }: { member: AccessControlMemberEntry }): JSX.Ele
 function RoleHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
     const { sortedRoles, canEditRoles } = useValues(roleAccessControlLogic)
     const { deleteRole } = useActions(roleAccessControlLogic)
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
 
     const members = sortedRoles.find((r) => r.id === role.role_id)?.members ?? []
 
@@ -114,7 +116,11 @@ function RoleHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
             primaryButton: {
                 children: 'Delete role',
                 status: 'danger',
-                onClick: () => deleteRole(role.role_id),
+                onClick: () => {
+                    deleteRole(role.role_id)
+                    // The role this panel shows is gone, so don't stay open on "Role not found"
+                    closeSidePanel()
+                },
             },
             secondaryButton: { children: 'Cancel' },
         })
