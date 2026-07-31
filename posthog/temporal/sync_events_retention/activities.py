@@ -1,13 +1,34 @@
+import time
+import asyncio
+
+from django.conf import settings
+
 from temporalio import activity
 
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 from posthog.models.team.event_retention import parse_events_feature_to_months
+from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 
 LOGGER = get_write_only_logger()
+
+
+def _capture_sync_completed(total_processed: int, total_updated: int, dry_run: bool, duration_seconds: float) -> None:
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id="sync-events-retention",
+            event="events_retention_sync_completed",
+            properties={
+                "total_processed": total_processed,
+                "total_updated": total_updated,
+                "dry_run": dry_run,
+                "duration_seconds": round(duration_seconds, 1),
+                "cloud_deployment": settings.CLOUD_DEPLOYMENT,
+            },
+        )
 
 
 @activity.defn(name="sync-events-retention")
@@ -21,6 +42,7 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> None:
         logger = LOGGER.bind()
         logger.info("Syncing events retention for all teams...")
 
+        started_at = time.monotonic()
         last_pk = 0
         total_processed = 0
         total_updated = 0
@@ -60,3 +82,8 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> None:
             logger.info(f"DRY RUN: Would have updated {total_updated} of {total_processed} teams")
         else:
             logger.info(f"Updated {total_updated} of {total_processed} teams")
+
+        # Absence of this event is the staleness-alert signal for a dead sync; the alert filters dry_run=false.
+        await asyncio.to_thread(
+            _capture_sync_completed, total_processed, total_updated, input.dry_run, time.monotonic() - started_at
+        )
