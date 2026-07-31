@@ -731,6 +731,16 @@ function EmailTemplaterModal(): JSX.Element {
                 <div className="flex-1 min-h-0 flex relative p-4">
                     {/* Aligned with the modal's close button (top-3 right-4), sitting just left of it */}
                     <div className="absolute top-3 right-14 z-10 flex items-center gap-2">
+                        {/* The toggle label changes width; keeping it left of the right-anchored
+                            tabs means the tabs never shift when it flips */}
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
+                            onClick={() => setFieldsHidden(!fieldsHidden)}
+                        >
+                            {fieldsHidden ? 'Show fields' : 'Hide fields'}
+                        </LemonButton>
                         <LemonSegmentedButton
                             size="small"
                             value={activeContentTab}
@@ -740,14 +750,6 @@ function EmailTemplaterModal(): JSX.Element {
                                 { value: 'plaintext', label: 'Plain text' },
                             ]}
                         />
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
-                            onClick={() => setFieldsHidden(!fieldsHidden)}
-                        >
-                            {fieldsHidden ? 'Show fields' : 'Hide fields'}
-                        </LemonButton>
                     </div>
                     <div className="flex flex-col flex-1">
                         <div className="shrink-0">
