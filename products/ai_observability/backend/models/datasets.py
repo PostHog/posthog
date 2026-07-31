@@ -1,6 +1,9 @@
+from typing import cast
+
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import F, Func, Q, Value
+from django.db.models.expressions import NegatedExpression
 from django.db.models.lookups import Exact
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -14,8 +17,8 @@ def _json_type_is(field_name: str, json_type: str) -> Exact:
     )
 
 
-def _json_type_is_not(field_name: str, json_type: str) -> Q:
-    return ~Q(_json_type_is(field_name, json_type))
+def _json_type_is_not(field_name: str, json_type: str) -> NegatedExpression:
+    return NegatedExpression(_json_type_is(field_name, json_type))
 
 
 class Dataset(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -181,11 +184,17 @@ class DatasetItemVersion(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
                 name="llma_dataset_item_ver_v2_input",
             ),
             models.CheckConstraint(
-                condition=Q(expected_output__isnull=True) | _json_type_is_not("expected_output", "null"),
+                condition=cast(
+                    Q,
+                    Q(expected_output__isnull=True) | _json_type_is_not("expected_output", "null"),
+                ),
                 name="llma_dataset_item_ver_v2_expected",
             ),
             models.CheckConstraint(
-                condition=Q(source_output__isnull=True) | _json_type_is_not("source_output", "null"),
+                condition=cast(
+                    Q,
+                    Q(source_output__isnull=True) | _json_type_is_not("source_output", "null"),
+                ),
                 name="llma_dataset_item_ver_v2_source",
             ),
             models.CheckConstraint(
