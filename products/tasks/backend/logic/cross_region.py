@@ -102,15 +102,20 @@ def _request(
 def _raise_for_status(integration: Integration, res: requests.Response, action: str) -> None:
     if 200 <= res.status_code < 300:
         return
+    # Deliberately do NOT log the target response body: it originates in the target cell and may
+    # contain region-resident data, which must not land in the connecting cell's logs. Status only.
     logger.warning(
         "cross_region_task_request_failed",
         action=action,
         integration_id=integration.id,
         region=integration.config.get("region"),
         status_code=res.status_code,
-        body=res.text[:500],
     )
-    detail = "authorization failed — reconnect the integration" if res.status_code in (401, 403) else res.text[:200]
+    detail = (
+        "authorization failed — reconnect the integration"
+        if res.status_code in (401, 403)
+        else f"the target region returned {res.status_code}"
+    )
     raise CrossRegionRequestError(
         f"Remote task {action} failed ({res.status_code}): {detail}", status_code=res.status_code
     )
@@ -180,5 +185,6 @@ def get_remote_task(integration: Integration, *, target_team_id: int, task_id: s
         "task_id": task.get("id"),
         "status": latest_run.get("status"),
         "report": scrub_cross_region_report(latest_run.get("output")),
-        "error_message": latest_run.get("error_message"),
+        # error_message is also target-derived, so it crosses the boundary under the same bound as report.
+        "error_message": scrub_cross_region_report(latest_run.get("error_message")),
     }

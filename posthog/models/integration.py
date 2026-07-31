@@ -1251,6 +1251,10 @@ class OauthIntegration:
             # requires PKCE). Log it so the gap is visible before we enforce PKCE provider-side.
             if not code_verifier:
                 logger.warning("oauth_pkce_verifier_missing", kind=kind, has_state_token=bool(state_token))
+                # posthog is a first-party flow we control both ends of — a missing verifier is never
+                # a legacy-provider compat case here, so fail closed rather than exchanging without PKCE.
+                if kind == "posthog":
+                    raise ValidationError("Cross-region authorization failed: missing PKCE verifier. Please retry.")
 
         # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":
@@ -1384,12 +1388,16 @@ class OauthIntegration:
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                     json={"query": oauth_config.token_info_graphql_query},
                     timeout=10,
+                    # This call carries the access token; don't let a misconfigured/compromised
+                    # provider 30x us into resending it to another origin (matches the exchange/refresh/revoke calls).
+                    allow_redirects=False,
                 )
             else:
                 token_info_res = requests.get(
                     oauth_config.token_info_url.replace(":access_token", config["access_token"]),
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                     timeout=10,
+                    allow_redirects=False,
                 )
 
             if token_info_res.status_code == 200:

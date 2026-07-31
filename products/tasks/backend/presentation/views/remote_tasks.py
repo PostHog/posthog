@@ -60,7 +60,9 @@ class RemoteTaskStatusQuerySerializer(serializers.Serializer):
         help_text="Id of the `posthog` cross-region integration used to dispatch."
     )
     target_team_id = serializers.IntegerField(help_text="Team id in the target region the task belongs to.")
-    task_id = serializers.CharField(help_text="Id of the remote task to poll.")
+    # UUIDField (not CharField): the value is interpolated into the remote URL path, so it must be a
+    # canonical UUID and cannot smuggle `../` segments to reach other endpoints on the target cell.
+    task_id = serializers.UUIDField(help_text="Id of the remote task to poll.")
 
 
 class RemoteTaskStatusSerializer(serializers.Serializer):
@@ -139,7 +141,7 @@ class RemoteTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = query.validated_data
         integration = self._get_integration(data["integration_id"])
         try:
-            result = get_remote_task(integration, target_team_id=data["target_team_id"], task_id=data["task_id"])
+            result = get_remote_task(integration, target_team_id=data["target_team_id"], task_id=str(data["task_id"]))
         except CrossRegionIntegrationError as err:
             raise ValidationError(str(err))
         except CrossRegionError as err:

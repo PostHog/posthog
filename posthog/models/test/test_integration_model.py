@@ -1332,6 +1332,8 @@ class TestPosthogCrossRegionIntegration(BaseTest):
             mock_get.return_value = MagicMock(status_code=200)
             mock_get.return_value.json.return_value = {"sub": "user-uuid-123", "email": "person@posthog.com"}
 
+            # posthog is a PKCE flow; the authorize step caches a verifier keyed on the state token.
+            cache.set("oauth_pkce_verifier/tok", "the-verifier")
             state = urlencode({"next": "/", "token": "tok", "region": "EU"})
             integration = OauthIntegration.integration_from_oauth_response(
                 "posthog", self.team.id, self.user, {"code": "auth-code", "state": state}
@@ -1346,6 +1348,19 @@ class TestPosthogCrossRegionIntegration(BaseTest):
             assert integration.config["email"] == "person@posthog.com"
             assert integration.sensitive_config["access_token"] == "AT"
             assert integration.sensitive_config["refresh_token"] == "RT"
+
+    @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_fails_closed_without_pkce_verifier(self, mock_post):
+        # No cached verifier (as if the authorize step was skipped / replayed). A first-party posthog
+        # flow must fail closed rather than exchange the code without PKCE.
+        with self.settings(**self.cross_region_settings):
+            cache.delete("oauth_pkce_verifier/tok")
+            state = urlencode({"next": "/", "token": "tok", "region": "EU"})
+            with pytest.raises(ValidationError):
+                OauthIntegration.integration_from_oauth_response(
+                    "posthog", self.team.id, self.user, {"code": "auth-code", "state": state}
+                )
+            mock_post.assert_not_called()
 
     @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_uses_persisted_region(self, mock_post):
