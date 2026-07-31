@@ -13,6 +13,7 @@ use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json;
 use tracing::{error, instrument, warn, Span};
+use uuid::Uuid;
 
 use limiters::overflow::OverflowLimiter;
 
@@ -24,7 +25,8 @@ use crate::{
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     ingestion_warnings::{
-        emit_processing_abort_warning, emit_rate_limit_warning, legacy_request_context,
+        emit_distinct_id_truncated_warning, emit_processing_abort_warning,
+        emit_rate_limit_warning, legacy_request_context,
     },
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
@@ -172,6 +174,10 @@ pub fn process_single_event(
 
     let event_name = event.event.clone();
 
+    let extracted_distinct_id = event
+        .extract_distinct_id_checked()
+        .ok_or(CaptureError::MissingDistinctId)?;
+
     let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
@@ -183,6 +189,7 @@ pub fn process_single_event(
         redirect_to_topic: None,
         skip_heatmap_processing: false,
         overflow_reason: None,
+        distinct_id_truncated_from: extracted_distinct_id.truncated_from_chars,
     };
 
     if historical_cfg.should_reroute(metadata.data_type, parsed_timestamp.timestamp) {
@@ -199,9 +206,7 @@ pub fn process_single_event(
         uuid: event
             .uuid
             .unwrap_or_else(|| uuid_v7_from_datetime(parsed_timestamp.timestamp)),
-        distinct_id: event
-            .extract_distinct_id()
-            .ok_or(CaptureError::MissingDistinctId)?,
+        distinct_id: extracted_distinct_id.value,
         session_id: metadata.session_id.clone(),
         ip: resolved_ip,
         data,
@@ -344,7 +349,7 @@ async fn process_events_inner(
             )?);
             continue;
         }
-        let redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
+        let mut redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
             Ok(Some(redirect)) => redirect,
             Ok(None) => {
                 events.push(process_single_event(
@@ -371,7 +376,29 @@ async fn process_events_inner(
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
+        // The redirect is a synthetic copy of the original, which already
+        // carries the truncation; keeping it here would double-count the
+        // submitted event in the warning tally below.
+        redirect.metadata.distinct_id_truncated_from = None;
         events.push(redirect);
+    }
+
+    // Tally truncated distinct_ids while the batch reflects what was
+    // submitted, before ops-imposed filters (token dropper, restrictions)
+    // remove events; the truncation happened to those events too and the
+    // customer fix is the same. The warning itself is emitted only after the
+    // sink accepts the batch, so a rejected request never reports its events
+    // as ingested-but-modified.
+    let mut truncated_count: u64 = 0;
+    let mut truncated_sample: Option<(String, usize, Uuid)> = None;
+    for e in &events {
+        if let Some(original_chars) = e.metadata.distinct_id_truncated_from {
+            truncated_count += 1;
+            if truncated_count == 1 {
+                truncated_sample =
+                    Some((e.event.distinct_id.clone(), original_chars, e.event.uuid));
+            }
+        }
     }
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
@@ -556,6 +583,17 @@ async fn process_events_inner(
     }
 
     debug_or_info!(chatty_debug_enabled, context=?context, "sent analytics events");
+
+    // A batch emptied by the filters above returns early and never reaches
+    // this point, so an all-dropped request reports no truncation warning.
+    if truncated_count > 0 {
+        emit_distinct_id_truncated_warning(
+            ingestion_warning_emitter.as_deref(),
+            &legacy_request_context(context),
+            truncated_sample.filter(|_| truncated_count == 1),
+            truncated_count,
+        );
+    }
 
     Ok(())
 }
@@ -3372,5 +3410,135 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn event_with_distinct_id(distinct_id: &str) -> RawEvent {
+        let mut event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+        event
+            .properties
+            .insert("distinct_id".to_string(), json!(distinct_id));
+        event
+    }
+
+    async fn run_batch_collecting_warnings(
+        events: Vec<RawEvent>,
+        sink: Arc<dyn sinks::Event + Send + Sync>,
+    ) -> (
+        Result<(), CaptureError>,
+        Vec<common_ingestion_warnings::test_support::EmittedWarning>,
+    ) {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let collector = Arc::new(CollectingEmitter::new());
+
+        let result = process_events(
+            sink,
+            Arc::new(limiters::token_dropper::TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            Some(collector.clone()),
+            &AiRouting::Primary,
+            events,
+            &context,
+        )
+        .await;
+
+        (result, collector.emitted())
+    }
+
+    #[tokio::test]
+    async fn truncated_distinct_id_ingests_the_event_and_emits_one_warning() {
+        let long_id = "x".repeat(250);
+        let events = vec![
+            event_with_distinct_id(&long_id),
+            event_with_distinct_id("normal_user"),
+        ];
+
+        let sink = Arc::new(MockSink::new());
+        let (result, emitted) = run_batch_collecting_warnings(events, sink.clone()).await;
+        result.unwrap();
+
+        let sent = sink.get_events();
+        assert_eq!(sent.len(), 2, "both events must still be ingested");
+        assert_eq!(sent[0].event.distinct_id, long_id[..200]);
+
+        assert_eq!(emitted.len(), 1);
+        let w = &emitted[0];
+        assert_eq!(w.warning, WarningType::DistinctIdTruncated);
+        assert_eq!(
+            w.source,
+            common_ingestion_warnings::CAPTURE_LEGACY_ANALYTICS
+        );
+        assert_eq!(w.token, "test_token");
+        assert_eq!(w.count, 1);
+        assert_eq!(w.extra_details["distinctId"], json!(long_id[..200]));
+        assert_eq!(w.extra_details["distinctIdLength"], json!(250));
+        assert_eq!(
+            w.extra_details["eventUuid"],
+            json!(sent[0].event.uuid),
+            "sample must name the truncated event, not the healthy one"
+        );
+    }
+
+    #[tokio::test]
+    async fn multiple_truncated_distinct_ids_group_into_one_anonymous_warning() {
+        let events = vec![
+            event_with_distinct_id(&"x".repeat(250)),
+            event_with_distinct_id(&"y".repeat(300)),
+        ];
+
+        let (result, emitted) =
+            run_batch_collecting_warnings(events, Arc::new(MockSink::new())).await;
+        result.unwrap();
+
+        assert_eq!(emitted.len(), 1);
+        let w = &emitted[0];
+        assert_eq!(w.warning, WarningType::DistinctIdTruncated);
+        assert_eq!(w.count, 2);
+        // With several truncated ids any single sample would be an arbitrary
+        // pick, so the identifier details are omitted.
+        assert!(!w.extra_details.contains_key("distinctId"));
+        assert!(!w.extra_details.contains_key("distinctIdLength"));
+        assert!(!w.extra_details.contains_key("eventUuid"));
+    }
+
+    #[tokio::test]
+    async fn no_truncation_warning_for_ids_within_the_cap() {
+        let events = vec![event_with_distinct_id(&"z".repeat(200))];
+
+        let (result, emitted) =
+            run_batch_collecting_warnings(events, Arc::new(MockSink::new())).await;
+        result.unwrap();
+
+        assert!(emitted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn truncation_warning_is_not_emitted_when_the_sink_rejects_the_batch() {
+        // The warning means "ingested with a modified distinct_id"; a batch
+        // the sink refused was not ingested, so emitting would misreport.
+        struct RejectingSink;
+        #[async_trait::async_trait]
+        impl sinks::Event for RejectingSink {
+            async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
+                Err(CaptureError::RetryableSinkError)
+            }
+            async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+                Err(CaptureError::RetryableSinkError)
+            }
+        }
+
+        let events = vec![event_with_distinct_id(&"x".repeat(250))];
+
+        let (result, emitted) =
+            run_batch_collecting_warnings(events, Arc::new(RejectingSink)).await;
+        assert!(matches!(result, Err(CaptureError::RetryableSinkError)));
+
+        assert!(emitted.is_empty());
     }
 }

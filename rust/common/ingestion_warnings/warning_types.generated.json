@@ -56,6 +56,12 @@
       "captureProduced": true
     },
     {
+      "type": "distinct_id_truncated",
+      "category": "event",
+      "severity": "warning",
+      "captureProduced": true
+    },
+    {
       "type": "duplicate_event_uuid",
       "category": "event",
       "severity": "error",
