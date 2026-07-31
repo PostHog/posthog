@@ -139,12 +139,14 @@ class PostHogConnectionForwardSerializer(serializers.Serializer):
     query = serializers.DictField(
         required=False, child=serializers.CharField(), help_text="Query parameters to send to the target."
     )
-    data = serializers.JSONField(required=False, help_text="JSON request body for write methods.")
+    # `data` shadows Serializer.data (a property); the field is part of the API contract, so keep the
+    # name and silence the resulting attribute-type mismatch.
+    data = serializers.JSONField(required=False, help_text="JSON request body for write methods.")  # type: ignore[assignment]
 
 
 class PostHogConnectionForwardResponseSerializer(serializers.Serializer):
     status = serializers.IntegerField(help_text="HTTP status the target project returned.")
-    data = serializers.JSONField(help_text="The target project's response body, passed through.")
+    data = serializers.JSONField(help_text="The target project's response body, passed through.")  # type: ignore[assignment]
 
 
 class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -159,7 +161,9 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return [PostHogConnectionForwardThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
-    def _get_connection(self, pk: str) -> Integration:
+    def _get_connection(self, pk: str | None) -> Integration:
+        if pk is None:
+            raise NotFound("No PostHog connection with that id in this project.")
         try:
             integration = Integration.objects.get(team_id=self.team_id, id=pk, kind=POSTHOG_CONNECT_KIND)
         except (Integration.DoesNotExist, ValueError, ValidationError):

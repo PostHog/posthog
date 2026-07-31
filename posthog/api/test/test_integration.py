@@ -5134,7 +5134,12 @@ class TestPosthogConnectAuthorize:
 
 class TestPosthogConnectionListScoping:
     @pytest.fixture(autouse=True)
-    def setup_environment(self, db):
+    def setup_environment(self, db, settings):
+        # A `posthog` connection's display_name resolves its target region's OAuth config, so configure
+        # EU here (mirrors the authorize tests) or listing it 500s.
+        settings.POSTHOG_CONNECT_BASE_URL_EU = "https://eu.posthog.com"
+        settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU = "eu-client-id"
+        settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU = "eu-secret"
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.owner = User.objects.create_and_join(
@@ -5146,8 +5151,9 @@ class TestPosthogConnectionListScoping:
         self.connection = Integration.objects.create(
             team=self.team, kind="posthog", integration_id="EU:owner", created_by=self.owner, config={"region": "EU"}
         )
-        self.slack = Integration.objects.create(
-            team=self.team, kind="slack", integration_id="T123", created_by=self.owner, config={}
+        # A team-shared kind that any member is meant to see; github serializes without OAuth config.
+        self.github = Integration.objects.create(
+            team=self.team, kind="github", integration_id="gh-1", created_by=self.owner, config={"installation_id": "1"}
         )
 
     def _list_ids(self, client: HttpClient) -> set[int]:
@@ -5161,7 +5167,7 @@ class TestPosthogConnectionListScoping:
         client.force_login(self.other)
         ids = self._list_ids(client)
         assert self.connection.id not in ids
-        assert self.slack.id in ids
+        assert self.github.id in ids
 
     def test_creator_still_sees_their_connection(self, client: HttpClient):
         client.force_login(self.owner)
