@@ -194,7 +194,9 @@ function CodeBlock({
         const block = codeBlocks[0]
         return (
             <div className="my-4">
-                <CodeSnippet language={getLanguage(block.language)}>{block.code}</CodeSnippet>
+                <CodeSnippet language={getLanguage(block.language)} thing={block.file || block.language}>
+                    {block.code}
+                </CodeSnippet>
                 {hostHint}
             </div>
         )
@@ -219,7 +221,12 @@ function CodeBlock({
                     }))}
                 />
             )}
-            <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
+            <CodeSnippet
+                language={getLanguage(selectedBlock.language)}
+                thing={selectedBlock.file || selectedBlock.language}
+            >
+                {selectedBlock.code}
+            </CodeSnippet>
             {hostHint}
         </div>
     )

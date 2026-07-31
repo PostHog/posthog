@@ -1,6 +1,11 @@
 import { IconCopy } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
+// Tracks the toast from the most recent copy so it can be dismissed before showing the next one.
+// Without this, toasts for different copied values stack for the full autoClose duration, and the
+// one left on screen can describe an earlier click rather than the most recent one.
+let lastCopyToastId: string | number | undefined
+
 export async function copyToClipboard(
     value: string,
     description: string = 'text',
@@ -15,7 +20,10 @@ export async function copyToClipboard(
         if (silent) {
             return
         }
-        lemonToast.info(`Copied ${description} to clipboard`, {
+        if (lastCopyToastId !== undefined) {
+            lemonToast.dismiss(lastCopyToastId)
+        }
+        lastCopyToastId = lemonToast.info(`Copied ${description} to clipboard`, {
             icon: <IconCopy />,
         })
     }
