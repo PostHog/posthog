@@ -19,6 +19,7 @@ from posthog.rbac.user_access_control import (
     get_effective_access_level_for_role,
     get_field_access_control_map,
     model_to_resource,
+    resolve_inherited_object_access,
 )
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2126,6 +2127,50 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         self._apply(rules, self.self_managed_table)
 
         assert self._level(self.self_managed_table) == expected
+
+    def _apply_for_everyone(self, rules, table):
+        # Same ladder as _apply, but rows that apply to every member — what the access panel's
+        # inherited level describes.
+        targets = {
+            "this_source": ("external_data_source", str(self.source.id)),
+            "all_tables": ("warehouse_objects", None),
+            "all_sources": ("external_data_source", None),
+        }
+        for target, level in rules.items():
+            resource, resource_id = targets[target]
+            self._create_access_control(resource=resource, resource_id=resource_id, access_level=level)
+        self._clear_uac_caches()
+
+    @parameterized.expand(
+        [
+            ("nothing_set", {}),
+            ("source_default", {"this_source": "viewer"}),
+            ("all_tables", {"all_tables": "viewer"}),
+            ("all_sources", {"all_sources": "viewer"}),
+            ("source_beats_all_tables", {"this_source": "viewer", "all_tables": "editor"}),
+            ("all_tables_beats_all_sources", {"all_tables": "viewer", "all_sources": "editor"}),
+            ("source_deny", {"this_source": "none"}),
+        ]
+    )
+    def test_inherited_access_matches_the_runtime_for_a_plain_member(self, _name, rules):
+        # The panel's inherited level must be the level the runtime actually grants a member with
+        # no roles and no rules of their own, whichever tier supplies it. Guards the two
+        # resolutions against drifting when a tier is added or reordered.
+        self._apply_for_everyone(rules, self.sourced_table)
+
+        inherited = resolve_inherited_object_access(self.team, "warehouse_table", self.sourced_table)
+        assert inherited is not None
+        assert inherited.access_level == self.user_with_no_role_access_control.get_user_access_level(self.sourced_table)
+
+    def test_inherited_access_matches_the_runtime_for_a_self_managed_table(self):
+        self._apply_for_everyone({"this_source": "none", "all_sources": "none"}, self.self_managed_table)
+
+        inherited = resolve_inherited_object_access(self.team, "warehouse_table", self.self_managed_table)
+        assert inherited is not None
+        assert inherited.access_level == self.user_with_no_role_access_control.get_user_access_level(
+            self.self_managed_table
+        )
+        assert inherited.access_level == "editor"
 
     def test_source_denial_does_not_leak_across_sources(self):
         other_source = ExternalDataSource.objects.create(
