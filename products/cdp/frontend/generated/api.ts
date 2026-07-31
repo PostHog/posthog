@@ -12,6 +12,7 @@ import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
     HogFunctionApi,
+    HogFunctionEmailReadResponseApi,
     HogFunctionInvocationApi,
     HogFunctionPublishRequestApi,
     HogFunctionPublishResponseApi,
@@ -31,6 +32,7 @@ import type {
     PaginatedHogFunctionTemplateListApi,
     PaginatedPluginLogEntryListApi,
     PatchedHogFunctionApi,
+    PatchedHogFunctionEmailUpdateApi,
     PatchedHogFunctionRearrangeApi,
     PluginConfigsLogsListParams,
     PublicHogFunctionTemplatesListParams,
@@ -216,6 +218,39 @@ export const hogFunctionsDiscardDraftCreate = async (
     return apiMutator<HogFunctionApi>(getHogFunctionsDiscardDraftCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getHogFunctionsEmailRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/email/`
+}
+
+export const hogFunctionsEmailRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFunctionEmailReadResponseApi> => {
+    return apiMutator<HogFunctionEmailReadResponseApi>(getHogFunctionsEmailRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFunctionsEmailPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_functions/${id}/email/`
+}
+
+export const hogFunctionsEmailPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedHogFunctionEmailUpdateApi?: PatchedHogFunctionEmailUpdateApi,
+    options?: RequestInit
+): Promise<HogFunctionApi> => {
+    return apiMutator<HogFunctionApi>(getHogFunctionsEmailPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFunctionEmailUpdateApi),
     })
 }
 

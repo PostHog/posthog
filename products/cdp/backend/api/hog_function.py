@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
@@ -64,6 +65,10 @@ from products.cdp.backend.models.hog_functions.hog_function_revision import HogF
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 from products.cdp.backend.models.plugin import TranspilerError
 from products.cdp.backend.services.revisions import use_destinations_revisions
+from products.messaging.backend.api.design_operations import _deep_merge, apply_design_operations
+from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.api.message_templates import DesignOperationSerializer
+from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 
 # Maximum size of HOG code as a string in bytes (100KB)
 MAX_HOG_CODE_SIZE_BYTES = 100 * 1024
@@ -787,6 +792,66 @@ class HogFunctionRevisionRestoreRequestSerializer(serializers.Serializer):
     )
 
 
+class HogFunctionEmailUpdateSerializer(serializers.Serializer):
+    operations = serializers.ListField(
+        child=DesignOperationSerializer(),
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "Ordered design edits applied atomically to this function's email design - the same "
+            "id-addressed operations as the email template patch. The result is re-rendered to HTML "
+            "server-side, so the sent email always matches the patched design."
+        ),
+    )
+    email_patch = serializers.JSONField(
+        required=False,
+        help_text=(
+            "Partial email fields deep-merged into the function's email (a null leaf deletes the key): "
+            "subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, "
+            "and html is always re-rendered from it."
+        ),
+    )
+
+    def validate_email_patch(self, value: Any) -> dict:
+        if not isinstance(value, dict) or not value:
+            raise serializers.ValidationError("email_patch must be a non-empty object")
+        blocked = [key for key in ("design", "html") if key in value]
+        if blocked:
+            raise serializers.ValidationError(
+                f"email_patch can't set {', '.join(blocked)}: edit the design via operations, and html is "
+                "re-rendered from the design on every change."
+            )
+        return value
+
+    def validate(self, data: Any) -> Any:
+        if not data.get("operations") and not data.get("email_patch"):
+            raise serializers.ValidationError("Provide operations and/or email_patch.")
+        return data
+
+
+# Built with type() because "from" - a real key on the email value - is a Python keyword and can't
+# be a class-body attribute. Documents the read-back shape: the email value's own keys minus html
+# (derived from design and huge), plus has_draft.
+HogFunctionEmailReadResponseSerializer = type(
+    "HogFunctionEmailReadResponseSerializer",
+    (serializers.Serializer,),
+    {
+        "subject": serializers.CharField(required=False, help_text="The email's subject line."),
+        "preheader": serializers.CharField(required=False, help_text="Preview text shown after the subject."),
+        "text": serializers.CharField(required=False, help_text="Plain-text body."),
+        "from": serializers.JSONField(required=False, help_text="Sender, as stored on the email value."),
+        "to": serializers.JSONField(required=False, help_text="Recipient(s), as stored on the email value."),
+        "design": serializers.JSONField(
+            required=False,
+            help_text="The Unlayer design JSON - address its nodes by id with the patch endpoint's operations.",
+        ),
+        "has_draft": serializers.BooleanField(
+            help_text="True when the returned email comes from a staged draft rather than the live config."
+        ),
+    },
+)
+
+
 class HogFunctionPublishRequestSerializer(serializers.Serializer):
     confirm = serializers.BooleanField(
         default=False,
@@ -894,6 +959,9 @@ class HogFunctionViewSet(
         # (`hog_function:read` would be a no-op since :write already satisfies it.)
         if self.action == "rerun":
             return ["hog_function:write", "person:read", "group:read"]
+        # One action serves both methods, so the read/write action lists can't split it.
+        if self.action == "email":
+            return ["hog_function:read"] if request.method == "GET" else ["hog_function:write"]
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
@@ -1151,7 +1219,7 @@ class HogFunctionViewSet(
         # with the live ones.
         return set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS)
 
-    def _should_route_to_draft(self, serializer: BaseSerializer, revisions_enabled: bool) -> bool:
+    def _should_route_to_draft(self, instance: Any, revisions_enabled: bool, sent: Optional[set[str]] = None) -> bool:
         # Guardrail for agent callers (MCP and the surfaces that wrap it; the web builder and raw API
         # keys are unaffected). An agent editing a destination that is running right now stages a
         # draft for a human to publish instead of changing what workers execute on the spot.
@@ -1160,20 +1228,27 @@ class HogFunctionViewSet(
         # rather than by agents.
         if not revisions_enabled or not self._is_agent_request(self.request):
             return False
-        instance = serializer.instance
         if not isinstance(instance, HogFunction) or not instance.enabled:
             return False
         if instance.type != HogFunctionType.DESTINATION:
             return False
-        return bool(self._sent_content_fields())
+        # `sent` is passed by actions whose request body isn't config fields (e.g. the email patch,
+        # which sends operations but stages an `inputs` change); updates derive it from the payload.
+        return bool(self._sent_content_fields() if sent is None else sent)
 
     def _write_draft(
-        self, instance: HogFunction, locked: HogFunction, serializer: BaseSerializer, validated_content: dict
+        self,
+        instance: HogFunction,
+        locked: HogFunction,
+        serializer: BaseSerializer,
+        validated_content: dict,
+        sent: Optional[set[str]] = None,
     ) -> None:
         # The draft is always a full config snapshot (live config as the base, staged draft on top,
         # this edit's validated fields last) so publish is a plain copy with no merge logic.
         # validated_content is passed in because the caller's metadata save clears validated_data.
-        sent = self._sent_content_fields()
+        if sent is None:
+            sent = self._sent_content_fields()
         draft = {**snapshot_hog_function_content(locked), **(locked.draft or {})}
         for field in sent:
             if field in validated_content:
@@ -1238,7 +1313,7 @@ class HogFunctionViewSet(
         # Resolved before the write transaction: the flag check can hit the network and must not
         # extend the row lock.
         revisions_enabled = use_destinations_revisions(self.team)
-        route_to_draft = self._should_route_to_draft(serializer, revisions_enabled)
+        route_to_draft = self._should_route_to_draft(serializer.instance, revisions_enabled)
 
         # Enabling with a draft open would turn on the live config while the reviewed one sits
         # unpublished. Make the caller resolve the draft first rather than picking for them.
@@ -1431,6 +1506,146 @@ class HogFunctionViewSet(
                     )
                 }
             )
+
+    @staticmethod
+    def _email_input_key(inputs_schema: Any) -> str:
+        for schema in inputs_schema or []:
+            if isinstance(schema, dict) and schema.get("type") in ("email", "native_email") and schema.get("key"):
+                return str(schema["key"])
+        raise exceptions.ValidationError(
+            {
+                "email": "This function has no email input. Only functions with an email or native_email input carry an email."
+            }
+        )
+
+    @extend_schema(
+        request=HogFunctionEmailUpdateSerializer,
+        responses={200: HogFunctionEmailReadResponseSerializer},
+        methods=["GET"],
+    )
+    @extend_schema(
+        request=HogFunctionEmailUpdateSerializer,
+        responses={200: HogFunctionSerializer},
+        methods=["PATCH"],
+    )
+    @action(detail=True, methods=["GET", "PATCH"])
+    def email(self, request: Request, *args, **kwargs):
+        if request.method == "GET":
+            return self._email_read()
+        return self._email_update(request)
+
+    def _email_read(self) -> Response:
+        # Read-back for the email embedded in a function's inputs: the API masks input values on the
+        # normal serializer paths, so without this an agent can't see the email it's about to patch.
+        # Draft-aware: once a draft is staged it's the thing being edited, so it's the thing returned.
+        instance = self.get_object()
+        has_draft = bool(instance.draft)
+        source = instance.draft if has_draft else {"inputs_schema": instance.inputs_schema, "inputs": instance.inputs}
+        key = self._email_input_key(source.get("inputs_schema"))
+        entry = (source.get("inputs") or {}).get(key)
+        value = entry.get("value") if isinstance(entry, dict) else None
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError(
+                {"email": f"This function's '{key}' input has no email content yet. Set inputs.{key}.value first."}
+            )
+        # html is derived from design and can be enormous - never part of the read-back.
+        return Response({**{k: v for k, v in value.items() if k != "html"}, "has_draft": has_draft})
+
+    def _email_update(self, request: Request) -> Response:
+        # Surgical email editing for one function: the library template patch's design ops applied to
+        # the email embedded in the function's inputs, with html re-rendered server-side so the design
+        # and the sent content can't diverge. Rides the update path's draft/live routing: an agent
+        # editing an enabled destination stages a draft, everything else lands live.
+        op_serializer = HogFunctionEmailUpdateSerializer(data=request.data)
+        op_serializer.is_valid(raise_exception=True)
+        operations = op_serializer.validated_data.get("operations") or []
+        email_patch = op_serializer.validated_data.get("email_patch") or {}
+
+        # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
+        instance = self.get_object()
+
+        # Resolved before the write transaction: the flag check can hit the network and must not
+        # extend the row lock.
+        revisions_enabled = use_destinations_revisions(self.team)
+
+        with transaction.atomic():
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = HogFunction.objects.select_for_update().get(pk=instance.pk)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            before_update = HogFunction.objects.get(pk=instance.pk)
+
+            route_to_draft = self._should_route_to_draft(locked, revisions_enabled, sent={"inputs"})
+
+            # Draft edits compose on the staged draft, not on live - a second patch must see the first.
+            if route_to_draft and locked.draft:
+                base_inputs = deepcopy(locked.draft.get("inputs") or {})
+                inputs_schema = locked.draft.get("inputs_schema") or locked.inputs_schema
+            else:
+                base_inputs = deepcopy(locked.inputs or {})
+                inputs_schema = locked.inputs_schema
+
+            key = self._email_input_key(inputs_schema)
+            entry = base_inputs.get(key)
+            value = entry.get("value") if isinstance(entry, dict) else None
+            if not isinstance(value, dict):
+                raise exceptions.ValidationError(
+                    {"email": f"This function's '{key}' input has no email content yet. Set inputs.{key}.value first."}
+                )
+
+            if operations:
+                design = value.get("design")
+                if not isinstance(design, dict):
+                    raise exceptions.ValidationError(
+                        {
+                            "operations": "This function's email has no editable design JSON to patch. Set "
+                            f"inputs.{key}.value.design with a full update first, then use surgical operations."
+                        }
+                    )
+                new_design = apply_design_operations(design, operations)
+                for warning in validate_design(new_design):
+                    logger.info("hog_function_email_design_warning", warning=warning, hog_function_id=str(locked.id))
+                value["design"] = new_design
+                try:
+                    value["html"] = render_design_html(new_design)
+                except UnlayerNotConfiguredError:
+                    raise exceptions.ValidationError(
+                        {
+                            "operations": "Design rendering is not configured on this instance - an administrator "
+                            "must set UNLAYER_API_KEY to enable design editing."
+                        }
+                    )
+                except UnlayerRenderError as e:
+                    raise exceptions.ValidationError({"operations": f"Rendering the design to HTML failed: {e}"})
+
+            if email_patch:
+                _deep_merge(value, email_patch)
+
+            # The full inputs payload goes through the normal serializer so validation recompiles the
+            # email input's bytecode and secret inputs elsewhere are recovered, not clobbered.
+            serializer = self.get_serializer(locked, data={"inputs": base_inputs}, partial=True)
+            serializer.is_valid(raise_exception=True)
+
+            if route_to_draft:
+                validated_content = {"inputs": serializer.validated_data.get("inputs")}
+                self._write_draft(locked, locked, serializer, validated_content, sent={"inputs"})
+            else:
+                before_content = snapshot_hog_function_content(locked)
+                serializer.save()
+                if revisions_enabled:
+                    # before_update, not locked: the serializer saved `locked` in place, and
+                    # _record_revision reads the pre-save version off a distinct object.
+                    self._record_revision(cast(HogFunction, serializer.instance), before_update, before_content)
+
+        result = cast(HogFunction, serializer.instance)
+        log_activity_from_viewset(
+            self,
+            result,
+            activity="draft_updated" if route_to_draft else None,
+            name=result.name,
+            previous=before_update,
+            detail_type=humanize_hog_function_type(result.type),
+        )
+        return Response(self.get_serializer(result).data)
 
     @extend_schema(request=None, responses={200: HogFunctionSerializer})
     @action(detail=True, methods=["POST"])

@@ -557,6 +557,83 @@ export interface PatchedHogFunctionApi {
     base_updated_at?: string
 }
 
+export interface HogFunctionEmailReadResponseApi {
+    /** The email's subject line. */
+    subject?: string
+    /** Preview text shown after the subject. */
+    preheader?: string
+    /** Plain-text body. */
+    text?: string
+    /** Sender, as stored on the email value. */
+    from?: unknown
+    /** Recipient(s), as stored on the email value. */
+    to?: unknown
+    /** The Unlayer design JSON - address its nodes by id with the patch endpoint's operations. */
+    design?: unknown
+    /** True when the returned email comes from a staged draft rather than the live config. */
+    has_draft: boolean
+}
+
+/**
+ * * `update_content` - update_content
+ * * `update_column` - update_column
+ * * `update_row` - update_row
+ * * `update_body` - update_body
+ * * `add_content` - add_content
+ * * `remove_content` - remove_content
+ * * `move_content` - move_content
+ * * `add_row` - add_row
+ * * `remove_row` - remove_row
+ */
+export type EmailTemplateDesignOperationEnumApi =
+    (typeof EmailTemplateDesignOperationEnumApi)[keyof typeof EmailTemplateDesignOperationEnumApi]
+
+export const EmailTemplateDesignOperationEnumApi = {
+    UpdateContent: 'update_content',
+    UpdateColumn: 'update_column',
+    UpdateRow: 'update_row',
+    UpdateBody: 'update_body',
+    AddContent: 'add_content',
+    RemoveContent: 'remove_content',
+    MoveContent: 'move_content',
+    AddRow: 'add_row',
+    RemoveRow: 'remove_row',
+} as const
+
+export interface DesignOperationApi {
+    /** Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column {id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} / remove_row {id}: add or delete a row.
+     *
+     * * `update_content` - update_content
+     * * `update_column` - update_column
+     * * `update_row` - update_row
+     * * `update_body` - update_body
+     * * `add_content` - add_content
+     * * `remove_content` - remove_content
+     * * `move_content` - move_content
+     * * `add_row` - add_row
+     * * `remove_row` - remove_row */
+    op: EmailTemplateDesignOperationEnumApi
+    /** Target node id. Required for update_content/column/row, remove_content, remove_row, move_content. */
+    id?: string
+    /** Target column id. Required for add_content and move_content. */
+    column_id?: string
+    /** update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text. */
+    patch?: unknown
+    /** add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc. */
+    content?: unknown
+    /** add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it. */
+    row?: unknown
+    /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
+    index?: number
+}
+
+export interface PatchedHogFunctionEmailUpdateApi {
+    /** Ordered design edits applied atomically to this function's email design - the same id-addressed operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
+    operations?: DesignOperationApi[]
+    /** Partial email fields deep-merged into the function's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it. */
+    email_patch?: unknown
+}
+
 /**
  * Mock global variables available during test invocation.
  */

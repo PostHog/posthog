@@ -780,6 +780,74 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const HogFunctionsEmailPartialUpdateBody = /* @__PURE__ */ zod.object({
+    operations: zod
+        .array(
+            zod.object({
+                op: zod
+                    .enum([
+                        'update_content',
+                        'update_column',
+                        'update_row',
+                        'update_body',
+                        'add_content',
+                        'remove_content',
+                        'move_content',
+                        'add_row',
+                        'remove_row',
+                    ])
+                    .describe(
+                        '\* `update_content` - update_content\n\* `update_column` - update_column\n\* `update_row` - update_row\n\* `update_body` - update_body\n\* `add_content` - add_content\n\* `remove_content` - remove_content\n\* `move_content` - move_content\n\* `add_row` - add_row\n\* `remove_row` - remove_row'
+                    )
+                    .describe(
+                        "Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null leaf deletes that key) — the surgical path, e.g. change just values.text. update_row \/ update_column {id, patch} and update_body {patch}: same deep-merge for row\/column\/body-level settings. add_content {column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are filled in for you). remove_content {id} \/ move_content {id, column_id, index?}: delete or relocate a block. add_row {row, index?} \/ remove_row {id}: add or delete a row.\n\n\* `update_content` - update_content\n\* `update_column` - update_column\n\* `update_row` - update_row\n\* `update_body` - update_body\n\* `add_content` - add_content\n\* `remove_content` - remove_content\n\* `move_content` - move_content\n\* `add_row` - add_row\n\* `remove_row` - remove_row"
+                    ),
+                id: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Target node id. Required for update_content\/column\/row, remove_content, remove_row, move_content.'
+                    ),
+                column_id: zod
+                    .string()
+                    .optional()
+                    .describe('Target column id. Required for add_content and move_content.'),
+                patch: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        "update_\* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. e.g. {values: {text: '<p>Hi<\/p>'}} changes only the block's text."
+                    ),
+                content: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        "add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned server-side. type is one of text, heading, button, image, divider, html, etc."
+                    ),
+                row: zod
+                    .unknown()
+                    .optional()
+                    .describe(
+                        'add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer numbering are assigned server-side for the row and everything nested in it.'
+                    ),
+                index: zod
+                    .number()
+                    .optional()
+                    .describe('add_\*\/move_content only. 0-based insert position; omit to append to the end.'),
+            })
+        )
+        .optional()
+        .describe(
+            "Ordered design edits applied atomically to this function's email design - the same id-addressed operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design."
+        ),
+    email_patch: zod
+        .unknown()
+        .optional()
+        .describe(
+            "Partial email fields deep-merged into the function's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it."
+        ),
+})
+
 export const hogFunctionsEnableBackfillsCreateBodyNameMax = 400
 
 export const hogFunctionsEnableBackfillsCreateBodyInputsSchemaItemRequiredDefault = false

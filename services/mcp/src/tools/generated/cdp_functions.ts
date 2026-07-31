@@ -6,6 +6,7 @@ import {
     HogFunctionsCreateBody,
     HogFunctionsDestroyParams,
     HogFunctionsDiscardDraftCreateParams,
+    HogFunctionsEmailRetrieveParams,
     HogFunctionsInvocationsCreateBody,
     HogFunctionsInvocationsCreateParams,
     HogFunctionsListQueryParams,
@@ -25,6 +26,7 @@ import {
     HogFunctionsRevisionsRestoreCreateParams,
     HogFunctionsRevisionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
+import { HogFunctionEmailPatchSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -127,6 +129,24 @@ const cdpFunctionsDiscardDraft = (): ToolBase<typeof CdpFunctionsDiscardDraftSch
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/discard_draft/`,
         })
         return result
+    },
+})
+
+const CdpFunctionsGetEmailSchema = HogFunctionsEmailRetrieveParams.omit({ project_id: true })
+
+const cdpFunctionsGetEmail = (): ToolBase<
+    typeof CdpFunctionsGetEmailSchema,
+    WithPostHogUrl<Schemas.HogFunctionEmailReadResponse>
+> => ({
+    name: 'cdp-functions-get-email',
+    schema: CdpFunctionsGetEmailSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsGetEmailSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFunctionEmailReadResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/email/`,
+        })
+        return await withPostHogUrl(context, result, `/pipeline/${result.id}`)
     },
 })
 
@@ -377,6 +397,25 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
     },
 })
 
+const CdpFunctionsPatchEmailSchema = HogFunctionEmailPatchSchema
+
+const cdpFunctionsPatchEmail = (): ToolBase<typeof CdpFunctionsPatchEmailSchema, Schemas.HogFunction> => ({
+    name: 'cdp-functions-patch-email',
+    schema: CdpFunctionsPatchEmailSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsPatchEmailSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = CdpFunctionsPatchEmailSchema.parse(params)
+        const { id, ...body } = parsedParams
+        const result = await context.api.request<Schemas.HogFunction>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(id))}/email/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, ['inputs.*.value', 'mappings.*.inputs.*.value']) as typeof result
+        return await withPostHogUrl(context, filtered, `/pipeline/${filtered.id}`)
+    },
+})
+
 const CdpFunctionsPublishSchema = HogFunctionsPublishCreateParams.omit({ project_id: true }).extend(
     HogFunctionsPublishCreateBody.shape
 )
@@ -466,6 +505,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cdp-functions-create': cdpFunctionsCreate,
     'cdp-functions-delete': cdpFunctionsDelete,
     'cdp-functions-discard-draft': cdpFunctionsDiscardDraft,
+    'cdp-functions-get-email': cdpFunctionsGetEmail,
     'cdp-functions-get-revision': cdpFunctionsGetRevision,
     'cdp-functions-invocations-create': cdpFunctionsInvocationsCreate,
     'cdp-functions-list': cdpFunctionsList,
@@ -473,6 +513,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cdp-functions-logs-retrieve': cdpFunctionsLogsRetrieve,
     'cdp-functions-metrics-retrieve': cdpFunctionsMetricsRetrieve,
     'cdp-functions-partial-update': cdpFunctionsPartialUpdate,
+    'cdp-functions-patch-email': cdpFunctionsPatchEmail,
     'cdp-functions-publish': cdpFunctionsPublish,
     'cdp-functions-rearrange-partial-update': cdpFunctionsRearrangePartialUpdate,
     'cdp-functions-restore-revision': cdpFunctionsRestoreRevision,

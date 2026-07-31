@@ -804,3 +804,28 @@ export const EmailTemplateDesignPatchSchema = z.object({
                 'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
         ),
 })
+
+// Surgical edits to the email embedded in a hog function's inputs (destinations with an email or
+// native_email input): the same design ops as the template patch, plus a deep-merge for the plain
+// email fields. At least one of operations/email_patch is required.
+export const HogFunctionEmailPatchSchema = z.object({
+    id: z.string().describe('The function (destination) id whose email to edit.'),
+    operations: z
+        .array(EmailDesignPatchOperationSchema)
+        .min(1)
+        .optional()
+        .describe(
+            "Ordered edits applied atomically to the function's email design: the stored design is read, the ops " +
+                'are applied in order, the result is validated and re-rendered to HTML server-side, and saved only ' +
+                'if valid — otherwise the function is left unchanged. Reference blocks by id (call ' +
+                'cdp-functions-get-email first to read the current design and its ids).'
+        ),
+    email_patch: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+            "Partial email fields deep-merged into the function's email (a null leaf deletes the key): subject, " +
+                'preheader, text, to, from, replyTo, cc, bcc. design and html are rejected here — edit the design ' +
+                'via operations, and html is always re-rendered from it.'
+        ),
+})

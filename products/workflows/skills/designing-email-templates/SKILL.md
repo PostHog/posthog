@@ -85,3 +85,7 @@ Pass the design directly in the tool call — no scratch files, no pre-validatio
 - When the user asks to see a template, call `workflows-show-email-template` — it renders an inline preview.
 - Reference a template from a workflow's `function_email` action, or start a broadcast from it in the PostHog UI.
 - Templates are soft-deleted by setting `deleted: true` via `workflows-update-email-template`.
+
+## Emails embedded in destinations
+
+An email destination (a hog function with an `email`/`native_email` input) carries its own email, separate from the template library. Edit it in place with `cdp-functions-get-email` (read back the current subject/fields/design — normal function reads mask input values) and `cdp-functions-patch-email` (the same design operations as the template patch, plus an `email_patch` deep-merge for subject/preheader/text/recipients). On an enabled destination the edit is staged as a draft for a human to publish.

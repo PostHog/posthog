@@ -34603,6 +34603,23 @@ export namespace Schemas {
       base_updated_at?: string;
     }
 
+    export interface HogFunctionEmailReadResponse {
+      /** The email's subject line. */
+      subject?: string;
+      /** Preview text shown after the subject. */
+      preheader?: string;
+      /** Plain-text body. */
+      text?: string;
+      /** Sender, as stored on the email value. */
+      from?: unknown;
+      /** Recipient(s), as stored on the email value. */
+      to?: unknown;
+      /** The Unlayer design JSON - address its nodes by id with the patch endpoint's operations. */
+      design?: unknown;
+      /** True when the returned email comes from a staged draft rather than the live config. */
+      has_draft: boolean;
+    }
+
     /**
      * Mock global variables available during test invocation.
      */
@@ -51007,6 +51024,13 @@ export namespace Schemas {
       readonly draft_updated_at?: string | null;
       /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
       base_updated_at?: string;
+    }
+
+    export interface PatchedHogFunctionEmailUpdate {
+      /** Ordered design edits applied atomically to this function's email design - the same id-addressed operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
+      operations?: DesignOperation[];
+      /** Partial email fields deep-merged into the function's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it. */
+      email_patch?: unknown;
     }
 
     /**
