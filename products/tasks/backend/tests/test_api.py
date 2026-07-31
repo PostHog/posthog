@@ -79,7 +79,6 @@ from products.tasks.backend.presentation.serializers import (
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskRunLivingArtifactChartRequestSerializer,
 )
-from products.tasks.backend.presentation.views.api import CHART_IMAGE_URL_TTL
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
@@ -8497,7 +8496,10 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         self.assertEqual(sent_query["source"]["series"], self.CHART_QUERY["source"]["series"])
         expected_url = absolute_uri(f"/project/{self.team.id}/insights/new") + f"#q={quote(json.dumps(sent_query))}"
         self.assertEqual(data["url"], expected_url)
-        mock_asset.get_subscription_delivery_content_url.assert_called_once_with(expiry_delta=CHART_IMAGE_URL_TTL)
+        # The delivery token authenticates anonymously and bypasses the org's
+        # publicly-shared-resources setting, so it must not be minted here and persisted
+        # where any task:read reader could lift it.
+        mock_asset.get_subscription_delivery_content_url.assert_not_called()
         self.assertEqual(
             mock_create.call_args.kwargs["artifact"],
             {
@@ -8507,7 +8509,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
                 "content_type": "image/png",
                 "content_bytes": b"png-bytes",
                 "metadata": {
-                    "image_url": self.DELIVERY_URL,
+                    "export_asset_id": 321,
                     "posthog_url": expected_url,
                 },
             },
@@ -8590,7 +8592,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         self.assertEqual(mock_create.call_args.kwargs["artifact"]["name"], "Saved chart.png")
         self.assertEqual(
             mock_create.call_args.kwargs["artifact"]["metadata"],
-            {"image_url": self.DELIVERY_URL, "posthog_url": expected_url},
+            {"export_asset_id": 321, "posthog_url": expected_url},
         )
 
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")

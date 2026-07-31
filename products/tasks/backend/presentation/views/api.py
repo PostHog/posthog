@@ -4,7 +4,7 @@ import json
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
@@ -168,10 +168,6 @@ class OctetStreamParser(BaseParser):
 
 
 logger = logging.getLogger(__name__)
-
-# The url is an unauthenticated public link, so scope it to the artifact's 30-day storage TTL
-# (LIVING_ARTIFACT_TTL_DAYS) rather than the 365-day default.
-CHART_IMAGE_URL_TTL = timedelta(days=30)
 
 
 def _pi_cloud_runtime_disabled_response() -> Response:
@@ -2535,12 +2531,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 TaskRunErrorResponseSerializer({"error": "Chart render failed"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # The delivery-purposed token works for orgs that disallow publicly shared
-        # resources, same as subscription images.
+        # Store a reference, not a url: the delivery token authenticates anonymously and
+        # bypasses the org's publicly-shared-resources setting, while metadata is readable by
+        # anyone with task:read. Slack delivery mints the url from this id when it posts.
         url = self._chart_url(query, asset)
-        chart_metadata: dict = {
-            "image_url": asset.get_subscription_delivery_content_url(expiry_delta=CHART_IMAGE_URL_TTL)
-        }
+        chart_metadata: dict = {"export_asset_id": asset.id}
         if url:
             chart_metadata["posthog_url"] = url
         artifact, error = tasks_facade.create_task_run_living_artifact(
