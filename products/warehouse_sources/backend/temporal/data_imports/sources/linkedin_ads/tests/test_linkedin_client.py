@@ -11,7 +11,7 @@ from structlog.testing import capture_logs
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import (
     LinkedinAdsClient,
     LinkedinAdsDailyRateLimitError,
-    LinkedinAdsPivot,
+    LinkedinAdsResource,
     LinkedinAdsRetryableError,
 )
 
@@ -191,7 +191,7 @@ class TestLinkedinAdsClient:
         pages = list(
             client.get_analytics(
                 account_id=self.account_id,
-                pivot=LinkedinAdsPivot.CAMPAIGN,
+                resource=LinkedinAdsResource.CampaignStats,
                 date_start="2024-01-01",
                 date_end="2024-01-05",
             )
@@ -222,7 +222,7 @@ class TestLinkedinAdsClient:
         pages = list(
             client.get_analytics(
                 account_id=self.account_id,
-                pivot=LinkedinAdsPivot.CREATIVE,
+                resource=LinkedinAdsResource.CreativeStats,
                 date_start="2024-01-01",
                 date_end="2024-07-19",
             )
@@ -265,7 +265,7 @@ class TestLinkedinAdsClient:
         pages = list(
             client.get_analytics(
                 account_id=self.account_id,
-                pivot=LinkedinAdsPivot.CAMPAIGN,
+                resource=LinkedinAdsResource.CampaignStats,
                 date_start="2024-01-01",
                 date_end="2025-12-31",
             )
@@ -306,7 +306,7 @@ class TestLinkedinAdsClient:
             pages = list(
                 client.get_analytics(
                     account_id=self.account_id,
-                    pivot=LinkedinAdsPivot.CREATIVE,
+                    resource=LinkedinAdsResource.CreativeStats,
                     date_start="2024-01-01",
                     date_end="2024-01-01",
                 )
@@ -331,7 +331,7 @@ class TestLinkedinAdsClient:
         pages = list(
             client.get_analytics(
                 account_id=self.account_id,
-                pivot=LinkedinAdsPivot.CAMPAIGN,
+                resource=LinkedinAdsResource.CampaignStats,
                 date_start="2024-01-15",
                 date_end="2024-01-15",
             )
@@ -344,6 +344,124 @@ class TestLinkedinAdsClient:
             "start": {"year": 2024, "month": 1, "day": 15},
             "end": {"year": 2024, "month": 1, "day": 15},
         }
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_analytics_messaging_resource_splits_fields_and_merges_rows(self, mock_restli_client):
+        """Messaging stats resources exceed LinkedIn's 20-fields-per-request limit, so one window
+        is fetched in multiple requests (each within the limit and carrying the row-key fields)
+        and merged back into full rows on (dateRange, pivotValues)."""
+        from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import (
+            ANALYTICS_MAX_FIELDS_PER_REQUEST,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.schemas import (
+            MESSAGING_STATS_FIELD_NAMES,
+        )
+
+        date_range = {"start": {"year": 2024, "month": 1, "day": 15}, "end": {"year": 2024, "month": 1, "day": 15}}
+
+        def respond(*args, **kwargs):
+            fields = kwargs["query_params"]["fields"].split(",")
+            row: dict[str, object] = {"dateRange": date_range, "pivotValues": ["urn:li:sponsoredCampaign:1"]}
+            if "impressions" in fields:
+                row["impressions"] = 100
+            if "sends" in fields:
+                row["sends"] = 7
+            response = mock.MagicMock()
+            response.status_code = 200
+            response.elements = [row]
+            return response
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = respond
+
+        client = LinkedinAdsClient(self.access_token)
+        pages = list(
+            client.get_analytics(
+                account_id=self.account_id,
+                resource=LinkedinAdsResource.CampaignMessagingStats,
+                date_start="2024-01-15",
+                date_end="2024-01-15",
+            )
+        )
+
+        requested_field_lists = [
+            call[1]["query_params"]["fields"].split(",") for call in mock_client_instance.finder.call_args_list
+        ]
+        assert len(requested_field_lists) == 2
+        for fields in requested_field_lists:
+            assert len(fields) <= ANALYTICS_MAX_FIELDS_PER_REQUEST
+            assert "dateRange" in fields
+            assert "pivotValues" in fields
+        combined = set().union(*requested_field_lists)
+        assert combined == set(MESSAGING_STATS_FIELD_NAMES)
+
+        # Both batches' metrics land on the same merged row.
+        assert len(pages) == 1
+        elements, _ = pages[0]
+        assert len(elements) == 1
+        assert elements[0]["impressions"] == 100
+        assert elements[0]["sends"] == 7
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_get_analytics_messaging_capped_batch_discards_window_and_shrinks(self, mock_restli_client):
+        """When a field batch caps for a messaging resource, the remaining batches of that window
+        are skipped and the window is discarded and re-fetched smaller — partially merged rows are
+        never yielded."""
+        from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import (
+            ANALYTICS_RESPONSE_CAP,
+        )
+
+        date_range = {"start": {"year": 2024, "month": 1, "day": 1}, "end": {"year": 2024, "month": 1, "day": 2}}
+        calls = 0
+
+        def respond(*args, **kwargs):
+            nonlocal calls
+            response = mock.MagicMock()
+            response.status_code = 200
+            if calls == 0:
+                response.elements = [
+                    {"dateRange": date_range, "pivotValues": [f"urn:li:sponsoredCampaign:{i}"], "impressions": i}
+                    for i in range(ANALYTICS_RESPONSE_CAP)
+                ]
+            else:
+                response.elements = [
+                    {
+                        "dateRange": date_range,
+                        "pivotValues": ["urn:li:sponsoredCampaign:1"],
+                        "impressions": 1,
+                        "sends": 2,
+                    }
+                ]
+            calls += 1
+            return response
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = respond
+
+        client = LinkedinAdsClient(self.access_token)
+        pages = list(
+            client.get_analytics(
+                account_id=self.account_id,
+                resource=LinkedinAdsResource.CampaignMessagingStats,
+                date_start="2024-01-01",
+                date_end="2024-01-02",
+            )
+        )
+
+        # The capped 2-day window is discarded: no yielded page carries its truncated rows.
+        assert all(len(page[0]) < ANALYTICS_RESPONSE_CAP for page in pages)
+        first_params, second_params = (
+            call[1]["query_params"] for call in mock_client_instance.finder.call_args_list[:2]
+        )
+        # After the cap, the very next request re-fetches batch 1 at a halved (1-day) window —
+        # the capped window's second batch is never requested.
+        assert second_params["fields"] == first_params["fields"]
+        assert second_params["dateRange"] == {
+            "start": {"year": 2024, "month": 1, "day": 1},
+            "end": {"year": 2024, "month": 1, "day": 1},
+        }
+        # The shrunken windows still merge both batches' metrics into full rows.
+        assert all(el["sends"] == 2 for page in pages for el in page[0])
 
     def test_format_date_range(self):
         """Test date range formatting for LinkedIn API."""

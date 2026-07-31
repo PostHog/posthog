@@ -30,6 +30,21 @@ _STATS_COLUMNS = {
     "follows": "Number of new followers attributed to the ad.",
 }
 
+# Sponsored Messaging (Message Ads / Conversation Ads) metrics, on top of the base stats columns.
+_MESSAGING_STATS_COLUMNS = {
+    **_STATS_COLUMNS,
+    "sends": "Count of sends of Sponsored Messaging ads.",
+    "opens": "Count of opens of Sponsored Messaging ads.",
+    "action_clicks": "Clicks on the action button of the Sponsored Messaging ad.",
+    "ad_unit_clicks": "Clicks on the ad unit displayed alongside the Sponsored Messaging ad.",
+    "text_url_clicks": "Clicks on links (anchor tags) included in the body of the Sponsored Messaging ad.",
+    "one_click_lead_form_opens": "Times users opened the lead form for a One Click Lead Gen campaign.",
+    "lead_generation_mail_contact_info_shares": "Times users shared contact info through the One Click Lead Gen for Sponsored Messaging ads.",
+    "lead_generation_mail_interested_clicks": "Sponsored Messaging ad recipients who clicked to demonstrate interest.",
+    "headline_clicks": "Times members clicked on the headline of conversation ads.",
+    "headline_impressions": "Times members were shown the headline of conversation ads.",
+}
+
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "accounts": {
@@ -119,6 +134,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_STATS_COLUMNS,
             "creative_id": "ID of the creative these metrics are for.",
             "date_range": "The reporting date range these metrics cover.",
+        },
+    },
+    "campaign_messaging_stats": {
+        "description": "Daily performance analytics for LinkedIn ad campaigns including Sponsored Messaging metrics, pivoted by campaign.",
+        "docs_url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting",
+        "columns": {
+            **_MESSAGING_STATS_COLUMNS,
+            "campaign_id": "ID of the campaign these metrics are for.",
+        },
+    },
+    "campaign_group_messaging_stats": {
+        "description": "Daily performance analytics for LinkedIn ad campaign groups including Sponsored Messaging metrics, pivoted by campaign group.",
+        "docs_url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting",
+        "columns": {
+            **_MESSAGING_STATS_COLUMNS,
+            "campaign_group_id": "ID of the campaign group these metrics are for.",
+        },
+    },
+    "creative_messaging_stats": {
+        "description": "Daily performance analytics for LinkedIn ad creatives including Sponsored Messaging metrics, pivoted by creative.",
+        "docs_url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting",
+        "columns": {
+            **_MESSAGING_STATS_COLUMNS,
+            "creative_id": "ID of the creative these metrics are for.",
         },
     },
 }

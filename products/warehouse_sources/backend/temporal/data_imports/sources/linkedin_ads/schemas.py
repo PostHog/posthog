@@ -26,6 +26,9 @@ class LinkedinAdsResource(StrEnum):
     CampaignStats = "campaign_stats"
     CampaignGroupStats = "campaign_group_stats"
     CreativeStats = "creative_stats"
+    CampaignMessagingStats = "campaign_messaging_stats"
+    CampaignGroupMessagingStats = "campaign_group_messaging_stats"
+    CreativeMessagingStats = "creative_messaging_stats"
 
 
 class LinkedinAdsPivot(StrEnum):
@@ -44,6 +47,9 @@ LINKEDIN_ADS_ENDPOINTS = {
     LinkedinAdsResource.CampaignStats: "adAnalytics",
     LinkedinAdsResource.CampaignGroupStats: "adAnalytics",
     LinkedinAdsResource.CreativeStats: "adAnalytics",
+    LinkedinAdsResource.CampaignMessagingStats: "adAnalytics",
+    LinkedinAdsResource.CampaignGroupMessagingStats: "adAnalytics",
+    LinkedinAdsResource.CreativeMessagingStats: "adAnalytics",
 }
 
 # Pivot mappings for analytics resources
@@ -51,7 +57,46 @@ LINKEDIN_ADS_PIVOTS = {
     LinkedinAdsResource.CampaignStats: LinkedinAdsPivot.CAMPAIGN,
     LinkedinAdsResource.CampaignGroupStats: LinkedinAdsPivot.CAMPAIGN_GROUP,
     LinkedinAdsResource.CreativeStats: LinkedinAdsPivot.CREATIVE,
+    LinkedinAdsResource.CampaignMessagingStats: LinkedinAdsPivot.CAMPAIGN,
+    LinkedinAdsResource.CampaignGroupMessagingStats: LinkedinAdsPivot.CAMPAIGN_GROUP,
+    LinkedinAdsResource.CreativeMessagingStats: LinkedinAdsPivot.CREATIVE,
 }
+
+# The base stats field set shared by all `adAnalytics` tables. `dateRange` and `pivotValues`
+# key each row; the rest are the general-performance metrics.
+STATS_FIELD_NAMES = [
+    "impressions",
+    "clicks",
+    "dateRange",
+    "pivotValues",
+    "costInUsd",
+    "costInLocalCurrency",
+    "externalWebsiteConversions",
+    "conversionValueInLocalCurrency",
+    "landingPageClicks",
+    "totalEngagements",
+    "videoViews",
+    "videoCompletions",
+    "oneClickLeads",
+    "follows",
+]
+
+# Sponsored Messaging (Message Ads / Conversation Ads) metrics. Together with the base set this
+# exceeds LinkedIn's 20-fields-per-request limit, so the client splits the fetch into multiple
+# requests and merges rows on (dateRange, pivotValues).
+MESSAGING_STATS_FIELD_NAMES = [
+    *STATS_FIELD_NAMES,
+    "sends",
+    "opens",
+    "actionClicks",
+    "adUnitClicks",
+    "textUrlClicks",
+    "oneClickLeadFormOpens",
+    "leadGenerationMailContactInfoShares",
+    "leadGenerationMailInterestedClicks",
+    "headlineClicks",
+    "headlineImpressions",
+]
 
 
 class ResourceSchema(TypedDict):
@@ -144,22 +189,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.CampaignStats: {
         "resource_name": "campaign_stats",
-        "field_names": [
-            "impressions",
-            "clicks",
-            "dateRange",
-            "pivotValues",
-            "costInUsd",
-            "costInLocalCurrency",
-            "externalWebsiteConversions",
-            "conversionValueInLocalCurrency",
-            "landingPageClicks",
-            "totalEngagements",
-            "videoViews",
-            "videoCompletions",
-            "oneClickLeads",
-            "follows",
-        ],
+        "field_names": STATS_FIELD_NAMES,
         "primary_key": ["date_start", "date_end", "campaign_id"],
         "filter_field_names": [
             ("date_start", IncrementalFieldType.Date),
@@ -172,22 +202,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.CampaignGroupStats: {
         "resource_name": "campaign_group_stats",
-        "field_names": [
-            "impressions",
-            "clicks",
-            "dateRange",
-            "pivotValues",
-            "costInUsd",
-            "costInLocalCurrency",
-            "externalWebsiteConversions",
-            "conversionValueInLocalCurrency",
-            "landingPageClicks",
-            "totalEngagements",
-            "videoViews",
-            "videoCompletions",
-            "oneClickLeads",
-            "follows",
-        ],
+        "field_names": STATS_FIELD_NAMES,
         "primary_key": ["date_start", "date_end", "campaign_group_id"],
         "filter_field_names": [
             ("date_start", IncrementalFieldType.Date),
@@ -200,22 +215,46 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
     },
     LinkedinAdsResource.CreativeStats: {
         "resource_name": "creative_stats",
-        "field_names": [
-            "impressions",
-            "clicks",
-            "dateRange",
-            "pivotValues",
-            "costInUsd",
-            "costInLocalCurrency",
-            "externalWebsiteConversions",
-            "conversionValueInLocalCurrency",
-            "landingPageClicks",
-            "totalEngagements",
-            "videoViews",
-            "videoCompletions",
-            "oneClickLeads",
-            "follows",
+        "field_names": STATS_FIELD_NAMES,
+        "primary_key": ["date_start", "date_end", "creative_id"],
+        "filter_field_names": [
+            ("date_start", IncrementalFieldType.Date),
         ],
+        "partition_keys": ["date_start"],
+        "partition_mode": "datetime",
+        "partition_format": "week",
+        "is_stats": True,
+        "partition_size": 1,
+    },
+    LinkedinAdsResource.CampaignMessagingStats: {
+        "resource_name": "campaign_messaging_stats",
+        "field_names": MESSAGING_STATS_FIELD_NAMES,
+        "primary_key": ["date_start", "date_end", "campaign_id"],
+        "filter_field_names": [
+            ("date_start", IncrementalFieldType.Date),
+        ],
+        "partition_keys": ["date_start"],
+        "partition_mode": "datetime",
+        "partition_format": "week",
+        "is_stats": True,
+        "partition_size": 1,
+    },
+    LinkedinAdsResource.CampaignGroupMessagingStats: {
+        "resource_name": "campaign_group_messaging_stats",
+        "field_names": MESSAGING_STATS_FIELD_NAMES,
+        "primary_key": ["date_start", "date_end", "campaign_group_id"],
+        "filter_field_names": [
+            ("date_start", IncrementalFieldType.Date),
+        ],
+        "partition_keys": ["date_start"],
+        "partition_mode": "datetime",
+        "partition_format": "week",
+        "is_stats": True,
+        "partition_size": 1,
+    },
+    LinkedinAdsResource.CreativeMessagingStats: {
+        "resource_name": "creative_messaging_stats",
+        "field_names": MESSAGING_STATS_FIELD_NAMES,
         "primary_key": ["date_start", "date_end", "creative_id"],
         "filter_field_names": [
             ("date_start", IncrementalFieldType.Date),

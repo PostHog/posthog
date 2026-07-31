@@ -41,6 +41,34 @@ ANALYTICS_MIN_CHUNK_DAYS = 1
 # spike that forced a shrink doesn't keep the window small across an otherwise sparse date range.
 ANALYTICS_GROW_THRESHOLD = ANALYTICS_RESPONSE_CAP // 4
 
+# `q=analytics` rejects requests selecting more than 20 fields. Resources with wider schemas (the
+# messaging stats tables) are fetched in multiple requests per window and merged on the row key.
+ANALYTICS_MAX_FIELDS_PER_REQUEST = 20
+# The row key of an analytics element. Every field batch must include these so batches can be
+# merged back into full rows.
+ANALYTICS_ROW_KEY_FIELDS = ("dateRange", "pivotValues")
+
+
+def _analytics_field_batches(fields: list[str]) -> list[list[str]]:
+    """Split an analytics field list into request-sized batches, repeating the row-key fields in
+    each batch. Field lists within the request limit come back unchanged as a single batch."""
+    if len(fields) <= ANALYTICS_MAX_FIELDS_PER_REQUEST:
+        return [fields]
+    key_fields = [f for f in fields if f in ANALYTICS_ROW_KEY_FIELDS]
+    metric_fields = [f for f in fields if f not in ANALYTICS_ROW_KEY_FIELDS]
+    metrics_per_batch = ANALYTICS_MAX_FIELDS_PER_REQUEST - len(key_fields)
+    return [
+        key_fields + metric_fields[i : i + metrics_per_batch] for i in range(0, len(metric_fields), metrics_per_batch)
+    ]
+
+
+def _analytics_row_key(element: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
+    return (
+        json.dumps(element.get("dateRange"), sort_keys=True),
+        tuple(element.get("pivotValues") or ()),
+    )
+
+
 # Upper bound on how long we'll honour a Retry-After header before giving up, so a hostile or
 # misconfigured value can't hang the activity past its heartbeat.
 MAX_RETRY_AFTER_SECONDS = 60.0
@@ -181,7 +209,7 @@ class LinkedinAdsClient:
     def get_analytics(
         self,
         account_id: str,
-        pivot: LinkedinAdsPivot = LinkedinAdsPivot.CAMPAIGN,
+        resource: LinkedinAdsResource = LinkedinAdsResource.CampaignStats,
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
     ) -> Generator[tuple[list[dict[str, Any]], None]]:
@@ -190,33 +218,49 @@ class LinkedinAdsClient:
         back truncated, then carries the learned size forward. A truncated response is silently
         capped by LinkedIn — we can't tell which rows were dropped — so we discard it and re-fetch
         the same start with a smaller window rather than yielding partial data. Only a single-day
-        window that still caps is surfaced (with a warning), since it can't be split further."""
-        resource_by_pivot = {
-            LinkedinAdsPivot.CAMPAIGN: LinkedinAdsResource.CampaignStats,
-            LinkedinAdsPivot.CAMPAIGN_GROUP: LinkedinAdsResource.CampaignGroupStats,
-            LinkedinAdsPivot.CREATIVE: LinkedinAdsResource.CreativeStats,
-        }
-        resource = resource_by_pivot.get(pivot, LinkedinAdsResource.CampaignStats)
-        fields = ",".join(self._get_fields_for_resource(resource))
+        window that still caps is surfaced (with a warning), since it can't be split further.
+
+        Resources with more fields than one request allows are fetched in multiple field batches
+        per window and merged on (dateRange, pivotValues); a cap on any batch caps the window."""
+        pivot = LINKEDIN_ADS_PIVOTS.get(resource, LinkedinAdsPivot.CAMPAIGN)
+        field_batches = _analytics_field_batches(self._get_fields_for_resource(resource))
         accounts = [f"{LINKEDIN_SPONSORED_URN_PREFIX}Account:{account_id}"]
 
-        def _build_params(chunk_start: Optional[str], chunk_end: Optional[str]) -> dict[str, Any]:
+        def _build_params(
+            chunk_start: Optional[str], chunk_end: Optional[str], batch_fields: list[str]
+        ) -> dict[str, Any]:
             params: dict[str, Any] = {
                 "q": "analytics",
                 "pivot": pivot.value,
                 "timeGranularity": "DAILY",
                 "accounts": accounts,
-                "fields": fields,
+                "fields": ",".join(batch_fields),
             }
             if chunk_start and chunk_end:
                 params["dateRange"] = self._format_date_range(chunk_start, chunk_end)
             return params
 
+        def _fetch_window(chunk_start: Optional[str], chunk_end: Optional[str]) -> tuple[list[dict[str, Any]], bool]:
+            """Fetch every field batch for one window and merge rows on the row key. Stops early
+            once a batch caps — the window is going to shrink and be re-fetched anyway."""
+            merged: dict[tuple[str, tuple[Any, ...]], dict[str, Any]] = {}
+            for batch_fields in field_batches:
+                elements = self._make_request(
+                    endpoint=resource,
+                    finder="analytics",
+                    extra_params=_build_params(chunk_start, chunk_end, batch_fields),
+                )
+                if len(field_batches) == 1:
+                    return elements, len(elements) >= ANALYTICS_RESPONSE_CAP
+                for element in elements:
+                    merged.setdefault(_analytics_row_key(element), {}).update(element)
+                if len(elements) >= ANALYTICS_RESPONSE_CAP:
+                    return list(merged.values()), True
+            return list(merged.values()), False
+
         if not (date_start and date_end):
-            yield (
-                self._make_request(endpoint=resource, finder="analytics", extra_params=_build_params(None, None)),
-                None,
-            )
+            elements, _ = _fetch_window(None, None)
+            yield elements, None
             return
 
         chunk_days = ANALYTICS_INITIAL_CHUNK_DAYS
@@ -224,12 +268,7 @@ class LinkedinAdsClient:
         end_date = dt.date.fromisoformat(date_end)
         while chunk_start <= end_date:
             chunk_end = min(chunk_start + dt.timedelta(days=chunk_days - 1), end_date)
-            elements = self._make_request(
-                endpoint=resource,
-                finder="analytics",
-                extra_params=_build_params(chunk_start.isoformat(), chunk_end.isoformat()),
-            )
-            capped = len(elements) >= ANALYTICS_RESPONSE_CAP
+            elements, capped = _fetch_window(chunk_start.isoformat(), chunk_end.isoformat())
             window_days = (chunk_end - chunk_start).days + 1
 
             # Truncated response and the window spans more than a day: halve it (by its real span,
@@ -278,7 +317,7 @@ class LinkedinAdsClient:
         elif resource == LinkedinAdsResource.Creatives:
             yield from self.get_creatives(account_id, starting_page_token=starting_page_token)
         elif resource in LINKEDIN_ADS_PIVOTS:
-            yield from self.get_analytics(account_id, LINKEDIN_ADS_PIVOTS[resource], date_start, date_end)
+            yield from self.get_analytics(account_id, resource, date_start, date_end)
         else:
             raise ValueError(f"Unsupported resource: {resource}")
 
