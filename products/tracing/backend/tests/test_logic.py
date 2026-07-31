@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
 
@@ -62,6 +63,47 @@ class TestTranslateSpanFilter(SimpleTestCase):
         translate_span_filter(span_filter)
         self.assertEqual(span_filter.key, "duration_nano")
         self.assertEqual(span_filter.value, ["1000000", "2000000000000000"])
+
+    @parameterized.expand(
+        [
+            # A bare number is already milliseconds; "ms"/"s" suffixes convert to that unit
+            # before the *1e6 nanosecond conversion. Regression for a "1s" filter value
+            # reaching ClickHouse's UInt64 duration_nano column as a string and 500ing.
+            ("ms_suffix", "500ms", "500000000"),
+            ("s_suffix", "1s", "1000000000"),
+            ("s_suffix_decimal", "1.5s", "1500000000"),
+            ("whitespace", " 500ms ", "500000000"),
+        ]
+    )
+    def test_duration_with_unit_suffix_converts_to_integer_nanoseconds(self, _name, value, expected):
+        span_filter = _span_filter("duration", value)
+        translate_span_filter(span_filter)
+        self.assertEqual(span_filter.key, "duration_nano")
+        self.assertEqual(span_filter.value, expected)
+
+    @parameterized.expand(
+        [
+            ("unrecognised_unit", "1h"),
+            ("garbage", "not-a-number"),
+            ("unit_with_no_number", "ms"),
+        ]
+    )
+    def test_duration_with_unparseable_value_raises(self, _name, value):
+        span_filter = _span_filter("duration", value)
+        with self.assertRaises(ValidationError):
+            translate_span_filter(span_filter)
+
+    def test_duration_list_with_unparseable_value_raises(self):
+        span_filter = _span_filter("duration", ["500ms", "1s", "1x"])
+        with self.assertRaises(ValidationError):
+            translate_span_filter(span_filter)
+
+    def test_duration_with_none_value_is_left_untranslated(self):
+        # IS_SET/IS_NOT_SET operators carry a duration filter with no value at all.
+        span_filter = _span_filter("duration", None)
+        translate_span_filter(span_filter)
+        self.assertEqual(span_filter.key, "duration_nano")
+        self.assertIsNone(span_filter.value)
 
     @parameterized.expand(
         [

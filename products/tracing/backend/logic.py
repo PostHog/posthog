@@ -12,6 +12,8 @@ import datetime as dt
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansQueryResponse,
@@ -98,6 +100,27 @@ def _is_number(value: str) -> bool:
         return False
 
 
+# Duration filter values arrive in milliseconds, optionally suffixed with a unit ("500ms", "1s").
+# Longest suffix first so "500ms" isn't mistaken for a bare "s" suffix leaving "500m".
+_DURATION_UNIT_TO_MS: list[tuple[str, decimal.Decimal]] = [
+    ("ms", decimal.Decimal(1)),
+    ("s", decimal.Decimal(1000)),
+]
+
+
+def _parse_duration_ms(value: object) -> decimal.Decimal:
+    raw = str(value).strip()
+    for unit, multiplier in _DURATION_UNIT_TO_MS:
+        if raw.endswith(unit) and _is_number(raw[: -len(unit)]):
+            return decimal.Decimal(raw[: -len(unit)]) * multiplier
+    if _is_number(raw):
+        return decimal.Decimal(raw)
+    raise ValidationError(
+        f"Invalid duration filter value {value!r}: expected a number of milliseconds, "
+        "optionally suffixed with 'ms' or 's'."
+    )
+
+
 # OTel span.kind enum labels sent from the filter UI, mapped to their wire integer values.
 _SPAN_KIND_LABEL_TO_INT: dict[str, int] = {
     "Unspecified": 0,
@@ -177,11 +200,9 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
         # on subsequent invocations.
         span_filter.key = "duration_nano"
         if isinstance(span_filter.value, list):
-            span_filter.value = [
-                str(int(decimal.Decimal(str(v)) * 1000000)) for v in span_filter.value if _is_number(str(v))
-            ]
-        elif _is_number(str(span_filter.value)):
-            span_filter.value = str(int(decimal.Decimal(str(span_filter.value)) * 1000000))
+            span_filter.value = [str(int(_parse_duration_ms(v) * 1000000)) for v in span_filter.value]
+        elif span_filter.value is not None:
+            span_filter.value = str(int(_parse_duration_ms(span_filter.value) * 1000000))
 
     if span_filter.key == "kind" and span_filter.value is not None:
         values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
