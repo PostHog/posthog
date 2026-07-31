@@ -45,6 +45,8 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPToolCallBreakdownQuery,
+    MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
     MCPToolCategoryCountsQuery,
     MCPToolDailyStatsQuery,
@@ -365,6 +367,8 @@ RunnableQueryNode = Union[
     EndpointsUsageTrendsQuery,
     MetricsQuery,
     MCPHarnessBreakdownQuery,
+    MCPToolCallBreakdownQuery,
+    MCPToolCallsAndErrorsQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
     MCPToolFailureOccurrencesQuery,
@@ -936,6 +940,28 @@ def get_query_runner(
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCallBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCallBreakdownQueryRunner
+
+        return MCPToolCallBreakdownQueryRunner(
+            query=cast(MCPToolCallBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCallsAndErrorsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCallsAndErrorsQueryRunner
+
+        return MCPToolCallsAndErrorsQueryRunner(
+            query=cast(MCPToolCallsAndErrorsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

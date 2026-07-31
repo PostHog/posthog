@@ -1401,6 +1401,46 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.status == SignalScoutConfig.Status.ACTIVE
         assert config.pause_reason is None
 
+    def test_partial_update_resets_the_failure_streak_but_not_a_breaker_pause(self) -> None:
+        # An unrelated edit resets the breaker's evidence, but must not resume the pause —
+        # resuming through an edit would sidestep the enabled-scout cap that `enabled=true`
+        # and the probe's resume both re-check.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        )
+        SignalScoutConfig.objects.filter(pk=config.pk).update(consecutive_failure_count=5)
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 60}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.consecutive_failure_count == 0
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
+
+    def test_create_upsert_on_existing_config_resets_the_failure_streak(self) -> None:
+        # The POST path re-registers an existing config through `_upsert_scout_config`, which is
+        # a human edit like PATCH — the pre-trip streak must reset there too, or an edit through
+        # this path leaves the scout one failure from pausing despite the intervening human touch.
+        self._make_skill("signals-scout-foo")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        SignalScoutConfig.objects.filter(pk=config.pk).update(consecutive_failure_count=4)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-foo", "run_interval_minutes": 120},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.consecutive_failure_count == 0
+        assert config.run_interval_minutes == 120
+
     def test_resending_enabled_false_does_not_escalate_a_system_pause(self) -> None:
         # Clients resend whole config objects; an unchanged `enabled=false` must not convert
         # a system pause into a user pause the system may never resume.

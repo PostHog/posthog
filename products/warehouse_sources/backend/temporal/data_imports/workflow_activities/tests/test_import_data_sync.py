@@ -1,12 +1,17 @@
 import uuid
 import contextlib
 from datetime import datetime
+from typing import Any, cast
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest import mock
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -88,6 +93,29 @@ def _inputs() -> ImportDataActivityInputs:
         run_id=str(uuid.uuid4()),
         reset_pipeline=True,
     )
+
+
+class TestGetModelsPrefetchesSource(BaseTest):
+    def test_folder_path_needs_no_query_after_load(self) -> None:
+        # folder_path() reads schema.source.source_type. If _get_models stops prefetching
+        # schema__source, that read fires a lazy SELECT later in the run, on a pooled app-DB
+        # connection the transaction pooler can drop mid-sync — surfacing as a spurious
+        # OperationalError/DNS failure far from where the real query would have been.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=self.team, source_type="Stripe"
+        )
+        schema = ExternalDataSchema.objects.create(name="Invoice", team=self.team, source=source, sync_type_config={})
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING
+        )
+
+        # Call the undecorated sync loader directly so the query capture runs on this thread.
+        # `.func` is the wrapped sync callable on database_sync_to_async_pool's DatabaseSyncToAsync
+        # (asgiref); it isn't on the decorator's static type, hence the cast.
+        loaded_job, _, _, _ = cast(Any, module._get_models).func(str(job.id))
+
+        with self.assertNumQueries(0):
+            loaded_job.folder_path()
 
 
 @pytest.mark.asyncio

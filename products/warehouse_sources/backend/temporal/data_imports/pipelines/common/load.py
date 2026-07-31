@@ -377,6 +377,7 @@ async def _publish_queryable_files(
             delete_existing=True,
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
+            refresh_file_uris=delta_table_helper.get_file_uris,
         )
 
 
