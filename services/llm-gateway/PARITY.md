@@ -79,7 +79,7 @@ Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
 2. Check every relevant contract above against the real request and response.
 3. Start with a shared Go-capable builder where one exists.
 4. Test success, streaming if used, provider errors, attribution, and billing.
-5. Keep the Python fallback only for a named blocker. Record that blocker in the PR.
+5. Keep the Python fallback only for staged rollout or a named blocker. Record the rollout plan or blocker in the PR.
 
 ## Refreshing this document
 
