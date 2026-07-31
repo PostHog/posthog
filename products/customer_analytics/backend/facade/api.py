@@ -2395,9 +2395,7 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
         cadence = account.slack_summary_cadence
         if not slack_channel_id or not cadence:
             continue
-        period_start, period_end = _channel_summaries_logic.get_last_closed_period(
-            cadence, now, account.team.timezone_info
-        )
+        period = _channel_summaries_logic.get_last_closed_period(cadence, now, account.team.timezone_info)
         candidates.append(
             contracts.AccountDueForSlackSummary(
                 team_id=account.team_id,
@@ -2405,8 +2403,8 @@ def list_accounts_due_for_slack_summary(now: datetime | None = None) -> list[con
                 account_name=account.name,
                 slack_channel_id=slack_channel_id,
                 cadence=cadence,
-                period_start=period_start,
-                period_end=period_end,
+                period_start=period.start,
+                period_end=period.end,
             )
         )
     if not candidates:

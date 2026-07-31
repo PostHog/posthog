@@ -1,6 +1,7 @@
 import json
 import asyncio
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
 
@@ -177,9 +178,17 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
         return None
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ValidatedPeriod:
+    session_start_s: float
+    session_end_s: float
+    recording_start_s: float
+    recording_end_s: float
+
+
 def _validate_period(
     period: ReplayInactivityPeriod, video_duration: float, index: int, inactivity_periods_count: int
-) -> tuple[float, float, float, float] | None:
+) -> ValidatedPeriod | None:
     # Filter to only active periods (skip gaps and idle time)
     if not period.active:
         return None
@@ -239,7 +248,12 @@ def _validate_period(
             f"session_duration={session_period_end - session_period_start}",
             signals_type="session-summaries",
         )
-    return session_period_start, session_period_end, recording_period_start, recording_period_end
+    return ValidatedPeriod(
+        session_start_s=session_period_start,
+        session_end_s=session_period_end,
+        recording_start_s=recording_period_start,
+        recording_end_s=recording_period_end,
+    )
 
 
 def calculate_video_segment_specs(
@@ -277,38 +291,39 @@ def calculate_video_segment_specs(
         if validation is None:
             # Skip the periods that are too short or failed validation
             continue
-        session_period_start, session_period_end, recording_period_start, recording_period_end = validation
         # Start either after the rendering delay, or at the previous chunk end
-        if recording_period_end - recording_period_start <= chunk_duration:
+        if validation.recording_end_s - validation.recording_start_s <= chunk_duration:
             # If the period smaller than the expected chunk duration - process as is
             segments.append(
                 VideoSegmentSpec(
                     segment_index=segment_index,
-                    start_time=session_period_start,
-                    end_time=session_period_end,
-                    recording_start_time=recording_period_start,
-                    recording_end_time=recording_period_end,
+                    start_time=validation.session_start_s,
+                    end_time=validation.session_end_s,
+                    recording_start_time=validation.recording_start_s,
+                    recording_end_time=validation.recording_end_s,
                 )
             )
             segment_index += 1
             continue
         # If the period is larger than chunk_duration, split it into chunks small enough for efficient LLM processing
-        current_recording_period_start = recording_period_start
+        current_recording_period_start = validation.recording_start_s
         # Iterate while not reaching the end of the period
-        while current_recording_period_start < recording_period_end:
+        while current_recording_period_start < validation.recording_end_s:
             current_recording_period_end = current_recording_period_start + chunk_duration
-            remaining_after_chunk = recording_period_end - current_recording_period_end
+            remaining_after_chunk = validation.recording_end_s - current_recording_period_end
             # If the remaining portion after this chunk would be smaller than a new chunk, extend the current chunk
             if remaining_after_chunk > 0 and remaining_after_chunk < chunk_duration:
-                current_recording_period_end = recording_period_end
+                current_recording_period_end = validation.recording_end_s
             # Continue creating new chunks if there are plenty of activity left in the period
             else:
-                current_recording_period_end = min(current_recording_period_end, recording_period_end)
+                current_recording_period_end = min(current_recording_period_end, validation.recording_end_s)
             # Calculate session timestamps based on the recording timestamps
-            current_session_period_start = session_period_start + (
-                current_recording_period_start - recording_period_start
+            current_session_period_start = validation.session_start_s + (
+                current_recording_period_start - validation.recording_start_s
             )
-            current_session_period_end = session_period_start + (current_recording_period_end - recording_period_start)
+            current_session_period_end = validation.session_start_s + (
+                current_recording_period_end - validation.recording_start_s
+            )
             # Define a new segment to process
             segments.append(
                 VideoSegmentSpec(
@@ -657,6 +672,15 @@ async def _workflow_is_running(client: Any, workflow_id: str) -> bool:
     return desc.status == WorkflowExecutionStatus.RUNNING
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class PreparedSingleSessionExecution:
+    redis_client: Redis
+    redis_input_key: str
+    redis_output_key: str
+    session_input: SingleSessionSummaryInputs
+    workflow_id: str
+
+
 def _prepare_execution(
     session_id: str,
     user: User,
@@ -668,7 +692,7 @@ def _prepare_execution(
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
-) -> tuple[Redis, str, str, SingleSessionSummaryInputs, str]:
+) -> PreparedSingleSessionExecution:
     # Use shared identifier to be able to construct all the ids to check/debug
     # Using session id instead of random UUID to be able to check the data in Redis
     shared_id = session_id
@@ -704,7 +728,13 @@ def _prepare_execution(
         trigger_session_id=trigger_session_id,
     )
     workflow_id = SummarizeSingleSessionWorkflow.workflow_id_for(team.id, session_id)
-    return redis_client, redis_input_key, redis_output_key, session_input, workflow_id
+    return PreparedSingleSessionExecution(
+        redis_client=redis_client,
+        redis_input_key=redis_input_key,
+        redis_output_key=redis_output_key,
+        session_input=session_input,
+        workflow_id=workflow_id,
+    )
 
 
 async def execute_summarize_session(
@@ -733,7 +763,7 @@ async def execute_summarize_session(
         return existing_summary.summary
     if model_to_use is None:
         model_to_use = SESSION_SUMMARIES_MODEL if not video_based else DEFAULT_VIDEO_UNDERSTANDING_MODEL
-    _, _, _, session_input, workflow_id = _prepare_execution(
+    prepared = _prepare_execution(
         session_id=session_id,
         user=user,
         team=team,
@@ -747,11 +777,11 @@ async def execute_summarize_session(
     )
     # Wait for the workflow to complete
     try:
-        await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
+        await _execute_single_session_summary_workflow(inputs=prepared.session_input, workflow_id=prepared.workflow_id)
     except WorkflowAlreadyStartedError:
         # Workflow is already running, wait for it to complete
         client = await async_connect()
-        handle = client.get_workflow_handle(workflow_id)
+        handle = client.get_workflow_handle(prepared.workflow_id)
         await handle.result()
     # Get the ready summary from the DB
     summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
@@ -891,7 +921,7 @@ async def execute_summarize_session_video_stream(
             )
             return
 
-    _, _, _, session_input, workflow_id = _prepare_execution(
+    prepared = _prepare_execution(
         session_id=session_id,
         user=user,
         team=team,
@@ -909,7 +939,7 @@ async def execute_summarize_session_video_stream(
     # is about to attach via USE_EXISTING to someone else's in-flight run, skip
     # the cap so we don't 402 a teammate reading already-paid-for work.
     # `force_restart` always preempts via TERMINATE_EXISTING — counts as fresh.
-    will_start_fresh_run = force_restart or not await _workflow_is_running(client, workflow_id)
+    will_start_fresh_run = force_restart or not await _workflow_is_running(client, prepared.workflow_id)
 
     quota_reserved = False
     if will_start_fresh_run:
@@ -951,12 +981,12 @@ async def execute_summarize_session_video_stream(
 
     try:
         handle = await _start_video_summary_workflow(
-            inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
+            inputs=prepared.session_input, workflow_id=prepared.workflow_id, force_restart=force_restart
         )
     except WorkflowAlreadyStartedError:
         # Race: someone else started the same workflow between our describe and
         # start call. Attach to theirs and refund the slot we reserved.
-        handle = client.get_workflow_handle(workflow_id)
+        handle = client.get_workflow_handle(prepared.workflow_id)
         if quota_reserved:
             await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
             quota_reserved = False
@@ -968,7 +998,7 @@ async def execute_summarize_session_video_stream(
 
     logger.info(
         "video summary polling loop starting",
-        workflow_id=workflow_id,
+        workflow_id=prepared.workflow_id,
         session_id=session_id,
         signals_type="session-summaries",
     )
@@ -1019,7 +1049,7 @@ async def execute_summarize_session_video_stream(
 
             logger.info(
                 "yielding session-summary-progress event",
-                workflow_id=workflow_id,
+                workflow_id=prepared.workflow_id,
                 phase=progress_payload.get("phase"),
                 step=progress_payload.get("step"),
                 signals_type="session-summaries",

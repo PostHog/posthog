@@ -7,6 +7,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.llm.gateway_client import AIGatewayConfig
 from posthog.temporal.ai_observability.eval_reports.report_agent import graph
 from posthog.temporal.ai_observability.eval_reports.report_agent.graph import (
     _append_references_section,
@@ -454,7 +455,8 @@ class TestRunEvalReportAgentCallbackGating(SimpleTestCase):
     ):
         mock_metrics.return_value = EvalReportMetrics()
         mock_pha.default_client = MagicMock()  # analytics client available...
-        mock_resolve.return_value = ("https://gateway.example/v1", "key")  # ...but gateway is live
+        # ...but gateway is live
+        mock_resolve.return_value = AIGatewayConfig(url="https://gateway.example/v1", api_key="key")
 
         callbacks = self._run_and_get_callbacks(mock_create_agent)
 

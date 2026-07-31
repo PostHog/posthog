@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from products.customer_analytics.backend.models import SlackSummaryCadence
 
 
-def get_last_closed_period(cadence: str, now: datetime, tz: ZoneInfo) -> tuple[datetime, datetime]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ClosedPeriod:
+    start: datetime
+    end: datetime
+
+
+def get_last_closed_period(cadence: str, now: datetime, tz: ZoneInfo) -> ClosedPeriod:
     """The most recent fully-elapsed calendar window for ``cadence`` in ``tz``.
 
     Daily → yesterday, weekly → last ISO week (Monday to Monday), monthly → last
@@ -23,7 +30,7 @@ def get_last_closed_period(cadence: str, now: datetime, tz: ZoneInfo) -> tuple[d
         start, end = (first_of_this_month - timedelta(days=1)).replace(day=1), first_of_this_month
     else:
         raise ValueError(f"Unknown slack summary cadence: {cadence}")
-    return _local_midnight(start, tz), _local_midnight(end, tz)
+    return ClosedPeriod(start=_local_midnight(start, tz), end=_local_midnight(end, tz))
 
 
 def _local_midnight(day: date, tz: ZoneInfo) -> datetime:

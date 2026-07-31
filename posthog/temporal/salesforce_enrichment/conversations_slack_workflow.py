@@ -180,15 +180,15 @@ async def enrich_conversations_slack_page_activity(
             ]
 
             if update_records:
-                success, failed = await asyncio.to_thread(
+                sf_result = await asyncio.to_thread(
                     bulk_update_salesforce_accounts,
                     sf,
                     update_records,
                     raise_on_batch_error=True,
                 )
-                total_updated += success
-                if failed:
-                    errors.append(f"sfdc_bulk_update_failed_count={failed}")
+                total_updated += sf_result.succeeded
+                if sf_result.failed:
+                    errors.append(f"sfdc_bulk_update_failed_count={sf_result.failed}")
 
             total_processed += len(batch_org_ids)
             heartbeater.details = (total_processed, total_orgs, total_updated)

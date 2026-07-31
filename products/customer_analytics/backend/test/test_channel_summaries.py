@@ -59,10 +59,10 @@ class TestGetLastClosedPeriod:
         ]
     )
     def test_closed_periods(self, _name, cadence, now, expected_start, expected_end):
-        start, end = get_last_closed_period(cadence, now, SP)
+        period = get_last_closed_period(cadence, now, SP)
 
-        assert start == expected_start
-        assert end == expected_end
+        assert period.start == expected_start
+        assert period.end == expected_end
 
 
 class TestListAccountsDueForSlackSummary(BaseTest):
@@ -102,14 +102,14 @@ class TestListAccountsDueForSlackSummary(BaseTest):
 
     def test_period_with_existing_summary_is_not_due_again(self):
         account = self._opted_in_account()
-        period_start, period_end = get_last_closed_period("daily", self.NOW, ZoneInfo("UTC"))
+        period = get_last_closed_period("daily", self.NOW, ZoneInfo("UTC"))
         facade.record_channel_summary(
             team_id=self.team.id,
             account_id=str(account.id),
             slack_channel_id="C123",
             cadence="daily",
-            period_start=period_start,
-            period_end=period_end,
+            period_start=period.start,
+            period_end=period.end,
             content="summary",
             message_count=3,
         )
@@ -118,14 +118,14 @@ class TestListAccountsDueForSlackSummary(BaseTest):
 
     def test_summary_for_another_cadence_does_not_satisfy_the_period(self):
         account = self._opted_in_account(slack_summary_cadence="monthly")
-        period_start, period_end = get_last_closed_period("monthly", self.NOW, ZoneInfo("UTC"))
+        period = get_last_closed_period("monthly", self.NOW, ZoneInfo("UTC"))
         AccountChannelSummary.objects.unscoped().create(
             team_id=self.team.id,
             account_id=account.id,
             slack_channel_id="C123",
             cadence="weekly",
-            period_start=period_start,
-            period_end=period_end,
+            period_start=period.start,
+            period_end=period.end,
             content="other cadence",
         )
 

@@ -1220,9 +1220,9 @@ class TestExperimentPayloadDynamicEdgeExtraction(SimpleTestCase):
                 }
             ],
         )
-        cohort_ids, action_ids = collect_cohort_and_action_ids_from_experiment_json(resource)
-        assert cohort_ids == {600}
-        assert action_ids == {501}
+        collected = collect_cohort_and_action_ids_from_experiment_json(resource)
+        assert collected.cohort_ids == {600}
+        assert collected.action_ids == {501}
 
     def test_collect_ids_from_filters_and_parameters_keys(self) -> None:
         # Top-level experiment ``filters`` often mirrors insight shapes nested under keys;
@@ -1241,9 +1241,9 @@ class TestExperimentPayloadDynamicEdgeExtraction(SimpleTestCase):
                 }
             },
         )
-        cohort_ids, action_ids = collect_cohort_and_action_ids_from_experiment_json(resource)
-        assert 111 in cohort_ids
-        assert 222 in action_ids
+        collected = collect_cohort_and_action_ids_from_experiment_json(resource)
+        assert 111 in collected.cohort_ids
+        assert 222 in collected.action_ids
 
 
 class TestExperimentVisitorDynamicEdges(SimpleTestCase):

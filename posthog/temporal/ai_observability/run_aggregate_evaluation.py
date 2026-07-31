@@ -18,7 +18,7 @@ import json
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import temporalio
 from temporalio.common import RetryPolicy
@@ -144,8 +144,16 @@ def _clamp(value: Any, floor: int, ceiling: int, default: int) -> int:
     return int(min(max(value, floor), ceiling))
 
 
-def resolve_settle_plan(settle: dict[str, Any] | None) -> tuple[str, int, int]:
-    """Resolve the settle config into (strategy, primary_seconds, max_age_seconds).
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SettlePlan:
+    strategy: Literal["inactivity", "fixed_window"]
+    # The quiet period under inactivity, the window under fixed_window.
+    primary_seconds: int
+    max_age_seconds: int
+
+
+def resolve_settle_plan(settle: dict[str, Any] | None) -> SettlePlan:
+    """Resolve the settle config into a SettlePlan.
 
     Deterministic and exception-free on purpose: the serializer already validated the stored
     config, so anything malformed here is a payload bug — falling back to defaults keeps a bad
@@ -165,14 +173,14 @@ def resolve_settle_plan(settle: dict[str, Any] | None) -> tuple[str, int, int]:
             TRACE_EVAL_MAX_MAX_AGE_SECONDS,
             TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
         )
-        return ("inactivity", quiet, max(max_age, quiet))
+        return SettlePlan(strategy="inactivity", primary_seconds=quiet, max_age_seconds=max(max_age, quiet))
     window = _clamp(
         config.get("window_seconds"),
         TRACE_EVAL_MIN_WINDOW_SECONDS,
         TRACE_EVAL_MAX_WINDOW_SECONDS,
         TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     )
-    return ("fixed_window", window, window)
+    return SettlePlan(strategy="fixed_window", primary_seconds=window, max_age_seconds=window)
 
 
 @dataclass
@@ -221,22 +229,22 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         window_start = temporalio.workflow.now()
 
-        strategy, primary_seconds, max_age_seconds = resolve_settle_plan(inputs.settle)
-        if strategy == "inactivity":
+        plan = resolve_settle_plan(inputs.settle)
+        if plan.strategy == "inactivity":
             # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
             # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
-            initial_sleep_seconds = min(primary_seconds + INGESTION_LAG_MARGIN_SECONDS, max_age_seconds)
+            initial_sleep_seconds = min(plan.primary_seconds + INGESTION_LAG_MARGIN_SECONDS, plan.max_age_seconds)
             await asyncio.sleep(initial_sleep_seconds)
-            poll_budget_seconds = max_age_seconds - initial_sleep_seconds
+            poll_budget_seconds = plan.max_age_seconds - initial_sleep_seconds
             if poll_budget_seconds > 0:
-                poll_interval = max(primary_seconds // 4, 10)
+                poll_interval = max(plan.primary_seconds // 4, 10)
                 try:
                     await temporalio.workflow.execute_activity(
                         check_trace_settled_activity,
                         CheckTraceSettledInputs(
                             team_id=inputs.team_id,
                             trace_id=inputs.trace_id,
-                            quiet_period_seconds=primary_seconds,
+                            quiet_period_seconds=plan.primary_seconds,
                         ),
                         start_to_close_timeout=timedelta(seconds=30),
                         schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
@@ -254,11 +262,11 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     # Temporal stops polling once the next retry would overrun schedule-to-close, so it
                     # can give up as much as one poll_interval before max_age. Wait out the remainder so
                     # we always honor the full max-age window before grading a still-active trace.
-                    remaining = max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
+                    remaining = plan.max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
                     if remaining > 0:
                         await asyncio.sleep(remaining)
-        elif primary_seconds:
-            await asyncio.sleep(primary_seconds)
+        elif plan.primary_seconds:
+            await asyncio.sleep(plan.primary_seconds)
 
         eval_start = temporalio.workflow.now()
 

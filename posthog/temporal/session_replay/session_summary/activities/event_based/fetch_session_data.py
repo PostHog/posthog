@@ -22,14 +22,14 @@ from ee.hogai.session_summaries.session.summarize_session import (
 @temporalio.activity.defn
 async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> bool:
     """Returns False if the session has no events (static); True otherwise."""
-    redis_client, redis_input_key, _ = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=inputs.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
         state_id=inputs.session_id,
     )
     success = await get_data_class_from_redis(
-        redis_client=redis_client,
-        redis_key=redis_input_key,
+        redis_client=redis_state.client,
+        redis_key=redis_state.input_key,
         label=StateActivitiesEnum.SESSION_DB_DATA,
         target_class=SingleSessionSummaryLlmInputs,
     )
@@ -58,8 +58,8 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> boo
     )
     input_data_str = json.dumps(dataclasses.asdict(input_data))
     await store_data_in_redis(
-        redis_client=redis_client,
-        redis_key=redis_input_key,
+        redis_client=redis_state.client,
+        redis_key=redis_state.input_key,
         data=input_data_str,
         label=StateActivitiesEnum.SESSION_DB_DATA,
     )

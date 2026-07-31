@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -16,6 +17,7 @@ from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.session_recording_api import RecordingsListingResult
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -77,7 +79,9 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         with patch(
             "posthog.session_recordings.synthetic_playlists.list_recordings_from_query",
-            return_value=(recordings, False, None, None),
+            return_value=RecordingsListingResult(
+                recordings=cast(Any, recordings), more_recordings_available=False, timings_header="", next_cursor=None
+            ),
         ) as mock_query:
             count = source.count_session_ids(self.team, self.user)
             session_ids = source.get_session_ids(self.team, self.user)

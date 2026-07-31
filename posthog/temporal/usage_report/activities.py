@@ -59,7 +59,7 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Inputs,
     RunQueryToS3Result,
 )
-from posthog.utils import get_instance_region
+from posthog.utils import DayRange, get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -143,7 +143,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
             org_reports = await aggregate_per_org()
 
             instance_metadata = await database_sync_to_async(get_instance_metadata)(
-                (inputs.ctx.period_start, inputs.ctx.period_end)
+                DayRange(start=inputs.ctx.period_start, end=inputs.ctx.period_end)
             )
 
             # TODO(usage-reports-v2): re-enable PostHog product-analytics

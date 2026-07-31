@@ -30,11 +30,10 @@ def build_langchain_chat_client(model: str, timeout: float, ai_product: str | No
 
     gateway = resolve_ai_gateway_config()
     if gateway:
-        url, api_key = gateway
         return ChatOpenAI(
             model=model,
-            api_key=api_key,
-            base_url=url,
+            api_key=gateway.api_key,
+            base_url=gateway.url,
             timeout=timeout,
             max_retries=2,
             default_headers=ai_product_headers(ai_product),

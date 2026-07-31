@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 
 from posthog.clickhouse.client import sync_execute
@@ -78,14 +79,20 @@ def query_tophog_metrics(
     ]
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class TopHogFilterOptions:
+    pipelines: list[str]
+    lanes: list[str]
+
+
 def query_tophog_filter_options(
     date_from: datetime,
     date_to: datetime,
-) -> tuple[list[str], list[str]]:
+) -> TopHogFilterOptions:
     params: dict[str, datetime] = {"date_from": date_from, "date_to": date_to}
     with tags_context(product=Product.INGESTION, feature=Feature.DEBUG_QUERY):
         rows = sync_execute(FILTER_OPTIONS_QUERY, params)
 
     pipelines = sorted({row[0] for row in rows})
     lanes = sorted({row[1] for row in rows})
-    return pipelines, lanes
+    return TopHogFilterOptions(pipelines=pipelines, lanes=lanes)

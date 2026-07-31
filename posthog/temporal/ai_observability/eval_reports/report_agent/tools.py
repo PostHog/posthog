@@ -12,6 +12,7 @@ import json
 import time
 import random
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
@@ -177,8 +178,14 @@ def _outcome_for_result(output_type: str, result: object, applicable: object = N
         return None
 
 
-def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
-    """Return (ts_start, ts_end) datetimes widened for target lookups.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class TimestampWindow:
+    ts_start: datetime
+    ts_end: datetime
+
+
+def _widened_ts_window(state: dict) -> TimestampWindow:
+    """Return the (ts_start, ts_end) window widened for target lookups.
 
     Target events can predate their evaluations, so widen the start by 7 days.
     End is period_end + 1 day for evaluation lag. Falls back to wide sentinel
@@ -192,7 +199,7 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
         ts_end = _ch_ts((datetime.fromisoformat(state["period_end"]) + timedelta(days=1)).isoformat())
     except (ValueError, TypeError, KeyError):
         ts_end = _ch_ts(_TARGET_LOOKUP_TS_END_SENTINEL)
-    return ts_start, ts_end
+    return TimestampWindow(ts_start=ts_start, ts_end=ts_end)
 
 
 # Query timeouts and per-query memory limits need a narrower query, so retrying
@@ -669,12 +676,12 @@ def sample_generation_details(
     from posthog.models import Team
 
     team = Team.objects.get(id=state["team_id"])
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=ids_to_fetch,
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_ids = sorted({tid for tid in trace_id_by_uuid.values() if tid})
@@ -766,18 +773,18 @@ def get_generation_detail(
     from posthog.models import Team
 
     team = Team.objects.get(id=team_id)
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
     shared_placeholders = {
         "generation_id": ast.Constant(value=generation_id),
-        "ts_start": ast.Constant(value=ts_start),
-        "ts_end": ast.Constant(value=ts_end),
+        "ts_start": ast.Constant(value=window.ts_start),
+        "ts_end": ast.Constant(value=window.ts_end),
     }
 
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=[generation_id],
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_id = trace_id_by_uuid.get(generation_id)
@@ -928,13 +935,13 @@ def get_generation_text_repr(
         return json.dumps({"error": "Invalid generation ID format"})
 
     team = Team.objects.get(id=state["team_id"])
-    ts_start, ts_end = _widened_ts_window(state)
+    window = _widened_ts_window(state)
 
     trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
         team=team,
         generation_uuids=[generation_id],
-        ts_start=ts_start,
-        ts_end=ts_end,
+        ts_start=window.ts_start,
+        ts_end=window.ts_end,
         query_type="EvalReportAgentTraceIdResolve",
     )
     trace_id = trace_id_by_uuid.get(generation_id)
