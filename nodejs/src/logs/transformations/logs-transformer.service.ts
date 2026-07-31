@@ -72,7 +72,7 @@ export const transformationUnexpectedErrorsCounter = new Counter({
 
 export const transformationInfraErrorsCounter = new Counter({
     name: 'logs_ingestion_transformations_infra_errors_total',
-    help: 'Infrastructure errors (function fetch, watcher state read) in the logs transformer; records were passed through untransformed (fail-open).',
+    help: 'Infrastructure errors while fetching functions or reading watcher state; function fetch errors pass records through untransformed.',
     labelNames: ['source'], // functions_fetch | watcher_state
 })
 
