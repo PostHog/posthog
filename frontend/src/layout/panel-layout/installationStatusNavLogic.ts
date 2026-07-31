@@ -16,9 +16,9 @@ export type NavInstallationPhase = 'running' | 'completed' | 'error' | 'connecti
 export interface installationStatusNavLogicValues {
     activeCloudRun: CloudRunHandle | null // activeCloudRunLogic
     panelMounted: boolean // activeCloudRunLogic
+    hasIngestedEvent: boolean // hasIngestedEventLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasOnboardedAnyProduct: boolean // teamLogic
-    hasIngestedEvent: boolean // hasIngestedEventLogic
     hasActiveSession: boolean // wizardActiveSessionDetectorLogic
     dialogOpen: boolean // wizardSyncUiLogic
     isRunActive: boolean
