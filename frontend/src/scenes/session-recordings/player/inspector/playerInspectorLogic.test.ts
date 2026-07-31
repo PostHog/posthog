@@ -2,11 +2,16 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import {
+    PlayerInspectorLogicProps,
+    playerInspectorLogic,
+} from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingExperimentContextLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingExperimentContextLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { SessionRecordingType } from '~/types'
 
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
@@ -244,79 +249,75 @@ describe('playerInspectorLogic', () => {
     })
 
     describe('matching events', () => {
-        it('waits for the recording start before seeking to the first matching event', async () => {
-            const matchingProps = {
-                sessionRecordingId: '1',
-                playerKey: 'matching-event',
-                skipToFirstMatchingEvent: true,
-                matchingEventsMatchType: {
-                    matchType: 'uuid' as const,
-                    matchedEvents: [
-                        {
-                            uuid: 'matching-event',
-                            timestamp: '2025-01-01T00:00:10.000Z',
-                            session_id: '1',
-                            window_id: '1',
-                        },
-                    ],
-                },
-            }
-            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
-            const matchingLogic = playerInspectorLogic(matchingProps)
+        const matchingProps = (
+            playerKey: string,
+            options: { matchTimestamp?: string; skipToFirstMatchingEvent?: boolean; autoPlay?: boolean } = {}
+        ): PlayerInspectorLogicProps => ({
+            sessionRecordingId: '1',
+            playerKey,
+            skipToFirstMatchingEvent: options.skipToFirstMatchingEvent,
+            autoPlay: options.autoPlay,
+            matchingEventsMatchType: {
+                matchType: 'uuid' as const,
+                matchedEvents: [
+                    { uuid: 'matching-event', timestamp: options.matchTimestamp ?? '2025-01-01T00:00:10.000Z' },
+                ],
+            },
+        })
+
+        const mountLogics = (
+            props: PlayerInspectorLogicProps
+        ): {
+            playerLogic: ReturnType<typeof sessionRecordingPlayerLogic.build>
+            matchingLogic: ReturnType<typeof playerInspectorLogic.build>
+        } => {
+            const playerLogic = sessionRecordingPlayerLogic(props)
+            const matchingLogic = playerInspectorLogic(props)
             playerLogic.mount()
             matchingLogic.mount()
+            return { playerLogic, matchingLogic }
+        }
 
-            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
-            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
-
+        const loadRecordingMeta = (): void => {
             dataLogic.actions.loadRecordingMetaSuccess({
                 id: '1',
                 start_time: '2025-01-01T00:00:00.000Z',
                 end_time: '2025-01-01T00:01:00.000Z',
                 recording_duration: 60,
             } as SessionRecordingType)
+        }
 
-            await expectLogic(playerLogic).toDispatchActions([playerLogic.actionCreators.seekToTime(9000)])
-
-            matchingLogic.unmount()
-            playerLogic.unmount()
-        })
-
-        it('seeks when the player arms the skip flag after matching events have loaded', async () => {
-            // In playlist embeds the flag is only armed once the player initializes, which is
-            // usually after the matching events have loaded — the skip must still fire then.
-            const matchingProps = {
-                sessionRecordingId: '1',
-                playerKey: 'late-armed',
-                matchingEventsMatchType: {
-                    matchType: 'uuid' as const,
-                    matchedEvents: [
-                        {
-                            uuid: 'matching-event',
-                            timestamp: '2025-01-01T00:00:10.000Z',
-                            session_id: '1',
-                            window_id: '1',
-                        },
-                    ],
-                },
-            }
-            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
-            const matchingLogic = playerInspectorLogic(matchingProps)
-            playerLogic.mount()
-            matchingLogic.mount()
+        it.each([
+            ['armed via the skipToFirstMatchingEvent prop', { skipToFirstMatchingEvent: true }],
+            ['armed during player initialization', {}],
+        ])('seeks to the first matching event once the recording is ready (%s)', async (label, options) => {
+            const { playerLogic, matchingLogic } = mountLogics(matchingProps(`skip-${label}`, options))
 
             await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
             await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
 
             // Meta initializes the player, which arms the skip flag (no t/timestamp URL param)
-            dataLogic.actions.loadRecordingMetaSuccess({
-                id: '1',
-                start_time: '2025-01-01T00:00:00.000Z',
-                end_time: '2025-01-01T00:01:00.000Z',
-                recording_duration: 60,
-            } as SessionRecordingType)
+            loadRecordingMeta()
             await expectLogic(playerLogic).toDispatchActions([
                 'setSkipToFirstMatchingEvent',
+                playerLogic.actionCreators.seekToTime(9000),
+            ])
+
+            matchingLogic.unmount()
+            playerLogic.unmount()
+        })
+
+        it('still auto-skips when autoplay has started playback', async () => {
+            // Autoplay seeks through the internal seekToTimestamp path; only user-facing seeks
+            // (seekToTime, scrubbing) consume the pending skip. If an internal seek ever counted
+            // as user intent, the skip would silently stop firing on autoplaying playlists.
+            const { playerLogic, matchingLogic } = mountLogics(matchingProps('autoplay', { autoPlay: true }))
+
+            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            loadRecordingMeta()
+
+            await expectLogic(playerLogic).toDispatchActions([
+                'seekToTimestamp', // autoplay's internal seek
                 playerLogic.actionCreators.seekToTime(9000),
             ])
 
@@ -334,42 +335,36 @@ describe('playerInspectorLogic', () => {
                 'scrubbed',
                 (playerLogic: ReturnType<typeof sessionRecordingPlayerLogic.build>) => playerLogic.actions.startScrub(),
             ],
-        ])('does not auto-skip after the user has %s', async (_interaction, interact) => {
-            const matchingProps = {
-                sessionRecordingId: '1',
-                playerKey: 'user-interacted',
-                skipToFirstMatchingEvent: true,
-                matchingEventsMatchType: {
-                    matchType: 'uuid' as const,
-                    matchedEvents: [
-                        {
-                            uuid: 'matching-event',
-                            timestamp: '2025-01-01T00:00:10.000Z',
-                            session_id: '1',
-                            window_id: '1',
-                        },
-                    ],
+        ])('does not auto-skip after the user has %s', async (interaction, interact) => {
+            // Backend matching events resolve on their own schedule, often seconds into playback —
+            // a viewer who has already navigated must not have the playhead yanked when they land
+            let releaseMatchingEvents: () => void = () => {}
+            const gate = new Promise<void>((resolve) => (releaseMatchingEvents = resolve))
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/matching_events': async () => {
+                        await gate
+                        return [200, { results: [{ uuid: 'matching-event', timestamp: '2025-01-01T00:00:10.000Z' }] }]
+                    },
                 },
-            }
-            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
-            const matchingLogic = playerInspectorLogic(matchingProps)
-            playerLogic.mount()
-            matchingLogic.mount()
+            })
 
-            await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
+            const { playerLogic, matchingLogic } = mountLogics({
+                sessionRecordingId: '1',
+                playerKey: `user-${interaction}`,
+                matchingEventsMatchType: { matchType: 'backend' as const, filters: DEFAULT_RECORDING_FILTERS },
+            })
+
+            loadRecordingMeta()
+            // The player is ready and the skip armed, but matching events are still loading
+            await expectLogic(playerLogic).toDispatchActions(['setSkipToFirstMatchingEvent'])
             interact(playerLogic)
-            dataLogic.actions.loadRecordingMetaSuccess({
-                id: '1',
-                start_time: '2025-01-01T00:00:00.000Z',
-                end_time: '2025-01-01T00:01:00.000Z',
-                recording_duration: 60,
-            } as SessionRecordingType)
 
-            // Covers both skip triggers: the synchronous one on meta load and the deferred one
-            // from the player arming the flag during initialization
-            await expectLogic(matchingLogic)
-                .toDispatchActions(['loadRecordingMetaSuccess', 'trySkipToFirstMatchingEvent'])
-                .delay(25)
+            releaseMatchingEvents()
+            await expectLogic(matchingLogic).toDispatchActions([
+                'loadMatchingEventsSuccess',
+                'trySkipToFirstMatchingEvent',
+            ])
             await expectLogic(playerLogic).toNotHaveDispatchedActions([playerLogic.actionCreators.seekToTime(9000)])
 
             matchingLogic.unmount()
@@ -380,41 +375,20 @@ describe('playerInspectorLogic', () => {
             // Playlist filters can change under an open recording without user intent (e.g. an
             // async session-id list resolving into the filters), which reloads matching events —
             // that reload must not re-arm the auto-skip and yank the playhead mid-playback.
-            const matchingProps = {
-                sessionRecordingId: '1',
-                playerKey: 'reload-after-skip',
-                skipToFirstMatchingEvent: true,
-                matchingEventsMatchType: {
-                    matchType: 'uuid' as const,
-                    matchedEvents: [
-                        {
-                            uuid: 'matching-event',
-                            timestamp: '2025-01-01T00:00:10.000Z',
-                            session_id: '1',
-                            window_id: '1',
-                        },
-                    ],
-                },
-            }
-            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
-            const matchingLogic = playerInspectorLogic(matchingProps)
-            playerLogic.mount()
-            matchingLogic.mount()
+            const { playerLogic, matchingLogic } = mountLogics(
+                matchingProps('reload-after-skip', { skipToFirstMatchingEvent: true })
+            )
 
             await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
-            dataLogic.actions.loadRecordingMetaSuccess({
-                id: '1',
-                start_time: '2025-01-01T00:00:00.000Z',
-                end_time: '2025-01-01T00:01:00.000Z',
-                recording_duration: 60,
-            } as SessionRecordingType)
+            loadRecordingMeta()
             await expectLogic(playerLogic).toDispatchActions([playerLogic.actionCreators.seekToTime(9000)])
 
             // What propsChanged dispatches when the playlist filters change under the recording
             matchingLogic.actions.loadMatchingEvents()
-            await expectLogic(matchingLogic)
-                .toDispatchActions(['loadMatchingEventsSuccess', 'trySkipToFirstMatchingEvent'])
-                .delay(25)
+            await expectLogic(matchingLogic).toDispatchActions([
+                'loadMatchingEventsSuccess',
+                'trySkipToFirstMatchingEvent',
+            ])
             await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
 
             matchingLogic.unmount()
@@ -424,34 +398,14 @@ describe('playerInspectorLogic', () => {
         it('does not seek when the earliest match falls after the recording ends', async () => {
             // The matching-events query has slack past the recording window; seeking there would
             // pin the player to its final frame and trigger end-reached.
-            const matchingProps = {
-                sessionRecordingId: '1',
-                playerKey: 'match-past-end',
+            const props = matchingProps('match-past-end', {
+                matchTimestamp: '2025-01-01T00:02:00.000Z',
                 skipToFirstMatchingEvent: true,
-                matchingEventsMatchType: {
-                    matchType: 'uuid' as const,
-                    matchedEvents: [
-                        {
-                            uuid: 'matching-event',
-                            timestamp: '2025-01-01T00:02:00.000Z',
-                            session_id: '1',
-                            window_id: '1',
-                        },
-                    ],
-                },
-            }
-            const playerLogic = sessionRecordingPlayerLogic(matchingProps)
-            const matchingLogic = playerInspectorLogic(matchingProps)
-            playerLogic.mount()
-            matchingLogic.mount()
+            })
+            const { playerLogic, matchingLogic } = mountLogics(props)
 
             await expectLogic(matchingLogic).toDispatchActions(['loadMatchingEventsSuccess'])
-            dataLogic.actions.loadRecordingMetaSuccess({
-                id: '1',
-                start_time: '2025-01-01T00:00:00.000Z',
-                end_time: '2025-01-01T00:01:00.000Z',
-                recording_duration: 60,
-            } as SessionRecordingType)
+            loadRecordingMeta()
 
             // The deferred arming trigger is the last chance for a seek to fire
             await expectLogic(matchingLogic).toDispatchActions([
@@ -463,17 +417,10 @@ describe('playerInspectorLogic', () => {
             // The out-of-window verdict is terminal: a filter change reloading matching events
             // with an in-window match must not fire the skip mid-playback
             playerInspectorLogic({
-                ...matchingProps,
+                ...props,
                 matchingEventsMatchType: {
                     matchType: 'uuid' as const,
-                    matchedEvents: [
-                        {
-                            uuid: 'in-window-event',
-                            timestamp: '2025-01-01T00:00:10.000Z',
-                            session_id: '1',
-                            window_id: '1',
-                        },
-                    ],
+                    matchedEvents: [{ uuid: 'in-window-event', timestamp: '2025-01-01T00:00:10.000Z' }],
                 },
             })
             await expectLogic(matchingLogic).toDispatchActions([

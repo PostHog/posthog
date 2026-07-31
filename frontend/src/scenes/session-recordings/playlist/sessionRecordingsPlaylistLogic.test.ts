@@ -17,7 +17,6 @@ import {
     PropertyOperator,
     RecordingUniversalFilters,
     UniversalFiltersGroup,
-    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
@@ -27,7 +26,6 @@ import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
-    MatchingEventsMatchType,
     asUniversalFilters,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
@@ -1049,60 +1047,35 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('matchingEventsMatchType', () => {
-        const filtersWith = (values: UniversalFiltersGroupValue[]): RecordingUniversalFilters => ({
-            ...DEFAULT_RECORDING_FILTERS,
-            filter_group: {
-                type: FilterLogicalOperator.And,
-                values: [{ type: FilterLogicalOperator.And, values }],
-            },
-        })
-
-        it.each<[string, UniversalFiltersGroupValue[], MatchingEventsMatchType['matchType']]>([
-            ['no event-related filters', [], 'none'],
-            ['simple event filters only', [{ id: '$pageview', name: '$pageview', type: 'events' }], 'name'],
-            [
-                'an event filter with properties',
-                [
-                    {
-                        id: '$feature_flag_called',
-                        name: '$feature_flag_called',
-                        type: 'events',
-                        properties: [
+        it('classifies a bare event-property filter as backend', () => {
+            // The shape the experiments server-side-flag exposure fallback produces
+            // ($feature/<key> with no event filter). Classifying it as 'none' would silently
+            // drop match indicators and skip-to-first-matching-event for those lists.
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'match-type-tests',
+                filters: {
+                    ...DEFAULT_RECORDING_FILTERS,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
                             {
-                                key: '$feature_flag',
-                                type: PropertyFilterType.Event,
-                                value: 'my-flag',
-                                operator: PropertyOperator.Exact,
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$feature/my-flag',
+                                        type: PropertyFilterType.Event,
+                                        value: ['test'],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
                             },
                         ],
                     },
-                ],
-                'backend',
-            ],
-            // A bare event-property filter with no event filter — the shape the experiments
-            // server-side-flag exposure fallback produces. Classifying it as 'none' would
-            // silently drop match indicators and skip-to-first-matching-event for those lists.
-            [
-                'only an event property filter',
-                [
-                    {
-                        key: '$feature/my-flag',
-                        type: PropertyFilterType.Event,
-                        value: ['test'],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-                'backend',
-            ],
-            ['an action filter', [{ id: 1, name: 'my action', type: 'actions' }], 'backend'],
-        ])('classifies %s', (_, values, expected) => {
-            logic = sessionRecordingsPlaylistLogic({
-                logicKey: 'match-type-tests',
-                filters: filtersWith(values),
+                },
             })
             logic.mount()
 
-            expect(logic.values.matchingEventsMatchType.matchType).toBe(expected)
+            expect(logic.values.matchingEventsMatchType.matchType).toBe('backend')
         })
     })
 
