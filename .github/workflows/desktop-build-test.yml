@@ -1,21 +1,13 @@
 name: Desktop Build Test
 
-# Full build + code signing + verification of apps/code on every push to this
-# branch (and on demand), producing downloadable artifacts for inspection.
+# Full build + code signing + verification of apps/code on demand, producing
+# downloadable artifacts for inspection.
 #
 # This intentionally does NOT create or publish any GitHub release — it exists
 # to prove the packaging pipeline works end to end before merge. The real
-# release pipeline lives in code-release.yml and runs only on v* tags.
-#
-# Temporary: retarget or delete the branch trigger once this branch is merged.
+# release pipeline lives in desktop-release.yml and runs only on desktop-v* tags.
 
 on:
-    push:
-        branches:
-            - refactor/electron-vite
-        paths:
-            - 'products/desktop/**'
-            - '.github/workflows/desktop-build-test.yml'
     workflow_dispatch:
 
 concurrency:
