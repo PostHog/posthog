@@ -369,6 +369,9 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             if (params.open_cleanup_pr !== undefined) {
                 body['open_cleanup_pr'] = params.open_cleanup_pr
             }
+            if (params.repository !== undefined) {
+                body['repository'] = params.repository
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
@@ -923,6 +926,9 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             if (params.open_cleanup_pr !== undefined) {
                 body['open_cleanup_pr'] = params.open_cleanup_pr
+            }
+            if (params.repository !== undefined) {
+                body['repository'] = params.repository
             }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key

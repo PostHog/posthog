@@ -601,8 +601,35 @@ impl RoutingTable {
         // Deregister so freeze quorums stop counting this router
         // immediately. Left to lease expiry, every handoff frozen in the
         // next TTL window stalls waiting for a freeze ack this router
-        // will never write.
-        drop(self.store.revoke_lease(lease_id).await);
+        // will never write. Still best-effort — an unreachable etcd lets
+        // the lease lapse by TTL — but loudly so: this line is the proof
+        // a graceful shutdown reached its deregistration.
+        match self.store.revoke_lease(lease_id).await {
+            Ok(()) => {
+                metrics::counter!(
+                    "personhog_coordination_router_deregistered_total",
+                    "outcome" => "revoked"
+                )
+                .increment(1);
+                tracing::info!(
+                    router = %self.config.router_name,
+                    "router deregistered, freeze quorums no longer count it"
+                );
+            }
+            Err(e) => {
+                metrics::counter!(
+                    "personhog_coordination_router_deregistered_total",
+                    "outcome" => "revoke_failed"
+                )
+                .increment(1);
+                tracing::warn!(
+                    router = %self.config.router_name,
+                    error = %e,
+                    "router lease revoke failed; registration lapses by TTL and \
+                     freezes created meanwhile stall on it"
+                );
+            }
+        }
 
         result
     }

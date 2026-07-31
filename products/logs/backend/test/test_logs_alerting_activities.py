@@ -2154,6 +2154,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.alerts_checked == 1
 
     @freeze_time("2025-01-01T00:01:00Z")
+    @patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US")
     @patch("posthog.slo.context.emit_slo_completed")
     @patch("posthog.slo.context.emit_slo_started")
     @patch("products.alerts.backend.destinations.flush_internal_events_producer", return_value=0)
@@ -2166,6 +2167,7 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         _mock_flush,
         mock_emit_slo_started,
         mock_emit_slo_completed,
+        _mock_region,
     ):
         from products.logs.backend.temporal.activities import (
             CohortManifest,
@@ -2217,15 +2219,37 @@ class TestEvaluateCohortBatchActivity(NonAtomicBaseTest):
         assert result.notified == []
         # The cycle still advances so the next cycle re-evaluates and retries the notification.
         assert alert.next_check_at is not None
-        mock_emit_slo_started.assert_called_once()
-        mock_emit_slo_completed.assert_called_once()
-        assert mock_emit_slo_completed.call_args.kwargs["properties"].outcome == SloOutcome.FAILURE
-        assert mock_emit_slo_completed.call_args.kwargs["extra_properties"] == {
+        assert mock_emit_slo_started.call_count == 2
+        assert mock_emit_slo_completed.call_count == 2
+        started_by_operation = {
+            call.kwargs["properties"].operation: call for call in mock_emit_slo_started.call_args_list
+        }
+        completed_by_operation = {
+            call.kwargs["properties"].operation: call for call in mock_emit_slo_completed.call_args_list
+        }
+        alert_check_completed = completed_by_operation[SloOperation.ALERT_CHECK]
+        assert alert_check_completed.kwargs["properties"].outcome == SloOutcome.FAILURE
+        assert alert_check_completed.kwargs["extra_properties"] == {
             "alert_type": "logs",
             "check_interval_minutes": alert.check_interval_minutes,
             "window_minutes": alert.window_minutes,
-            "correlation_id": mock_emit_slo_started.call_args.kwargs["extra_properties"]["correlation_id"],
+            "correlation_id": started_by_operation[SloOperation.ALERT_CHECK].kwargs["extra_properties"][
+                "correlation_id"
+            ],
             "alert_state": AlertState.NOT_FIRING,
             "notification_action": NotificationAction.FIRE.value,
+            "failure_phase": "notification_delivery",
+        }
+        delivery_completed = completed_by_operation[SloOperation.ALERT_DELIVERY]
+        assert delivery_completed.kwargs["properties"].outcome == SloOutcome.FAILURE
+        assert delivery_completed.kwargs["extra_properties"] == {
+            "alert_type": "logs",
+            "notification_action": NotificationAction.FIRE.value,
+            "region": "US",
+            "check_interval_minutes": alert.check_interval_minutes,
+            "window_minutes": alert.window_minutes,
+            "correlation_id": started_by_operation[SloOperation.ALERT_DELIVERY].kwargs["extra_properties"][
+                "correlation_id"
+            ],
             "failure_phase": "notification_delivery",
         }
