@@ -1203,8 +1203,10 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
             {payload}
         """)
 
-    def _log_row(self, distinct_id_value: str, attribute_key: str = "posthogDistinctId") -> dict:
-        return {
+    def _log_row(
+        self, distinct_id_value: str, attribute_key: str = "posthogDistinctId", *, resource: bool = False
+    ) -> dict:
+        row: dict = {
             "uuid": str(uuid4()),
             "timestamp": "2026-03-01 10:00:00.000000",
             "observed_timestamp": "2026-03-01 10:00:01.000000",
@@ -1213,8 +1215,14 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
             "severity_number": 9,
             "service_name": "person-id-test-svc",
             "resource_attributes": {"service.name": "person-id-test-svc"},
-            "attributes_map_str": {f"{attribute_key}__str": distinct_id_value},
+            "attributes_map_str": {},
         }
+        # Place the distinct id under a resource attribute or a log attribute.
+        if resource:
+            row["resource_attributes"][attribute_key] = distinct_id_value
+        else:
+            row["attributes_map_str"][f"{attribute_key}__str"] = distinct_id_value
+        return row
 
     def _person_query(self, person_id: str) -> LogsQuery:
         return LogsQuery(
@@ -1310,6 +1318,19 @@ class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
             {key for r in results for key in r["attributes"]},
             {"distinct_id", "posthogDistinctId"},
         )
+
+    def test_person_id_matches_distinct_id_in_resource_attributes(self):
+        # The logs UI renders a distinct-id convention key as a clickable person link whether the
+        # value sits in attributes or resource_attributes (LogAttributes.tsx), so a distinct id
+        # under resource_attributes must link the log to the person's tab too — not just log
+        # attributes.
+        person = create_person(team=self.team, distinct_ids=["person-id-test-res"])
+        self._insert_logs([self._log_row("person-id-test-res", attribute_key="distinct_id", resource=True)])
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["resource_attributes"]["distinct_id"], "person-id-test-res")
 
     def test_person_id_filter_targets_string_attribute_map_for_numeric_ids(self):
         # All-numeric distinct ids must not route to the float attribute map — only the
