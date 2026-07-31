@@ -52,10 +52,14 @@ export const MAX_STASHED_PAYLOAD_BYTES = 1_048_576
  * per-request limits alone still allow a caller at the rate limit to
  * retain gigabytes within one token TTL. 20 MiB per window is far above
  * legitimate use (a burst of large scout definitions is still a few MiB)
- * while capping worst-case retention per user at the quota. The window
+ * while capping worst-case retention per user near the quota. The window
  * spans the payload TTL, so the counter outlives every entry it charged
  * for; it is not decremented on execute — a consumed confirmation still
- * counts until the window rolls.
+ * counts until the window rolls. Fixed windows admit a boundary burst:
+ * filling the quota at the end of one window and again at the start of
+ * the next transiently retains up to 2× this value. That is accepted —
+ * the alternative (refreshing the expiry on every charge) never resets
+ * for a steadily active caller, eventually locking out legitimate use.
  */
 export const STASH_QUOTA_BYTES_PER_WINDOW = 20 * 1_048_576
 

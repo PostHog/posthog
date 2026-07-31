@@ -49,6 +49,7 @@ import {
     confirmedActionPreparesTotal,
     confirmedActionRefusalsTotal,
 } from '@/hono/metrics'
+import { ToolInputValidationError } from '@/lib/errors'
 import {
     MAX_STASHED_PAYLOAD_BYTES,
     NonceLedger,
@@ -176,7 +177,7 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     if (serializedBytes > MAX_STASHED_PAYLOAD_BYTES) {
         confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'refused' })
         confirmedActionRefusalsTotal.inc({ tool: options.purpose, reason: 'payload_too_large' })
-        throw new Error(
+        throw new ToolInputValidationError(
             `${options.purpose} was not prepared: the action arguments are too large to confirm ` +
                 `(${serializedBytes} bytes; limit ${MAX_STASHED_PAYLOAD_BYTES}). Trim the arguments, ` +
                 `for example by shortening bundled file contents, and try again.`
@@ -187,7 +188,7 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     if (quotaTotal > STASH_QUOTA_BYTES_PER_WINDOW) {
         confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'refused' })
         confirmedActionRefusalsTotal.inc({ tool: options.purpose, reason: 'stash_quota_exceeded' })
-        throw new Error(
+        throw new ToolInputValidationError(
             `${options.purpose} was not prepared: too much pending confirmation data for this user ` +
                 `(${quotaTotal} bytes in the current window; limit ${STASH_QUOTA_BYTES_PER_WINDOW}). ` +
                 `Wait a few minutes for pending confirmations to expire and try again.`
@@ -211,8 +212,8 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
             `Then call the matching \`-execute\` tool with \`${CONFIRMATION_HASH_ARG}\` set to the confirmation_hash from this result, ` +
             `and \`${CONFIRMATION_WORD_ARG}\` set to the user's literal reply. The signed hash already contains the action arguments. ` +
             `If the user does not reply with "${CONFIRMATION_WORD}", do not call the execute tool. ` +
-            `The confirmation expires ${Math.round(options.codec.ttlSeconds / 60)} minutes after this call — ` +
-            `if the user confirms later than that, call this prepare tool again with the same arguments to get a fresh hash.`,
+            `The confirmation expires ${Math.round(options.codec.ttlSeconds / 60)} minutes after this call. ` +
+            `If the user confirms later than that, call this prepare tool again with the same arguments to get a fresh hash.`,
     }
 }
 
