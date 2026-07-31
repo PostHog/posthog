@@ -2,10 +2,9 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
-
-import api from 'lib/api'
 
 // NOTE: intentionally uses local component state rather than a kea logic. The form only collects a
 // region + scope selection and builds an authorize URL to redirect to — there is no business logic
@@ -60,9 +59,9 @@ export function PosthogConnect({ next }: { next?: string }): JSX.Element {
     return (
         <div className="deprecated-space-y-2 max-w-prose">
             <p>
-                Connect another PostHog project to act in it through its API, for example to dispatch tasks that must run
-                there. The project can be in another region (to reach data only accessible from that region) or in your
-                own. You'll sign in to that PostHog and approve the access below.
+                Connect another PostHog project to act in it through its API, for example to dispatch tasks that must
+                run there. The project can be in another region (to reach data only accessible from that region) or in
+                your own. You'll sign in to that PostHog and approve the access below.
             </p>
             <div className="flex flex-col gap-1">
                 <label className="font-semibold">PostHog region</label>
@@ -108,7 +107,9 @@ export function PosthogConnect({ next }: { next?: string }): JSX.Element {
                                 value={scopeActions[scope.key] ?? 'none'}
                                 onChange={(value) => setScopeAction(scope.key, value)}
                                 readDisabledReason={
-                                    scope.disabledActions?.includes('read') ? 'Does not apply to this resource' : undefined
+                                    scope.disabledActions?.includes('read')
+                                        ? 'Does not apply to this resource'
+                                        : undefined
                                 }
                                 writeDisabledReason={
                                     scope.disabledActions?.includes('write')
