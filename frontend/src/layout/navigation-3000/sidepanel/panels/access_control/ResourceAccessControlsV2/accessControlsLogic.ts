@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,6 +24,7 @@ import { toSentenceCase } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     APIScopeObject,
     AccessControlDefaultsResponse,
@@ -32,6 +34,7 @@ import {
     AccessControlRolesResponse,
     AvailableFeature,
     OrganizationMemberType,
+    SidePanelTab,
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
@@ -40,7 +43,7 @@ import type { AccessControlResponseType, AccessControlUpdateType, RoleType } fro
 import { accessControlLogic } from '../accessControlLogic'
 import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
-import { AccessDetailSubject, AccessDetailSubjectScope } from './accessDetailLogic'
+import { AccessDetailSubject, AccessDetailSubjectScope, parseAccessDetailOptions } from './accessDetailLogic'
 import {
     AccessControlFilters,
     AccessControlMemberEntry,
@@ -107,7 +110,11 @@ export interface accessControlsLogicValues {
     sortedMembers: OrganizationMemberType[] | null // membersLogic
     resources: APIScopeObject[] // resourcesAccessControlLogic
     roles: RoleType[] // roleAccessControlLogic
+    selectedTab: SidePanelTab | null // sidePanelStateLogic
+    selectedTabOptions: string | null // sidePanelStateLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    accessDetailPanelEnabled: boolean
+    activePanelSubject: AccessDetailSubject | null
     activeTab: AccessControlsTab
     allMembers: OrganizationMemberType[]
     availableProjectLevels: AccessControlLevel[]
@@ -122,6 +129,7 @@ export interface accessControlsLogicValues {
     loading: boolean
     membersData: AccessControlMembersResponse | null
     membersDataLoading: boolean
+    panelOptionsSubject: AccessDetailSubject | null
     panelSubject: AccessDetailSubject | null
     resourceKeys: {
         key: APIScopeObject
@@ -133,7 +141,6 @@ export interface accessControlsLogicValues {
     }[]
     rolesData: AccessControlRolesResponse | null
     rolesDataLoading: boolean
-    accessDetailPanelEnabled: boolean
     ruleModalState: GroupedAccessControlRuleModalLogicProps | null
     ruleOptions: {
         key: AccessControlLevel
@@ -167,16 +174,6 @@ export interface accessControlsLogicActions {
             source: AccessControlUIVersion
         }
     } // accessControlLogic
-    deleteRoleSuccess: (
-        roles: RoleType[],
-        payload?: any
-    ) => {
-        roles: RoleType[]
-        payload?: any
-    } // roleAccessControlLogic
-    roleMembershipsChanged: () => {
-        value: true
-    } // roleAccessControlLogic
     updateAccessControlMembers: (
         accessControls: {
             level: AccessControlLevel | null
@@ -273,6 +270,22 @@ export interface accessControlsLogicActions {
         }
         resourceAccessControls: AccessControlResponseType | null
     } // resourcesAccessControlLogic
+    deleteRoleSuccess: (
+        roles: RoleType[],
+        payload?:
+            | {
+                  roleId: string
+              }
+            | undefined
+    ) => {
+        payload?: {
+            roleId: string
+        }
+        roles: RoleType[]
+    } // roleAccessControlLogic
+    roleMembershipsChanged: () => {
+        value: true
+    } // roleAccessControlLogic
     closeRuleModal: () => {
         value: true
     }
@@ -468,6 +481,12 @@ export interface accessControlsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         allMembers: (sortedMembers: OrganizationMemberType[] | null) => OrganizationMemberType[]
+        accessDetailPanelEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        panelOptionsSubject: (selectedTab: any, selectedTabOptions: any) => AccessDetailSubject | null
+        activePanelSubject: (
+            panelOptionsSubject: any,
+            panelSubject: AccessDetailSubject | null
+        ) => AccessDetailSubject | null
         canUseRoles: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => boolean
@@ -899,6 +918,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             ['resources'],
             featureFlagLogic,
             ['featureFlags'],
+            sidePanelStateLogic,
+            ['selectedTab', 'selectedTabOptions'],
         ],
     })),
 
@@ -996,6 +1017,22 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         accessDetailPanelEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL],
+        ],
+
+        /** Subject carried in the side panel's own options — a deep link or a fresh open. */
+        panelOptionsSubject: [
+            (s) => [s.selectedTab, s.selectedTabOptions],
+            (selectedTab: SidePanelTab | null, selectedTabOptions: string | null): AccessDetailSubject | null =>
+                selectedTab === SidePanelTab.AccessDetail ? parseAccessDetailOptions(selectedTabOptions) : null,
+        ],
+
+        /** Who the access detail panel shows: fresh options win, the stored selection covers tab switches. */
+        activePanelSubject: [
+            (s) => [s.panelOptionsSubject, s.panelSubject],
+            (
+                panelOptionsSubject: AccessDetailSubject | null,
+                panelSubject: AccessDetailSubject | null
+            ): AccessDetailSubject | null => panelOptionsSubject ?? panelSubject,
         ],
 
         canUseRoles: [
@@ -1338,6 +1375,33 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 actions.loadRoles()
             }
             if (values.membersData) {
+                actions.loadMembers()
+            }
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        // Persist a subject that arrived through the panel options: they're cleared as soon as any other
+        // panel tab opens, and the stored copy is what survives switching to Support or Max and back.
+        panelOptionsSubject: (subject: AccessDetailSubject | null) => {
+            if (
+                subject &&
+                (subject.subjectId !== values.panelSubject?.subjectId ||
+                    subject.scopeType !== values.panelSubject?.scopeType)
+            ) {
+                actions.openAccessDetailPanel(subject.scopeType, subject.subjectId)
+            }
+        },
+        // The panel can open before (or outlive) the settings page, so load the list it reads from.
+        activePanelSubject: (subject: AccessDetailSubject | null) => {
+            if (!subject) {
+                return
+            }
+            if (subject.scopeType === 'role') {
+                if (!values.rolesData && !values.rolesDataLoading) {
+                    actions.loadRoles()
+                }
+            } else if (!values.membersData && !values.membersDataLoading) {
                 actions.loadMembers()
             }
         },

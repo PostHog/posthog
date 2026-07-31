@@ -1,5 +1,4 @@
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -8,55 +7,25 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '../../SidePanelContentContainer'
-import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { AccessControlDetailContent } from './ResourceAccessControlsV2/AccessControlDetail'
 import { accessControlsLogic } from './ResourceAccessControlsV2/accessControlsLogic'
-import { AccessDetailSubjectScope, parseAccessDetailOptions } from './ResourceAccessControlsV2/accessDetailLogic'
+import type { AccessDetailSubjectScope } from './ResourceAccessControlsV2/accessDetailLogic'
 
 /**
  * Access detail for a single member or role, shown in the side panel instead of taking over the
  * settings page. Opened with `openSidePanel(SidePanelTab.AccessDetail, 'member:<id>' | 'role:<id>')`.
+ * Which subject to show, and loading the member/role lists it reads from, live in accessControlsLogic
+ * (`activePanelSubject`) — this component only renders.
  */
 export const SidePanelAccessDetail = (): JSX.Element => {
-    const { selectedTabOptions } = useValues(sidePanelStateLogic)
     const { currentTeam } = useValues(teamLogic)
     const projectId = `${currentTeam?.id}`
 
     const logic = accessControlsLogic({ projectId })
-    const { membersData, rolesData, membersDataLoading, rolesDataLoading, panelSubject } = useValues(logic)
-    const { loadMembers, loadRoles, openAccessDetailPanel } = useActions(logic)
+    const { membersData, rolesData, membersDataLoading, rolesDataLoading, activePanelSubject } = useValues(logic)
 
-    // Panel options only survive until another tab is opened, so fall back to the selection the settings
-    // page holds. Options still win, so deep links land on the right subject.
-    const optionsSubject = parseAccessDetailOptions(selectedTabOptions)
-    const subject = optionsSubject ?? panelSubject
-    const scopeType: AccessDetailSubjectScope = subject?.scopeType ?? 'member'
-    const subjectId = subject?.subjectId
-
-    // Remember a subject that arrived through the options (a deep link), otherwise it would be lost as soon
-    // as another panel tab clears them.
-    useEffect(() => {
-        if (
-            optionsSubject &&
-            (optionsSubject.subjectId !== panelSubject?.subjectId ||
-                optionsSubject.scopeType !== panelSubject?.scopeType)
-        ) {
-            openAccessDetailPanel(optionsSubject.scopeType, optionsSubject.subjectId)
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [optionsSubject?.scopeType, optionsSubject?.subjectId])
-
-    // The panel can outlive the settings page that opened it, so make sure the list it reads from is loaded.
-    useEffect(() => {
-        if (scopeType === 'role') {
-            if (!rolesData && !rolesDataLoading) {
-                loadRoles()
-            }
-        } else if (!membersData && !membersDataLoading) {
-            loadMembers()
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [scopeType, membersData, rolesData])
+    const scopeType: AccessDetailSubjectScope = activePanelSubject?.scopeType ?? 'member'
+    const subjectId = activePanelSubject?.subjectId
 
     const entry =
         scopeType === 'role'

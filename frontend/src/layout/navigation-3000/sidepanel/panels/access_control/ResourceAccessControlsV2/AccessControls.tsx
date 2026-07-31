@@ -11,7 +11,6 @@ import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
 import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
-import { parseAccessDetailOptions } from './accessDetailLogic'
 import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { getEntryId } from './helpers'
 import type { AccessControlsTab, ScopeType } from './types'
@@ -32,7 +31,7 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         filteredMembers,
         canEdit,
         loading,
-        panelSubject,
+        activePanelSubject,
         visibleResourceKeySet,
         accessDetailPanelEnabled,
         ruleModalState,
@@ -40,15 +39,14 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
 
     const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel, openRuleModal } = useActions(logic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { selectedTab, selectedTabOptions, sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
 
     // Highlight the row whose detail is open in the side panel
-    const openSubject = parseAccessDetailOptions(selectedTabOptions) ?? panelSubject
     const openInPanelId =
-        sidePanelOpen && selectedTab === SidePanelTab.AccessDetail && openSubject?.scopeType === scopeType
-            ? openSubject.subjectId
+        sidePanelOpen && selectedTab === SidePanelTab.AccessDetail && activePanelSubject?.scopeType === scopeType
+            ? activePanelSubject.subjectId
             : null
 
     return (
