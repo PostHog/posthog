@@ -6,7 +6,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY
-from django.contrib.sessions.backends.base import SessionBase
+from django.core.cache import cache
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -16,6 +16,7 @@ from loginas.utils import is_impersonated_session
 
 from posthog.geoip import get_geoip_location
 from posthog.models import User
+from posthog.session.activity import session_public_id
 from posthog.session.models import Session
 from posthog.utils import get_trusted_client_ip
 
@@ -205,24 +206,24 @@ def _risk_signature(tier: RiskTier, signals: set[RiskSignal]) -> str:
     return f"{tier.name}:{','.join(sorted(signal.value for signal in signals))}"
 
 
-def _should_emit_risk(session: SessionBase, tier: RiskTier, signals: set[RiskSignal], *, now: datetime) -> bool:
-    """Dedup gate. A flagged session is re-scored on every request; without this it would emit
-    telemetry and re-assert step-up every time, inflating counts and hammering the session store.
+def _should_emit_risk(session_key: str, tier: RiskTier, signals: set[RiskSignal]) -> bool:
+    """Dedup gate. A flagged session is re-scored on every request, so without this one persistent
+    anomaly emits telemetry on every request and buries itself in repeats.
 
-    Returns True (and records the signature + timestamp on the session) only when the anomaly's
-    signature differs from the last emitted one or the re-emit cooldown has elapsed, so a persistent
-    anomaly surfaces once per window instead of once per request. Never touches the baseline, so
-    detection integrity is unaffected: the request is still scored the same next time.
+    The marker lives in the shared cache rather than on the session: parallel requests each hold their
+    own copy of the session and would all read a marker there as unset before any of them wrote it,
+    so a burst would emit once per request anyway. `cache.add` is atomic, so exactly one request in a
+    burst wins and the rest stay quiet until the entry expires. Keyed by the session's derived public
+    id so a live session key never reaches the cache. Never touches the baseline, so detection is
+    unaffected: the request is still scored the same next time.
     """
-    signature = _risk_signature(tier, signals)
-    last_signature = session.get(settings.SESSION_RISK_LAST_SIG_KEY)
-    last_emit_at = session.get(settings.SESSION_RISK_LAST_EMIT_AT_KEY) or 0.0
-    now_epoch = now.timestamp()
-    if signature == last_signature and (now_epoch - last_emit_at) < settings.RISK_REEMIT_COOLDOWN_S:
-        return False
-    session[settings.SESSION_RISK_LAST_SIG_KEY] = signature
-    session[settings.SESSION_RISK_LAST_EMIT_AT_KEY] = now_epoch
-    return True
+    key = f"session_risk_emit:{session_public_id(session_key)}:{_risk_signature(tier, signals)}"
+    try:
+        return bool(cache.add(key, 1, timeout=int(settings.RISK_REEMIT_COOLDOWN_S)))
+    except Exception:
+        # A cache outage must not silence detection telemetry — duplicates beat missing events.
+        logger.exception("session_risk dedup cache unavailable")
+        return True
 
 
 def evaluate_session_risk(request: HttpRequest) -> RiskTier:
@@ -274,7 +275,7 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
         enforced = True
 
     # `effective` is computed above and returned regardless, so session-end is never suppressed.
-    should_emit = _should_emit_risk(request.session, tier, signals, now=now)
+    should_emit = _should_emit_risk(session_key, tier, signals)
 
     # Enforcement is independent of the telemetry dedup: apply step-up whenever it is needed and not
     # already set, even when the identical anomaly's telemetry is being deduped. Otherwise enabling
@@ -282,11 +283,8 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
     set_step_up = needs_step_up and not request.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY)
     if set_step_up:
         request.session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
-
-    # Persist the step-up flag and/or the dedup markers _should_emit_risk just wrote, now rather than
-    # relying on SessionMiddleware, which skips save() on a 5xx response — otherwise a server error
-    # here would drop the step-up requirement.
-    if should_emit or set_step_up:
+        # Persist now rather than relying on SessionMiddleware, which skips save() on a 5xx response —
+        # otherwise a server error here would drop the step-up requirement.
         request.session.save()
 
     if should_emit:

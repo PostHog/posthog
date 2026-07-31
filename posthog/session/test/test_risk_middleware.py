@@ -185,6 +185,26 @@ class TestEvaluateSessionRisk(BaseTest):
             evaluate_session_risk(request)
         self.assertEqual(mock_capture.call_count, expected_calls)
 
+    @patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, False))
+    def test_concurrent_requests_emit_once(self, _flags, mock_capture, _ctx):
+        # Parallel requests each hold their own copy of the session, so dedup state kept there is read
+        # before any of them writes and every one emits. The marker has to be shared for a burst of
+        # requests to count as one detection.
+        user = self._make_user()
+        key = self._login_session(user)
+        self._seed_baseline(key)
+        first, second = self._request(user, key), self._request(user, key)
+        # Materialize both session copies before either evaluates — that is what makes them concurrent
+        # rather than sequential.
+        first.session.get(SESSION_KEY), second.session.get(SESSION_KEY)
+
+        evaluate_session_risk(first)
+        evaluate_session_risk(second)
+
+        mock_capture.assert_called_once()
+
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
     def test_new_signature_re_emits_within_cooldown(self, _flags, mock_capture):
