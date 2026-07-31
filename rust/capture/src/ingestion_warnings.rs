@@ -208,10 +208,16 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
 /// Emit the ingestion warning for a legacy-path `process_events` abort, if the
 /// error maps to one.
 ///
-/// The legacy pipeline rejects the whole request on the first invalid event,
-/// so `count` charges the full batch, matching what `report_dropped_events`
-/// records for the same failure. Floored at 1 for v1 parity: a zero count
-/// would read as "nothing happened" in the v2 table.
+/// The legacy pipeline rejects the whole request on the first invalid event.
+/// For validation aborts that means nothing was sent, so `count` charges the
+/// full batch, matching what `report_dropped_events` records for the same
+/// failure; it's floored at 1 for v1 parity, since a zero count would read as
+/// "nothing happened" in the v2 table. `EventTooBig` is the exception: the
+/// sink raises it per message after earlier events in the batch were already
+/// enqueued (and typically deliver despite the 413), so charging the batch
+/// would report delivered events as failed. It emits `count = 1` — at least
+/// one event was rejected — matching the sink's per-event
+/// `kafka_message_size` drop metric.
 pub fn emit_processing_abort_warning(
     emitter: Option<&dyn WarningEmitter>,
     context: &ProcessingContext,
@@ -221,13 +227,17 @@ pub fn emit_processing_abort_warning(
     let Some(warning) = warning_for_capture_error(err) else {
         return;
     };
+    let count = match err {
+        CaptureError::EventTooBig(_) => 1,
+        _ => event_count.max(1),
+    };
     emit_request_warning(
         emitter,
         &legacy_request_context(context),
         CAPTURE_LEGACY_ANALYTICS,
         warning,
         Map::new(),
-        event_count.max(1),
+        count,
     );
 }
 
@@ -427,35 +437,52 @@ mod tests {
 
     #[test]
     fn abort_helper_charges_full_batch_with_legacy_validation_source() {
-        // (event_count, expected emitted count): a whole-request abort charges
-        // the batch size; zero floors to 1 so the v2 row never reads as a
-        // no-op, matching v1's batch-abort convention.
-        let cases = [(25u64, 25u64), (0u64, 1u64)];
+        // (error, event_count, expected emitted count): a validation abort
+        // charges the batch size (nothing was sent), flooring zero to 1 so
+        // the v2 row never reads as a no-op, matching v1's batch-abort
+        // convention. EventTooBig charges 1: earlier batch events were
+        // already enqueued and typically deliver, so a batch count would
+        // report delivered events as failed.
+        let cases = [
+            (
+                CaptureError::MissingDistinctId,
+                WarningType::MissingDistinctId,
+                25u64,
+                25u64,
+            ),
+            (
+                CaptureError::MissingDistinctId,
+                WarningType::MissingDistinctId,
+                0u64,
+                1u64,
+            ),
+            (
+                CaptureError::EventTooBig("too big".to_string()),
+                WarningType::MessageSizeTooLarge,
+                25u64,
+                1u64,
+            ),
+        ];
 
-        for (event_count, expected_count) in cases {
+        for (error, expected_warning, event_count, expected_count) in cases {
             let emitter = CollectingEmitter::default();
             let context = legacy_context(SdkAttribution {
                 lib: Some("web".to_string()),
                 lib_version: Some("1.2.3".to_string()),
             });
 
-            emit_processing_abort_warning(
-                Some(&emitter),
-                &context,
-                &CaptureError::MissingDistinctId,
-                event_count,
-            );
+            emit_processing_abort_warning(Some(&emitter), &context, &error, event_count);
 
             let emitted = emitter.emitted();
-            assert_eq!(emitted.len(), 1, "event_count={event_count}");
+            assert_eq!(emitted.len(), 1, "{error:?} event_count={event_count}");
             let warning = &emitted[0];
             assert_eq!(warning.token, "tok");
             assert_eq!(
                 warning.source,
                 common_ingestion_warnings::CAPTURE_LEGACY_ANALYTICS
             );
-            assert_eq!(warning.warning, WarningType::MissingDistinctId);
-            assert_eq!(warning.count, expected_count);
+            assert_eq!(warning.warning, expected_warning);
+            assert_eq!(warning.count, expected_count, "{error:?}");
             assert_eq!(warning.extra_details.get("lib"), Some(&json!("web")));
             assert_eq!(
                 warning.extra_details.get("libVersion"),
