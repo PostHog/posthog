@@ -166,6 +166,8 @@ export interface TeamMCPGatewayConfigApi {
      * * `ask` - Ask for destructive
      * * `block` - Block destructive */
     agent_default_preset?: (typeof TeamMCPGatewayConfigApiAgentDefaultPreset)[keyof typeof TeamMCPGatewayConfigApiAgentDefaultPreset]
+    /** Catalog template ids that already have a gateway registration, including registrations hidden from the requesting member. Clients use this list to avoid presenting disabled or revoked templates as new. */
+    readonly registered_template_ids: readonly string[]
     /** Whether the requesting user can administer the gateway (org admin or explicit project admin). */
     readonly is_admin: boolean
 }
@@ -637,6 +639,8 @@ export interface ResolvedToolPolicyApi {
     description: string
     /** JSON Schema describing the tool's input arguments. */
     input_schema: ResolvedToolPolicyApiInputSchema
+    /** Whether the canonical gateway heuristic treats this tool as destructive. */
+    is_destructive: boolean
     /** Effective state for the scope.
      *
      * * `approved` - Approved
