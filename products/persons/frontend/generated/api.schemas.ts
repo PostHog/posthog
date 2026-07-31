@@ -242,8 +242,8 @@ export interface PatchedPersonRecordApi {
 }
 
 export interface PersonDeletePropertyRequestApi {
-    /** The property key to remove from this person. */
-    $unset: string
+    /** A property key, or a list of property keys, to remove from this person. */
+    $unset: string | string[]
 }
 
 export interface MessageAssetApi {
