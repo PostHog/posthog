@@ -37,8 +37,10 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
@@ -1353,6 +1355,128 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.run_interval_minutes == 60
         assert config.enabled_by_id == self.user.id
 
+    def test_partial_update_disable_records_a_user_pause(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "paused_by_user"
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_USER
+        assert config.status_changed_by_id == self.user.id
+
+    def test_partial_update_enable_resumes_a_system_pause_and_clears_the_reason(self) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["status"] == "active"
+        assert body["pause_reason"] is None
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.pause_reason is None
+        assert config.enabled is True
+
+    def test_partial_update_without_enabled_clears_a_pending_pause(self) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 60}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.pause_reason is None
+
+    def test_partial_update_resets_the_failure_streak_but_not_a_breaker_pause(self) -> None:
+        # An unrelated edit resets the breaker's evidence, but must not resume the pause —
+        # resuming through an edit would sidestep the enabled-scout cap that `enabled=true`
+        # and the probe's resume both re-check.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        )
+        SignalScoutConfig.objects.filter(pk=config.pk).update(consecutive_failure_count=5)
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 60}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.consecutive_failure_count == 0
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert config.pause_reason == SignalScoutConfig.PauseReason.REPEATED_FAILURES
+
+    def test_create_upsert_on_existing_config_resets_the_failure_streak(self) -> None:
+        # The POST path re-registers an existing config through `_upsert_scout_config`, which is
+        # a human edit like PATCH — the pre-trip streak must reset there too, or an edit through
+        # this path leaves the scout one failure from pausing despite the intervening human touch.
+        self._make_skill("signals-scout-foo")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        SignalScoutConfig.objects.filter(pk=config.pk).update(consecutive_failure_count=4)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-foo", "run_interval_minutes": 120},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.consecutive_failure_count == 0
+        assert config.run_interval_minutes == 120
+
+    def test_resending_enabled_false_does_not_escalate_a_system_pause(self) -> None:
+        # Clients resend whole config objects; an unchanged `enabled=false` must not convert
+        # a system pause into a user pause the system may never resume.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"enabled": False, "run_interval_minutes": 120}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert config.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+        assert config.run_interval_minutes == 120
+
+    def test_empty_partial_update_does_not_clear_a_pending_pause(self) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.PENDING_PAUSE
+        assert config.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+
     def test_partial_update_slack_destination_is_project_scoped_and_round_trips(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -1700,6 +1824,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.enabled is False
         assert config.enabled_by_id is None
+        assert config.status == SignalScoutConfig.Status.PAUSED_BY_USER
 
     def test_create_upserts_existing_config(self) -> None:
         self._make_skill("signals-scout-fresh")
@@ -2139,3 +2264,101 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
             _authenticate_as_scout(self, scopes=scopes)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestScoutRunDerivedMetadata(APIBaseTest):
+    def _stamp(self, run: SignalScoutRun) -> dict:
+        stamp_derived_metadata(run_id=run.id, team_id=self.team.id)
+        run.refresh_from_db()
+        return (run.metadata or {})[DERIVED_METADATA_KEY]
+
+    def _make_report(self, *, title: str = "A finding", charts: list | None = None) -> SignalReport:
+        return SignalReport.objects.create(team=self.team, title=title, charts=charts or [])
+
+    def test_stamp_preserves_runner_stamped_keys(self) -> None:
+        run = _make_run(self.team, metadata={"model": "some-model", "runtime_adapter": "some-adapter"})
+        self._stamp(run)
+        stamped = run.metadata or {}
+        assert stamped["model"] == "some-model"
+        assert stamped["runtime_adapter"] == "some-adapter"
+
+    def test_stamp_writes_every_flag_so_absent_means_never_finalized(self) -> None:
+        run = _make_run(self.team)
+        assert set(self._stamp(run)) == {
+            "has_emit_report",
+            "has_edit_report",
+            "has_self_improvement",
+            "has_chart",
+            "has_self_validation",
+        }
+
+    @parameterized.expand(
+        [
+            ("authored", True, True),
+            ("only_edited", False, False),
+        ]
+    )
+    def test_report_derived_flags_only_count_authored_reports(self, _name: str, authored: bool, expected: bool) -> None:
+        report = self._make_report(
+            title="Scout self-improvement: signals-scout-general – noisy rule",
+            charts=[{"chart_id": "c1", "title": "Trend", "query": "select 1"}],
+        )
+        ids = [str(report.id)]
+        run = _make_run(
+            self.team,
+            emitted_report_ids=ids if authored else [],
+            edited_report_ids=[] if authored else ids,
+        )
+        flags = self._stamp(run)
+        assert flags["has_self_improvement"] is expected
+        assert flags["has_chart"] is expected
+        assert flags["has_emit_report"] is authored
+        assert flags["has_edit_report"] is not authored
+
+    @parameterized.expand(
+        [
+            # An entry that predates the run and was written during it: the queue was worked.
+            ("worked_existing_entry", timedelta(hours=-2), timedelta(minutes=1), True),
+            ("existing_entry_untouched", timedelta(hours=-2), timedelta(hours=-1), False),
+            # An entry this run created is an ordinary investigation recording a future probe,
+            # not a validation pass. Both timestamps land inside the window, so only the
+            # created-before-the-run guard separates the two.
+            ("created_this_run", timedelta(minutes=1), timedelta(minutes=1), False),
+        ]
+    )
+    def test_self_validation_counts_only_writes_to_a_queue_that_already_existed(
+        self, _name: str, created_offset: timedelta, updated_offset: timedelta, expected: bool
+    ) -> None:
+        run = _make_run(self.team)
+        entry = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{FOLLOWUP_KEY_PREFIX}{run.skill_name}:checkout-errors",
+            content="pending",
+        )
+        # Both columns are auto-managed, so a queryset update is the only way to place the row
+        # relative to the run window.
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(
+            created_at=run.created_at + created_offset, updated_at=run.created_at + updated_offset
+        )
+        assert self._stamp(run)["has_self_validation"] is expected
+
+    def test_sibling_skills_queue_does_not_count(self) -> None:
+        run = _make_run(self.team)
+        entry = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{FOLLOWUP_KEY_PREFIX}signals-scout-experiments:checkout-errors",
+            content="pending",
+        )
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(created_at=run.created_at - timedelta(hours=2))
+        assert self._stamp(run)["has_self_validation"] is False
+
+    def test_derived_map_round_trips_as_an_object_not_a_string(self) -> None:
+        # Guards the serializer field: a `DictField(child=CharField())` coerces the nested map to
+        # its Python repr, which turns a queryable object into unparseable prose.
+        run = _make_run(self.team, metadata={"model": "some-model"})
+        self._stamp(run)
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/runs/{run.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        metadata = response.json()["metadata"]
+        assert metadata["model"] == "some-model"
+        assert metadata[DERIVED_METADATA_KEY]["has_emit_report"] is False

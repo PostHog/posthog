@@ -1,3 +1,5 @@
+from collections.abc import Collection
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -8,9 +10,17 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
+from posthog.slo.context import get_current_slo
+from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
-from products.alerts.backend.destinations import produce_alert_internal_event
+from products.alerts.backend.delivery_slo import alert_delivery_slo
+from products.alerts.backend.destinations import (
+    ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
+    alert_internal_event_delivered,
+    flush_alert_internal_events,
+    produce_alert_internal_event,
+)
 from products.alerts.backend.facade.api import send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
     apply_invalid_configuration,
@@ -127,7 +137,7 @@ def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -
         alert.next_check_at = old_next
 
 
-def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> None:
+def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> bool:
     """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
 
     logger.info(
@@ -148,11 +158,27 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         **properties,
     }
 
-    produce_alert_internal_event(
+    produce_result = produce_alert_internal_event(
         team_id=alert.team_id,
         event_name=INSIGHT_ALERT_FIRING_EVENT,
         properties=props,
     )
+    slo = get_current_slo()
+    if slo is None or slo.operation != SloOperation.ALERT_DELIVERY:
+        return produce_result is not None
+    if produce_result is None:
+        slo.fail(failure_phase="destination_enqueue")
+        return False
+
+    flush_alert_internal_events(ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
+    if not alert_internal_event_delivered(
+        produce_result,
+        team_id=alert.team_id,
+        alert_id=str(alert.id),
+        event_name=INSIGHT_ALERT_FIRING_EVENT,
+    ):
+        slo.fail(failure_phase="notification_delivery")
+    return True
 
 
 def send_notifications_for_breaches(
@@ -197,6 +223,25 @@ def send_notifications_for_breaches(
     )
 
     return email_targets
+
+
+def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> None:
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    send_alert_email(
+        recipients=recipients,
+        campaign_key=f"alert-test-notification-{idempotency_key}",
+        subject=f"Test alert: {alert.name} for {alert.team.name}",
+        template_name="alert_check_firing",
+        template_context={
+            "match_descriptions": ["This is a test alert. No action is needed."],
+            "insight_url": insight_url,
+            "insight_name": alert.insight.name,
+            "alert_url": f"{insight_url}?alert_id={alert.id}",
+            "alert_name": alert.name,
+            "project_name": alert.team.name,
+            "is_test": True,
+        },
+    )
 
 
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> list[str]:
@@ -245,35 +290,53 @@ def dispatch_alert_notification(
         ValueError: state is FIRING but breaches is None/empty.
         AssertionError: unknown state — surfaces a missing AlertState branch loudly.
     """
-    match alert_check.state:
-        case AlertState.NOT_FIRING:
-            logger.info("Check state is NOT_FIRING, nothing to send", alert_id=alert.id)
-            return None
-        case AlertState.ERRORED:
-            if not isinstance(alert_check.error, dict):
-                logger.warning(
-                    "ERRORED alert_check has non-dict error payload; skipping notification",
-                    alert_id=alert.id,
-                    alert_check_id=alert_check.id,
+    with ExitStack() as stack:
+        if alert_check.state == AlertState.FIRING:
+            stack.enter_context(
+                alert_delivery_slo(
+                    alert_type="insight",
+                    notification_action="fire",
+                    distinct_id=str(alert.id),
+                    team_id=alert.team_id,
+                    resource_id=str(alert.id),
+                    properties={
+                        "alert_check_id": str(alert_check.id),
+                        "alert_state": alert_check.state,
+                        "calculation_interval": alert.calculation_interval,
+                        "insight_id": alert.insight_id,
+                    },
                 )
+            )
+
+        match alert_check.state:
+            case AlertState.NOT_FIRING:
+                logger.info("Check state is NOT_FIRING, nothing to send", alert_id=alert.id)
                 return None
-            return send_notifications_for_errors(alert, alert_check.error)
-        case AlertState.FIRING:
-            if not breaches:
-                raise ValueError(
-                    f"dispatch_alert_notification: FIRING alert_check {alert_check.id} has no breaches — "
-                    "caller must pass the breaches list from AlertEvaluationResult"
-                )
-            logger.info("Sending alert firing notifications", alert_id=alert.id)
-            # Only forward extra_properties when there's something to add (anomaly investigations),
-            # keeping the common threshold-alert call unchanged.
-            if extra_properties:
-                return send_notifications_for_breaches(
-                    alert, breaches, idempotency_key=str(alert_check.id), extra_properties=extra_properties
-                )
-            return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
-        case _:
-            raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
+            case AlertState.ERRORED:
+                if not isinstance(alert_check.error, dict):
+                    logger.warning(
+                        "ERRORED alert_check has non-dict error payload; skipping notification",
+                        alert_id=alert.id,
+                        alert_check_id=alert_check.id,
+                    )
+                    return None
+                return send_notifications_for_errors(alert, alert_check.error)
+            case AlertState.FIRING:
+                if not breaches:
+                    raise ValueError(
+                        f"dispatch_alert_notification: FIRING alert_check {alert_check.id} has no breaches — "
+                        "caller must pass the breaches list from AlertEvaluationResult"
+                    )
+                logger.info("Sending alert firing notifications", alert_id=alert.id)
+                # Only forward extra_properties when there's something to add (anomaly investigations),
+                # keeping the common threshold-alert call unchanged.
+                if extra_properties:
+                    return send_notifications_for_breaches(
+                        alert, breaches, idempotency_key=str(alert_check.id), extra_properties=extra_properties
+                    )
+                return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
+            case _:
+                raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 
 
 def record_alert_delivery(alert: AlertConfiguration, alert_check: AlertCheck, targets: list[str]) -> None:

@@ -43,6 +43,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
+from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -1057,6 +1058,26 @@ class EndExperimentSerializer(serializers.Serializer):
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "GitHub repository to open the cleanup pull request in, in `organization/repository` format. "
+            "Only used when open_cleanup_pr is true. It must be one of the team's connected repositories "
+            "(see the flag_cleanup_target action); it is then saved as the experiment's repository. When "
+            "omitted, the experiment's saved repository or the team's only connected repository is used."
+        ),
+    )
+
+    def validate_repository(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return value.lower()
 
 
 class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
@@ -1077,6 +1098,26 @@ class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
             "Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are "
             "visible to their creator only, so other viewers should not be shown a task link."
         ),
+    )
+
+
+class ExperimentFlagCleanupTargetSerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text="Repository a flag-cleanup pull request would be opened in, or null when none can be determined.",
+    )
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=["explicit", "single_repo", "ambiguous", "no_integration"],
+        help_text=(
+            "How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the "
+            "team's only connected repository), `ambiguous` (several connected repositories and none saved — "
+            "pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no "
+            "connected repositories, so no cleanup PR can be opened)."
+        ),
+    )
+    candidates = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Repositories connected to the team's GitHub integration, to choose a target from.",
     )
 
 
@@ -1616,3 +1657,32 @@ class ExperimentSessionContextResponseSerializer(serializers.Serializer):
 class ExperimentActivityQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
     page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
+
+
+class ExperimentSessionContextsRequestSerializer(serializers.Serializer):
+    """Request body for the batch session-context endpoint."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, help_text="ID of one session recording."),
+        min_length=1,
+        max_length=MAX_SESSION_CONTEXT_BATCH,
+        help_text=(
+            f"IDs of the session recordings to resolve experiment context for, at most "
+            f"{MAX_SESSION_CONTEXT_BATCH} per request. Duplicates are ignored."
+        ),
+    )
+
+
+class ExperimentSessionContextsResponseSerializer(serializers.Serializer):
+    """Experiment/variant context for a batch of session recordings."""
+
+    results = ExperimentSessionContextResponseSerializer(
+        many=True,
+        help_text=(
+            "Per-session experiment context, in the order the session IDs were requested. Sessions whose "
+            "recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, "
+            "as are recordings you don't have access to and sessions beyond the batch's recording-day budget "
+            "(only the most recent days are computed). Fetch omitted sessions individually via the "
+            "single-session endpoint."
+        ),
+    )

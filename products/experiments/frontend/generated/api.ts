@@ -15,6 +15,7 @@ import type {
     CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
+    ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
@@ -22,6 +23,8 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentSessionContextResponseApi,
+    ExperimentSessionContextsRequestApi,
+    ExperimentSessionContextsResponseApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -584,6 +587,29 @@ export const experimentsEndCreate = async (
     })
 }
 
+export const getExperimentsFlagCleanupTargetRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/flag_cleanup_target/`
+}
+
+/**
+ * Repository a flag-cleanup pull request for this experiment would be opened in.
+ *
+ * Resolution order: the experiment's saved repository, else the team's only connected
+ * GitHub repository. When the team has several repositories and none is saved
+ * (source=ambiguous), pass one via `repository` on end/ship_variant. Requires access
+ * to PostHog Desktop, like open_cleanup_pr (403 otherwise).
+ */
+export const experimentsFlagCleanupTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentFlagCleanupTargetApi> => {
+    return apiMutator<ExperimentFlagCleanupTargetApi>(getExperimentsFlagCleanupTargetRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsFlagCleanupTaskRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/flag_cleanup_task/`
 }
@@ -1064,6 +1090,36 @@ export const experimentsSessionContextRetrieve = async (
     return apiMutator<ExperimentSessionContextResponseApi>(getExperimentsSessionContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExperimentsSessionContextsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/session_contexts/`
+}
+
+/**
+ * Resolve experiment context for a batch of session recordings.
+ *
+ * Batch variant of `session_context`, used to prefetch the replay player's experiments
+ * box for a whole recordings list in one request. POST because the id list doesn't fit a
+ * query string; the endpoint only reads. Already-computed sessions are served from (and
+ * cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+ * uses, so opening any prefetched recording renders its context instantly. Sessions whose
+ * recording metadata doesn't exist yet are omitted from the response, as are recordings
+ * the caller can't access and sessions beyond the batch's recording-day budget (each
+ * distinct recording day costs its own set of ClickHouse scans, so only the most recent
+ * days are computed per request).
+ */
+export const experimentsSessionContextsCreate = async (
+    projectId: string,
+    experimentSessionContextsRequestApi: ExperimentSessionContextsRequestApi,
+    options?: RequestInit
+): Promise<ExperimentSessionContextsResponseApi> => {
+    return apiMutator<ExperimentSessionContextsResponseApi>(getExperimentsSessionContextsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSessionContextsRequestApi),
     })
 }
 

@@ -147,24 +147,42 @@ def resolve_github_tables(
     raise GitHubSourceNotConnectedError()
 
 
-def resolve_job_cost_source_pairs(team: Team) -> list[tuple[str, str]]:
-    """``(jobs_table, runs_table)`` for every synced repo with BOTH the jobs and runs endpoints.
+@dataclass(frozen=True)
+class JobSourceTables:
+    """One qualifying repo's job-level warehouse tables, for the exposed per-job views."""
 
-    Used to build the exposed per-job cost view, which unions across all of a team's qualifying
-    repos. Unlike ``resolve_github_tables`` (which needs pull_requests + workflow_runs and returns
-    one repo), this needs workflow_jobs + workflow_runs and returns all of them — the cost view has
-    no PR dependency and shouldn't collapse a team's repos to one. A multi-repo source contributes
-    one pair per repo, so the view stays complete when one source syncs several repos. Userless
-    (the view sync runs in a system/Temporal context); team scoping is the boundary.
+    workflow_jobs: str
+    workflow_runs: str
+    # Optional: these views qualify on jobs + runs alone, so a repo can reach them with no PR
+    # snapshot. Consumers that enrich from it (default-branch PR attribution) degrade without it.
+    pull_requests: str | None = None
+
+
+def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
+    """Job-level tables for every synced repo with BOTH the jobs and runs endpoints.
+
+    Used to build the exposed per-job views (cost, CI job history, CI failures), which union across
+    all of a team's qualifying repos. Unlike ``resolve_github_tables`` (which needs pull_requests +
+    workflow_runs and returns one repo), this needs workflow_jobs + workflow_runs and returns all of
+    them, because those views shouldn't collapse a team's repos to one over a PR dependency they
+    only partly have. A multi-repo source contributes one entry per repo, so the views stay complete when
+    one source syncs several repos. Userless (the view sync runs in a system/Temporal context);
+    team scoping is the boundary.
     """
-    pairs: list[tuple[str, str]] = []
+    resolved: list[JobSourceTables] = []
     for source in _github_sources(team):
         for tables in _synced_tables_by_repo(team=team, source=source).values():
             runs = tables.get(WORKFLOW_RUNS_SCHEMA)
             jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
             if runs and jobs:
-                pairs.append((jobs, runs))
-    return pairs
+                resolved.append(
+                    JobSourceTables(
+                        workflow_jobs=jobs,
+                        workflow_runs=runs,
+                        pull_requests=tables.get(PULL_REQUESTS_SCHEMA),
+                    )
+                )
+    return resolved
 
 
 # Listing the team's connected sources is its own concern (no curated read handle): it threads the
