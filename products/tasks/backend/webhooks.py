@@ -476,14 +476,17 @@ def _transition_signal_reports_for_task(
         report.save(update_fields=updated_fields)
         # Resolution is a claim, not proof: schedule the post-merge check that settles
         # whether the fix held. Best-effort for the same reason the loop is tolerant.
-        try:
-            schedule_fix_verification(report, task_id=task_id, pr_url=pr_url)
-        except Exception:
-            logger.exception(
-                "github_pr_webhook_fix_verification_schedule_failed",
-                report_id=str(report.id),
-                pr_url=pr_url,
-            )
+        # Only on the resolve path — a closed-unmerged PR shipped nothing to verify, and a
+        # check scheduled for it would settle as VERIFIED on a fix that never landed.
+        if target_status == SignalReport.Status.RESOLVED:
+            try:
+                schedule_fix_verification(report, task_id=task_id, pr_url=pr_url)
+            except Exception:
+                logger.exception(
+                    "github_pr_webhook_fix_verification_schedule_failed",
+                    report_id=str(report.id),
+                    pr_url=pr_url,
+                )
         logger.info(
             success_log_event,
             report_id=str(report.id),

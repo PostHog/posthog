@@ -821,6 +821,21 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(verification.pr_url, "https://github.com/posthog/posthog/pull/42")
         self.assertEqual(verification.task_id, self.task.id)
 
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_closed_unmerged_pr_does_not_schedule_fix_verification(self, _mock_capture, mock_get_secret):
+        # The suppress path shares the transition helper with the resolve path. There is no
+        # merge to verify here, and a scheduled check would settle as VERIFIED on a fix that
+        # never shipped.
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._post_pr_webhook(action="closed", merged=False)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.SUPPRESSED)
+        self.assertFalse(SignalFixVerification.all_teams.filter(report=self.report).exists())
+
     @patch("products.tasks.backend.webhooks.schedule_fix_verification", side_effect=RuntimeError("boom"))
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
