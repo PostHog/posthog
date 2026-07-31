@@ -11,7 +11,7 @@ import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { AccessControlDetailContent } from './ResourceAccessControlsV2/AccessControlDetail'
 import { accessControlsLogic } from './ResourceAccessControlsV2/accessControlsLogic'
-import { AccessScope, parseAccessDetailOptions } from './ResourceAccessControlsV2/accessDetailLogic'
+import { AccessDetailSubjectScope, parseAccessDetailOptions } from './ResourceAccessControlsV2/accessDetailLogic'
 
 /**
  * Access detail for a single member or role, shown in the side panel instead of taking over the
@@ -30,7 +30,7 @@ export const SidePanelAccessDetail = (): JSX.Element => {
     // page holds. Options still win, so deep links land on the right subject.
     const optionsSubject = parseAccessDetailOptions(selectedTabOptions)
     const subject = optionsSubject ?? panelSubject
-    const scopeType: AccessScope = subject?.scopeType ?? 'member'
+    const scopeType: AccessDetailSubjectScope = subject?.scopeType ?? 'member'
     const subjectId = subject?.subjectId
 
     // Remember a subject that arrived through the options (a deep link), otherwise it would be lost as soon

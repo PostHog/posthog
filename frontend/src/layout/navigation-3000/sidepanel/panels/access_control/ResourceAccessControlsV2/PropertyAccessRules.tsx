@@ -5,9 +5,10 @@ import { LemonButton, LemonInputSelect, LemonLabel, LemonModal, LemonSelect, Lem
 
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
-import { AccessPropertyRule, AccessScope, accessDetailLogic } from './accessDetailLogic'
+import { AccessPropertyRule, accessDetailLogic } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
 import { addPropertyRestrictionModalLogic } from './addPropertyRestrictionModalLogic'
+import type { ScopeType } from './types'
 
 const PROPERTY_LEVEL_OPTIONS = [
     { value: AccessLevelEnumApi.Read, label: 'Read only' },
@@ -16,7 +17,7 @@ const PROPERTY_LEVEL_OPTIONS = [
 
 export interface PropertyAccessRulesProps {
     projectId: string
-    scopeType: AccessScope
+    scopeType: ScopeType
     subjectId: string
     /** How the subject is called in copy, e.g. "member" or "role". */
     subjectNoun: string
@@ -128,7 +129,7 @@ function AddPropertyRuleModal({
     subjectId,
 }: {
     projectId: string
-    scopeType: AccessScope
+    scopeType: ScopeType
     subjectId: string
 }): JSX.Element {
     const logic = addPropertyRestrictionModalLogic({ projectId, scopeType, subjectId })

@@ -10,11 +10,12 @@ import { APIScopeObject, AccessControlLevel } from '~/types'
 
 import type { InheritedAccess } from '../accessControlLogic'
 import { AccessLevelSelect } from '../AccessLevelSelect'
-import { AccessObjectRule, AccessScope, OBJECT_RULE_RESOURCES, accessDetailLogic } from './accessDetailLogic'
+import { AccessObjectRule, OBJECT_RULE_RESOURCES, accessDetailLogic } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
 import { addObjectOverrideModalLogic } from './addObjectOverrideModalLogic'
 import { humanizeAccessControlLevel } from './helpers'
 import { ScopeIcon } from './ScopeIcon'
+import type { ScopeType } from './types'
 
 const OBJECT_LEVELS: AccessControlLevel[] = [
     AccessControlLevel.None,
@@ -25,7 +26,7 @@ const OBJECT_LEVELS: AccessControlLevel[] = [
 
 export interface ObjectAccessRulesProps {
     projectId: string
-    scopeType: AccessScope
+    scopeType: ScopeType
     subjectId: string
     /** How the subject is called in copy, e.g. "member" or "role". */
     subjectNoun: string
@@ -38,7 +39,7 @@ function resourceNoun(resource: string): string {
 }
 
 /** What takes over on this object once the subject's own rule is gone. */
-function inheritedFor(o: AccessObjectRule, scopeType: AccessScope, subjectNoun: string): InheritedAccess | null {
+function inheritedFor(o: AccessObjectRule, scopeType: ScopeType, subjectNoun: string): InheritedAccess | null {
     if (!o.inherited_access_level) {
         return null
     }
@@ -205,7 +206,7 @@ function AddObjectRuleModal({
     subjectId,
 }: {
     projectId: string
-    scopeType: AccessScope
+    scopeType: ScopeType
     subjectId: string
 }): JSX.Element {
     const logic = addObjectOverrideModalLogic({ projectId, scopeType, subjectId })

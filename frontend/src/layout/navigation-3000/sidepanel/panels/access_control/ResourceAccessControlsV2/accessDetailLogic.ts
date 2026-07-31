@@ -13,8 +13,10 @@ import {
 } from 'products/access_control/frontend/generated/api'
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
-/** Who a set of rules belongs to. 'default' is the project itself: rules that apply to everyone. */
-export type AccessScope = 'member' | 'role' | 'default'
+import type { ScopeType } from './types'
+
+/** A member or role whose access detail panel is open. The 'default' scope has no panel of its own. */
+export type AccessDetailSubjectScope = Exclude<ScopeType, 'default'>
 
 /** Where the level that takes over on removing a rule comes from. */
 export type AccessInheritedSource = 'role' | 'resource' | 'object_default' | 'built_in' | 'organization_admin'
@@ -38,12 +40,12 @@ export interface AccessPropertyRule {
 
 export interface AccessDetailLogicProps {
     projectId: string
-    scopeType: AccessScope
+    scopeType: ScopeType
     subjectId: string
 }
 
 export interface AccessDetailSubject {
-    scopeType: AccessScope
+    scopeType: AccessDetailSubjectScope
     subjectId: string
 }
 

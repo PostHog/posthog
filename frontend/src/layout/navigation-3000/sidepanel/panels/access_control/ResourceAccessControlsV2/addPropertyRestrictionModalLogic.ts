@@ -5,7 +5,8 @@ import api from 'lib/api'
 
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
-import { AccessScope, accessDetailLogic } from './accessDetailLogic'
+import { accessDetailLogic } from './accessDetailLogic'
+import type { ScopeType } from './types'
 
 export interface PropertyOption {
     id: string
@@ -14,7 +15,7 @@ export interface PropertyOption {
 
 export interface AddPropertyRestrictionModalLogicProps {
     projectId: string
-    scopeType: AccessScope
+    scopeType: ScopeType
     subjectId: string
 }
 

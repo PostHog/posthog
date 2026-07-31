@@ -40,7 +40,7 @@ import type { AccessControlResponseType, AccessControlUpdateType, RoleType } fro
 import { accessControlLogic } from '../accessControlLogic'
 import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
-import { AccessDetailSubject, AccessScope } from './accessDetailLogic'
+import { AccessDetailSubject, AccessDetailSubjectScope } from './accessDetailLogic'
 import {
     AccessControlFilters,
     AccessControlMemberEntry,
@@ -322,10 +322,10 @@ export interface accessControlsLogicActions {
         payload?: any
     }
     openAccessDetailPanel: (
-        scopeType: AccessScope,
+        scopeType: AccessDetailSubjectScope,
         subjectId: string
     ) => {
-        scopeType: AccessScope
+        scopeType: AccessDetailSubjectScope
         subjectId: string
     }
     openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => {
@@ -908,7 +908,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         setSearchText: (searchText: string) => ({ searchText }),
         openRuleModal: (state: GroupedAccessControlRuleModalLogicProps) => ({ state }),
         closeRuleModal: true,
-        openAccessDetailPanel: (scopeType: AccessScope, subjectId: string) => ({ scopeType, subjectId }),
+        openAccessDetailPanel: (scopeType: AccessDetailSubjectScope, subjectId: string) => ({ scopeType, subjectId }),
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string

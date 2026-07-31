@@ -18,7 +18,7 @@ import type { InheritedAccess } from '../accessControlLogic'
 import { AccessLevelSelect } from '../AccessLevelSelect'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import { accessControlsLogic } from './accessControlsLogic'
-import { AccessScope } from './accessDetailLogic'
+import { AccessDetailSubjectScope } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
 import { getEntryId, humanizeAccessControlLevel, isMemberEntry } from './helpers'
 import { ObjectAccessRules } from './ObjectAccessRules'
@@ -32,7 +32,7 @@ export function AccessControlDetailContent({
     entry,
 }: {
     projectId: string
-    scopeType: AccessScope
+    scopeType: AccessDetailSubjectScope
     entry: AccessControlSettingsEntry
 }): JSX.Element {
     const subjectId = getEntryId(entry)
@@ -205,7 +205,7 @@ function ProjectAccessSection({
     entry,
 }: {
     projectId: string
-    scopeType: AccessScope
+    scopeType: AccessDetailSubjectScope
     entry: AccessControlSettingsEntry
 }): JSX.Element {
     const { availableProjectLevels, canEdit } = useValues(accessControlsLogic({ projectId }))
@@ -304,7 +304,7 @@ function ToolsSection({
     subjectNoun,
 }: {
     projectId: string
-    scopeType: AccessScope
+    scopeType: AccessDetailSubjectScope
     entry: AccessControlSettingsEntry
     subjectNoun: string
 }): JSX.Element {

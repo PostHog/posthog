@@ -5,7 +5,8 @@ import api from 'lib/api'
 
 import { AccessControlLevel } from '~/types'
 
-import { AccessScope, accessDetailLogic, objectRouteFor } from './accessDetailLogic'
+import { accessDetailLogic, objectRouteFor } from './accessDetailLogic'
+import type { ScopeType } from './types'
 
 export interface ObjectOption {
     id: string
@@ -14,7 +15,7 @@ export interface ObjectOption {
 
 export interface AddObjectOverrideModalLogicProps {
     projectId: string
-    scopeType: AccessScope
+    scopeType: ScopeType
     subjectId: string
 }
 
