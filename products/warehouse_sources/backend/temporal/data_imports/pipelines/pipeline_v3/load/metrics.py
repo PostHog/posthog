@@ -55,3 +55,8 @@ DELTALITE_WRITE_TOTAL = Counter(
     "Incremental merges routed to deltalite's real write path, by outcome",
     labelnames=["outcome"],
 )
+
+DELTALITE_WRITE_DURATION_SECONDS = Histogram(
+    "warehouse_load_deltalite_write_duration_seconds",
+    "Wall-clock time of a deltalite real write (DeltaLiteTable.upsert)",
+)
