@@ -173,15 +173,6 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
-
-                    <Markdown>
-                        {dedent`
-                            Pass the same \`$ai_session_id\` across every call in a conversation to group them into one
-                            session, and \`posthog_trace_id\` to group several calls into one trace. Passing
-                            \`$ai_provider\` explicitly, as shown above, ensures cost and usage are attributed
-                            correctly instead of defaulting to OpenAI.
-                        `}
-                    </Markdown>
                 </>
             ),
         },

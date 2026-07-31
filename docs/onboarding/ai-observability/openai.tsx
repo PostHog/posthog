@@ -161,11 +161,6 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
-
-                    <Markdown>
-                        Pass the same `$ai_session_id` across every call in a conversation to group them into one
-                        session, and `posthog_trace_id` to group several calls into one trace.
-                    </Markdown>
                 </>
             ),
         },

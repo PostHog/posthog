@@ -186,15 +186,6 @@ export const getOpenAICompatibleSteps = (
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
-
-                    <Markdown>
-                        {dedent`
-                            Pass the same \`$ai_session_id\` across every call in a conversation to group them into one
-                            session. Pass \`posthog_trace_id\` to group several calls into one trace. The wrapper
-                            reports \`$ai_provider\` as \`openai\` by default, so pass it explicitly, as shown above, to
-                            attribute cost and usage to ${config.label} instead of OpenAI.
-                        `}
-                    </Markdown>
                 </>
             ),
         },
