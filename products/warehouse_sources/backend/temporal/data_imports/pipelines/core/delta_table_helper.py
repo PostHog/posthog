@@ -1,4 +1,5 @@
 import json
+import time
 import asyncio
 import contextlib
 from collections.abc import Callable, Sequence
@@ -303,6 +304,27 @@ def _merge_predicate_ops(normalized_primary_keys: list[str]) -> list[str]:
     return [f"(source.{c} IS NOT DISTINCT FROM target.{c})" for c in normalized_primary_keys]
 
 
+def _deltalite_write_stats(stats: Any) -> dict[str, int | float | str | bool]:
+    """Flatten a deltalite ``UpsertStats`` into scalar log fields for structured, parseable output.
+
+    Enumerates the object's public scalar attributes (the pyo3 ``#[pyo3(get)]`` getters — version,
+    partitions_touched, files_added/removed/carried_over/probed, rows_updated/inserted/copied,
+    source_rows, null_pk_rows, …) rather than a fixed list, so fields added crate-side later (e.g.
+    per-phase timings) surface automatically. Best-effort — a stats change must never break the write.
+    """
+    fields: dict[str, int | float | str | bool] = {}
+    for name in dir(stats):
+        if name.startswith("_"):
+            continue
+        try:
+            value = getattr(stats, name)
+        except Exception:  # noqa: BLE001 - a flaky getter must not break logging a committed write
+            continue
+        if isinstance(value, bool | int | float | str):
+            fields[name] = value
+    return fields
+
+
 def delta_storage_options() -> dict[str, str]:
     """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
     read path (e.g. the person-property backfill) can open a Delta table without constructing a full
@@ -587,6 +609,7 @@ class DeltaTableHelper:
             import deltalite
 
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+                DELTALITE_WRITE_DURATION_SECONDS,
                 DELTALITE_WRITE_TOTAL,
             )
 
@@ -603,7 +626,9 @@ class DeltaTableHelper:
                     commit_metadata=commit_metadata,
                 )
 
+            started = time.perf_counter()
             stats = await asyncio.to_thread(_upsert)
+            duration_s = time.perf_counter() - started
         except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
             await self._logger.awarning(
                 f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
@@ -622,11 +647,17 @@ class DeltaTableHelper:
             # Refresh the in-memory delta-rs handle to deltalite's new version so the table returned by
             # write_to_deltalake (and any subsequent reads) reflects the real state.
             await asyncio.to_thread(existing_delta_table.update_incremental)
+            # Structured, parseable stats (parity with the old `Delta Merge Stats: {json}` line): every
+            # UpsertStats field becomes its own log key, plus the wall-clock duration. `_deltalite_write_stats`
+            # enumerates the pyo3 getters, so fields added crate-side later (e.g. per-phase timings) flow
+            # through here without a code change.
             await self._logger.ainfo(
-                f"deltalite write: committed v{stats.version} "
-                f"(+{stats.rows_inserted} inserted / ~{stats.rows_updated} updated / {stats.rows_copied} copied)"
+                "deltalite write: committed",
+                duration_ms=round(duration_s * 1000),
+                **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
+            DELTALITE_WRITE_DURATION_SECONDS.observe(duration_s)
         except Exception as e:  # noqa: BLE001 - the write is committed; bookkeeping must never raise
             with contextlib.suppress(Exception):
                 await self._logger.awarning(f"deltalite write committed but post-commit bookkeeping failed: {e}")
