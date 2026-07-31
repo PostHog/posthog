@@ -245,10 +245,13 @@ EVALUATION_CONFIG_CONTENT_KEYS: dict[str, str] = {
 }
 
 REPORTABLE_OUTPUT_TYPES: tuple[str, ...] = (OutputType.BOOLEAN.value, OutputType.SENTIMENT.value)
+# "session" is deliberately absent: the report agent (posthog/temporal/ai_observability/eval_reports/
+# report_agent/tools.py) still hardcodes generation/trace target ids and detail tools, so a
+# scheduled session report would label session ids "generation_id" and offer generation-shaped
+# detail tools. Add "session" back only once the report agent has session-aware target handling.
 REPORTABLE_OUTPUT_TYPES_BY_TARGET: dict[str, tuple[str, ...]] = {
     "generation": REPORTABLE_OUTPUT_TYPES,
     "trace": (OutputType.BOOLEAN.value,),
-    "session": (OutputType.BOOLEAN.value,),
 }
 
 
