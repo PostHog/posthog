@@ -115,7 +115,7 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
         "taskId": str(message.task_id),
         "messageId": str(message.id),
     }
-    visible_task = Task.objects.for_team(message.team_id).filter(  # type: ignore[attr-defined]  # fail-closed manager is attached dynamically
+    visible_task = Task.objects.filter(team_id=message.team_id, deleted=False).filter(
         task_visibility_q(cast(int, OuterRef("id"))), id=message.task_id
     )
     recipients = User.objects.filter(id__in=recipient_ids).filter(Exists(visible_task))
