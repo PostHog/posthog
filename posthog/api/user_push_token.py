@@ -126,7 +126,9 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         # model's `auto_now=True`) because `update_or_create` passes
         # `defaults.keys()` as `update_fields` on the update path — fields not
         # listed there won't be written even though `pre_save` ran for them.
-        push_token, _ = UserPushToken.objects.update_or_create(
+        # A push token identifies the physical app installation, so registration
+        # intentionally transfers it from any previous account to the authenticated user.
+        push_token, _ = UserPushToken.objects.update_or_create(  # nosemgrep: idor-lookup-without-user (cross-user lookup is required to transfer device ownership)
             token=token,
             defaults={"user": user, "platform": platform, "last_seen_at": django_timezone.now()},
         )
