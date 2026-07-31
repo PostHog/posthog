@@ -45,19 +45,20 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     })
 
     const installations = githubAvailableInstallations ?? []
-    const canLinkExisting = githubIntegrations.length === 0 && installations.length > 0
+    const isConnected = githubIntegrations.length > 0
+    const canLinkExisting = !isConnected && installations.length > 0
     const multipleInstallations = installations.length > 1
 
     return (
         <Integration kind="github">
             <div className="flex flex-col gap-y-2">
                 <div className="flex flex-wrap gap-2">
-                    {/* This leaves PostHog entirely. GitHub decides what it shows, since an app
-                        installs at most once per account: install where it's missing, configure
-                        where it's already there. So the label names the destination, not an
-                        outcome we can promise. */}
+                    {/* This leaves PostHog entirely, and a GitHub App installs at most once per
+                        account, so GitHub offers install where it's missing and configure where it
+                        isn't. Connecting is only a promise we can keep while this project has
+                        nothing linked; past that the honest label is the destination. */}
                     <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
-                        Manage on GitHub
+                        {isConnected ? 'Manage on GitHub' : 'Connect organization'}
                     </LemonButton>
                     {canLinkExisting && (
                         <GitHubInstallationLink
@@ -67,10 +68,12 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
                         />
                     )}
                 </div>
-                <p className="text-secondary text-xs mb-0">
-                    Install the PostHog app on a GitHub account, or change which repositories an existing installation
-                    can see.
-                </p>
+                {isConnected && (
+                    <p className="text-secondary text-xs mb-0">
+                        Install the PostHog app on another GitHub account, or change which repositories this
+                        installation can see.
+                    </p>
+                )}
                 {canLinkExisting && (
                     <p className="text-secondary text-xs mb-0">
                         {multipleInstallations
