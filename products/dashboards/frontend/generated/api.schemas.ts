@@ -295,6 +295,8 @@ export type DashboardApiFilters = { [key: string]: unknown }
  */
 export type DashboardApiVariables = { [key: string]: unknown } | null
 
+export type DashboardApiBreakdownColorsItem = { [key: string]: unknown }
+
 /**
  * @nullable
  */
@@ -306,8 +308,6 @@ export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
-
-export type DashboardApiBreakdownColorsItem = { [key: string]: unknown }
 
 /**
  * Serializer mixin that handles tags for objects.
@@ -390,6 +390,8 @@ export interface DashboardCollaboratorApi {
     readonly updated_at: string
     user_uuid: string
 }
+
+export type PatchedPatchedDashboardOpenApiApiBreakdownColorsItem = { [key: string]: unknown }
 
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
@@ -838,8 +840,6 @@ export interface DashboardPatchTileOpenApiApi {
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
 }
-
-export type PatchedPatchedDashboardOpenApiApiBreakdownColorsItem = { [key: string]: unknown }
 
 /**
  * OpenAPI-only PATCH body for dashboards (agents/MCP).

@@ -16241,6 +16241,8 @@ export namespace Schemas {
      */
     export type DashboardVariables = { [key: string]: unknown } | null;
 
+    export type DashboardBreakdownColorsItem = { [key: string]: unknown };
+
     /**
      * @nullable
      */
@@ -16294,8 +16296,8 @@ export namespace Schemas {
       readonly filters: DashboardFilters;
       /** @nullable */
       readonly variables: DashboardVariables;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
+      /** Custom color mapping for breakdown values, as a list of breakdown color config objects. */
+      breakdown_colors?: DashboardBreakdownColorsItem[];
       /**
          * ID of the color theme used for chart visualizations.
          * @nullable
@@ -52821,6 +52823,8 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
+    export type PatchedPatchedDashboardOpenApiBreakdownColorsItem = { [key: string]: unknown };
+
     /**
      * OpenAPI-only PATCH body for dashboards (agents/MCP).
      *
@@ -52837,8 +52841,8 @@ export namespace Schemas {
       pinned?: boolean;
       /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
       filters?: DashboardFiltersOpenApi;
-      /** Custom color mapping for breakdown values. */
-      breakdown_colors?: unknown;
+      /** Custom color mapping for breakdown values, as a list of breakdown color config objects. */
+      breakdown_colors?: PatchedPatchedDashboardOpenApiBreakdownColorsItem[];
       /**
          * ID of the color theme used for chart visualizations.
          * @nullable
