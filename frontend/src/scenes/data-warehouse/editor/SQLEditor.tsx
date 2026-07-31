@@ -165,14 +165,16 @@ export function SQLEditor({
     // On builder-hosted tabs the top-level tabs split the scene: Source owns the query pane,
     // database tree, and raw results; Visualization gives the builder canvas the whole scene.
     // Gated on the builder actually hosting the visualization, so a legacy (non-builder) insight
-    // never loses its query pane.
+    // never loses its query pane. The query pane is hidden rather than unmounted on Visualization
+    // so Monaco initializes once and keeps its model — tearing it down mid-load left the editor
+    // blank or dropping edits when flipping back to Source.
     const builderCanvasActive = insightBuilderHosted && outputActiveTab === OutputTab.Visualization
 
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
-    const showQueryPanel = panel !== SQLEditorPanel.Output && !builderCanvasActive
+    const showQueryPanel = panel !== SQLEditorPanel.Output
     const showOutputPanel = panel !== SQLEditorPanel.Query
     const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
-    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
+    const showDatabaseTreePanel = showQueryPanel && !builderCanvasActive && shouldShowDatabaseTree
     const showFullSceneModals = mode === SQLEditorMode.FullScene
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
@@ -268,6 +270,7 @@ export function SQLEditor({
                                                             showDatabaseTree={showDatabaseTreePanel}
                                                             onShowDatabaseTree={() => setHasShownDatabaseTree(true)}
                                                             showQueryPanel={showQueryPanel}
+                                                            queryPanelHidden={builderCanvasActive}
                                                             showOutputPanel={showOutputPanel}
                                                             onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
                                                                 setMonacoAndEditor([nextMonaco, nextEditor])

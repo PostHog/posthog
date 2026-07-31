@@ -3,7 +3,7 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { Suspense, lazy, useCallback, useMemo, useRef, useState } from 'react'
+import { ComponentType, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
@@ -20,7 +20,16 @@ import {
     IconScreen,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonMenu,
+    LemonModal,
+    LemonTable,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -85,8 +94,11 @@ import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
 
 // Lazy to break the OutputPane ⇄ BuilderCanvas import cycle (BuilderPreview renders
-// InternalDataTableVisualization, which lives here).
-const BuilderCanvas = lazy(() => import('./insightBuilder/BuilderCanvas').then((m) => ({ default: m.BuilderCanvas })))
+// InternalDataTableVisualization, which lives here). Prefetched as soon as a builder tab
+// renders, so the first Visualization open doesn't stall on a cold chunk load.
+const importBuilderCanvas = (): Promise<{ default: ComponentType<{ tabId: string }> }> =>
+    import('./insightBuilder/BuilderCanvas').then((m) => ({ default: m.BuilderCanvas }))
+const BuilderCanvas = lazy(importBuilderCanvas)
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -685,6 +697,14 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         pollResponse: basePollResponse,
     } = useValues(dataNodeLogic(baseNodeProps))
 
+    // Warm the canvas chunk while the user is still on Source, so opening Visualization
+    // doesn't stall on a cold lazy import
+    useEffect(() => {
+        if (builderLayout) {
+            void importBuilderCanvas()
+        }
+    }, [builderLayout])
+
     const baseGridActive = builderLayout && !!sourceQuery.builder?.enabled
     // What the results grid (and its actions/footer) show: base data on builder tabs, the shared
     // node otherwise. The chart always reads the shared node directly.
@@ -1281,7 +1301,13 @@ const Content = ({
     if (activeTab === OutputTab.Visualization && builderLayout) {
         return (
             <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden border-t">
-                <Suspense fallback={<LoadingBar />}>
+                <Suspense
+                    fallback={
+                        <div className="flex flex-1 items-center justify-center p-8">
+                            <Spinner className="text-2xl" />
+                        </div>
+                    }
+                >
                     <BuilderCanvas tabId={tabId} />
                 </Suspense>
             </div>

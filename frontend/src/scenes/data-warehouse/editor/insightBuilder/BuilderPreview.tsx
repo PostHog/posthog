@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCode, IconGraph } from '@posthog/icons'
-import { LemonBanner, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
@@ -128,8 +127,8 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
         // The Visualization tab opens before the insight fetch resolves — show a loader instead
         // of a flash of empty wells that snap into the hydrated chart
         content = (
-            <div className="flex flex-1 flex-col items-center justify-center">
-                <LoadingBar />
+            <div className="flex flex-1 items-center justify-center p-8">
+                <Spinner className="text-2xl" />
             </div>
         )
     } else if (!hasAnyField) {

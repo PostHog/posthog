@@ -47,6 +47,11 @@ interface QueryWindowProps {
     showDatabaseTree: boolean
     onShowDatabaseTree: () => void
     showQueryPanel?: boolean
+    /**
+     * Keep the query pane mounted but visually hidden (builder Visualization tab) — unmounting
+     * tears Monaco down mid-initialization and loses its model wiring.
+     */
+    queryPanelHidden?: boolean
     showOutputPanel?: boolean
     onRunQuery?: () => void
     runQueryLoading?: boolean
@@ -67,6 +72,7 @@ export function QueryWindow({
     showDatabaseTree,
     onShowDatabaseTree,
     showQueryPanel = true,
+    queryPanelHidden = false,
     showOutputPanel = true,
     onRunQuery,
     runQueryLoading,
@@ -242,130 +248,137 @@ export function QueryWindow({
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {showQueryPanel ? (
-                <div
-                    className={cn(
-                        'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
-                        isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
-                    )}
-                >
-                    <div className="flex items-center gap-2">
-                        <ExpandDatabaseTreeButton
-                            showDatabaseTree={showDatabaseTree}
-                            onShowDatabaseTree={onShowDatabaseTree}
-                        />
-                        <RunButton
-                            onRunQuery={onRunQuery}
-                            runQueryLoading={runQueryLoading}
-                            runQueryDisabledReason={runQueryDisabledReason}
-                            runQueryTooltip={runQueryTooltip}
-                            onCancelQuery={onCancelQuery}
-                            cancelQueryLoading={cancelQueryLoading}
-                        />
-                        <CollapsedConnectionSelector tabId={tabId} mode={mode} />
-                        <LemonDivider vertical />
-                        <QueryVariablesMenu
-                            disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
-                        />
-                        <QueryFiltersMenu />
-                        {editingView ? (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.WarehouseObjects}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconDatabase />}
-                                    onClick={() => openMaterializationModal(editingView)}
-                                    data-attr="sql-editor-materialization-button"
-                                >
-                                    Materialization
-                                </LemonButton>
-                            </AccessControlAction>
-                        ) : null}
-                    </div>
-
-                    <div className="ml-auto flex items-center gap-2">
-                        <FixErrorButton type="secondary" size="small" source="action-bar" />
-                        {editorSettingsItems.length > 0 ? (
-                            <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
-                                <LemonButton
-                                    icon={<IconGear />}
-                                    type="secondary"
-                                    size="small"
-                                    tooltip="Editor settings"
-                                    data-attr="sql-editor-settings-toggle"
-                                />
-                            </LemonMenu>
-                        ) : null}
-                        {mode === SQLEditorMode.Embedded && (
-                            <SceneTitlePanelButton
-                                buttonClassName="size-[26px]"
-                                maxToolProps={executeSqlMaxToolProps}
-                            />
+            {/* Hidden (not unmounted) on the builder's Visualization tab so Monaco stays alive */}
+            <div className={cn('flex min-h-0 flex-col', queryPanelHidden && 'hidden')}>
+                {showQueryPanel ? (
+                    <div
+                        className={cn(
+                            'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
+                            isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
                         )}
-                    </div>
-                </div>
-            ) : null}
+                    >
+                        <div className="flex items-center gap-2">
+                            <ExpandDatabaseTreeButton
+                                showDatabaseTree={showDatabaseTree}
+                                onShowDatabaseTree={onShowDatabaseTree}
+                            />
+                            <RunButton
+                                onRunQuery={onRunQuery}
+                                runQueryLoading={runQueryLoading}
+                                runQueryDisabledReason={runQueryDisabledReason}
+                                runQueryTooltip={runQueryTooltip}
+                                onCancelQuery={onCancelQuery}
+                                cancelQueryLoading={cancelQueryLoading}
+                            />
+                            <CollapsedConnectionSelector tabId={tabId} mode={mode} />
+                            <LemonDivider vertical />
+                            <QueryVariablesMenu
+                                disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
+                            />
+                            <QueryFiltersMenu />
+                            {editingView ? (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.WarehouseObjects}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconDatabase />}
+                                        onClick={() => openMaterializationModal(editingView)}
+                                        data-attr="sql-editor-materialization-button"
+                                    >
+                                        Materialization
+                                    </LemonButton>
+                                </AccessControlAction>
+                            ) : null}
+                        </div>
 
-            {showQueryPanel ? (
-                <QueryPane
-                    originalValue={originalQueryInput ?? ''}
-                    queryInput={(suggestedQueryInput || queryInput) ?? ''}
-                    sourceQuery={sourceQuery.source}
-                    promptError={null}
-                    onRun={runQuery}
-                    editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
-                    constrainHeight={showOutputPanel}
-                    codeEditorProps={{
-                        queryKey: codeEditorKey,
-                        autoFocus: autoFocusQueryPane ?? true,
-                        // Bind the editor to the tab's persistent Monaco model and keep it
-                        // alive across the diff <-> editor swap, so undo history survives an
-                        // accepted AI suggestion. Shares the URI with the model createTab makes.
-                        path: tabModelPath(tabId),
-                        keepCurrentModel: true,
-                        metadataQuery: activeQueryText ?? undefined,
-                        metadataQueryOffset: activeQueryOffset,
-                        onChange: (v) => {
-                            setQueryInput(v ?? '')
-                        },
-                        onMount: (editor, monaco) => {
-                            onSetMonacoAndEditor(monaco, editor)
-                        },
-                        onPressCmdEnter: (value, selectionType) => {
-                            if (onRunQuery) {
-                                if (!runQueryLoading) {
-                                    onRunQuery()
+                        <div className="ml-auto flex items-center gap-2">
+                            <FixErrorButton type="secondary" size="small" source="action-bar" />
+                            {editorSettingsItems.length > 0 ? (
+                                <LemonMenu
+                                    items={editorSettingsItems}
+                                    closeOnClickInside={false}
+                                    placement="bottom-end"
+                                >
+                                    <LemonButton
+                                        icon={<IconGear />}
+                                        type="secondary"
+                                        size="small"
+                                        tooltip="Editor settings"
+                                        data-attr="sql-editor-settings-toggle"
+                                    />
+                                </LemonMenu>
+                            ) : null}
+                            {mode === SQLEditorMode.Embedded && (
+                                <SceneTitlePanelButton
+                                    buttonClassName="size-[26px]"
+                                    maxToolProps={executeSqlMaxToolProps}
+                                />
+                            )}
+                        </div>
+                    </div>
+                ) : null}
+
+                {showQueryPanel ? (
+                    <QueryPane
+                        originalValue={originalQueryInput ?? ''}
+                        queryInput={(suggestedQueryInput || queryInput) ?? ''}
+                        sourceQuery={sourceQuery.source}
+                        promptError={null}
+                        onRun={runQuery}
+                        editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
+                        constrainHeight={showOutputPanel}
+                        codeEditorProps={{
+                            queryKey: codeEditorKey,
+                            autoFocus: autoFocusQueryPane ?? true,
+                            // Bind the editor to the tab's persistent Monaco model and keep it
+                            // alive across the diff <-> editor swap, so undo history survives an
+                            // accepted AI suggestion. Shares the URI with the model createTab makes.
+                            path: tabModelPath(tabId),
+                            keepCurrentModel: true,
+                            metadataQuery: activeQueryText ?? undefined,
+                            metadataQueryOffset: activeQueryOffset,
+                            onChange: (v) => {
+                                setQueryInput(v ?? '')
+                            },
+                            onMount: (editor, monaco) => {
+                                onSetMonacoAndEditor(monaco, editor)
+                            },
+                            onPressCmdEnter: (value, selectionType) => {
+                                if (onRunQuery) {
+                                    if (!runQueryLoading) {
+                                        onRunQuery()
+                                    }
+                                    return
                                 }
-                                return
-                            }
-                            if (value && selectionType === 'selection') {
-                                runQuery(value)
-                            } else {
-                                runQuery()
-                            }
-                        },
-                        onPressCmdShiftEnter: onRunQuery
-                            ? () => {
-                                  if (!runQueryLoading) {
-                                      onRunQuery()
+                                if (value && selectionType === 'selection') {
+                                    runQuery(value)
+                                } else {
+                                    runQuery()
+                                }
+                            },
+                            onPressCmdShiftEnter: onRunQuery
+                                ? () => {
+                                      if (!runQueryLoading) {
+                                          onRunQuery()
+                                      }
                                   }
-                              }
-                            : runSubquery,
-                        onError: (error) => {
-                            setError(error)
-                        },
-                        onMetadata: (metadata) => {
-                            setMetadata(metadata)
-                        },
-                        onMetadataLoading: (loading) => {
-                            setMetadataLoading(loading)
-                        },
-                    }}
-                />
-            ) : null}
+                                : runSubquery,
+                            onError: (error) => {
+                                setError(error)
+                            },
+                            onMetadata: (metadata) => {
+                                setMetadata(metadata)
+                            },
+                            onMetadataLoading: (loading) => {
+                                setMetadataLoading(loading)
+                            },
+                        }}
+                    />
+                ) : null}
+            </div>
 
             {showOutputPanel ? <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} /> : null}
         </div>
