@@ -1,6 +1,6 @@
 """Classified parity report: new Rust cohort pipeline vs an oracle.
 
-Two oracle modes select what the folded shadow topic (the new pipeline's converged membership) is
+Three oracle modes select what the folded shadow topic (the new pipeline's converged membership) is
 compared against:
 
 - ``--oracle old-pipeline`` (default): the argMax of ClickHouse ``cohort_membership`` — the legacy
@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
@@ -44,7 +45,7 @@ from posthog.models.team.team import Team
 from products.cohorts.backend.backfill.pinning import pin_conditions_for_cohorts
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.parity.classifier import ClassifierConfig, CohortComparison, classify_cohort, summarize
-from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, screen_team
+from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, ScreenedCohort, screen_team
 from products.cohorts.backend.parity.fold import fold_membership_changes, members, reconcile_completeness_by_cohort
 from products.cohorts.backend.parity.kafka_io import DEFAULT_SHADOW_TOPIC, DrainStats, consumer_config, drain_topic
 from products.cohorts.backend.parity.oracle import (
@@ -106,7 +107,8 @@ DEFAULT_GRACE_MINUTES = 10
 # A cohort window wider than this drives an unbounded `events` scan for no diagnostic gain; the Rust
 # side treats such a window as "never evicts" rather than sliding, so SKIP instead of scanning.
 DEFAULT_MAX_WINDOW_DAYS = 400
-# `load_leaf_members` materializes the whole set in a Python set; past this it OOMs a toolbox pod.
+# The oracle reads (leaf recompute, cohortpeople population) materialize whole member sets in
+# Python; past this they OOM a toolbox pod.
 DEFAULT_MAX_ORACLE_MEMBERS = 1_000_000
 # Grace is also the sweep-lag horizon, so a whole day of it would swallow the boundary day.
 MAX_GRACE_MINUTES = 24 * 60
@@ -291,7 +293,7 @@ def _within_target_cap(targets: list[str], side: str, notes: list[str]) -> bool:
 _MODE_FLAGS = {
     "old-pipeline": ("threshold", "warmup_sample", "no_classify"),
     "recompute": ("at", "run_id", "grace_minutes", "max_window_days", "max_oracle_members"),
-    "population": ("with_ids",),
+    "population": ("with_ids", "max_oracle_members"),
 }
 _ALL_MODE_FLAGS = tuple(sorted({flag for flags in _MODE_FLAGS.values() for flag in flags}))
 
@@ -313,7 +315,7 @@ def _reject_flags(options: dict[str, Any], mode: str) -> None:
 
 
 class Command(BaseCommand):
-    help = "Compare new-pipeline (shadow topic) vs an oracle (old pipeline or recompute) cohort membership"
+    help = "Compare new-pipeline (shadow topic) vs an oracle (old pipeline, recompute or population) cohort membership"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
@@ -366,8 +368,8 @@ class Command(BaseCommand):
             "--max-oracle-members",
             type=int,
             default=None,
-            help=f"recompute only: cohorts whose leaf matches more persons than this SKIP rather than being "
-            f"materialized in memory (default {DEFAULT_MAX_ORACLE_MEMBERS})",
+            help=f"recompute/population only: cohorts whose oracle set (leaf members / cohortpeople population) "
+            f"exceeds this SKIP rather than being materialized in memory (default {DEFAULT_MAX_ORACLE_MEMBERS})",
         )
         parser.add_argument(
             "--threshold",
@@ -409,6 +411,8 @@ class Command(BaseCommand):
         if oracle == "population":
             if options["with_ids"] and not as_json:
                 raise CommandError("--with-ids needs --format json; the id lists do not fit a fixed-width table")
+            if options["max_oracle_members"] is not None and options["max_oracle_members"] < 1:
+                raise CommandError("--max-oracle-members must be positive")
         elif oracle == "recompute":
             self._validate_recompute_flags(options)
             if options["at"] is not None:
@@ -447,12 +451,16 @@ class Command(BaseCommand):
         # Each cohort's legacy population was calculated on its own schedule, so the population
         # oracle's clock is per cohort — one team-wide instant cannot bound a multi-cohort fold.
         selected = set(selected_ids)
-        until_by_cohort = (
-            {c.pk: c.last_calculation for c in cohorts if c.pk in selected and c.last_calculation is not None}
-            if oracle == "population"
-            else None
-        )
-        pre_drain_versions = {c.pk: c.version for c in cohorts}
+        until_by_cohort: Optional[dict[int, datetime]] = None
+        pre_drain_versions: dict[int, Optional[int]] = {}
+        pre_drain_calculated_at: dict[int, Optional[datetime]] = {}
+        if oracle == "population":
+            # A never-calculated cohort has no oracle clock, so pin its bound to --since: that
+            # empties its fold instead of accumulating state the never_calculated skip row below
+            # would only throw away.
+            until_by_cohort = {c.pk: c.last_calculation or since for c in cohorts if c.pk in selected}
+            pre_drain_versions = {c.pk: c.version for c in cohorts}
+            pre_drain_calculated_at = {c.pk: c.last_calculation for c in cohorts}
 
         histogram = Counter(s.eligibility for s in screened.values())
         log(f"eligibility histogram (cross-check against cohort_eligibility_total): {dict(histogram)}")
@@ -528,8 +536,10 @@ class Command(BaseCommand):
                 since=since,
                 now=datetime.now(tz=UTC),
                 selected_ids=selected_ids,
+                screened=screened,
                 names=names,
                 pre_drain_versions=pre_drain_versions,
+                pre_drain_calculated_at=pre_drain_calculated_at,
                 new_state=new_state,
                 fold_stats=fold_stats,
                 drain_warnings=warnings,
@@ -653,8 +663,10 @@ class Command(BaseCommand):
         since: datetime,
         now: datetime,
         selected_ids: list[int],
+        screened: Mapping[int, ScreenedCohort],
         names: dict[int, str],
         pre_drain_versions: dict[int, Optional[int]],
+        pre_drain_calculated_at: dict[int, Optional[datetime]],
         new_state: Any,
         fold_stats: Any,
         drain_warnings: list[str],
@@ -662,12 +674,15 @@ class Command(BaseCommand):
         log: Any,
     ) -> None:
         with_ids: bool = options["with_ids"]
+        max_members = (
+            DEFAULT_MAX_ORACLE_MEMBERS if options["max_oracle_members"] is None else options["max_oracle_members"]
+        )
         completeness_by_cohort = reconcile_completeness_by_cohort(fold_stats)
         # Re-read after the drain: the batch calculation is scheduled and the drain takes minutes.
         current = {
             c.pk: c
             for c in Cohort.objects.filter(team_id=team_id, pk__in=selected_ids).only(
-                "id", "version", "last_calculation", "is_calculating"
+                "id", "version", "last_calculation", "is_calculating", "deleted"
             )
         }
         log(f"diffing up to {len(selected_ids)} cohort(s) against their pinned cohortpeople population")
@@ -676,13 +691,30 @@ class Command(BaseCommand):
         warn_states: list[PopulationCohortState] = []
         for cid in sorted(selected_ids):
             name = names[cid]
+            s = screened[cid]
+            if not s.emits:
+                # The fold side is structurally empty because the processor never emits for this
+                # cohort, so a compared row would head the table at 0% and drag the aggregate for a
+                # coverage gap the eligibility histogram already reports (and the stderr warning
+                # above already called SKIPPED).
+                reason = "not emit-eligible: " + ", ".join(s.drop_reasons or (s.eligibility,))
+                rows.append(skip_population(cohort_id=cid, name=name, reason=reason))
+                continue
             cohort = current.get(cid)
             if cohort is None:
                 rows.append(skip_population(cohort_id=cid, name=name, reason="cohort_row_disappeared"))
                 continue
-            if cohort.version != pre_drain_versions[cid]:
+            if cohort.deleted:
+                # A soft delete enqueues an async DELETE of the cohort's whole cohortpeople range
+                # with no version bump, so the guard below cannot catch it and the legacy side may
+                # already read back empty.
+                rows.append(skip_population(cohort_id=cid, name=name, reason="deleted_during_run"))
+                continue
+            if cohort.version != pre_drain_versions[cid] or cohort.last_calculation != pre_drain_calculated_at[cid]:
                 # Reading cohortpeople at a version that is being collapsed away would silently
-                # produce a garbage row; re-running is the fix, so say so instead of comparing.
+                # produce a garbage row, and calculate_people_ch stamps version and last_calculation
+                # in separate writes, so either moving alone means the fold's bound no longer
+                # matches the population read. Re-running is the fix, so say so instead of comparing.
                 rows.append(skip_population(cohort_id=cid, name=name, reason="recalculated_during_run"))
                 continue
             if cohort.version is None or cohort.last_calculation is None:
@@ -695,6 +727,11 @@ class Command(BaseCommand):
                 rows.append(skip_population(cohort_id=cid, name=name, reason="last_calculation_before_since"))
                 continue
 
+            try:
+                legacy_members = load_cohort_population(team_id, cid, cohort.version, limit=max_members)
+            except OracleSetTooLarge as err:
+                rows.append(skip_population(cohort_id=cid, name=name, reason=f"population_over_{err.limit}"))
+                continue
             warn_states.append(
                 PopulationCohortState(
                     cohort_id=cid,
@@ -708,7 +745,7 @@ class Command(BaseCommand):
                     cohort_id=cid,
                     name=name,
                     fold_members=members(new_state.get(cid, {})),
-                    legacy_members=load_cohort_population(team_id, cid, cohort.version),
+                    legacy_members=legacy_members,
                     legacy_version=cohort.version,
                     calculated_at=cohort.last_calculation,
                     with_ids=with_ids,

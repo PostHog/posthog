@@ -28,7 +28,9 @@ class PopulationComparison:
     both: int = 0
     only_fold: int = 0
     only_legacy: int = 0
-    match_pct: float = 0.0
+    # None on skip rows: a skipped cohort has no agreement to report, and a 0.0 in the JSON would
+    # read as total disagreement rather than as no data.
+    match_pct: Optional[float] = None
     legacy_version: Optional[int] = None
     calculated_at: Optional[str] = None
     only_fold_ids: tuple[str, ...] = ()
@@ -86,7 +88,8 @@ class PopulationSummary:
     both_total: int = 0
     only_fold_total: int = 0
     only_legacy_total: int = 0
-    match_pct: float = 0.0
+    # None when nothing was compared: an all-skip run must ship null, not a perfect 100.0.
+    match_pct: Optional[float] = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -102,7 +105,8 @@ def summarize_population(rows: Sequence[PopulationComparison]) -> PopulationSumm
         summary.both_total += row.both
         summary.only_fold_total += row.only_fold
         summary.only_legacy_total += row.only_legacy
-    summary.match_pct = _match_pct(
-        summary.both_total, summary.both_total + summary.only_fold_total + summary.only_legacy_total
-    )
+    if summary.compared:
+        summary.match_pct = _match_pct(
+            summary.both_total, summary.both_total + summary.only_fold_total + summary.only_legacy_total
+        )
     return summary

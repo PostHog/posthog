@@ -7,7 +7,10 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.cohorts.backend.management.commands.compare_cohort_membership import (
+    _ALL_MODE_FLAGS,
+    _MODE_FLAGS,
     DEFAULT_THRESHOLD_PCT,
+    Command,
     PopulationCohortState,
     RecomputeCohortState,
     _collect_population_warnings,
@@ -89,6 +92,9 @@ class TestRejectFlags(SimpleTestCase):
             ("population_rejects_recompute_flag", "population", {"at": "2026-07-30T00:00:00Z"}, True),
             ("population_rejects_old_pipeline_flag", "population", {"threshold": 1.0}, True),
             ("population_accepts_own_flag", "population", {"with_ids": True}, False),
+            # max_oracle_members is owned by two modes; collapsing the registry back to single-owner
+            # would make population reject the cap it needs against oversized cohortpeople reads.
+            ("population_accepts_shared_max_oracle_members", "population", {"max_oracle_members": 5}, False),
             ("old_pipeline_rejects_population_flag", "old-pipeline", {"with_ids": True}, True),
             ("old_pipeline_accepts_own_flag", "old-pipeline", {"no_classify": True}, False),
             ("nothing_set", "population", {}, False),
@@ -103,6 +109,28 @@ class TestRejectFlags(SimpleTestCase):
             return
         with self.assertRaises(CommandError):
             _reject_flags(options, mode)
+
+    def test_every_mode_only_flag_matches_the_registry(self) -> None:
+        # A flag in the registry but missing from the parser fails loudly (KeyError on options), but
+        # a parser flag missing from the registry is silently accepted by every other oracle. The
+        # "<modes> only:" help prefix is the one place each flag names its owners, so hold it and
+        # the registry in sync, in both directions.
+        parser = Command().create_parser("manage.py", "compare_cohort_membership")
+        prefixed: list[str] = []
+        for action in parser._actions:
+            owner_part, sep, _rest = (action.help or "").partition(" only:")
+            if not sep:
+                continue
+            prefixed.append(action.dest)
+            owners = owner_part.split("/")
+            for mode, flags in _MODE_FLAGS.items():
+                self.assertEqual(
+                    action.dest in flags,
+                    mode in owners,
+                    f"--{action.dest.replace('_', '-')}: help names {owners} but the registry owners "
+                    f"are {[m for m, f in _MODE_FLAGS.items() if action.dest in f]}",
+                )
+        self.assertEqual(sorted(prefixed), list(_ALL_MODE_FLAGS))
 
 
 def _ctx(**overrides: Any) -> RunContext:

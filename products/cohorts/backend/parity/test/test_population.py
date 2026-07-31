@@ -72,4 +72,15 @@ class TestPopulation(SimpleTestCase):
         self.assertEqual((summary.compared, summary.skipped), (2, 1))
         self.assertEqual((summary.fold_total, summary.legacy_total), (201, 101))
         self.assertEqual((summary.both_total, summary.only_fold_total, summary.only_legacy_total), (101, 100, 0))
+        assert summary.match_pct is not None
         self.assertAlmostEqual(summary.match_pct, 101 / 201 * 100)
+
+    def test_all_skipped_run_has_no_match_pct(self) -> None:
+        # A single --cohort-id run whose only row skips would otherwise serialize the all-zero totals
+        # as a perfect 100.0 next to "compared": 0, and a JSON reader keying on the summary would
+        # read "no oracle anywhere" as agreement.
+        row = skip_population(cohort_id=3, name="c3", reason="last_calculation_before_since")
+        self.assertIsNone(row.match_pct)
+        summary = summarize_population([row])
+        self.assertEqual((summary.compared, summary.skipped), (0, 1))
+        self.assertIsNone(summary.match_pct)

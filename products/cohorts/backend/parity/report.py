@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from typing import Any
 
 from products.cohorts.backend.parity.classifier import (
@@ -171,8 +171,9 @@ def to_recompute_json(
 
 
 def _sorted_population_rows(rows: Sequence[PopulationComparison]) -> list[PopulationComparison]:
-    # Worst agreement first — with no verdict to sort on, that is what a report-only mode is read for.
-    return sorted(rows, key=lambda r: (not r.compared, r.match_pct, r.cohort_id))
+    # Worst agreement first, because with no verdict to sort on that is what a report-only mode is
+    # read for. Skipped rows have no match_pct and sort last on the compared key alone.
+    return sorted(rows, key=lambda r: (not r.compared, r.match_pct if r.match_pct is not None else 0.0, r.cohort_id))
 
 
 _POPULATION_LABEL_WIDTH = 32
@@ -198,16 +199,17 @@ def format_population_table(rows: Sequence[PopulationComparison]) -> str:
                 f"{'-':>{_POPULATION_MATCH_WIDTH}}"
             )
             continue
+        match = "-" if r.match_pct is None else f"{r.match_pct:.2f}%"
         lines.append(
             f"{label:<{_POPULATION_LABEL_WIDTH}} {r.fold_count:>9} {r.legacy_count:>9} {r.both:>9} "
-            f"{r.only_fold:>9} {r.only_legacy:>11} {r.match_pct:>6.2f}%"
+            f"{r.only_fold:>9} {r.only_legacy:>11} {match:>{_POPULATION_MATCH_WIDTH}}"
         )
     return "\n".join(lines)
 
 
 def format_population_summary(summary: PopulationSummary) -> str:
-    # With nothing compared the aggregate would read as total agreement rather than as no data.
-    match = f"{summary.match_pct:.2f}%" if summary.compared else "-"
+    # match_pct is None when nothing was compared: no data, not total agreement.
+    match = f"{summary.match_pct:.2f}%" if summary.match_pct is not None else "-"
     lines = [
         f"compared: {summary.compared}, skipped: {summary.skipped}",
         f"fold={summary.fold_total} legacy={summary.legacy_total} both={summary.both_total} "
@@ -226,5 +228,7 @@ def to_population_json(
     return {
         "meta": dict(meta),
         "summary": asdict(summary),
-        "cohorts": [asdict(r) for r in _sorted_population_rows(rows)],
+        # Not asdict: it deep-copies containers, and with --with-ids the id tuples can hold the
+        # whole diff; a shallow dict keeps them shared with the rows. No nested dataclasses here.
+        "cohorts": [{f.name: getattr(r, f.name) for f in fields(r)} for r in _sorted_population_rows(rows)],
     }

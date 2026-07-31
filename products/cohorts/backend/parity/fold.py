@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Optional, TypeGuard
 from uuid import UUID
 
 RECONCILE_COMPLETE_TYPE = "reconcile_complete"
@@ -87,6 +87,11 @@ def _optional_string(raw: Any) -> Optional[str]:
     return raw if isinstance(raw, str) and raw else None
 
 
+def _is_int(value: Any) -> TypeGuard[int]:
+    # bool subclasses int, so a bare isinstance check would accept True as a team/cohort/partition id.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _record_marker(
     message: dict[str, Any],
     cohort_id: Any,
@@ -99,10 +104,8 @@ def _record_marker(
     partition = message.get("partition")
     if (
         run_id is None
-        or not isinstance(cohort_id, int)
-        or isinstance(cohort_id, bool)
-        or not isinstance(partition, int)
-        or isinstance(partition, bool)
+        or not _is_int(cohort_id)
+        or not _is_int(partition)
         or not 0 <= partition < RECONCILE_PARTITION_COUNT
         or last_updated is None
     ):
@@ -124,7 +127,7 @@ def _bound_for(
     until: Optional[datetime],
     until_by_cohort: Optional[Mapping[int, datetime]],
 ) -> Optional[datetime]:
-    if until_by_cohort is None or not isinstance(cohort_id, int) or isinstance(cohort_id, bool):
+    if until_by_cohort is None or not _is_int(cohort_id):
         return until
     return until_by_cohort.get(cohort_id, until)
 
@@ -149,7 +152,7 @@ def fold_membership_changes(
     for message in messages:
         stats.total += 1
         message_team_id = message.get("team_id")
-        if not isinstance(message_team_id, int) or isinstance(message_team_id, bool):
+        if not _is_int(message_team_id):
             stats.dropped_malformed += 1
             continue
         if message_team_id != team_id:
@@ -166,8 +169,7 @@ def fold_membership_changes(
         person_id = message.get("person_id")
         status = message.get("status")
         if (
-            not isinstance(cohort_id, int)
-            or isinstance(cohort_id, bool)
+            not _is_int(cohort_id)
             or not isinstance(person_id, str)
             or not person_id
             or status not in ("entered", "left")

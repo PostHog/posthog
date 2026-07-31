@@ -134,6 +134,10 @@ class TestFold(SimpleTestCase):
                 _msg("entered", "2026-07-07 19:09:00.000001", cohort_id=20, person_id="P2"),
                 _msg("entered", "2026-07-07 19:19:00.000001", cohort_id=30, person_id="P3"),
                 _marker(0, cohort_id=20, ts="2026-07-07 19:09:00.000001"),
+                # Past cohort 10's own bound: a marker recorded here would flip has_complete_reconcile
+                # and silence the only_legacy-is-an-upper-bound warning in population mode, where the
+                # global until is always None.
+                _marker(0, cohort_id=10, ts="2026-07-07 19:09:00.000001"),
             ],
             team_id=2,
             since=SINCE,
@@ -144,7 +148,8 @@ class TestFold(SimpleTestCase):
         self.assertEqual(members(state[20]), {"p2"})
         self.assertNotIn(30, state)
         self.assertEqual(reconcile_completeness(stats, 20)[0].partitions_seen, 1)
-        self.assertEqual(stats.dropped_after_until, 2)
+        self.assertEqual(reconcile_completeness(stats, 10), ())
+        self.assertEqual(stats.dropped_after_until, 3)
 
     def test_until_bound_drops_later_reconcile_markers(self) -> None:
         _state, stats = fold_membership_changes(
