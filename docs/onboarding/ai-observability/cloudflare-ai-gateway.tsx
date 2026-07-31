@@ -67,6 +67,50 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                             flow.
                         `}
                     </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    from posthog import Posthog
+                                    from posthog.ai.openai import OpenAI
+                                    import time, uuid, json
+
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
+
+                                    client = OpenAI(
+                                        base_url="https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat",
+                                        api_key="<openai_api_key>",
+                                        default_headers={
+                                            "cf-aig-authorization": "Bearer <cf_aig_token>",
+                                        },
+                                        posthog_client=posthog,
+                                    )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    import { OpenAI } from '@posthog/ai/openai'
+                                    import { PostHog } from 'posthog-node'
+
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new OpenAI({
+                                      baseURL: 'https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat',
+                                      apiKey: '<openai_api_key>',
+                                      defaultHeaders: {
+                                        'cf-aig-authorization': 'Bearer <cf_aig_token>',
+                                      },
+                                      posthog,
+                                    })
+                                `,
+                            },
+                        ]}
+                    />
                 </>
             ),
         },
@@ -99,21 +143,6 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from posthog import Posthog
-                                    from posthog.ai.openai import OpenAI
-                                    import time, uuid, json
-
-                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
-
-                                    client = OpenAI(
-                                        base_url="https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat",
-                                        api_key="<openai_api_key>",
-                                        default_headers={
-                                            "cf-aig-authorization": "Bearer <cf_aig_token>",
-                                        },
-                                        posthog_client=posthog,
-                                    )
-
                                     session_id = "conversation-abc"  # same across every turn of the conversation
                                     trace_id = str(uuid.uuid4())     # one per turn
                                     distinct_id = "user_123"
@@ -128,45 +157,12 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                         posthog_trace_id=trace_id,
                                         posthog_properties={"$ai_session_id": session_id, "$ai_provider": "cloudflare"},
                                     )
-
-                                    # Capture each tool call as a span nested under the generation above
-                                    for call in response.choices[0].message.tool_calls:
-                                        start = time.time()
-                                        result = get_weather(**json.loads(call.function.arguments))
-
-                                        posthog.capture(
-                                            distinct_id=distinct_id,
-                                            event="$ai_span",
-                                            properties={
-                                                "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
-                                                "$ai_span_id": str(uuid.uuid4()),
-                                                "$ai_span_name": call.function.name,
-                                                "$ai_input_state": call.function.arguments,
-                                                "$ai_output_state": result,
-                                                "$ai_latency": time.time() - start,
-                                            },
-                                        )
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { OpenAI } from '@posthog/ai/openai'
-                                    import { PostHog } from 'posthog-node'
-
-                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
-
-                                    const client = new OpenAI({
-                                      baseURL: 'https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_id>/compat',
-                                      apiKey: '<openai_api_key>',
-                                      defaultHeaders: {
-                                        'cf-aig-authorization': 'Bearer <cf_aig_token>',
-                                      },
-                                      posthog,
-                                    })
-
                                     const sessionId = 'conversation-abc' // same across every turn of the conversation
                                     const traceId = crypto.randomUUID()  // one per turn
                                     const distinctId = 'user_123'
@@ -181,26 +177,6 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                       posthogTraceId: traceId,
                                       posthogProperties: { $ai_session_id: sessionId, $ai_provider: 'cloudflare' },
                                     })
-
-                                    // Capture each tool call as a span nested under the generation above
-                                    for (const call of response.choices[0].message.tool_calls) {
-                                      const start = Date.now()
-                                      const result = await getWeather(JSON.parse(call.function.arguments))
-
-                                      posthog.capture({
-                                        distinctId,
-                                        event: '$ai_span',
-                                        properties: {
-                                          $ai_trace_id: traceId,
-                                          $ai_session_id: sessionId,
-                                          $ai_span_id: crypto.randomUUID(),
-                                          $ai_span_name: call.function.name,
-                                          $ai_input_state: call.function.arguments,
-                                          $ai_output_state: result,
-                                          $ai_latency: (Date.now() - start) / 1000,
-                                        },
-                                      })
-                                    }
                                 `,
                             },
                         ]}
@@ -257,6 +233,60 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                             of work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
                         `}
                     </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    # Capture each tool call as a span nested under the generation above
+                                    for call in response.choices[0].message.tool_calls:
+                                        start = time.time()
+                                        result = get_weather(**json.loads(call.function.arguments))
+
+                                        posthog.capture(
+                                            distinct_id=distinct_id,
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": session_id,
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": call.function.name,
+                                                "$ai_input_state": call.function.arguments,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    // Capture each tool call as a span nested under the generation above
+                                    for (const call of response.choices[0].message.tool_calls) {
+                                      const start = Date.now()
+                                      const result = await getWeather(JSON.parse(call.function.arguments))
+
+                                      posthog.capture({
+                                        distinctId,
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: sessionId,
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: call.function.name,
+                                          $ai_input_state: call.function.arguments,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
 
                     <Markdown>
                         {dedent`

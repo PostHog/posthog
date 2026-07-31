@@ -48,12 +48,51 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             title: 'Configure PostHog',
             badge: 'required',
             content: (
-                <Markdown>
-                    {dedent`
-                        Create a PostHog client, then swap in PostHog's Google Gen AI wrapper. The example in the
-                        next step creates both, then calls Gemini and captures a tool call as a span in one flow.
-                    `}
-                </Markdown>
+                <>
+                    <Markdown>
+                        {dedent`
+                            Create a PostHog client, then swap in PostHog's Google Gen AI wrapper. The example in the
+                            next step creates both, then calls Gemini and captures a tool call as a span in one flow.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    from posthog import Posthog
+                                    from posthog.ai.gemini import Client
+                                    import time, uuid
+                                    from google.genai import types
+
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
+
+                                    client = Client(
+                                        api_key="your_gemini_api_key",
+                                        posthog_client=posthog,
+                                    )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    import { GoogleGenAI } from '@posthog/ai/gemini'
+                                    import { PostHog } from 'posthog-node'
+
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new GoogleGenAI({
+                                      apiKey: 'your_gemini_api_key',
+                                      posthog,
+                                    })
+                                `,
+                            },
+                        ]}
+                    />
+                </>
             ),
         },
         {
@@ -86,18 +125,6 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from posthog import Posthog
-                                    from posthog.ai.gemini import Client
-                                    import time, uuid
-                                    from google.genai import types
-
-                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
-
-                                    client = Client(
-                                        api_key="your_gemini_api_key",
-                                        posthog_client=posthog,
-                                    )
-
                                     session_id = "conversation-abc"  # same across every turn of the conversation
                                     trace_id = str(uuid.uuid4())     # one per turn
                                     distinct_id = "user_123"
@@ -111,41 +138,12 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                         posthog_trace_id=trace_id,
                                         posthog_properties={"$ai_session_id": session_id},
                                     )
-
-                                    # Capture each function call as a span nested under the generation above
-                                    for call in response.function_calls or []:
-                                        start = time.time()
-                                        result = get_weather(**call.args)
-
-                                        posthog.capture(
-                                            distinct_id=distinct_id,
-                                            event="$ai_span",
-                                            properties={
-                                                "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
-                                                "$ai_span_id": str(uuid.uuid4()),
-                                                "$ai_span_name": call.name,
-                                                "$ai_input_state": call.args,
-                                                "$ai_output_state": result,
-                                                "$ai_latency": time.time() - start,
-                                            },
-                                        )
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { GoogleGenAI } from '@posthog/ai/gemini'
-                                    import { PostHog } from 'posthog-node'
-
-                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
-
-                                    const client = new GoogleGenAI({
-                                      apiKey: 'your_gemini_api_key',
-                                      posthog,
-                                    })
-
                                     const sessionId = 'conversation-abc' // same across every turn of the conversation
                                     const traceId = crypto.randomUUID()  // one per turn
                                     const distinctId = 'user_123'
@@ -159,26 +157,6 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                       posthogTraceId: traceId,
                                       posthogProperties: { $ai_session_id: sessionId },
                                     })
-
-                                    // Capture each function call as a span nested under the generation above
-                                    for (const call of response.functionCalls ?? []) {
-                                      const start = Date.now()
-                                      const result = await getWeather(call.args)
-
-                                      posthog.capture({
-                                        distinctId,
-                                        event: '$ai_span',
-                                        properties: {
-                                          $ai_trace_id: traceId,
-                                          $ai_session_id: sessionId,
-                                          $ai_span_id: crypto.randomUUID(),
-                                          $ai_span_name: call.name,
-                                          $ai_input_state: call.args,
-                                          $ai_output_state: result,
-                                          $ai_latency: (Date.now() - start) / 1000,
-                                        },
-                                      })
-                                    }
                                 `,
                             },
                         ]}
@@ -243,6 +221,60 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             of work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
                         `}
                     </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    # Capture each function call as a span nested under the generation above
+                                    for call in response.function_calls or []:
+                                        start = time.time()
+                                        result = get_weather(**call.args)
+
+                                        posthog.capture(
+                                            distinct_id=distinct_id,
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": session_id,
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": call.name,
+                                                "$ai_input_state": call.args,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    // Capture each function call as a span nested under the generation above
+                                    for (const call of response.functionCalls ?? []) {
+                                      const start = Date.now()
+                                      const result = await getWeather(call.args)
+
+                                      posthog.capture({
+                                        distinctId,
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: sessionId,
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: call.name,
+                                          $ai_input_state: call.args,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
 
                     <Markdown>
                         {dedent`
