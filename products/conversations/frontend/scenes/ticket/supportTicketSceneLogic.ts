@@ -486,6 +486,29 @@ function writeStoredDraft(userUuid: string | undefined, ticketId: string | numbe
     }
 }
 
+// Whether leaving warrants the unsaved-changes prompt. Only a genuine tab close / hard navigation
+// (isRealUnload) warns about a session-persisted draft; in-app navigation — link/breadcrumb clicks
+// and browser back/forward — keeps the draft, so a draft alone doesn't warn there. Unsaved ticket
+// metadata (persisted nowhere) always guards a route change, and same-path moves (e.g. opening a
+// side panel) never do.
+export function shouldWarnBeforeLeave(args: {
+    hasPendingWork: boolean
+    hasUnsavedChanges: boolean
+    isRealUnload: boolean
+    isSamePath: boolean
+}): boolean {
+    if (!args.hasPendingWork) {
+        return false
+    }
+    if (args.isSamePath) {
+        return false
+    }
+    if (!args.isRealUnload && !args.hasUnsavedChanges) {
+        return false
+    }
+    return true
+}
+
 export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
     props({ id: 'new' as string | number }),
@@ -1268,8 +1291,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
         },
     })),
-    afterMount(({ actions, props, values }) => {
+    afterMount(({ actions, props, values, cache }) => {
         actions.setDraftModeEnabled(values.draftModeDefault)
+        // A real page unload (tab close, reload, hard navigation) fires 'beforeunload'; in-app SPA
+        // navigation and browser back/forward (popstate) do not. kea-router consults our
+        // beforeUnload enabled() with no location for both a real unload and popstate, so we record
+        // genuine unloads here to tell them apart. Registered before kea-router's own handler (its
+        // builder runs after this afterMount), so the flag is set by the time enabled() is consulted.
+        cache.markRealUnload = () => {
+            cache.realUnload = true
+            // Clear it if the unload is cancelled, so a later in-app popstate isn't misread.
+            window.setTimeout(() => {
+                cache.realUnload = false
+            }, 0)
+        }
+        window.addEventListener('beforeunload', cache.markRealUnload)
         const storedDraft = readStoredDraft(values.user?.uuid, props.id)
         if (storedDraft?.content) {
             actions.setDraftContent(storedDraft.content)
@@ -1280,28 +1316,22 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         }
     }),
     beforeUnmount(({ cache }) => {
+        if (cache.markRealUnload) {
+            window.removeEventListener('beforeunload', cache.markRealUnload)
+        }
         cache.disposables.disposeAll()
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
-    beforeUnload(({ values, actions }) => ({
-        // enabled receives newLocation for in-app (SPA) navigation and undefined for a real tab
-        // close / hard navigation.
-        enabled: (newLocation) => {
-            if (!values.hasPendingWork) {
-                return false
-            }
-            // Ignore in-page navigations (e.g. opening a side panel) that keep the same path
-            if (newLocation && newLocation.pathname === router.values.location.pathname) {
-                return false
-            }
-            // The draft is persisted for the session, so in-app navigation keeps it and there's
-            // nothing to warn about — only unsaved ticket metadata (which isn't persisted) still
-            // guards a route change. A real tab close (no newLocation) always warns about the draft.
-            if (newLocation && !values.hasUnsavedChanges) {
-                return false
-            }
-            return true
-        },
+    beforeUnload(({ values, actions, cache }) => ({
+        enabled: (newLocation) =>
+            shouldWarnBeforeLeave({
+                hasPendingWork: values.hasPendingWork,
+                hasUnsavedChanges: values.hasUnsavedChanges,
+                // Set by our beforeunload listener just before kea-router consults us; false for
+                // in-app SPA navigation and browser back/forward.
+                isRealUnload: cache.realUnload === true,
+                isSamePath: !!(newLocation && newLocation.pathname === router.values.location.pathname),
+            }),
         message: 'You have unsaved changes. Are you sure you want to leave?',
         onConfirm: () => {
             // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges

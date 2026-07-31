@@ -13,6 +13,7 @@ import {
     draftStorageKey,
     EmailReplyBlockedReason,
     getEmailReplyBlockedReason,
+    shouldWarnBeforeLeave,
     supportTicketSceneLogic,
 } from './supportTicketSceneLogic'
 
@@ -369,6 +370,40 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(logic.values.hasPendingWork).toBe(false)
         logic.actions.setDraftContent(draft)
         expect(logic.values.hasPendingWork).toBe(expected)
+    })
+
+    // The leave prompt must fire for a genuine tab close / hard navigation, but NOT for in-app
+    // navigation (link clicks or browser back/forward), since the draft survives the session.
+    // Guards the regression where back/forward (popstate reaches enabled() with no location, like
+    // a real unload) re-triggered the warning.
+    test.each<[string, Parameters<typeof shouldWarnBeforeLeave>[0], boolean]>([
+        [
+            'nothing pending',
+            { hasPendingWork: false, hasUnsavedChanges: false, isRealUnload: true, isSamePath: false },
+            false,
+        ],
+        [
+            'same-path move (side panel)',
+            { hasPendingWork: true, hasUnsavedChanges: false, isRealUnload: false, isSamePath: true },
+            false,
+        ],
+        [
+            'in-app nav (link or back/forward) with only a draft',
+            { hasPendingWork: true, hasUnsavedChanges: false, isRealUnload: false, isSamePath: false },
+            false,
+        ],
+        [
+            'in-app nav with unsaved metadata',
+            { hasPendingWork: true, hasUnsavedChanges: true, isRealUnload: false, isSamePath: false },
+            true,
+        ],
+        [
+            'real tab close with a draft',
+            { hasPendingWork: true, hasUnsavedChanges: false, isRealUnload: true, isSamePath: false },
+            true,
+        ],
+    ])('shouldWarnBeforeLeave: %s', (_name, args, expected) => {
+        expect(shouldWarnBeforeLeave(args)).toBe(expected)
     })
 
     // The draft must persist to sessionStorage (session-scoped, keyed by user), NOT origin-wide
