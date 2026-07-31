@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-30 10:43:04 UTC
+// Generated at: 2026-07-30 19:39:19 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -125,6 +125,7 @@ export type CanonicalProvider =
     | 'nvidia'
     | 'nvidia-bf16'
     | 'open-inference-bf16'
+    | 'open-inference-fp8'
     | 'openai'
     | 'openai-default'
     | 'openai-default-flex'
