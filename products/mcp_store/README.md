@@ -49,16 +49,16 @@ Can't be added:
 
 Cloud operators can allow a small number of private Streamable HTTP endpoints
 for internal dogfooding with the comma-separated
-`MCP_STORE_INTERNAL_ALLOWED_URLS` environment variable. Each entry must be the
-complete MCP URL, for example:
+`MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM` environment variable. Its value is a
+JSON object keyed by team ID; every entry must be a complete MCP URL, for example:
 
 ```text
-MCP_STORE_INTERNAL_ALLOWED_URLS=http://grafana-mcp.monitoring.svc.cluster.local/mcp
+MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM={"2":["http://grafana-mcp.monitoring.svc.cluster.local/mcp"]}
 ```
 
-Matching is byte-for-byte. Configuring an endpoint does not allow another path,
-host, port, trailing-slash variant, or any other private address. Requests to an
-allowed endpoint bypass the process HTTP proxy on this MCP-only code path so
+Matching is byte-for-byte and team-scoped. Configuring an endpoint does not
+allow another team, path, host, port, trailing-slash variant, or any other
+private address. Requests to an allowed endpoint bypass the process HTTP proxy on this MCP-only code path so
 cluster-local traffic is not sent to Smokescreen; the process-wide `NO_PROXY`
 configuration is unchanged.
 

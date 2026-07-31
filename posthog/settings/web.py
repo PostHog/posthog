@@ -1,5 +1,6 @@
 # Web app specific settings/middleware/apps setup
 import os
+import json
 from datetime import timedelta
 
 import structlog
@@ -1183,7 +1184,9 @@ AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 # internal dogfooding escape hatch, not a hostname or CIDR allowlist: callers must
 # match one of these complete URLs byte-for-byte. Internal endpoints also bypass
 # the process HTTP proxy so cluster-local traffic is not sent to Smokescreen.
-MCP_STORE_INTERNAL_ALLOWED_URLS: list[str] = get_list(get_from_env("MCP_STORE_INTERNAL_ALLOWED_URLS", ""))
+MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM: dict[str, list[str]] = get_from_env(
+    "MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM", "{}", type_cast=json.loads
+)
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

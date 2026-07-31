@@ -320,7 +320,7 @@ def enforce_tool_approval(
 
 
 def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> HttpResponseBase:
-    allowed, error = allow_internal_mcp_url(installation.url, *is_url_allowed(installation.url))
+    allowed, error = allow_internal_mcp_url(installation.url, installation.team_id, *is_url_allowed(installation.url))
     if not allowed:
         logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
         return HttpResponse(
@@ -373,7 +373,10 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 
-    client = httpx.Client(timeout=UPSTREAM_TIMEOUT, trust_env=trust_environment_proxy(installation.url))
+    client = httpx.Client(
+        timeout=UPSTREAM_TIMEOUT,
+        trust_env=trust_environment_proxy(installation.url, installation.team_id),
+    )
     try:
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
             client,

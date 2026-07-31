@@ -66,7 +66,7 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     Shares the proxy's SSRF guard + timeout + auth-header builder so behavior stays
     consistent between proxy traffic and sync traffic.
     """
-    allowed, reason = allow_internal_mcp_url(installation.url, *is_url_allowed(installation.url))
+    allowed, reason = allow_internal_mcp_url(installation.url, installation.team_id, *is_url_allowed(installation.url))
     if not allowed:
         raise ToolsFetchError(f"URL not allowed: {reason}")
 
@@ -80,7 +80,10 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     }
 
     try:
-        with httpx.Client(timeout=HANDSHAKE_TIMEOUT, trust_env=trust_environment_proxy(installation.url)) as client:
+        with httpx.Client(
+            timeout=HANDSHAKE_TIMEOUT,
+            trust_env=trust_environment_proxy(installation.url, installation.team_id),
+        ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
             if session_id:
