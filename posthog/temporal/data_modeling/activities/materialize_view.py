@@ -259,7 +259,10 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
     is still queryable.
     """
     buf = pa.BufferOutputStream()
-    pq.write_table(schema.empty_table(), buf)
+    # write_table() on an empty table emits a 0-row row group, which ClickHouse rejects,
+    # so write only the schema with no row groups.
+    with pq.ParquetWriter(buf, schema):
+        pass
     parquet_bytes = buf.getvalue().to_pybytes()
     file_uri = f"{table_uri}/empty_{uuid.uuid4().hex}.parquet"
     s3 = get_s3_client()
@@ -373,13 +376,15 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
     context.output_format = "ArrowStream"
     settings.preferred_block_size_bytes = MB_100_IN_BYTES
 
+    # each prepare pass owns its deadline clock, so the DESCRIBE round trip above is not charged
+    # to view resolution
     arrow_prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(
         query_node,
         context=context,
         dialect="clickhouse",
         stack=[],
         settings=settings,
-        resolver_factory=factory,
+        resolver_factory=bounded_resolver_factory_for_view(view_name),
     )
 
     if arrow_prepared_hogql_query is None:

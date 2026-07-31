@@ -4,9 +4,13 @@ on:
         # Draft PRs run a narrowed jest selection; ready PRs run the full matrix
         # (the merge gate). ready_for_review re-triggers the full run on the
         # current head when a PR leaves draft. To force the full matrix on a
-        # draft, add the `run-ci-frontend` label — labeled/unlabeled re-trigger
-        # the run so it starts without needing a new push.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # draft, add the `run-ci-frontend` label. The `no-ci` label does the
+        # opposite: it silences this workflow on a draft entirely (prototypes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by
+        # name, so every unrelated label re-ran the full jest matrix against a
+        # commit CI had already covered. A label here takes effect from the next
+        # push, or from ready_for_review.
+        types: [opened, synchronize, reopened, ready_for_review]
     push:
         branches:
             - master
@@ -31,6 +35,14 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run frontend checks
         # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
         # approval) skips ci-storybook and ci-e2e-playwright (the snapshot-baseline-dependent
@@ -139,8 +151,8 @@ jobs:
             # frontend code (which doesn't always live under frontend/ — see
             # products/games, products/data_warehouse, products/ai_observability/shared),
             # but they also match product dirs that are their own Node services
-            # (products/agent_platform/services/**) with their own ci-agents.yml suite and
-            # nothing in the bundle. Exclude those so a PR touching only them skips frontend
+            # (products/<product>/services/**) with their own CI suite and nothing in
+            # the bundle. Exclude those so a PR touching only them skips frontend
             # CI. The excluded dirs are derived from pnpm-workspace.yaml (the product paths
             # that declare nested pnpm workspaces) rather than hardcoded, so a new product's
             # services are excluded automatically — see bin/frontend-exclude-filter.
@@ -172,10 +184,13 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: changes
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
-            always() && needs.changes.outputs.frontend_code == 'true'
+            !cancelled() && needs.changes.outputs.frontend_code == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft == true
+            && !startsWith(github.head_ref, 'trunk-merge/')
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -350,11 +365,21 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -442,8 +467,10 @@ jobs:
             # After the base build the tree is on the BASE branch, so guard for the scripts'
             # absence (also covers branches predating a check). Budgets are surfaced
             # warn-only further down.
+            # Comment steps skip trunk-merge/**: merge-queue draft PRs are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
             - name: Clean up legacy per-check CI comments
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -454,7 +481,7 @@ jobs:
                   fi
 
             - name: Post CI report — eager graph
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -465,7 +492,7 @@ jobs:
                   fi
 
             - name: Post CI report — bundle size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -476,7 +503,7 @@ jobs:
                   fi
 
             - name: Post CI report — dist size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -487,7 +514,7 @@ jobs:
                   fi
 
             - name: Post CI report — toolbar bundle
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -568,7 +595,18 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        runs-on: ubuntu-latest
+        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on ~6% of runs
+        # on any 16 GB runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the
+        # type graph, not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS
+        # and declaration:false change nothing, and dropping all of products/ from include
+        # removes only 891 of 13703 files because imports pull them back in. 32 GB is the next
+        # rung on Depot's ladder. Talk to #team-devex before changing.
+        #
+        # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
+        # lifecycle scripts, and Depot runners inject shared cache credentials ambiently
+        # (see _rust-build-images.yml, which skips sccache creds for the same reason).
+        # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
         # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.
@@ -632,8 +670,11 @@ jobs:
         # the ready-for-review fanout shards well below either limit.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
+        # A status function is required because select-jest-tests is skipped on ready
+        # PRs and master pushes, and a skipped need would otherwise cascade a skip here.
+        # !cancelled() rather than always() so a superseded run's shards stop promptly.
         if: |
-            always() && needs.changes.outputs.frontend_code == 'true'
+            !cancelled() && needs.changes.outputs.frontend_code == 'true'
             && needs.select-jest-tests.outputs.should_run != 'false'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
         strategy:
@@ -653,10 +694,21 @@ jobs:
               if: matrix.segment == 'FOSS'
               run: rm -rf ee
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Test with Jest
               id: run-jest
@@ -707,8 +759,12 @@ jobs:
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
-                  name: junit-results-frontend-${{ matrix.segment }}-${{ matrix.chunk }}
-                  path: junit-results/junit-*.xml
+                  # Keep attempt 1's artifact available so the reporter can identify same-job
+                  # failures that pass when GitHub re-runs failed jobs on the same commit.
+                  name: junit-results-frontend-${{ matrix.segment }}-${{ matrix.chunk }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  path: |
+                      junit-results/junit-*.xml
+                      junit-results/posthog-jest-quarantine-*.jsonl
                   if-no-files-found: ignore
                   retention-days: 1
 
@@ -800,6 +856,69 @@ jobs:
               shell: bash
               run: exit 1
 
+    report-test-signals:
+        name: Report Jest test signals
+        needs: [jest]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        permissions:
+            actions: read
+            contents: read
+        # Runs on every attempt so a same-job failure followed by a pass proves a flake. The
+        # parser comes from the trusted base ref because this job receives project tokens.
+        if: >-
+            !cancelled() &&
+            needs.jest.result != 'skipped' &&
+            github.repository == 'PostHog/posthog' &&
+            (
+            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
+            (github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
+            )
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+                  fetch-depth: 1
+            - name: Check for trusted test reporter
+              id: test-reporter
+              shell: bash
+              run: |
+                  available=false
+                  if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]] && grep -q -- '"jest"' .github/scripts/report_test_timings.py; then
+                    available=true
+                  fi
+                  if [[ "$GITHUB_RUN_ATTEMPT" != "1" ]] && ! grep -q "def partition_run_attempt" .github/scripts/report_test_timings.py 2>/dev/null; then
+                    available=false
+                  fi
+                  if [[ "$available" != "true" ]]; then
+                    echo "Trusted Jest reporter is not available on the checked-out ref for attempt $GITHUB_RUN_ATTEMPT; skipping emit."
+                  fi
+                  echo "available=$available" >> "$GITHUB_OUTPUT"
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              if: steps.test-reporter.outputs.available == 'true'
+              with:
+                  version: '0.11.28'
+            - name: Download Jest results
+              if: steps.test-reporter.outputs.available == 'true'
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-frontend-*
+            - name: Emit per-test signals
+              if: steps.test-reporter.outputs.available == 'true'
+              continue-on-error: true
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
+              run: |
+                  uv run --script .github/scripts/report_test_timings.py \
+                      --runner=jest \
+                      --signals-only \
+                      ./junit-artifacts
+
     calculate-running-time:
         name: Calculate running time
         needs:
@@ -815,10 +934,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-            always() && github.actor != 'dependabot[bot]' &&
+            ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend_code == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
-            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token

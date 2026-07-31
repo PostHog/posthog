@@ -5,6 +5,7 @@
 //! rows) and the `observability` metric constants — nothing else in the crate.
 
 pub mod chunks;
+pub mod completion;
 pub mod lease;
 pub mod runs;
 

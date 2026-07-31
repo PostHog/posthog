@@ -1,26 +1,47 @@
 //! Registry of ingestion warning types emitted by Rust services.
 //!
-//! The `WarningType` enum, its `ALL` list, and `as_str()` are generated at build
-//! time (see `build.rs`) from `capture_warning_types.generated.json`, which is
-//! mirrored from the Node.js registry — the single source of truth for the warning
-//! taxonomy (`nodejs/src/ingestion/common/ingestion-warning-types.ts`). Category and
-//! severity are resolved Node-side at serialization time and are not represented here.
+//! The `WarningType` enum — every registered type with its `as_str()` tag and
+//! registry-declared `category()`/`severity()` — is generated at build time (see
+//! `build.rs`) from `warning_types.generated.json`, which mirrors the whole
+//! Node.js registry, the single source of truth for the warning taxonomy
+//! (`nodejs/src/ingestion/common/ingestion-warning-types.ts`). The taxonomy is
+//! producer-agnostic: which service emits which type is not registry data — each
+//! producer references the variants it emits, and the message's `source` field
+//! records who said it.
 //!
 //! `from_tag` is a hand-written allowlist mapping capture error tags to warning
-//! types: only tags registered here ever produce a warning. Unknown or deliberately
-//! excluded tags (auth/transport/server errors, intentional drops like
-//! `dropped_performance_event`) map to `None` and emit nothing. The
-//! `from_tag_round_trips_every_registered_type` test guarantees every generated
-//! variant has a `from_tag` arm, so adding a capture type in Node.js forces the
-//! matching Rust mapping here.
+//! types: only tags registered here ever produce a warning. Unknown or
+//! deliberately excluded tags (auth/transport/server errors, intentional drops
+//! like `dropped_performance_event`) map to `None` and emit nothing. The
+//! allowlist's domain is welded by test to the registry's `captureProduced`
+//! flags — the Node consumer's trust allowlist for the capture envelope —
+//! since skew in either direction silently drops warnings: a flagged type
+//! without an arm is never emitted, and an arm without the flag is emitted
+//! but rejected at the consumer. An arm for a type removed from the registry
+//! stops compiling.
 
-// Brings in `pub enum WarningType`, `WarningType::ALL`, and `WarningType::as_str`.
+// Brings in `pub enum WarningType` with `ALL`, `as_str`, `category`, and
+// `severity`.
 include!(concat!(env!("OUT_DIR"), "/warning_types.rs"));
 
 impl WarningType {
+    /// Types capture emits directly, with no error tag behind them.
+    ///
+    /// The tag route only reaches conditions capture already models as an
+    /// `Error` or a per-event drop detail. Some warnings aren't failures at all:
+    /// a rate-limited event is ingested (degraded, not dropped), so there is no
+    /// tag to map and inventing one would mean inventing an error that never
+    /// gets returned. Emit sites for these name the variant directly.
+    ///
+    /// This list exists so the trust-allowlist invariant below can still be
+    /// airtight: `captureProduced` must equal "reachable by one of capture's two
+    /// emit routes", and without this the direct route would be invisible to it.
+    pub const DIRECT_EMIT: [Self; 1] = [Self::HighVolumeDistinctId];
+
     /// Map a capture error tag (`v1::Error::tag()` / per-event drop detail) to a
     /// registered warning type. Returns `None` for anything not on the allowlist —
-    /// callers emit nothing in that case.
+    /// callers emit nothing in that case. Direct-emit types are deliberately
+    /// absent: see [`WarningType::DIRECT_EMIT`].
     pub fn from_tag(tag: &str) -> Option<Self> {
         match tag {
             "missing_event_name" => Some(Self::MissingEventName),
@@ -38,12 +59,6 @@ impl WarningType {
             _ => None,
         }
     }
-
-    /// Pipeline step recorded in the details JSON (`pipelineStep`). Every registered
-    /// capture type is a validation-stage drop, so they share this step.
-    pub const fn pipeline_step(self) -> &'static str {
-        "capture_validation"
-    }
 }
 
 #[cfg(test)]
@@ -52,14 +67,35 @@ mod tests {
     use rstest::rstest;
 
     #[test]
-    fn from_tag_round_trips_every_registered_type() {
-        // Guards the hand-written `from_tag` against the generated enum: a new
-        // variant mirrored from Node.js without a matching `from_tag` arm fails here.
+    fn capture_emit_routes_equal_the_capture_trust_allowlist() {
+        // Two hand-maintained answers to "which types does capture emit?" must
+        // stay equal: capture's emit routes here (`from_tag` plus
+        // `DIRECT_EMIT`) and the registry's `captureProduced` flags (the Node
+        // consumer's trust allowlist, carried through the artifact). Skew fails
+        // silently in production in either direction — a flagged type on
+        // neither route is never emitted; a type on a route without the flag is
+        // emitted and then rejected at the consumer's trust check.
+        //
+        // Comparing the variant itself (not just presence) pins each `from_tag`
+        // arm to the right type, so a mis-mapped tag can't hide behind an
+        // unrelated `Some`.
         for warning in WarningType::ALL {
+            let tag_derived = WarningType::from_tag(warning.as_str()) == Some(warning);
+            let direct = WarningType::DIRECT_EMIT.contains(&warning);
+
             assert_eq!(
-                WarningType::from_tag(warning.as_str()),
-                Some(warning),
-                "tag {} must round-trip",
+                tag_derived || direct,
+                warning.capture_produced(),
+                "{}: emit routes and captureProduced flag disagree — add the missing side",
+                warning.as_str()
+            );
+
+            // One route per type. Both would mean a warning capture can produce
+            // two ways, with the tag route silently winning wherever a tag is
+            // available, so its details would differ by call path.
+            assert!(
+                !(tag_derived && direct),
+                "{}: on both emit routes — pick one",
                 warning.as_str()
             );
         }
@@ -83,6 +119,9 @@ mod tests {
     #[case::sink("rejected")]
     #[case::unknown("some_future_tag")]
     #[case::empty("")]
+    // Direct-emit types must stay off the tag route even though their name reads
+    // like a tag, or they'd be reachable both ways.
+    #[case::direct_emit("high_volume_distinct_id")]
     fn from_tag_rejects_unregistered_tags(#[case] tag: &str) {
         assert_eq!(
             WarningType::from_tag(tag),

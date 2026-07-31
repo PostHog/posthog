@@ -18,6 +18,7 @@ from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 import grpc
 import requests
 import structlog
+from cryptography.fernet import InvalidToken
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from rest_framework import exceptions, request, serializers, status, viewsets
@@ -61,6 +62,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
@@ -382,6 +384,7 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "not_in",
         "flag_evaluates_to",
     }
+    | set(STRING_PREFIX_SUFFIX_OPERATORS)
 )
 
 FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
@@ -1508,12 +1511,16 @@ class FeatureFlagSerializer(
                             code="invalid_date",
                         )
 
-                # make sure regex, icontains, gte, lte, lt, and gt properties have string values
+                # make sure regex, icontains, starts/ends_with, gte, lte, lt, and gt properties have string values
                 if prop.operator in [
                     "regex",
                     "icontains",
                     "not_regex",
                     "not_icontains",
+                    "starts_with",
+                    "not_starts_with",
+                    "ends_with",
+                    "not_ends_with",
                     "gte",
                     "lte",
                     "gt",
@@ -1857,9 +1864,11 @@ class FeatureFlagSerializer(
     @approval_gate(["feature_flag.enable", "feature_flag.disable", "feature_flag.update"])
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
-        # This is a workaround to ensure update works when called from a scheduled task.
-        if request and not hasattr(request, "data"):
-            request.data = {}
+        # Service-layer callers may carry no body, and an endpoint that declares no request schema
+        # can hand us a non-dict one (e.g. a JSON array posted to /experiments/:id/launch/).
+        request_data = getattr(request, "data", None) if request else None
+        if not isinstance(request_data, dict):
+            request_data = {}
 
         validated_data["last_modified_by"] = request.user
         # Prevent DRF from attempting to set reverse FK relation directly
@@ -2001,7 +2010,7 @@ class FeatureFlagSerializer(
                 k: v for k, v in previous_filters.items() if k not in ("holdout_groups", "super_groups")
             }
 
-        version = request.data.get("version", -1)
+        version = request_data.get("version", -1)
 
         try:
             with transaction.atomic():
@@ -2013,7 +2022,11 @@ class FeatureFlagSerializer(
 
                 # NOW check for conflicts after all transformations
                 if version != -1 and version != locked_version:
-                    original_flag = request.data.get("original_flag", {})
+                    # Not a serializer field, so the client controls its type; the conflict helpers
+                    # index into it by field name and would raise on a list or string.
+                    original_flag = request_data.get("original_flag")
+                    if not isinstance(original_flag, dict):
+                        original_flag = {}
                     conflicting_changes = self._get_conflicting_changes(
                         locked_instance,
                         validated_data,
@@ -2063,6 +2076,10 @@ class FeatureFlagSerializer(
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
+            if instance.has_feature_enrollment:
+                from products.feature_flags.backend.tasks import migrate_feature_enrollment_on_key_change
+
+                migrate_feature_enrollment_on_key_change.delay(instance.team_id, old_key, instance.id)
 
         report_user_action(
             request.user,
@@ -2849,6 +2866,7 @@ class FeatureFlagViewSet(
     def safely_get_queryset(self, queryset) -> QuerySet:
         from django.db.models import Exists, OuterRef
 
+        from products.early_access_features.backend.models import EarlyAccessFeature
         from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
         # Always prefetch experiment_set since it's used in both list and retrieve
@@ -2857,6 +2875,16 @@ class FeatureFlagViewSet(
                 "experiment_set",
                 queryset=Experiment.objects.filter(deleted=False),
                 to_attr="_active_experiments",
+            )
+        )
+
+        # `features` is serialized on every action (list/retrieve/create/update), and
+        # MinimalEarlyAccessFeatureSerializer resolves the assignee's name, so join the
+        # assignee relations here rather than only in the list branch.
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "features",
+                queryset=EarlyAccessFeature.objects.select_related("assigned_user", "assigned_role"),
             )
         )
 
@@ -2887,7 +2915,6 @@ class FeatureFlagViewSet(
         if self.action == "list":
             queryset = (
                 queryset.filter(deleted=False)
-                .prefetch_related("features")
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related(
                     Prefetch(
@@ -4359,9 +4386,31 @@ class FeatureFlagViewSet(
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
         # method used to make the request as it is used in non-protected endpoints.
-        decrypted_flag_payloads = get_decrypted_flag_payloads_protected(
-            request, feature_flag.filters.get("payloads", {})
-        )
+        try:
+            decrypted_flag_payloads = get_decrypted_flag_payloads_protected(
+                request, feature_flag.filters.get("payloads", {})
+            )
+        except InvalidToken as e:
+            # The stored ciphertext can't be decrypted by any key in FLAGS_SECRET_KEYS (e.g. it
+            # predates a key rotation and was never re-encrypted). Surface a typed JSON error
+            # instead of letting the exception become an unhandled 500 with an HTML body, which
+            # SDKs can't parse as JSON. The body mirrors the drf-exceptions-hog envelope the Rust
+            # feature-flags service returns for this same failure, so the phase-2 shadow-compare
+            # (shadow_compare_remote_config) sees identical bodies on both paths.
+            logger.exception(
+                "Failed to decrypt remote config payload",
+                extra={"team_id": self.team_id, "feature_flag_id": feature_flag.id},
+            )
+            capture_exception(e)
+            return Response(
+                {
+                    "type": "server_error",
+                    "code": "remote_config_decrypt_failed",
+                    "detail": "Failed to decrypt the remote config payload. Please contact support if the problem persists.",
+                    "attr": None,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         # Count after a successful decryption so a decrypt failure (500) is never counted.
         if should_count:

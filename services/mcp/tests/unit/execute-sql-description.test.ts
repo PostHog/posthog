@@ -15,9 +15,12 @@ describe('formatExecuteSqlDescription', () => {
         expect(flagged).toContain('#### Metric discovery (semantic layer)')
         expect(flagged).toContain('system.information_schema.metrics')
         expect(flagged).toContain('data-catalog-metric-run')
+        // The tool's own intro must stay first; metric discovery sits after the
+        // query-* routing section but keeps catalog-first precedence over raw
+        // schema discovery.
+        expect(flagged.startsWith('Executes HogQL')).toBe(true)
         const metricRoutingPosition = flagged.indexOf('#### Metric discovery (semantic layer)')
-        expect(metricRoutingPosition).toBeLessThan(flagged.indexOf('some guidelines'))
-        expect(metricRoutingPosition).toBeLessThan(flagged.indexOf('### When to use `execute-sql`'))
+        expect(metricRoutingPosition).toBeGreaterThan(flagged.indexOf('### When to use `execute-sql`'))
         expect(metricRoutingPosition).toBeLessThan(flagged.indexOf('#### Regular schema discovery'))
 
         const baseline = builder.formatExecuteSqlDescription()

@@ -570,6 +570,10 @@ export const PropertyGroupTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -585,6 +589,10 @@ export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -620,6 +628,10 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -1090,6 +1102,15 @@ export interface ActivityLogEntryApi {
     readonly item_id: string
     detail?: DetailApi
     readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity, from the x-posthog-client request header (e.g. 'mcp'). Null for requests that did not send the header.
+     * @nullable
+     */
+    readonly client: string | null
 }
 
 /**

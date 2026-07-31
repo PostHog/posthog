@@ -20,16 +20,16 @@ from requests.exceptions import (
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    PartitionFormat,
-    PartitionMode,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    PartitionFormat,
+    PartitionMode,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.metaads import (
     MetaAdsSourceConfig,
 )
@@ -228,6 +228,15 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
 # https://developers.facebook.com/docs/marketing-api/insights/error-codes
 META_TIMEOUT_ERROR_SUBCODES = {1504018, 1504038}
 
+# Subcode 1504044 ("Unknown Error Occurred") is documented alongside the timeouts
+# above, with the same remedy: ask for less data. It arrives as `code: 2` with
+# `message: "Service temporarily unavailable"`, so without this set it reads as a
+# momentary blip and only ever gets retried unchanged. Kept separate from the
+# timeouts because it really can be one, and is worth a few unchanged retries
+# before we start shrinking.
+# https://developers.facebook.com/docs/marketing-api/insights/error-codes
+META_HEAVY_QUERY_ERROR_SUBCODES = {1504044}
+
 # Chunk sizes for adaptive time-range pagination (in days)
 # Start with 30-day chunks, fall back to smaller chunks on timeout
 TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
@@ -278,7 +287,13 @@ def _next_smaller_limit(current: int) -> int | None:
 
 
 def _is_timeout_error(response: Response) -> bool:
-    """Check if the response is a Meta API timeout error that can be resolved with smaller date ranges."""
+    """Check if the response is a Meta API timeout error that can be resolved with smaller date ranges.
+
+    Deliberately narrower than ``_should_shrink_request``: these subcodes are
+    unambiguous, so ``_get_with_transient_retry`` hands them straight to the
+    shrink ladders instead of spending retries on a request Meta has already
+    told us is too big.
+    """
     try:
         error = response.json().get("error", {})
 
@@ -293,16 +308,34 @@ def _is_timeout_error(response: Response) -> bool:
         return False
 
 
-# Meta flags momentary server-side failures with ``error.is_transient`` and asks callers to retry
-# (the dominant case is code 2, "An unexpected error has occurred. Please retry your request later.").
-# The request itself is fine, so a couple of immediate retries with a short backoff usually clears
-# it — keeping a self-recovering blip from failing the whole activity (and surfacing as error-tracking
-# noise) while still letting it propagate, and Temporal retry from saved resume state, if it persists.
+def _should_shrink_request(response: Response) -> bool:
+    """Return True for failures a smaller date range or page size can resolve.
+
+    Covers the unambiguous timeouts plus the heavy-query subcodes, which reach
+    here only after ``_get_with_transient_retry`` has spent its unchanged
+    retries on them without the error clearing. A failure that survives those is
+    not the momentary blip Meta's error body claims.
+    """
+    if _is_timeout_error(response):
+        return True
+    return _meta_error_body(response).get("error_subcode") in META_HEAVY_QUERY_ERROR_SUBCODES
+
+
+# Meta's error-code reference documents code 1 ("API Unknown" — an unexplained backend hiccup
+# that usually clears in 1-2 retries) and code 2 ("API Service" — temporary downtime/overload) as
+# retry-recommended: https://developers.facebook.com/docs/graph-api/guides/error-handling. Meta
+# also flags some of these transient via ``error.is_transient``, but that flag isn't set
+# consistently — code 2 "Service temporarily unavailable" has been observed with
+# ``is_transient: false`` — so the documented codes are trusted over the flag. The request itself
+# is fine, so a couple of immediate retries with a short backoff usually clears it — keeping a
+# self-recovering blip from failing the whole activity (and surfacing as error-tracking noise)
+# while still letting it propagate, and Temporal retry from saved resume state, if it persists.
 META_TRANSIENT_ERROR_MAX_ATTEMPTS = 4
+META_TRANSIENT_ERROR_CODES = {1, 2}
 
 
 def _is_transient_error(response: Response) -> bool:
-    """Return True for Meta errors Meta itself flags transient via ``error.is_transient``.
+    """Return True for Meta errors that are momentary backend blips worth retrying immediately.
 
     Distinct from the too-much-data timeout (``_is_timeout_error``), which has its own
     limit-shrinking recovery; a transient error is retried with the request unchanged.
@@ -311,7 +344,7 @@ def _is_transient_error(response: Response) -> bool:
         error = response.json().get("error", {})
     except (ValueError, AttributeError):
         return False
-    return error.get("is_transient") is True
+    return error.get("is_transient") is True or error.get("code") in META_TRANSIENT_ERROR_CODES
 
 
 # Meta's connection occasionally resets mid-response — `requests` raises these while decoding the
@@ -369,6 +402,13 @@ def _get_initial_request(url: str, params: dict) -> Response:
 META_AUTH_ERROR_CODES = {102, 190}
 META_PERMISSION_ERROR_CODES = {10, *range(200, 300)}
 
+# Meta also raises generic code 100 ("Invalid parameter") with this exact message when the
+# token's own account can no longer be resolved, e.g. the connected Facebook account was
+# deactivated or lost the app's granted access. Matched on message text rather than on code
+# 100 alone, since that code also covers genuine malformed-request bugs on our side, which
+# must keep surfacing as real errors rather than being reclassified as auth failures.
+META_UNSUPPORTED_GET_REQUEST_MESSAGE = "unsupported get request"
+
 # Meta throttling codes. The request was rejected for its volume, not for being malformed, so the
 # call is fine and the only fix is waiting — never a bug on our side.
 #   4 — application request limit reached (our app, across all users).
@@ -386,14 +426,23 @@ META_RATE_LIMIT_ERROR_MESSAGE = (
     "Meta is rate limiting requests for this connection. Please wait a few minutes and try again."
 )
 
+# Matched by `MetaAdsSource.get_non_retryable_errors`, so it has to stay in sync
+# with the key there.
+SHRINK_EXHAUSTED_ERROR_MESSAGE = "Meta could not return this data even at the smallest request size"
 
-def _meta_error_code(response: Response) -> int | None:
-    """The numeric ``error.code`` of a Meta error body, or None if it carries no parseable one."""
+
+def _meta_error_body(response: Response) -> dict:
+    """The ``error`` object of a Meta error response, or an empty dict if it carries none."""
     try:
         error = response.json().get("error", {})
     except (ValueError, AttributeError):
-        return None
-    code = error.get("code")
+        return {}
+    return error if isinstance(error, dict) else {}
+
+
+def _meta_error_code(response: Response) -> int | None:
+    """The numeric ``error.code`` of a Meta error body, or None if it carries no parseable one."""
+    code = _meta_error_body(response).get("code")
     return code if isinstance(code, int) else None
 
 
@@ -405,7 +454,10 @@ def _is_permanent_auth_error(response: Response) -> bool:
     until the user reconnects the integration.
     """
     code = _meta_error_code(response)
-    return code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES
+    if code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES:
+        return True
+    message = str(_meta_error_body(response).get("message") or "").lower()
+    return code == 100 and META_UNSUPPORTED_GET_REQUEST_MESSAGE in message
 
 
 def _is_rate_limit_error(response: Response) -> bool:
@@ -418,12 +470,32 @@ def _raise_meta_api_error(response: Response) -> typing.NoReturn:
 
     Permanent auth/permission failures raise a clean, user-actionable message
     that ``MetaAdsSource.get_non_retryable_errors`` matches on, so the job fails
-    fast instead of burning retries. The raw response is appended for debugging.
+    fast instead of burning retries. A momentary backend blip (see
+    ``_is_transient_error``) that has already exhausted its in-process retries is
+    tagged so ``MetaAdsSource.get_retryable_errors`` can keep the self-recovering
+    failure out of error tracking once Temporal retries the activity, excluding
+    anything the shrink ladders can still act on, which ends at
+    ``_raise_shrink_exhausted_error`` instead. The raw response is appended for
+    debugging.
     Everything else raises the raw response and stays retryable.
     """
     if _is_permanent_auth_error(response):
         raise Exception(f"{META_AUTH_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
+    if _is_transient_error(response) and not _should_shrink_request(response):
+        raise Exception(f"Meta API request failed (retryable): {response.status_code} - {response.text}")
     raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
+
+
+def _raise_shrink_exhausted_error(response: Response) -> typing.NoReturn:
+    """Raise once both shrink ladders have bottomed out and Meta still refuses.
+
+    Terminal on purpose: the date range is down to a single day and the page
+    size to its smallest rung, so the next Temporal retry would re-issue exactly
+    the request that just failed. ``MetaAdsSource.get_non_retryable_errors``
+    matches on the message, so the job stops and tells the user what to change
+    rather than retrying against the schedule forever.
+    """
+    raise Exception(f"{SHRINK_EXHAUSTED_ERROR_MESSAGE} (Meta API response: {response.status_code} - {response.text})")
 
 
 class MetaAdsAuthError(Exception):
@@ -551,12 +623,13 @@ def _iter_simple_pagination(
             # Too-much-data: shrink the page limit and retry the same request.
             # Re-issuing the same URL/cursor at a smaller limit is safe — no
             # already-yielded rows are re-emitted.
-            if _is_timeout_error(response):
+            if _should_shrink_request(response):
                 smaller = _next_smaller_limit(current_limit)
                 if smaller is not None:
                     current_limit = smaller
                     response = _issue()
                     continue
+                _raise_shrink_exhausted_error(response)
             _raise_meta_api_error(response)
 
         try:
@@ -675,11 +748,20 @@ def _iter_time_range_pagination(
 
             if response.status_code != 200:
                 # Fallback only happens on the initial chunk request (before any data is yielded).
-                if _is_timeout_error(response) and chunk_size_days in TIME_RANGE_CHUNK_SIZES:
-                    current_index = TIME_RANGE_CHUNK_SIZES.index(chunk_size_days)
-                    if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
-                        chunk_size_days = TIME_RANGE_CHUNK_SIZES[current_index + 1]
+                if _should_shrink_request(response):
+                    if chunk_size_days in TIME_RANGE_CHUNK_SIZES:
+                        current_index = TIME_RANGE_CHUNK_SIZES.index(chunk_size_days)
+                        if current_index < len(TIME_RANGE_CHUNK_SIZES) - 1:
+                            chunk_size_days = TIME_RANGE_CHUNK_SIZES[current_index + 1]
+                            continue
+                    # The date range is already a single day, so the page size
+                    # is the only dimension left. Re-issuing the same chunk at a
+                    # smaller limit is safe: nothing has been yielded yet.
+                    smaller_limit = _next_smaller_limit(current_limit)
+                    if smaller_limit is not None:
+                        current_limit = smaller_limit
                         continue
+                    _raise_shrink_exhausted_error(response)
                 _raise_meta_api_error(response)
 
         malformed_json_attempts = 0
@@ -688,13 +770,14 @@ def _iter_time_range_pagination(
                 # Mid-chunk timeout: retry the same cursor URL with a smaller
                 # ``limit``. Re-issuing earlier pages (i.e. shrinking the
                 # chunk) is not safe here — we've already yielded them.
-                if _is_timeout_error(response) and last_paging_url is not None:
+                if _should_shrink_request(response) and last_paging_url is not None:
                     smaller = _next_smaller_limit(current_limit)
                     if smaller is not None:
                         current_limit = smaller
                         retry_url = _override_limit(last_paging_url, current_limit)
                         response = _fetch_paging_url(retry_url, access_token)
                         continue
+                    _raise_shrink_exhausted_error(response)
                 _raise_meta_api_error(response)
 
             try:

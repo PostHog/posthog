@@ -87,7 +87,27 @@ jobs:
             contents: read # allow reading the repo contents
             packages: write # allow push to ghcr.io
 
+        # ECR routing resolved once here so the push target (docker-meta) and the
+        # digest pull target read the same value and can't drift: master → posthog-node
+        # via the master role; everything else → posthog-node-prs via the prs role.
+        env:
+            ECR_IMAGE: ${{ github.ref == 'refs/heads/master' && 'posthog-node' || 'posthog-node-prs' }}
+            ECR_ROLE: ${{ github.ref == 'refs/heads/master' && vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE || vars.AWS_ECR_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+
         steps:
+            # Fail loudly rather than let the role ternary silently fall back to the PRS
+            # role if the master var is unset on master (which would push the prod repo
+            # with a role that can't, giving a confusing access-denied).
+            - name: Assert master publish role is configured
+              if: github.ref == 'refs/heads/master'
+              env:
+                  MASTER_ROLE: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+              run: |
+                  if [[ -z "$MASTER_ROLE" ]]; then
+                    echo "::error::AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE is not set — refusing to fall back to the PRS role on master."
+                    exit 1
+                  fi
+
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -105,7 +125,9 @@ jobs:
               uses: ./.github/actions/docker-meta
               with:
                   image-name: posthog-node
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  # ECR repo + role resolved once at job level (see env above). ghcr/dockerhub unchanged.
+                  ecr-image-name: ${{ env.ECR_IMAGE }}
+                  aws-role-to-assume: ${{ env.ECR_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -133,10 +155,10 @@ jobs:
                   IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
               run: |
                   echo "Image digest: $IMAGE_DIGEST"
-                  echo "Full image reference: $IMAGE_REGISTRY/posthog-node:${{ github.sha }}@$IMAGE_DIGEST"
+                  echo "Full image reference: $IMAGE_REGISTRY/$ECR_IMAGE:${{ github.sha }}@$IMAGE_DIGEST"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-node:${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`$IMAGE_REGISTRY/$ECR_IMAGE:${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY

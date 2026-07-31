@@ -61,12 +61,12 @@ export function useDebouncedNameInputs<T extends { name?: string }>(
     localNames: (string | undefined)[]
     handleNameChange: (index: number, value: string | undefined) => void
 } {
-    const [localNames, setLocalNames] = useState<(string | undefined)[]>(items.map((item) => item.name))
+    const [localNames, setLocalNames] = useState<(string | undefined)[]>((items ?? []).map((item) => item.name))
 
     // Update local state when items change from external sources
     useEffect(() => {
-        setLocalNames(items.map((item) => item.name))
-    }, [items.length, items]) // Only update when number of items changes
+        setLocalNames((items ?? []).map((item) => item.name))
+    }, [items?.length, items]) // Only update when number of items changes
 
     // Debounced function to update items
     const debouncedUpdate = useDebouncedCallback((index: number, value: string | undefined) => {

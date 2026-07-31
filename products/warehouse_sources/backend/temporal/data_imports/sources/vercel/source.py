@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vercel import VercelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.vercel import (
@@ -102,6 +99,18 @@ To sync resources owned by a team, also enter the team's ID (found under **Team 
             # never resolves a bad team reference, so stop the sync. Match the stable path, not the
             # query string (it carries the per-request date window and team id).
             "404 Client Error: Not Found for url: https://api.vercel.com/v1/billing/charges": "Vercel couldn't find billing data for the configured team. Check that the Team ID is correct and that your access token's user still belongs to that team, then reconnect.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page`/`_open_billing_stream` already retry these in-process (a 429/5xx surfaces as
+        # the "Vercel API error (retryable)" sentinel; connection failures and read timeouts surface
+        # as the urllib3 pool error). Once those retries exhaust, Temporal retries the whole activity
+        # and the failure is transient and self-recovering, so don't surface it as tracked exception
+        # noise. The host is a constant, not user input, so matching on it doesn't risk swallowing an
+        # unrelated failure.
+        return {
+            "Vercel API error (retryable)",
+            "HTTPSConnectionPool(host='api.vercel.com', port=443)",
         }
 
     def get_schemas(

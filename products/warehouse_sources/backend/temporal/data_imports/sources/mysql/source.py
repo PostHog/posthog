@@ -230,11 +230,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # usually signals — so match only the stable SSL token, never the generic 2013 text.
             "[SSL: WRONG_VERSION_NUMBER]": "We couldn't establish an SSL connection to your MySQL server — it responded as if SSL is not enabled. If your server (or a proxy in front of it) doesn't support SSL, set 'Use SSL?' to No; otherwise check that you're connecting to an SSL-enabled host and port.",
             # Raised from the shared `_decimal_array_from_values` fallback in
-            # `pipelines/pipeline/utils.py` when a numeric/decimal value exceeds Delta Lake's
+            # `pipelines/core/arrow_utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
             # won't help.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
             # destination table was created with the narrower type. Delta Lake can't widen an
             # existing column in place, so retrying won't help — the table must be reset and
@@ -271,6 +271,20 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # locale-independent error code (the trailing message text is translated on non-English
             # servers) so it catches both the raw pymysql string and the wrapped `(1038, ...)` form.
             "(1038,": "Your MySQL/MariaDB server ran out of sort buffer memory while ordering this table by its incremental field (error 1038). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'sort_buffer_size', or switch this table to a full re-sync, then resync.",
+            # MySQL/MariaDB error 3 (EE_WRITE): the server hit ENOSPC writing a temporary file to
+            # its own temp directory (e.g. `/rdsdbdata/tmp/...`) — almost always a large filesort
+            # spilling the `ORDER BY <incremental_field>` sort to disk. The server's temp filesystem
+            # being full is static customer-side state, so every retry filesorts the same rows and
+            # fails identically. Match only the errno marker MySQL/MariaDB itself renders in English
+            # (`OS errno 28 -` / `Errcode: 28`), not the trailing OS `strerror(28)` text, which is
+            # locale-dependent and translated on non-English servers (e.g. French renders "No space
+            # left on device" as "Aucun espace disponible sur le périphérique") — matching that text
+            # would leave the sync retrying forever on exactly the servers this entry targets. Also
+            # deliberately excludes a Python `OSError` (`[Errno 28] No space left on device`) — a
+            # full *worker* disk is our own transient infra problem that must stay retryable, not the
+            # customer's server running out of space.
+            "OS errno 28 -": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
+            "Errcode: 28": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
             # pymysql encodes the handshake fields (host, user, password, database) as latin-1;
             # a value carrying a non-latin-1 character — most often an invisible zero-width space
             # (U+200B) pasted in from another app — raises UnicodeEncodeError before any packet is
@@ -280,6 +294,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # (the formatted "codec can't encode character" text is reconstructed in neither).
             "ordinal not in range(256)": "One of your connection details contains an invisible or unsupported character (for example a zero-width space pasted in from another app). Retype the affected field — host, database, user, or password — by hand instead of pasting it, then re-enable the sync.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_connect_with_transient_retry` already retries this exact drop in-process (see
+        # `_is_transient_connect_drop` in mysql.py) before re-raising once its attempt budget is
+        # exhausted; the streaming path's FORCE INDEX fallback does the same for a mid-query drop
+        # (see `_is_bad_plan_error`). Either way, Temporal retries the whole activity next and the
+        # failure is transient and self-recovering, so don't surface it as tracked exception noise.
+        return {"Lost connection to MySQL server during query"}
 
     def reconcile_schema_metadata(
         self,

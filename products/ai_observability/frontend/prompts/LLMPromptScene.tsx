@@ -243,7 +243,7 @@ export function LLMPromptScene(): JSX.Element {
                                               label: 'History',
                                               content: (
                                                   <ActivityLog
-                                                      scope={ActivityScope.LLM_PROMPT_LABEL}
+                                                      scope={[ActivityScope.LLM_PROMPT, ActivityScope.LLM_PROMPT_LABEL]}
                                                       id={prompt.activity_item_id}
                                                   />
                                               ),

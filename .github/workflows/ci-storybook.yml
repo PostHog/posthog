@@ -4,9 +4,13 @@ on:
         # Draft PRs run a narrowed visual-regression matrix when the Storybook module
         # graph can safely identify affected stories. Ready PRs run the full chromium
         # matrix as the merge gate. To force the full matrix on a draft, add the
-        # `run-ci-frontend` label —
-        # labeled/unlabeled re-trigger the run so it starts without needing a push.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # `run-ci-frontend` label. The `no-ci` label does the opposite: it silences
+        # this workflow on a draft entirely (prototypes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
+        # so every unrelated label re-ran the full chromium matrix against a commit CI
+        # had already covered. A label here takes effect from the next push, or from
+        # ready_for_review.
+        types: [opened, synchronize, reopened, ready_for_review]
     push:
         branches:
             - master
@@ -24,6 +28,14 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run storybook checks
         # Set job outputs to values from filter step
         outputs:
@@ -115,7 +127,7 @@ jobs:
 
             # The broad `products/**/*.{ts,tsx}` rule above matches all product code,
             # including product dirs that are their own Node services
-            # (products/agent_platform/services/**) — no stories, nothing in the bundle.
+            # (products/<product>/services/**) — no stories, nothing in the bundle.
             # Exclude those so a PR touching only them skips the visual-regression suite.
             # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
             # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.
@@ -182,6 +194,16 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
             # may not contain it. Cache the store inline instead, sharing the same
@@ -190,7 +212,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -263,11 +285,12 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook, select-stories]
-        # always() so vr-setup still runs when select-stories is skipped (ready PRs
-        # and master pushes). Without it, GitHub treats a skipped need as a
-        # skip-cascade and vr-setup wouldn't run when we still want it to.
+        # A status function is required because select-stories is skipped on ready PRs
+        # and master pushes, and GitHub would otherwise cascade that skip to this job.
+        # !cancelled() rather than always() so a superseded run stops here instead of
+        # creating a Visual Review run that its cancelled matrix will never complete.
         if: |
-            always()
+            !cancelled()
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
             && needs.select-stories.outputs.should_run != 'false'
@@ -301,11 +324,21 @@ jobs:
                       products/visual_review/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
@@ -342,8 +375,11 @@ jobs:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
+        # A status function is required because select-stories is skipped on ready PRs
+        # and master pushes. !cancelled() rather than always() so a superseded run's
+        # browser shards stop promptly instead of running the full 30-minute matrix.
         if: >-
-            always()
+            !cancelled()
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
             && needs.select-stories.outputs.should_run != 'false'
@@ -375,11 +411,21 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -548,11 +594,21 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -653,11 +709,12 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         needs: [visual-regression, vr-setup]
-        # always() so the skipped select-stories job (transitively in the needs
-        # chain on ready PRs) doesn't skip-propagate past the always() jobs above
-        # and leave the VR run uncompleted with its commit status stuck pending.
-        # Legit skips still work: no-VR cases leave run_id empty, and a failed or
-        # cancelled matrix fails the result == 'success' check.
+        # Intentional always(), not !cancelled(): this job finalizes external state,
+        # so a run cancelled after the matrix succeeded must still complete the VR
+        # run rather than leave its commit status stuck pending. It also stops the
+        # skipped select-stories job (transitively in the needs chain on ready PRs)
+        # from skip-propagating here. Legit skips still work: no-VR cases leave
+        # run_id empty, and a failed or cancelled matrix fails the result check.
         if: |
             always()
             && needs.vr-setup.outputs.run_id != ''
@@ -685,11 +742,21 @@ jobs:
                       products/visual_review/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd vr-cli/products/visual_review/cli && npm ci && npm run build
@@ -715,10 +782,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-            always() && github.actor != 'dependabot[bot]' &&
+            ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.frontend == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
-            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token
@@ -758,7 +825,7 @@ jobs:
         # select-stories only runs on internal draft PRs; fire only when it produced a
         # decision. DevEx project only; continue-on-error so telemetry never reds CI.
         if: |
-            always() && github.run_attempt == '1'
+            !cancelled() && github.run_attempt == '1'
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
             && needs.select-stories.result == 'success'
@@ -796,10 +863,13 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
-            always() && needs.changes.outputs.frontend == 'true'
+            !cancelled() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft == true
+            && !startsWith(github.head_ref, 'trunk-merge/')
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
@@ -821,10 +891,20 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Download module-graph artifact
               id: download

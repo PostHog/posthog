@@ -9,6 +9,7 @@ import {
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
 import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
@@ -17,6 +18,7 @@ import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { getDevicePushSubscriptionToken } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { MessageAssetsService } from './message-assets.service'
 import {
     NormalizedPushError,
     PushPlatform,
@@ -102,6 +104,38 @@ function backoffAt(baseMs: number, maxMs: number, tries: number): DateTime {
     return DateTime.utc().plus({ milliseconds: delay })
 }
 
+// Correlation ids stamped into every notification's data payload. An open happens on the device, so the
+// SDK is the only thing that can observe it; these ride along in the payload and come back on the
+// captured open event, which is what lets an open be attributed to the workflow and step that sent it.
+// Without them an open is only ever a global count.
+//
+// The key and the shape are fixed by the mobile SDKs: both read the single `posthog` entry out of the
+// notification payload and re-emit each of its keys as `$notification_<key>` on `$push_notification_opened`.
+// Nothing outside that entry is read, so these ids have to be nested under it rather than sent as
+// sibling keys.
+const PUSH_CORRELATION_KEY = 'posthog'
+
+// Serialized rather than nested as an object because FCM's `data` map only accepts string values. Both
+// SDKs parse this entry from either a dictionary or a JSON string, on either delivery route, so one
+// encoding covers FCM and direct APNs.
+function pushCorrelationData(invocation: CyclotronJobInvocationHogFunction): Record<string, string> {
+    const correlation: Record<string, string> = {
+        workflow_id: invocation.functionId,
+        invocation_id: invocation.id,
+    }
+    // Absent for a push sent outside a workflow step, where there is no step to attribute an open to.
+    if (invocation.state.actionId) {
+        correlation.action_id = invocation.state.actionId
+    }
+    // Send metrics are attributed to `parentRunId ?? functionId`, so a batch run counts its sends
+    // against the batch job rather than the workflow. An open has to be attributable the same way or
+    // the two don't divide into a rate — which is why the email tracking code carries this id too.
+    if (invocation.parentRunId) {
+        correlation.parent_run_id = invocation.parentRunId
+    }
+    return { [PUSH_CORRELATION_KEY]: JSON.stringify(correlation) }
+}
+
 function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAfterMs?: number): PushSendError {
     // Append the raw provider code so the failure surfaced to the hog template stays debuggable, while
     // the human-readable sentence leads.
@@ -128,7 +162,8 @@ export class PushNotificationService {
         private integrationManager: IntegrationManagerService,
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
-        private redis: RedisV2 | null
+        private redis: RedisV2 | null,
+        private messageAssetsService?: MessageAssetsService
     ) {}
 
     @instrumented('push-notification.executeSendPushNotification')
@@ -139,7 +174,17 @@ export class PushNotificationService {
             throw new Error('Bad invocation')
         }
 
-        const params = invocation.queueParameters as CyclotronInvocationQueueParametersSendPushNotificationType
+        const queueParams = invocation.queueParameters as CyclotronInvocationQueueParametersSendPushNotificationType
+        // Stamp the correlation ids last so they win over any custom `data` key of the same name. The
+        // enriched copy is local: `invocation.queueParameters` stays untouched, so a reschedule re-derives
+        // these rather than persisting them onto the job.
+        const params: CyclotronInvocationQueueParametersSendPushNotificationType = {
+            ...queueParams,
+            payload: {
+                ...queueParams.payload,
+                data: { ...(queueParams.payload?.data ?? {}), ...pushCorrelationData(invocation) },
+            },
+        }
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { finished: true })
         const addLog = createAddLogFunction(result.logs)
 
@@ -184,6 +229,9 @@ export class PushNotificationService {
         let otherErrorCount = 0
         const errors: PushSendError[] = []
         let firstError: string | undefined
+        // Which providers took delivery. Only its emptiness is read, to decide whether there is a
+        // delivered notification worth capturing.
+        const deliveredPlatforms = new Set<string>()
         for (const integrationId of integrationIds) {
             try {
                 const integration = await this.integrationManager.get(integrationId)
@@ -202,6 +250,7 @@ export class PushNotificationService {
 
                 if (sent) {
                     successCount++
+                    deliveredPlatforms.add(integration.kind === 'firebase' ? 'Firebase' : 'APNs')
                 } else {
                     // A channel with no registered device token for this recipient is skipped, not failed.
                     skippedCount++
@@ -265,6 +314,27 @@ export class PushNotificationService {
         pushMetric('push_sent', successCount)
         pushMetric('push_skipped', skippedCount)
         pushMetric('push_failed', errorCount)
+
+        // Captured at the terminal outcome for the same reason the business metrics are: a rescheduled
+        // attempt returns earlier, so a retried notification produces one asset rather than one per try.
+        // Only a delivered notification is captured, matching email: an asset is a snapshot of what a
+        // recipient received, and a skip has no recipient. Skips stay visible as `push_skipped` plus the
+        // per-channel run log explaining why.
+        if (this.messageAssetsService && successCount > 0) {
+            // Best-effort: the notification is already delivered by this point, so a capture failure
+            // must not fail the invocation. Throwing here would send the whole batch back for a retry
+            // and deliver every notification in it a second time. Losing an Assets row is the cheaper
+            // outcome, and it is the same trade the flush path already makes on a Kafka failure.
+            try {
+                const assetRow = this.messageAssetsService.buildRowForPush(invocation, params, [...deliveredPlatforms])
+                if (assetRow) {
+                    result.emailAssets.push(assetRow)
+                }
+            } catch (err) {
+                addLog('warn', 'The notification was delivered but could not be captured for the Assets tab.')
+                logger.warn('⚠️', `failed to capture a sent push notification: ${err}`, { error: String(err) })
+            }
+        }
         for (const error of errors) {
             pushNotificationFailedCounter.labels({ platform: error.platform, reason: error.reason }).inc()
         }

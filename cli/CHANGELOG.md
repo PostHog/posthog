@@ -1,5 +1,29 @@
 # posthog-cli
 
+## 0.9.4 — 2026-07-30
+
+### Patch changes
+
+- [a29315a19c](https://github.com/PostHog/posthog/commit/a29315a19c59003b5160f479bbd452b530f9500d) Sourcemap, dSYM, and ProGuard uploads now end with a single per-run summary line reporting how many chunks were uploaded, skipped as already present on the server, and skipped as too large. The summary is logged even when a run fails partway, and the same counts are attached to the `error_tracking_cli_sourcemaps_upload_finished` telemetry event so skip rates are queryable. — Thanks @ablaszkiewicz!
+
+## 0.9.3 — 2026-07-30
+
+### Patch changes
+
+- [ccd7de59e0](https://github.com/PostHog/posthog/commit/ccd7de59e0399f26ddff1b60acba2a93b3be42a0) Symbol set uploads (`sourcemap upload`, `sourcemap upload-hermes`, `symbol-sets upload`, dSYM and Proguard uploads) are now significantly faster: chunk uploads reuse a single HTTP connection pool instead of opening a fresh TLS connection per chunk, payload content hashes are computed once (in parallel) instead of twice per file, and sourcemap payload preparation (serialization + compression) runs across all cores. — Thanks @hpouillot!
+
+## 0.9.2 — 2026-07-28
+
+### Patch changes
+
+- [d871ba0d38](https://github.com/PostHog/posthog/commit/d871ba0d38042331e19b8426ef09fcf0a375a832) Fixed `posthog-cli api` commands crashing on Windows when loading the bundled Node.js script. — Thanks @cvolzer3!
+
+## 0.9.1 — 2026-07-23
+
+### Patch changes
+
+- [1e49417142](https://github.com/PostHog/posthog/commit/1e49417142febac7925637eeb92ec12549e88235) Publish fresh CLI artifacts after fixing repository paths that prevented the Windows release build from checking out the source. — Thanks @cat-ph!
+
 ## 0.9.0 — 2026-07-22
 
 ### Minor changes

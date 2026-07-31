@@ -16,10 +16,10 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import (
     VERCEL_ENDPOINTS,
     VercelEndpointConfig,
@@ -136,7 +136,10 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
         return True, None
     if response.status_code in (401, 403):
         return False, "Invalid or unauthorized Vercel access token"
-    return False, f"Vercel API error: {response.status_code}"
+    return (
+        False,
+        "Couldn't validate your Vercel access token. Check that it's a valid token from your Vercel account settings, then try again.",
+    )
 
 
 def get_rows(

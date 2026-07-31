@@ -14,7 +14,8 @@
 //! the whole walk return `None` — the caller falls back to the parse, which resolves those exactly.
 
 use crate::assets::{is_media_src_attr, INLINE_IMAGE_ATTR, MEDIA_SRC_ATTRS, PLACEHOLDER_SRC};
-use crate::blur::{blank_image_data_uri, is_image_data_uri};
+use crate::blur::is_image_data_uri;
+use crate::collect::is_image_ref_strict;
 use crate::context::Ctx;
 use crate::css;
 use crate::dom::{
@@ -22,6 +23,7 @@ use crate::dom::{
     ParentKind, TagKind,
 };
 use crate::event::{SOURCE_INPUT, SOURCE_MUTATION, TYPE_FULL_SNAPSHOT, TYPE_INCREMENTAL};
+use crate::images::ImageFallback;
 use crate::scan::{self, Span};
 use crate::text::{redact_emails, scrub_text};
 use crate::url::scrub_url;
@@ -230,7 +232,9 @@ fn scrub_cv_snapshot_value(
         return Some(false);
     }
     let content = if changed { &walked } else { &decompressed };
-    let zs = crate::compression::compress_cv(content).ok()?;
+    // Through `cv::compress_scrubbed`, never the raw codec: the walk may have substituted deferred
+    // image tokens into `walked`, and compression is the last moment they can still be resolved.
+    let zs = crate::cv::compress_scrubbed(ctx, content).ok()?;
     write_latin1_json_string(&zs, out);
     Some(true)
 }
@@ -837,7 +841,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         if !is_image_data_uri(s) {
                             return None;
                         }
-                        Some(w.ctx.blur_data_uri(s).unwrap_or_else(blank_image_data_uri))
+                        Some(w.ctx.scrub_image(s, ImageFallback::Blank))
                     });
                 }
                 if name == "style" || name == css::INLINED_STYLESHEET_ATTR {
@@ -894,11 +898,13 @@ impl<'c, 'a> Walker<'c, 'a> {
         }
         let end = scan::skip_string(bytes, vstart).ok()?;
         let existing = scan::unescape(bytes, (vstart, end)).ok()?;
+        // See `assets::apply_blur`: only on an explicitly trusted re-scrub, and only for a
+        // fully well-formed ref.
+        if self.ctx.keeps_image_refs() && is_image_ref_strict(&existing) {
+            return self.copy_value(vstart, out);
+        }
         if is_image_data_uri(&existing) {
-            let blurred = self
-                .ctx
-                .blur_data_uri(&existing)
-                .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
+            let blurred = self.ctx.scrub_image(&existing, ImageFallback::Placeholder);
             scan::write_json_string(&blurred, out);
         } else {
             let scrubbed = scrub_url(self.ctx, &existing).unwrap_or_else(|| existing.into_owned());
@@ -997,7 +1003,8 @@ impl<'c, 'a> Walker<'c, 'a> {
                     return Some(send);
                 }
                 let content = if changed { &walked } else { &decompressed };
-                let zs = crate::compression::compress_cv(content).ok()?;
+                // See `scrub_cv_snapshot_value`: the barrier, not the raw codec.
+                let zs = crate::cv::compress_scrubbed(self.ctx, content).ok()?;
                 write_latin1_json_string(&zs, out);
                 self.changed = true;
                 Some(send)

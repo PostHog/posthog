@@ -23,6 +23,8 @@ import { replayScannerLogic } from './replayScannerLogic'
 export interface RowObservation {
     id: string
     status: ReplayObservationApi['status']
+    // Normalized to null when the API sends the blank default, so the status tag's tooltip check stays a plain truthiness test.
+    errorReason: string | null
 }
 
 export const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])
@@ -268,7 +270,11 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     for (const observation of response.results ?? []) {
                         // Results are newest-first — the first observation per session is the one the row reflects.
                         if (!(observation.session_id in bySession)) {
-                            bySession[observation.session_id] = { id: observation.id, status: observation.status }
+                            bySession[observation.session_id] = {
+                                id: observation.id,
+                                status: observation.status,
+                                errorReason: observation.error_reason || null,
+                            }
                         }
                     }
                     actions.loadObservationsSuccess(bySession)

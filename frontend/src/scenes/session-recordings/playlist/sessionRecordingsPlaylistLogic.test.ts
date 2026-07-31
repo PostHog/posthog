@@ -26,6 +26,7 @@ import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    asUniversalFilters,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
@@ -1194,6 +1195,29 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 properties: [],
                 session_ids: ['session-1', 'session-2', 'session-3'],
             })
+        })
+    })
+
+    describe('asUniversalFilters', () => {
+        // A playlist saved before universal filters stores only `events`. Left unconverted it has no
+        // filter_group, so the query converter finds nothing to filter on and the list returns
+        // everything while the UI shows no criteria.
+        it('carries a legacy saved filter through to the recordings query', () => {
+            const legacy = { events: [{ id: '$rageclick', type: 'events', order: 0 }] }
+
+            const query = convertUniversalFiltersToRecordingsQuery(asUniversalFilters(legacy as any)!)
+
+            expect(query.events).toEqual([expect.objectContaining({ id: '$rageclick', type: 'events' })])
+        })
+
+        it('leaves filters that are already universal untouched', () => {
+            const universal = getDefaultFilters()
+
+            expect(asUniversalFilters(universal)).toBe(universal)
+        })
+
+        it('returns undefined when there are no stored filters', () => {
+            expect(asUniversalFilters(undefined)).toBeUndefined()
         })
     })
 

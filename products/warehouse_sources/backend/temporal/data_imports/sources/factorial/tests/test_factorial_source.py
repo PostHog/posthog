@@ -5,8 +5,8 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial import FactorialResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source import FactorialSource
@@ -129,17 +129,29 @@ class TestFactorialSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("test-key")
+        # No row pin at creation time, so the probe runs under the default (newest) version.
+        mock_validate.assert_called_once_with("test-key", "2026-04-01")
 
     def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(_make_inputs())
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is FactorialResumeConfig
 
+    @pytest.mark.parametrize(
+        ("pin", "resolved"),
+        [
+            # None pin resolves to the default (the newest supported version) — new sources land here.
+            (None, "2026-04-01"),
+            ("2025-04-01", "2025-04-01"),
+            ("2026-04-01", "2026-04-01"),
+        ],
+    )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source.factorial_source")
-    def test_source_for_pipeline_passes_arguments(self, mock_factorial_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_resolves_and_threads_version(
+        self, mock_factorial_source: mock.MagicMock, pin: str | None, resolved: str
+    ) -> None:
         manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = _make_inputs(schema_name="leaves", team_id=99, job_id="job-xyz")
+        inputs = _make_inputs(schema_name="leaves", team_id=99, job_id="job-xyz", api_version=pin)
 
         self.source.source_for_pipeline(self.config, manager, inputs)
 
@@ -149,4 +161,5 @@ class TestFactorialSource:
             team_id=99,
             job_id="job-xyz",
             resumable_source_manager=manager,
+            api_version=resolved,
         )

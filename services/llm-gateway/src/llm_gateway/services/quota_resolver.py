@@ -9,7 +9,7 @@ values in the product registry — e.g. ``ai_credits``, ``posthog_code_credits``
 Transient upstream failures (network errors, 5xx) are retried within the
 request with exponential backoff. 4xx responses or exhausted retries fall
 open and briefly cache ``limited=False`` so a struggling Django isn't hit on
-every subsequent request. The Code usage billing bit in that fail-open entry
+every subsequent request. The Desktop usage billing bit in that fail-open entry
 falls back to the team's last known value instead (see
 ``_LAST_KNOWN_BILLING_TTL_SECONDS``), so an upstream blip doesn't re-cap a
 paying org's users.
@@ -40,7 +40,7 @@ logger = structlog.get_logger(__name__)
 # upstream is consulted again within a minute.
 _FAIL_OPEN_CACHE_TTL_SECONDS = 60
 
-# Last known Code usage billing bit per team: written on every successful
+# Last known Desktop usage billing bit per team: written on every successful
 # fetch, read only when a fetch fails. Bounds how stale the fail-time fallback
 # may be — a billed org keeps paid-tier treatment through a day-long upstream
 # outage, after which unknown teams fail closed again.

@@ -5,8 +5,10 @@ on:
         branches: [master]
     pull_request:
         # Draft PRs run build + unit tests only; the integration tests (which boot
-        # the full PostHog backend and trigger on any Python change) run when the
-        # PR is marked ready for review — that full run is the merge gate.
+        # the full PostHog backend and trigger on any non-pytest Python change) run
+        # when the PR is marked ready for review; that full run is the merge gate.
+        # The `no-ci` label silences this workflow on a draft entirely (prototypes).
+        # No labeled/unlabeled triggers here, so it takes effect from the next push.
         types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
@@ -18,12 +20,22 @@ permissions:
     pull-requests: read
 
 env:
+    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    SCHEMA_CACHE_EPOCH: v1
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run MCP checks
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
@@ -31,8 +43,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # MCP integration tests boot the full PostHog backend (Django web server,
-            # Celery worker, migrations, demo data), so the filter mirrors the Dagster
-            # approach: trigger on any Python change across the app.
+            # Celery worker, migrations, demo data), so the filter stays broad: any
+            # non-pytest Python change across the app triggers it.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -97,6 +109,28 @@ jobs:
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
+                        # The integration tests drive a running Django server over HTTP and
+                        # never import pytest modules, so exclude them. Narrow on purpose:
+                        #  - modules, not whole test/ dirs: those also hold runtime code, such
+                        #    as posthog/test/base.py, which the backend boot imports via
+                        #    setup_test_environment.
+                        #  - '*_test.py' only under products/*/backend, where it is the
+                        #    colocated-test convention. Under posthog/ that suffix names
+                        #    production code this suite runs (ClickHouse migrations, UDF
+                        #    scripts copied into ClickHouse during setup).
+                        #  - per-tree prefixes, because an exclude is tested against every file
+                        #    the filter sees, not just the include it sits next to: a bare
+                        #    '!**/conftest.py' would also veto tools/hogli/tests/conftest.py,
+                        #    which the tools/hogli/** include above covers.
+                        - '!posthog/**/test_*.py'
+                        - '!posthog/**/conftest.py'
+                        - '!ee/**/test_*.py'
+                        - '!ee/**/conftest.py'
+                        - '!common/**/test_*.py'
+                        - '!common/**/conftest.py'
+                        - '!products/*/backend/**/test_*.py'
+                        - '!products/*/backend/**/*_test.py'
+                        - '!products/*/backend/**/conftest.py'
     build:
         name: Build Package
         runs-on: ubuntu-latest
@@ -108,11 +142,21 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -129,6 +173,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/root --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Check MCP code quality
               run: |
@@ -241,10 +286,10 @@ jobs:
         needs: changes
         timeout-minutes: 30
         # Skipped on drafts: these boot the full PostHog backend and trigger on any
-        # Python change, so they're the expensive half of this workflow. Build and
-        # unit tests still run on drafts; the `MCP Tests Pass` aggregator treats
-        # skipped as success, and the ready-for-review run is the merge gate.
-        if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
+        # non-pytest Python change, so they're the expensive half of this workflow.
+        # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
+        # treats skipped as success, and the ready-for-review run is the merge gate.
+        if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -301,11 +346,21 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -329,6 +384,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Set up needed files
               shell: bash
@@ -404,11 +460,26 @@ jobs:
                   # The fetch-depth:1000 checkout + base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
                   MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -n "$MERGE_BASE" ]; then
-                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
-                  else
+                  if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                      exit 0
+                  fi
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
             - name: Restore schema cache from master
@@ -416,7 +487,10 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  key: ${{ steps.schema-key.outputs.key }}
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.key }}
 
             - name: Prime posthog from cached schema
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.
@@ -619,7 +693,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, unit-tests]
-        if: ${{ always() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+        # A status function is required to commit regenerated snapshots even when unit-tests
+        # failed (a snapshot mismatch fails that job). !cancelled() rather than always() so a
+        # superseded run does not push a stale snapshot commit to the branch.
+        if: ${{ !cancelled() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
         permissions:
             contents: write
             pull-requests: write
@@ -690,9 +767,9 @@ jobs:
         steps:
             - name: Check all MCP jobs
               run: |
-                  # Fail if change detection itself failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Fail if change detection failed or was cancelled (outputs are empty on cancel, so the exit below would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
@@ -702,23 +779,23 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
-                    echo "MCP build failed."
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "MCP build did not succeed (result: ${{ needs.build.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.unit-tests.result }}" == "failure" ]]; then
-                    echo "MCP unit tests failed."
+                  if [[ "${{ needs.unit-tests.result }}" != "success" && "${{ needs.unit-tests.result }}" != "skipped" ]]; then
+                    echo "MCP unit tests did not succeed (result: ${{ needs.unit-tests.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.integration-tests.result }}" == "failure" ]]; then
-                    echo "MCP integration tests failed."
+                  if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
+                    echo "MCP integration tests did not succeed (result: ${{ needs.integration-tests.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
-                    echo "MCP snapshot commit job failed."
+                  if [[ "${{ needs.handle-snapshots.result }}" != "success" && "${{ needs.handle-snapshots.result }}" != "skipped" ]]; then
+                    echo "MCP snapshot commit job did not succeed (result: ${{ needs.handle-snapshots.result }})."
                     exit 1
                   fi
 

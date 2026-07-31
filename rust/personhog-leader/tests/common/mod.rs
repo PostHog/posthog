@@ -25,11 +25,16 @@ use rdkafka::producer::{DefaultProducerContext, FutureProducer};
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_common::partitioning::partition_for_person;
-use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
+use personhog_leader::cache::{
+    approx_person_bytes, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey,
+};
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::pg::PgFallback;
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
-use personhog_leader::service::PersonHogLeaderService;
+use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::warming::WarmClientPools;
+use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use tokio::net::TcpListener;
@@ -97,6 +102,11 @@ pub fn start_coordinator(
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
+            // Effectively disabled: these tests park handoffs to assert
+            // warming behavior, and a live deadline would delete the
+            // state under test.
+            handoff_deadline: Duration::from_secs(86_400),
+            warming_deadline: Duration::from_secs(86_400),
         },
         strategy,
         None,
@@ -139,7 +149,12 @@ impl StashHandler for MockCutoverHandler {
         Ok(())
     }
 
-    async fn drain_stash(&self, partition: u32, target: &str) -> Result<()> {
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
         self.events.lock().await.push(CutoverEvent::StashDrained {
             partition,
             target: target.to_string(),
@@ -160,6 +175,8 @@ pub fn start_router(
             router_name: name.to_string(),
             lease_ttl: 10,
             heartbeat_interval: Duration::from_secs(3),
+            reconcile_interval: Duration::from_secs(86_400),
+            ..RoutingTableConfig::default()
         },
     );
     let token = cancel.child_token();
@@ -329,16 +346,26 @@ pub async fn start_leader_pod(
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     // Recovery must read the broker the service produces to.
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
+    let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        name,
+        &warming.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config(name, &mock_cluster.bootstrap_servers()),
+        warming,
+        pools,
     );
     let pod = PodHandle::new(
         store,
         PodConfig {
             pod_name: name.to_string(),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -350,7 +377,7 @@ pub async fn start_leader_pod(
     // gRPC leader service sharing the same cache
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -358,6 +385,8 @@ pub async fn start_leader_pod(
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         recovery,
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -397,11 +426,18 @@ pub async fn start_leader_pod_with_lease_ttl(
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
+    let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        name,
+        &warming.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config(name, &mock_cluster.bootstrap_servers()),
+        warming,
+        pools,
     );
     let pod = PodHandle::new(
         store,
@@ -409,6 +445,9 @@ pub async fn start_leader_pod_with_lease_ttl(
             pod_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -419,7 +458,7 @@ pub async fn start_leader_pod_with_lease_ttl(
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
@@ -427,6 +466,8 @@ pub async fn start_leader_pod_with_lease_ttl(
         NUM_PARTITIONS,
         Arc::clone(&dirty_index),
         recovery,
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -476,6 +517,7 @@ pub fn test_cached_person() -> CachedPerson {
         created_at: 1700000000,
         version: 1,
         is_identified: false,
+        approx_bytes: approx_person_bytes(64),
     }
 }
 
@@ -495,20 +537,25 @@ pub async fn start_leader_with_pg_fallback(
     Arc<PartitionedCache>,
     MockCluster<'static, DefaultProducerContext>,
 ) {
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
     let pool = create_persons_pool().await;
 
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
-        kafka_producer,
+        kafka_producer.clone(),
         CHANGELOG_TOPIC.to_string(),
-        Some(pool),
+        Some(PgFallback {
+            pool,
+            table: "posthog_person".to_string(),
+        }),
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
         NUM_PARTITIONS,
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(&mock_cluster.bootstrap_servers()),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

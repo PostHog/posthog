@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
+import { captureScoutDetailViewed } from '../../../inboxAnalytics'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
@@ -21,7 +22,7 @@ import { ScoutRunHistorySection } from './ScoutRunHistorySection'
  * rollup line. The Signals section (emission cards) and per-scout run history land next (W2/W3).
  */
 export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Element {
-    const { scoutConfigs, rollups, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { scoutConfigs, rollups, runsWindowComplete, updatingScoutIds } = useValues(scoutFleetLogic)
     const { updateScoutConfig, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setSelectedScoutSkillName } = useActions(inboxSceneLogic)
 
@@ -35,6 +36,26 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
 
     const config = scoutConfigs?.find((c) => c.skill_name === skillName) ?? null
     const rollup = rollups.get(skillName)
+
+    // Once per scout opened, as soon as its config resolves — the run rollup fills in a beat later
+    // off the polled window, so the counts are whatever had loaded by then.
+    const detailViewedForRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!config || detailViewedForRef.current === skillName) {
+            return
+        }
+        detailViewedForRef.current = skillName
+        captureScoutDetailViewed({
+            skillName,
+            scoutOrigin: config.scout_origin,
+            enabled: config.enabled,
+            emit: config.emit,
+            runIntervalMinutes: config.run_interval_minutes,
+            runCount: rollup?.runCount ?? 0,
+            failedRunCount: rollup?.failedCount ?? 0,
+            emittedSignalCount: rollup?.emittedCount ?? 0,
+        })
+    }, [skillName, config, rollup])
 
     return (
         <div className="flex flex-col min-h-0 flex-1 overflow-auto gap-4 px-4 py-3">
@@ -57,7 +78,13 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 <div className="flex flex-1 items-center justify-center text-sm text-tertiary">Scout not found.</div>
             ) : (
                 <>
-                    <ScoutRowCard config={config} rollup={rollup} onUpdate={updateScoutConfig} asHeader />
+                    <ScoutRowCard
+                        config={config}
+                        rollup={rollup}
+                        onUpdate={updateScoutConfig}
+                        updating={updatingScoutIds.includes(config.id)}
+                        asHeader
+                    />
 
                     {config.description ? (
                         <p className="text-sm text-secondary leading-snug mb-0">{config.description}</p>

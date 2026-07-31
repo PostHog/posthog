@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 import typing
 import datetime as dt
@@ -6,6 +7,7 @@ import dataclasses
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import duckdb
 import deltalake
@@ -212,7 +214,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
     # Per-source mutual exclusion with the Duckgres v3 batch sink. The sink owns a
     # registered team's v3 sources (it mirrors them live + backfills history), so
     # drop those here; non-v3 sources stay on the copy workflow because the sink never
-    # touches them. A flagged team without a DuckgresServerTeam membership remains
+    # touches them. A flagged team without a duckgres control-plane team row remains
     # on this copy path until it completes the enable flow.
     # is_pipeline_v3_enabled is the same gate the v3 router uses, so "copy" and
     # "sink" never disagree on who owns a source (and both fail to "copy owns it").
@@ -259,7 +261,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                     source_type=source_type,
                 )
                 continue
-        source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
+        source_table_uri = _data_imports_source_table_uri(schema)
         staging_uri = await database_sync_to_async(_resolve_data_imports_staging_uri)(
             source_table_uri, team_id=inputs.team_id
         )
@@ -292,6 +294,11 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
     """Copy a single data imports schema's Delta snapshot into DuckLake."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
+    # This activity runs in a long-lived worker thread that never goes through Django's
+    # request/response cycle, so a connection killed by the DB/proxy (e.g. after
+    # CONN_MAX_AGE) is never detected and closed before reuse.
+    if not settings.TEST:
+        close_old_connections()
 
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
@@ -326,6 +333,52 @@ def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs,
         logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
 
 
+# A v3 full-refresh sync purges the source Delta table during extract and the
+# delta-load consumer rebuilds it asynchronously after the import job (and therefore
+# this copy, fired at job end) has already started. Reads that land in that window see
+# an empty _delta_log. The wait budget covers the p99.9 of observed rebuild latency;
+# a consumer outage beyond it fails the copy, and the next sync retries.
+DELTA_REBUILD_WAIT_SECONDS = 600
+DELTA_REBUILD_POLL_SECONDS = 20
+
+
+def _is_delta_table_absent_error(error: Exception) -> bool:
+    """Whether an error means the source Delta table does not currently exist."""
+    if isinstance(error, deltalake.exceptions.TableNotFoundError):
+        return True
+    return isinstance(error, deltalake.exceptions.DeltaError) and "No files in log segment" in str(error)
+
+
+def _stage_delta_table_waiting_for_rebuild(
+    *, source_uri: str, catalog_bucket: str, organization_id: str, logger: typing.Any
+) -> None:
+    """Stage the source Delta table, waiting out the v3 full-refresh rebuild window.
+
+    Only the two "table momentarily absent" signals are absorbed; every other error
+    propagates immediately. Runs inside the activity's HeartbeaterSync, so the sleeps
+    keep heartbeating and a dead worker is still detected via heartbeat timeout.
+    """
+    deadline = time.monotonic() + DELTA_REBUILD_WAIT_SECONDS
+    while True:
+        try:
+            stage_delta_table(
+                source_uri=source_uri,
+                catalog_bucket=catalog_bucket,
+                organization_id=organization_id,
+            )
+            return
+        except Exception as error:
+            if not _is_delta_table_absent_error(error) or time.monotonic() >= deadline:
+                raise
+            logger.info(
+                "Source Delta table not readable yet, waiting for the loader to rebuild it",
+                source_uri=source_uri,
+                error=str(error),
+                poll_seconds=DELTA_REBUILD_POLL_SECONDS,
+            )
+            time.sleep(DELTA_REBUILD_POLL_SECONDS)
+
+
 def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
     """Stage Delta files and create the DuckLake table via duckgres."""
     org_id = _get_org_id_for_team(inputs.team_id)
@@ -343,10 +396,11 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
         source_uri=inputs.model.source_table_uri,
         staging_uri=inputs.model.staging_uri,
     )
-    stage_delta_table(
+    _stage_delta_table_waiting_for_rebuild(
         source_uri=inputs.model.source_table_uri,
         catalog_bucket=bucket,
         organization_id=org_id,
+        logger=logger,
     )
 
     schema = inputs.model.ducklake_schema_name
@@ -378,12 +432,26 @@ class DuckLakeDataImportsStagingCleanupInputs:
 def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingCleanupInputs) -> None:
     """Clean up staged Delta files after successful verification."""
     bind_contextvars(team_id=inputs.team_id)
+    # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity.
+    if not settings.TEST:
+        close_old_connections()
     server = get_duckgres_server_by_team_org(inputs.team_id)
     if server is None:
         return
     cleanup_staged_files(
         staging_uri=inputs.staging_uri,
     )
+
+
+def _data_imports_source_table_uri(schema: ExternalDataSchema) -> str:
+    """S3 URI of the schema's Delta table, matching the folder the loader actually wrote.
+
+    Uses ``normalized_s3_folder_name`` (the resolved folder leaf), which diverges from
+    ``normalized_name`` for folder-pinned sources (e.g. Postgres ``public.users`` → folder
+    ``users``). Reading ``normalized_name`` here points at a prefix with no ``_delta_log``
+    and surfaces as "No files in log segment".
+    """
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{schema.normalized_s3_folder_name}"
 
 
 def _resolve_data_imports_staging_uri(source_uri: str, *, team_id: int) -> str | None:
@@ -443,6 +511,9 @@ def verify_data_imports_ducklake_copy_activity(
     """Run configured verification queries to ensure the copy matches the source."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
+    # Same long-lived worker thread caveat as copy_data_imports_to_ducklake_activity.
+    if not settings.TEST:
+        close_old_connections()
 
     if not inputs.model.verification_queries:
         logger.info("No DuckLake verification queries configured - skipping")

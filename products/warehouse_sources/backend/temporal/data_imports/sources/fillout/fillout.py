@@ -4,7 +4,6 @@ from typing import Any, Optional, cast
 from requests import Request, Response
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -26,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
     IncrementalConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.settings import (
     ALLOWED_FILLOUT_API_BASE_URLS,
     DEFAULT_FILLOUT_API_BASE_URL,
@@ -66,7 +66,9 @@ def _fillout_incremental_window(cursor_path: str) -> IncrementalConfig:
     return {
         "cursor_path": cursor_path,
         "start_param": "afterDate",
-        "initial_value": "1970-01-01T00:00:00Z",
+        # Not `...T00:00:00Z`: Fillout's API rejects an `afterDate` of exactly the Unix epoch
+        # with a 400 "Invalid date", so the first (pre-watermark) sync uses one second past it.
+        "initial_value": "1970-01-01T00:00:01Z",
         "convert": _format_fillout_datetime,
     }
 

@@ -20,7 +20,8 @@ class CloudbedsEndpointConfig:
     flatten_parent_fields: list[str] = field(default_factory=list)
 
 
-# Cloudbeds PMS API v1.2 list endpoints. All are full refresh only for now: getReservations
+# Cloudbeds PMS API list endpoints (identical method set across v1.2 and v1.3, which differ only
+# by the `/api/<version>` URL segment). All are full refresh only for now: getReservations
 # documents a server-side `modifiedSince` filter, but Cloudbeds notes some reservation
 # modifications are not reflected in the modified timestamp, and we have not been able to verify
 # the filter's behavior against a live account - so we conservatively ship full refresh and dedupe

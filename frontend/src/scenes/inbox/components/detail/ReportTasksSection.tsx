@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
-import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconExternal, IconTerminal } from '@posthog/icons'
+import { Link, Spinner } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
 import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
@@ -16,15 +19,15 @@ import { DetailSection } from './DetailSection'
  * Renders the report's linked tasks inline (latest status + purpose). Each row expands in place to
  * the task's run transcript via the shared `ReadonlyRunSurface` — live for an in-progress run, static
  * replay once terminal — mirroring the Code experience instead of navigating away to a separate run
- * page. The purpose label is derived from each task's `task_run` artefact; `repo_selection` runs are
- * filtered out.
+ * page. Each row also links out to the run's page in Tasks for the full surface. The purpose label is
+ * derived from each task's `task_run` artefact; `repo_selection` runs are filtered out.
  */
 export function ReportTasksSection({ report }: { report: SignalReport }): JSX.Element | null {
     const { reportTasks, reportTasksLoading } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
     if (reportTasksLoading && !reportTasks) {
         return (
-            <DetailSection icon={<IconTerminal />} title="Runs">
+            <DetailSection icon={<IconTerminal />} title="Runs" collapsible>
                 <div className="flex items-center gap-2 text-xs text-tertiary py-1">
                     <Spinner className="size-3" />
                     Loading runs…
@@ -38,7 +41,7 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
     }
 
     return (
-        <DetailSection icon={<IconTerminal />} title="Runs">
+        <DetailSection icon={<IconTerminal />} title="Runs" collapsible>
             <div className="flex flex-col gap-0.5">
                 {reportTasks.map((entry: ReportTaskEntry) => (
                     <TaskRow key={entry.task.id} entry={entry} reportId={report.id} report={report} />
@@ -66,21 +69,37 @@ function TaskRow({
     const replayOnly = isTerminalRunStatus(task.latest_run?.status)
     const expanded = expandedTaskIds.includes(task.id)
 
+    // Deep link to the run's own page in Tasks — the inline transcript is a preview, this is the
+    // full surface (run history, composer). Falls back to the task when no run has started yet.
+    const taskUrl = runId ? combineUrl(urls.taskDetail(task.id), { runId }).url : urls.taskDetail(task.id)
+
     return (
         <div>
-            <button
-                type="button"
-                onClick={() => toggleExpandedTask(task.id)}
-                className="group flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs transition-colors hover:bg-fill-highlight-50"
-            >
-                {expanded ? (
-                    <IconChevronDown className="shrink-0 text-tertiary" />
-                ) : (
-                    <IconChevronRight className="shrink-0 text-tertiary" />
-                )}
-                <TaskRunStatusDot status={status} />
-                <span className="shrink-0 text-secondary">{purposeLabel}</span>
-            </button>
+            <div className="group flex w-full items-center gap-2 rounded px-1.5 py-1 text-xs transition-colors hover:bg-fill-highlight-50">
+                <button
+                    type="button"
+                    onClick={() => toggleExpandedTask(task.id)}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                >
+                    {expanded ? (
+                        <IconChevronDown className="shrink-0 text-tertiary" />
+                    ) : (
+                        <IconChevronRight className="shrink-0 text-tertiary" />
+                    )}
+                    <TaskRunStatusDot status={status} />
+                    <span className="truncate text-secondary">{purposeLabel}</span>
+                </button>
+                <Link
+                    to={taskUrl}
+                    aria-label={`Open ${purposeLabel} run in Tasks`}
+                    title="Open run in Tasks"
+                    // A 24px box keeps the tap target clear of the expand button on touch; the negative
+                    // margin absorbs it back into the row so rows keep their height.
+                    className="-my-1 flex size-6 shrink-0 items-center justify-center rounded text-tertiary opacity-60 transition-opacity hover:text-primary group-hover:opacity-100"
+                >
+                    <IconExternal className="size-3.5" />
+                </Link>
+            </div>
 
             {expanded ? (
                 <div className="mt-1.5 mb-1 ml-1.5">

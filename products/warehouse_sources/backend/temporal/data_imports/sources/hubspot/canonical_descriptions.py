@@ -131,4 +131,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_meeting_source": "How the meeting was created (e.g. CRM_UI, MEETINGS_PUBLIC).",
         },
     },
+    "leads": {
+        "description": "A potential customer tracked in HubSpot CRM, associated with a contact or company.",
+        "docs_url": "https://developers.hubspot.com/docs/api/crm/leads",
+        "columns": {
+            "hs_object_id": "HubSpot's unique internal identifier for the lead.",
+            "hs_lead_name": "The lead's name.",
+            "hs_lead_type": "The type of lead (e.g. new business).",
+            "hs_lead_label": "The current status label of the lead (e.g. warm, cold).",
+            "hs_pipeline": "The pipeline the lead is in.",
+            "hs_pipeline_stage": "The pipeline stage the lead is in (e.g. new, attempting, connected, qualified).",
+            "hs_createdate": "Date the lead was created in HubSpot.",
+            "hs_lastmodifieddate": "Date any property on the lead was last modified.",
+        },
+    },
 }
