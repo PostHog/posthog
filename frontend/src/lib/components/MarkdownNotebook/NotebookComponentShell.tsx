@@ -17,7 +17,7 @@ import {
     IconEllipsis,
     IconExpand,
     IconEye,
-    IconGear,
+    IconPencil,
     IconGraph,
     IconHide,
     IconList,
@@ -341,7 +341,7 @@ export function NotebookComponentShell({
                             <LemonButton
                                 aria-label={filtersLabel}
                                 size="xsmall"
-                                icon={<IconGear />}
+                                icon={<IconPencil />}
                                 active={componentPanels.filters}
                                 tooltip={filtersLabel}
                                 disabledReason={toolbarExtras?.filtersDisabledReason ?? undefined}
