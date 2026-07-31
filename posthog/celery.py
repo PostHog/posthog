@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import os
 import time
 import errno
 import threading
+from typing import TYPE_CHECKING
 
 from django.dispatch import receiver
 
@@ -22,6 +25,9 @@ from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
+
+if TYPE_CHECKING:
+    from posthog.finops.usage_meter import FinopsUsageMeter
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
@@ -95,6 +101,9 @@ if app.steps:
     app.steps["worker"].add(DjangoStructLogInitStep)
 
 task_timings: dict[str, float] = {}
+
+# Lazily initialized at worker_process_init; None when metering is disabled.
+_finops_meter: FinopsUsageMeter | None = None
 
 
 def _initialize_worker_metrics() -> None:
@@ -219,6 +228,9 @@ def on_worker_start(**kwargs) -> None:
     # Initialize metrics that need to survive pod restarts
     _initialize_worker_metrics()
 
+    # Initialize FinOps usage meter (fail-safe — never breaks worker startup)
+    _initialize_finops_meter()
+
 
 _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0
 
@@ -259,6 +271,77 @@ def on_worker_process_shutdown(**kwargs) -> None:
         logger.warning("posthoganalytics_metrics_flush_failed", exc_info=True)
 
 
+def _initialize_finops_meter() -> None:
+    """Create the FinOps usage meter singleton if metering is enabled."""
+    global _finops_meter
+    try:
+        from django.conf import settings
+
+        if not getattr(settings, "CELERY_FINOPS_USAGE_METERS_ENABLED", False):
+            return
+        from posthog.finops.usage_meter import FinopsUsageMeter  # noqa: PLC0415
+
+        _finops_meter = FinopsUsageMeter(enabled=True)
+        logger.info("finops_usage_meter_initialized")
+    except Exception:
+        logger.warning("finops_usage_meter_init_failed", exc_info=True)
+
+
+def _extract_celery_team_id(kwargs: dict | None) -> int:
+    """Extract team_id from task kwargs, returning 0 when unavailable."""
+    try:
+        team_id = (kwargs or {}).get("team_id")
+        if isinstance(team_id, int) and not isinstance(team_id, bool):
+            return team_id
+    except Exception:
+        pass
+    return 0
+
+
+def _extract_celery_user_id() -> int:
+    """Read user_id from structlog contextvars, set by django_structlog when
+    the task was dispatched from an HTTP request. Returns 0 for periodic tasks
+    or tasks without request context."""
+    try:
+        import structlog as _structlog  # noqa: PLC0415
+
+        ctx = _structlog.contextvars.get_merged_contextvars(_structlog.get_logger())
+        user_id = ctx.get("user_id")
+        if isinstance(user_id, int) and not isinstance(user_id, bool):
+            return user_id
+    except Exception:
+        pass
+    return 0
+
+
+def _emit_finops_meter(task_name: str, task_kwargs: dict | None, duration_ms: float, queue: str) -> None:
+    """Emit a FinOps usage meter for a completed Celery task. Fail-safe: never raises."""
+    meter = _finops_meter
+    if meter is None:
+        return
+    try:
+        from posthog.finops.celery_task_product_map import resolve_celery_task_product  # noqa: PLC0415
+        from posthog.finops.usage_meter import FinopsUsageMeterInput  # noqa: PLC0415
+
+        task_product = resolve_celery_task_product(task_name)
+        meter.queue(
+            FinopsUsageMeterInput(
+                product=task_product.product,
+                billable_unit=task_product.billable_unit,
+                quantity=1,
+                team_id=_extract_celery_team_id(task_kwargs),
+                user_id=_extract_celery_user_id(),
+                system="celery",
+                workload=task_name,
+                resource_id=queue,
+                duration_ms=duration_ms,
+            )
+        )
+        meter.flush()
+    except Exception:
+        pass
+
+
 # Set up clickhouse query instrumentation
 @task_prerun.connect
 def prerun_signal_handler(task_id, task, **kwargs):
@@ -277,13 +360,24 @@ def prerun_signal_handler(task_id, task, **kwargs):
 
 
 @task_postrun.connect
-def postrun_signal_handler(task_id, task, **kwargs):
+def postrun_signal_handler(task_id, task, args=None, kwargs=None, **_):
     from posthog.clickhouse.query_tagging import reset_query_tags
 
+    duration_ms = 0.0
     if task_id in task_timings:
         start_time = task_timings.pop(task_id, None)
         if start_time:
-            CELERY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(time.time() - start_time)
+            elapsed = time.time() - start_time
+            CELERY_TASK_DURATION_HISTOGRAM.labels(task_name=task.name).observe(elapsed)
+            duration_ms = elapsed * 1000
+
+    queue = ""
+    try:
+        queue = task.request.delivery_info.get("routing_key", "")
+    except Exception:
+        pass
+
+    _emit_finops_meter(task.name, kwargs, duration_ms, queue)
 
     reset_query_tags()
 
