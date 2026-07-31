@@ -20,6 +20,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
+from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -31,6 +32,7 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -456,6 +458,10 @@ DEV_LOGIN_KNOWN_EMAIL_LABELS = {
     "test@posthog.com": "Default test user",
 }
 
+# Some dev instances (growth testing especially) accumulate hundreds of accounts. The panel
+# pages through them with search rather than shipping the whole table on every login page view.
+DEV_LOGIN_USER_LIMIT = 100
+
 # Name pools for dev-login fresh account creation, so test accounts are easy to
 # tell apart in the login tools list.
 DEV_ACCOUNT_FIRST_NAMES = [
@@ -574,6 +580,29 @@ class DevLoginSerializer(serializers.Serializer):
         return user
 
 
+class DevLoginUserSerializer(serializers.Serializer):
+    email = serializers.EmailField(read_only=True, help_text="Email to log in as.")
+    first_name = serializers.CharField(read_only=True, help_text="First name, shown next to the email.")
+    is_staff = serializers.BooleanField(read_only=True, help_text="Whether the user is a staff (instance admin) user.")
+    # Shadows Field.label as a class attribute, which mypy flags. The metaclass moves declared
+    # fields into _declared_fields, so the two never collide at runtime.
+    label = serializers.CharField(  # type: ignore[assignment]
+        read_only=True, allow_null=True, help_text="Label for accounts seeded by setup_dev, e.g. the default test user."
+    )
+    last_login = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this account was last logged in as, or null if never."
+    )
+
+
+class DevLoginUserListSerializer(serializers.Serializer):
+    users = DevLoginUserSerializer(
+        many=True, read_only=True, help_text="Matching users, most recently logged in first."
+    )
+    total_count = serializers.IntegerField(
+        read_only=True, help_text="How many users match the search in total, before the response is capped."
+    )
+
+
 class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     """
     Dev-only convenience endpoint. Lists active users and lets the login UI
@@ -585,15 +614,38 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = DevLoginSerializer
     permission_classes = (permissions.AllowAny,)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=str,
+                description="Case-insensitive filter on email, first name and last name.",
+            )
+        ],
+        responses={200: DevLoginUserListSerializer},
+    )
     def list(self, request: Request) -> Response:
         if not is_dev_login_allowed():
             raise Http404()
 
-        users = list(User.objects.filter(is_active=True).order_by("email").values("email", "is_staff")[:50])
+        queryset = User.objects.filter(is_active=True)
+        search = request.GET.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(email__icontains=search) | Q(first_name__icontains=search) | Q(last_name__icontains=search)
+            )
+
+        # Recency beats alphabetical once an instance has more accounts than fit on screen — the
+        # handful you actually switch between float to the top on their own.
+        users = list(
+            queryset.order_by(F("last_login").desc(nulls_last=True), "email").values(
+                "email", "first_name", "is_staff", "last_login"
+            )[:DEV_LOGIN_USER_LIMIT]
+        )
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
 
-        return Response({"users": users})
+        return Response({"users": users, "total_count": queryset.count()})
 
 
 class TwoFactorSerializer(serializers.Serializer):

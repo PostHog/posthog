@@ -440,6 +440,35 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
 
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_list_puts_recently_used_accounts_first(self):
+        User.objects.create_and_join(self.organization, "aaa-never@posthog.com", None)
+        recently_used = User.objects.create_and_join(self.organization, "zzz-recent@posthog.com", None)
+        recently_used.last_login = timezone.now()
+        recently_used.save()
+
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = [user["email"] for user in response.json()["users"]]
+        self.assertEqual(emails[0], "zzz-recent@posthog.com")
+        self.assertEqual(response.json()["total_count"], len(emails))
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_list_search_narrows_users(self):
+        User.objects.create_and_join(self.organization, "growth-test-1@posthog.com", None, first_name="Mira")
+        User.objects.create_and_join(self.organization, "growth-test-2@posthog.com", None)
+
+        response = self.client.get("/api/login/dev?search=growth-test")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {user["email"] for user in response.json()["users"]},
+            {"growth-test-1@posthog.com", "growth-test-2@posthog.com"},
+        )
+        self.assertEqual(response.json()["total_count"], 2)
+
+        response = self.client.get("/api/login/dev?search=mira")
+        self.assertEqual([user["email"] for user in response.json()["users"]], ["growth-test-1@posthog.com"])
+
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
         response = self.client.get("/api/login/dev")
