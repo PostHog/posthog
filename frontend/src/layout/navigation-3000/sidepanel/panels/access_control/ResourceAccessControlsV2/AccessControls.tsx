@@ -12,6 +12,7 @@ import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
 import { parseAccessDetailOptions } from './accessDetailLogic'
+import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
 import { getEntryId } from './helpers'
 import type { AccessControlsTab, ScopeType } from './types'
 
@@ -33,9 +34,11 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         loading,
         panelSubject,
         visibleResourceKeySet,
+        accessDetailPanelEnabled,
+        ruleModalState,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel, openRuleModal } = useActions(logic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { selectedTab, selectedTabOptions, sidePanelOpen } = useValues(sidePanelStateLogic)
 
@@ -90,6 +93,10 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 visibleResources={visibleResourceKeySet}
                                 selectedEntryId={openInPanelId}
                                 onEdit={(entry) => {
+                                    if (!accessDetailPanelEnabled) {
+                                        openRuleModal({ scopeType, entry, projectId })
+                                        return
+                                    }
                                     openAccessDetailPanel(scopeType, getEntryId(entry))
                                     openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${getEntryId(entry)}`)
                                 }}
@@ -98,6 +105,8 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                     )}
                 </AccessControlTabContainer>
             </div>
+
+            {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} />}
         </>
     )
 }

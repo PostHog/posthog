@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
@@ -132,6 +133,7 @@ export interface accessControlsLogicValues {
     }[]
     rolesData: AccessControlRolesResponse | null
     rolesDataLoading: boolean
+    accessDetailPanelEnabled: boolean
     ruleModalState: GroupedAccessControlRuleModalLogicProps | null
     ruleOptions: {
         key: AccessControlLevel
@@ -988,6 +990,12 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         allMembers: [
             (s) => [s.sortedMembers],
             (sortedMembers: OrganizationMemberType[] | null): OrganizationMemberType[] => sortedMembers ?? [],
+        ],
+
+        /** The member and role detail panel is opt-in while the new UI rolls out. */
+        accessDetailPanelEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.ACCESS_CONTROL_DETAIL_PANEL],
         ],
 
         canUseRoles: [
