@@ -35,14 +35,23 @@
 #     which explodes at query time. So context.errors must be checked.
 #
 # And because compiling is not the same as being runnable, the write path also
-# asks Postgres to PLAN the fragment (_verify_executable). That is where
-# non-boolean expressions, set-returning functions (generateSeries prints as
-# generate_series, arrayJoin as UNNEST — both illegal inside a CASE/WHEN) and
-# type mismatches get caught. The last of those is easy to miss: ClickHouse's
-# JSON functions print as json_extract_path_text, which takes `json` while our
-# columns are `jsonb`, so `JSONExtractString(session_context, 'plan')` compiles
-# and cannot run. Use chain access — `session_context.plan` — which prints as
-# Postgres' native -> / ->> operators.
+# EXECUTES the fragment over a bounded sample of the team's tickets
+# (_verify_executable). That is where non-boolean expressions, set-returning
+# functions (generateSeries prints as generate_series, arrayJoin as UNNEST — both
+# illegal inside a CASE/WHEN), type mismatches, and expressions that are only
+# expensive or only fail once real data is involved get caught. Two of those are
+# easy to miss:
+#   - ClickHouse's JSON functions print as json_extract_path_text, which takes
+#     `json` while our columns are `jsonb`, so
+#     `JSONExtractString(session_context, 'plan')` compiles and cannot run. Use
+#     chain access — `session_context.plan` — which prints as Postgres' native
+#     -> / ->> operators.
+#   - `repeat(email_from, 100000000)` plans fine (the planner can't fold a column
+#     reference) and then allocates ~100MB per row at read time. Only evaluation
+#     against rows reveals it.
+# A statement_timeout bounds both the planning and the evaluation, and the read
+# path carries its own (ticket_groups._filter_condition / LIST_QUERY_TIMEOUT_MS)
+# because it cannot afford to re-verify per request.
 #
 # Two `system.support_tickets` fields cannot work in an expression and are
 # reported as such: `tags` (a lazy join onto an aggregating subquery — the
@@ -87,9 +96,43 @@ MAX_SQL_EXPRESSION_LENGTH = 1000
 # Django's RawSQL takes positional params; the HogQL printer emits named ones.
 _NAMED_PARAM_REGEX = re.compile(r"%\((?P<name>[^)]+)\)s")
 
-# Planning a ticket predicate is sub-millisecond work; anything approaching this
-# is a constant-folding bomb (see _verify_executable), not a real filter.
+# Planning and evaluating a ticket predicate over a few rows is sub-millisecond
+# work; anything approaching this is a resource bomb (see _verify_executable),
+# not a real filter.
 VERIFY_TIMEOUT_MS = 1000
+# Enough rows to exercise real data (nulls, odd values) without making a settings
+# save read a meaningful slice of a big team's table.
+VERIFY_SAMPLE_ROWS = 100
+
+# The read path can't afford to re-verify each filter, so it caps the whole rank
+# query instead. Generous — a rank CASE over a page is milliseconds, and a
+# tag-filtered count can legitimately take a while on a large team — but finite,
+# so a data-dependent expression can't tie up a connection indefinitely.
+LIST_QUERY_TIMEOUT_MS = 10_000
+
+# SQLSTATEs that mean "this expression costs too much", as opposed to "the
+# database is unwell". 57014 is query_canceled — our statement_timeout firing.
+# Class 54 is program_limit_exceeded, which Postgres raises when it refuses an
+# allocation outright ("requested length too large") before any timeout can fire.
+# Both are the customer's expression; anything else operational is ours, and must
+# not be blamed on them or silently degraded (see api/tickets.py).
+_QUERY_CANCELED_SQLSTATE = "57014"
+_PROGRAM_LIMIT_SQLSTATE_CLASS = "54"
+
+
+def sqlstate_of(error: Exception) -> Optional[str]:
+    """The SQLSTATE behind a Django database error. psycopg3 exposes `sqlstate`,
+    psycopg2 `pgcode`; both are declared dependencies, so read either."""
+    cause = getattr(error, "__cause__", None)
+    return getattr(cause, "sqlstate", None) or getattr(cause, "pgcode", None)
+
+
+def is_expression_too_expensive(error: Exception) -> bool:
+    """Whether a database error says the expression itself was too costly to run."""
+    sqlstate = sqlstate_of(error)
+    if sqlstate is None:
+        return False
+    return sqlstate == _QUERY_CANCELED_SQLSTATE or sqlstate.startswith(_PROGRAM_LIMIT_SQLSTATE_CLASS)
 
 
 class TicketGroupSqlError(Exception):
@@ -159,49 +202,56 @@ def build_ticket_group_sql_database(
     return Database.create_for(team=team, user=user, user_access_control=user_access_control)
 
 
-def _verify_executable(sql: str, params: list[Any]) -> None:
-    """Ask Postgres to plan the fragment in the exact shape the rank annotation
-    uses it. Compiling is NOT the same as being runnable: a set-returning
-    function (generateSeries prints as generate_series, arrayJoin as UNNEST)
-    type-checks as boolean, passes every guard above, and is then rejected by
-    Postgres with "argument of CASE/WHEN must not return a set" — which without
-    this check would store fine and 500 every tickets list for the team.
+def _verify_executable(sql: str, params: list[Any], team_id: int) -> None:
+    """Run the fragment, in the shape the rank annotation uses it, over a bounded
+    sample of the team's real tickets. Compiling is NOT the same as being
+    runnable, and there are two distinct ways to be unrunnable:
 
-    `WHERE false` means no rows are read, but do NOT mistake EXPLAIN for free:
-    the planner constant-folds immutable functions, so a constant subexpression
-    really does run here (`repeat('a', 400000000)` allocates 400MB during
-    planning). Hence the statement_timeout — it is the thing that stops a
-    28-character expression from burning minutes of shared Postgres CPU on a
-    settings save.
+    - SHAPE. A set-returning function (generateSeries prints as generate_series,
+      arrayJoin as UNNEST) type-checks as boolean and is then rejected with
+      "argument of CASE/WHEN must not return a set"; a non-boolean expression
+      gets "must be type boolean". Planning alone catches these.
+    - DATA. `repeat(email_from, 100000000)` is fine to plan — the planner can't
+      fold a column reference — and then allocates ~100MB PER ROW when the list
+      is queried. Division by zero and casts that only fail on some values are
+      the same story. Only evaluating against real rows catches these, which is
+      why this executes rather than just EXPLAINing.
 
-    The transaction is always rolled back, even on success. `SET LOCAL` is
-    reverted by a rollback but NOT by a commit or by RELEASE SAVEPOINT, and
-    `SET LOCAL ... TO DEFAULT` would reset to the *server* default rather than to
-    whatever an enclosing transaction had set. Rolling back unconditionally is the
-    only shape that can't leak the timeout on any path. EXPLAIN has no side
-    effects to preserve, so there's nothing to lose. It also means a failed
-    statement can't poison an enclosing transaction.
+    `bool_or(CASE WHEN ...)` is load-bearing: `count(*)` over the same subquery
+    silently passes, because Postgres never evaluates a column nothing reads.
+
+    LIMIT bounds the work, and the statement_timeout bounds it again — the
+    planner constant-folds immutable functions, so `repeat('a', 400000000) = 'x'`
+    allocates 400MB during PLANNING, before any row is touched.
+
+    A team with no tickets yet can't be sampled, so a data-dependent problem may
+    still reach the list; ticket_groups' read path has the matching timeout and
+    degrades rather than failing. The transaction is always rolled back: this is
+    a read, so there's nothing to keep, and rolling back reverts the SET LOCAL on
+    every path (a nested atomic's RELEASE SAVEPOINT would not) and stops a failed
+    statement poisoning an enclosing transaction.
     """
-    statement = f"EXPLAIN SELECT CASE WHEN {sql} THEN 1 ELSE 0 END FROM {TICKET_TABLE_ALIAS} WHERE false"
+    statement = (
+        f"SELECT bool_or(CASE WHEN {sql} THEN true ELSE false END) FROM ("
+        f"SELECT * FROM {TICKET_TABLE_ALIAS} WHERE team_id = %s LIMIT {VERIFY_SAMPLE_ROWS}"
+        f") AS {TICKET_TABLE_ALIAS}"
+    )
     try:
         with transaction.atomic():
             with connection.cursor() as cursor:
                 cursor.execute(f"SET LOCAL statement_timeout = {VERIFY_TIMEOUT_MS}")
-                cursor.execute(statement, params)
+                # The fragment precedes the subquery in the statement, so its
+                # params bind before team_id.
+                cursor.execute(statement, [*params, team_id])
             raise _VerificationDone
     except _VerificationDone:
         return
     except OperationalError as error:
-        # 57014 = query_canceled, i.e. our statement_timeout fired: the
-        # expression is too expensive to even plan. Anything else operational
-        # (connection loss, pool exhaustion) is OUR problem, not the customer's —
-        # let it propagate rather than blaming their expression, and note that
-        # its message can carry the database host and port.
-        # psycopg3 exposes sqlstate, psycopg2 pgcode; both are declared deps, and
-        # under the wrong one this check must not silently stop working.
-        cause = getattr(error, "__cause__", None)
-        sqlstate = getattr(cause, "sqlstate", None) or getattr(cause, "pgcode", None)
-        if sqlstate != "57014":
+        # Our timeout firing, or Postgres refusing the allocation outright.
+        # Anything else operational (connection loss, pool exhaustion) is OUR
+        # problem, not the customer's — let it propagate rather than blaming their
+        # expression, and note that its message can carry the database host/port.
+        if not is_expression_too_expensive(error):
             raise
         raise TicketGroupSqlError(
             "That SQL expression is too expensive to evaluate — simplify it "
@@ -252,6 +302,9 @@ def compile_ticket_group_sql(
         host = cast(
             ast.SelectQuery,
             prepare_ast_for_printing(
+                # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
+                # (HogQL's parser, not a database cursor; the only interpolation is
+                # this module's own TICKET_TABLE_ALIAS constant)
                 parse_select(f"SELECT 1 FROM system.support_tickets AS {TICKET_TABLE_ALIAS}"),
                 context=context,
                 dialect="postgres",
@@ -284,7 +337,7 @@ def compile_ticket_group_sql(
 
     fragment, params = _to_positional_params(sql, named_values)
     if verify_executable:
-        _verify_executable(fragment, params)
+        _verify_executable(fragment, params, team_id)
     return fragment, params
 
 

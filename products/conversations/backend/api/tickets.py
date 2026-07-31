@@ -4,11 +4,11 @@ import json
 import time
 import uuid
 from collections.abc import Sequence
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from functools import cached_property
 from typing import Any
 
-from django.db import DatabaseError, DataError, ProgrammingError, transaction
+from django.db import DatabaseError, DataError, OperationalError, ProgrammingError, connection, transaction
 from django.db.models import Case, CharField, Count, F, OrderBy, Q, QuerySet, Sum, Value
 from django.db.models.functions import Cast
 from django.http import Http404
@@ -64,7 +64,11 @@ from products.conversations.backend.models import EmailChannel, Ticket, TicketAs
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.sla import SLA_STATES, sla_state_condition
-from products.conversations.backend.ticket_group_sql import build_ticket_group_sql_database
+from products.conversations.backend.ticket_group_sql import (
+    LIST_QUERY_TIMEOUT_MS,
+    build_ticket_group_sql_database,
+    is_expression_too_expensive,
+)
 from products.conversations.backend.ticket_groups import (
     groups_use_sql,
     team_ticket_groups,
@@ -74,6 +78,21 @@ from products.conversations.backend.ticket_groups import (
 from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_degradable_sql_failure(error: Exception) -> bool:
+    """Whether a database error is one a bad `sql` ticket-group filter can cause,
+    and so should degrade the ranking rather than fail the request.
+
+    DataError (class 22) and ProgrammingError (class 42) always qualify — nothing
+    else in these queries can raise them. OperationalError only qualifies when the
+    expression itself was too costly (our statement_timeout, or Postgres refusing
+    an allocation): a dropped connection or an exhausted pool is our problem, and
+    quietly serving a degraded list would hide an outage.
+    """
+    if isinstance(error, DataError | ProgrammingError):
+        return True
+    return isinstance(error, OperationalError) and is_expression_too_expensive(error)
 
 
 class TicketErrorSerializer(serializers.Serializer):
@@ -454,9 +473,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             return  # ticket-group-ordered: the sort already annotated it
         try:
             ranks = self._ticket_group_ranks_for(page)
-        except DatabaseError:
+        except DatabaseError as error:
+            if not _is_degradable_sql_failure(error):
+                raise
             # A stored `sql` filter the database won't run (see list()'s retry for
-            # the two families). Degrade the SQL filters to match-nothing and ask
+            # the families). Degrade the SQL filters to match-nothing and ask
             # again, so the DECLARATIVE groups still label correctly instead of
             # everything collapsing to the first group's label — and flag it, since
             # this path is the default sort and would otherwise be silently wrong.
@@ -467,7 +488,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             except DatabaseError:
                 # Nothing user-supplied is left in the query at this point, so this
                 # is something else entirely. Labelling is cosmetic here (the sort
-                # didn't use the rank), so still serve the tickets.
+                # didn't use the rank), so still serve the tickets rather than 500.
                 capture_exception()
                 ranks = {}
         for ticket in page:
@@ -477,12 +498,37 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             # and django-stubs won't allow both.
             ticket.ticket_group_rank = ranks.get(ticket.id, 0)  # type: ignore[attr-defined]
 
+    def _bounded_for_sql_filters(self):
+        """Wrap a rank query so a `sql` filter can't run unbounded.
+
+        The write validator evaluates each expression over a sample, but a sample
+        can't prove cost on the whole table (and a new team has no rows to sample),
+        so the read path caps itself: `repeat(email_from, 100000000)` plans fine
+        and allocates ~100MB per row. The timeout turns that into a degraded list
+        instead of a tied-up connection. SET LOCAL is scoped to this transaction
+        and reverted when it ends.
+
+        Teams with no `sql` filter get a plain nullcontext — no transaction, no
+        round trips, nothing to bound.
+        """
+        if not self._team_uses_sql_ticket_groups:
+            return nullcontext()
+
+        @contextmanager
+        def bounded():
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute(f"SET LOCAL statement_timeout = {LIST_QUERY_TIMEOUT_MS}")
+                yield
+
+        return bounded()
+
     def _ticket_group_ranks_for(self, page: Sequence[Ticket]) -> dict[Any, int]:
         """id -> rank for one page. The savepoint is why a failure here is
         retryable: without it a failed statement would abort an enclosing
         transaction and every follow-up query (serialization included) would fail
         too. Only `sql` filters can fail, so nobody else pays the round trips."""
-        with transaction.atomic() if self._team_uses_sql_ticket_groups else nullcontext():
+        with self._bounded_for_sql_filters():
             return dict(
                 Ticket.objects.filter(team_id=self.team_id, id__in=[ticket.id for ticket in page])
                 .annotate(ticket_group_rank=self._ticket_group_rank_annotation())
@@ -505,7 +551,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         retry safe if that changes.) Only configs with a `sql` filter can fail this
         way, and it costs two round trips, so everyone else skips it.
         """
-        with transaction.atomic() if self._team_uses_sql_ticket_groups else nullcontext():
+        with self._bounded_for_sql_filters():
             queryset = self.filter_queryset(self.get_queryset())
             page = self.paginate_queryset(queryset)
             tickets = list(queryset) if page is None else list(page)
@@ -983,7 +1029,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         try:
             try:
                 page, tickets, ticket_group_counts = self._list_page()
-            except (DataError, ProgrammingError):
+            except (DataError, ProgrammingError, OperationalError) as error:
+                if not _is_degradable_sql_failure(error):
+                    raise
                 # A stored `sql` group filter the database won't run. The read path
                 # checks for neither family in advance, because it skips the
                 # write-time plan check (that would cost a round trip per filter per
@@ -995,6 +1043,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 #     expression, or a set-returning function inside the CASE. Only
                 #     reachable when the config was written past the validator (a
                 #     shell or migration) or the ticket schema moved under it.
+                #   57014 / OperationalError — our own statement_timeout fired: the
+                #     expression is legal but too expensive on this data.
                 # Either way retry with the `sql` filters degraded to match-nothing —
                 # the same semantics a no-longer-compiling expression already gets —
                 # which keeps the sort the user asked for rather than 500ing.

@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from posthog.test.base import BaseTest
 
+from products.conversations.backend.models import Ticket
 from products.conversations.backend.ticket_group_sql import (
     MAX_SQL_EXPRESSION_LENGTH,
     TicketGroupSqlError,
@@ -26,6 +27,13 @@ class TestCompileTicketGroupSql(BaseTest):
 
     def compile(self, expression: str) -> tuple[str, list[Any]]:
         return compile_ticket_group_sql(expression, self.database, self.team.pk)
+
+    def _ticket(self, **fields):
+        """A real row, so the sample evaluation has something to evaluate."""
+        fields.setdefault("channel_source", "widget")
+        fields.setdefault("widget_session_id", "verify-session")
+        fields.setdefault("distinct_id", "verify-user")
+        return Ticket.objects.create_with_number(team=self.team, **fields)
 
     # --- accepted expressions -------------------------------------------------
 
@@ -168,6 +176,28 @@ class TestCompileTicketGroupSql(BaseTest):
         for expression in ("generateSeries(1, 10) > 0", "arrayJoin([1, 2, 3]) > 0"):
             with pytest.raises(TicketGroupSqlError):
                 self.compile(expression)
+
+    def test_rejects_row_dependent_allocation_bombs(self):
+        # The dangerous cousin of the constant-folding bomb: because `email_from`
+        # is a COLUMN, the planner can't fold this, so it plans instantly and then
+        # allocates ~100MB per row when the tickets list runs. Only evaluating
+        # against real rows catches it — which is why validation executes over a
+        # sample rather than just EXPLAINing.
+        self._ticket(email_from="someone@example.com")
+        with pytest.raises(TicketGroupSqlError, match="too expensive"):
+            self.compile("repeat(email_from, 100000000) = 'x'")
+
+    def test_rejects_expressions_that_only_fail_on_real_rows(self):
+        # Division by zero can't be seen without rows either.
+        self._ticket(email_from="someone@example.com")
+        with pytest.raises(TicketGroupSqlError, match="Postgres rejected"):
+            self.compile("(1 / (message_count - message_count)) > 0")
+
+    def test_accepts_a_sane_expression_against_real_rows(self):
+        # The sample evaluation must not reject legitimate expressions.
+        self._ticket(email_from="vip@bigcorp.com", message_count=7)
+        sql, params = self.compile("message_count > 3 AND email_from ILIKE '%@bigcorp.com'")
+        assert sql and params == ["%@bigcorp.com"]
 
     def test_rejects_expressions_too_expensive_to_even_plan(self):
         # Postgres constant-folds immutable functions during planning, so this

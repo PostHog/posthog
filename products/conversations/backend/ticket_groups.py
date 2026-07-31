@@ -554,6 +554,10 @@ def _filter_condition(
             # report it rather than failing every tickets list.
             capture_exception()
             return Q(pk__in=[])
+        # The fragment is printer output from ticket_group_sql.py, never user text:
+        # every literal the customer wrote is in `params`, bound by psycopg. See
+        # that module's docstring for the full guard list.
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
         return Q(RawSQL(sql, params, output_field=BooleanField()))
     key = filter_config["key"]
     operator = filter_config["operator"]
