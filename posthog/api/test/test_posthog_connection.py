@@ -8,6 +8,7 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
+from posthog.api.posthog_connection import CONNECTION_MAX_INFLIGHT_PER_CONNECTION
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 
@@ -183,4 +184,20 @@ class TestPostHogConnectionForward:
                     content_type="application/json",
                 )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_request.assert_not_called()
+
+    def test_forward_rejects_when_connection_at_inflight_capacity(self, client: HttpClient):
+        # The per-minute throttle limits how fast forwards start, not how many run at once. When a
+        # connection is already at its in-flight cap, a new forward is refused before the outbound call.
+        client.force_login(self.user)
+        with patch(
+            "posthog.api.posthog_connection.cache.incr", return_value=CONNECTION_MAX_INFLIGHT_PER_CONNECTION + 1
+        ):
+            with patch(FORWARD_PATH) as mock_request:
+                response = client.post(
+                    self._forward_url(),
+                    {"method": "GET", "path": "api/projects/2/insights/"},
+                    content_type="application/json",
+                )
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         mock_request.assert_not_called()

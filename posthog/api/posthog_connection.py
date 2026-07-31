@@ -12,14 +12,18 @@ side only resolves the token and forwards; it does not re-implement or gate indi
 
 import re
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
+
+from django.core.cache import cache
 
 import requests
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -33,6 +37,12 @@ from posthog.rate_limit import PostHogConnectionForwardThrottle
 logger = structlog.get_logger(__name__)
 
 CONNECTION_FORWARD_TIMEOUT_SECONDS = 30
+# Each forward holds an API worker open while it round-trips to the target, so bound how many can be
+# in flight per connection at once — the per-minute throttle only limits how fast they *start*, not
+# how many run concurrently. Best-effort via the shared cache: the slot key carries a TTL so a worker
+# that dies before releasing self-heals, and any cache error fails open so a limiter outage can't
+# break a legitimate forward.
+CONNECTION_MAX_INFLIGHT_PER_CONNECTION = 10
 # Read at most this much of the target's response into memory. The proxy holds the whole body to
 # re-serialize it, so cap it to keep an oversized upstream response from exhausting a worker.
 CONNECTION_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
@@ -91,6 +101,27 @@ def _validate_target_path(path: str) -> str:
     if not stripped or raw.startswith("//") or "://" in stripped or ".." in stripped or not _SAFE_PATH.match(stripped):
         raise ValidationError("path must be a relative target API path, e.g. `api/projects/2/insights/`.")
     return stripped
+
+
+@contextmanager
+def _inflight_slot(integration_id: int) -> Iterator[bool]:
+    """Bound concurrent forwards per connection, yielding whether a slot was acquired. Fails open on
+    any cache error so the limiter can never take the feature down; the slot key's TTL reclaims a
+    slot whose holder died before release."""
+    key = f"posthog_connection_inflight:{integration_id}"
+    try:
+        cache.add(key, 0, timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS + 5)
+        current = cache.incr(key)
+    except Exception:
+        yield True
+        return
+    try:
+        yield current <= CONNECTION_MAX_INFLIGHT_PER_CONNECTION
+    finally:
+        try:
+            cache.decr(key)
+        except Exception:
+            pass
 
 
 class PostHogConnectionForwardSerializer(serializers.Serializer):
@@ -160,21 +191,24 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         base = posthog_connect_base_url(integration.config.get("region"))
 
         try:
-            res = requests.request(
-                method,
-                f"{base}/{path}",
-                params=payload.get("query") or None,
-                json=payload.get("data") if method in _METHODS_WITH_BODY else None,
-                headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
-                timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
-                # A compromised/misconfigured target must not be able to 30x us into resending the
-                # bearer token to another origin.
-                allow_redirects=False,
-                # Stream so an oversized body is capped below rather than fully buffered by requests.
-                stream=True,
-            )
-            with res:
-                raw = res.raw.read(CONNECTION_MAX_RESPONSE_BYTES + 1, decode_content=True) or b""
+            with _inflight_slot(integration.id) as acquired:
+                if not acquired:
+                    raise Throttled(detail="Too many concurrent requests through this PostHog connection.")
+                res = requests.request(
+                    method,
+                    f"{base}/{path}",
+                    params=payload.get("query") or None,
+                    json=payload.get("data") if method in _METHODS_WITH_BODY else None,
+                    headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
+                    timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
+                    # A compromised/misconfigured target must not be able to 30x us into resending the
+                    # bearer token to another origin.
+                    allow_redirects=False,
+                    # Stream so an oversized body is capped below rather than fully buffered by requests.
+                    stream=True,
+                )
+                with res:
+                    raw = res.raw.read(CONNECTION_MAX_RESPONSE_BYTES + 1, decode_content=True) or b""
         except requests.RequestException as err:
             logger.warning(
                 "posthog_connection_forward_unreachable",
