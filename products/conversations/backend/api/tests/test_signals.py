@@ -672,6 +672,21 @@ class TestWidgetAckEmail(BaseTest):
         mock_send_mime.assert_called_once()
         assert EmailMessageMapping.objects.filter(ticket=self.ticket).count() == 1
 
+    def test_ack_send_logs_ticket_activity(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
+
+        from products.conversations.backend.tasks import send_widget_ticket_ack
+
+        with patch(self.SEND_MIME):
+            send_widget_ticket_ack(ticket_id=str(self.ticket.id), team_id=self.team.id)
+
+        entry = ActivityLog.objects.get(team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id))
+        assert entry.user is None
+        assert entry.activity == "updated"
+        changes = entry.detail["changes"]
+        assert changes[0]["field"] == "acknowledgment_email"
+        assert changes[0]["after"] == "customer@external.com"
+
 
 class TestIsOutboundReply:
     @parameterized.expand(

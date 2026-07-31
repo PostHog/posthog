@@ -128,6 +128,15 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    acknowledgment_email: function onAcknowledgmentEmail(change) {
+        return {
+            description: [
+                <>
+                    sent an acknowledgment email to <strong className="ph-no-capture">{change?.after as string}</strong>
+                </>,
+            ],
+        }
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {

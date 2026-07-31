@@ -129,4 +129,27 @@ describe('ticketActivityDescriber', () => {
         expect(text).toContain('snooze expired')
         expect(text).not.toContain('reopened')
     })
+
+    it('describes the acknowledgment receipt with its recipient', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'Ticket #2043',
+                    changes: [
+                        {
+                            type: ActivityScope.TICKET,
+                            action: 'created',
+                            field: 'acknowledgment_email',
+                            before: null,
+                            after: 'customer@external.com',
+                        },
+                    ],
+                },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('sent an acknowledgment email to customer@external.com')
+    })
 })

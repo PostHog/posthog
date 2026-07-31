@@ -893,8 +893,33 @@ def send_widget_ticket_ack(self: Task, ticket_id: str, team_id: int) -> None:
         logger.exception("widget_ack_email_failed", ticket_id=ticket_id)
         return
 
-    if sent:
-        logger.info("widget_ack_email_sent", ticket_id=ticket_id, team_id=team_id)
+    if not sent:
+        return
+
+    logger.info("widget_ack_email_sent", ticket_id=ticket_id, team_id=team_id)
+    try:
+        log_activity(
+            organization_id=ticket.team.organization_id,
+            team_id=ticket.team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(ticket.id),
+            scope="Ticket",
+            activity="updated",
+            detail=Detail(
+                name=f"Ticket #{ticket.ticket_number}",
+                changes=[
+                    Change(
+                        type="Ticket",
+                        field="acknowledgment_email",
+                        action="created",
+                        after=ticket.email_from,
+                    )
+                ],
+            ),
+        )
+    except Exception:
+        logger.exception("widget_ack_activity_log_failed", ticket_id=ticket_id)
 
 
 @shared_task(ignore_result=True)
