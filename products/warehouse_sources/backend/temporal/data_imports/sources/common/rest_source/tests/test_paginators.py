@@ -78,11 +78,11 @@ class TestJSONResponsePaginator:
         assert p.has_next_page is True
         with caplog.at_level(logging.WARNING):
             p.update_state(_make_response({"next": url, "data": []}))
-        assert p.has_next_page is False
         # The logged URL must not carry the query string, which can hold credentials.
         record = next(r for r in caplog.records if "not advancing" in r.getMessage())
         assert record.next_url == "https://api.example.com/page2"  # type: ignore[attr-defined]
         assert "secret-token" not in str(record.__dict__)
+        assert p.has_next_page is False
 
     def test_header_link_paginator_stops_when_next_url_repeats(self) -> None:
         p = HeaderLinkPaginator()
