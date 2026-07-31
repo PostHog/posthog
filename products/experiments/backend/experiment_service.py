@@ -2452,7 +2452,12 @@ class ExperimentService:
             # value does not fall back to the single cached repo: the user pointed at a
             # specific repo, so ask again rather than silently retarget.
             if experiment.repository.lower() in cached:
-                return {"repository": experiment.repository, "source": "explicit", "candidates": candidates}
+                # The stored value is lowercased on write; return GitHub's own casing.
+                return {
+                    "repository": cached[experiment.repository.lower()],
+                    "source": "explicit",
+                    "candidates": candidates,
+                }
             return {"repository": None, "source": "ambiguous", "candidates": candidates}
         if len(cached) == 1:
             return {"repository": candidates[0], "source": "single_repo", "candidates": candidates}

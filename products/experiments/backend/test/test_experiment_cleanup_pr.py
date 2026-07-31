@@ -106,7 +106,7 @@ class TestExperimentCleanupPr(APIBaseTest):
                 [{"full_name": "acme/monorepo"}, {"full_name": "acme/web"}],
                 "acme/monorepo",
             ),
-            ("explicit_case_insensitive", "acme/monorepo", [{"full_name": "Acme/Monorepo"}], "acme/monorepo"),
+            ("explicit_case_insensitive", "acme/monorepo", [{"full_name": "Acme/Monorepo"}], "Acme/Monorepo"),
             ("explicit_not_in_installation_skips", "evil/other", [{"full_name": "acme/web"}], None),
             ("single_cached_repo", None, [{"full_name": "acme/web"}], "acme/web"),
             ("multiple_repos_skips", None, [{"full_name": "acme/web"}, {"full_name": "acme/api"}], None),
