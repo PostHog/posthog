@@ -496,14 +496,16 @@ def find_signal_implementation_run(
     Callers (stamphog's inbox carve-out) use this to confirm a bot-authored PR really is a PostHog
     Code self-driving implementation, so the match is narrowed inside the query. Applying
     ``team_id`` before the lookup orders and picks a winner stops a newer run in another team with
-    the same repo or pr_url from shadowing the real one and forcing a ``None``. Dropping
-    cancelled, failed, and completed runs and soft-deleted tasks stops a dead or disowned run from
-    keeping the carve-out alive on later pushes.
+    the same repo or pr_url from shadowing the real one and forcing a ``None``. Dropping failed
+    and cancelled runs and soft-deleted tasks stops a dead or disowned run from keeping the
+    carve-out alive on later pushes. A COMPLETED run still matches: success flips the run to
+    COMPLETED right after it opens the PR, so excluding it would end re-reviews the moment the
+    implementation finishes.
 
     The caller passes the repository the PR event came from and owns fork safety: match on branch
     only when the PR's head repo is that repository.
     """
-    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository, team_id=team_id, live_only=True)
+    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository, team_id=team_id, exclude_dead=True)
     if run is None or run.team_id != team_id:
         return None
     task = run.task

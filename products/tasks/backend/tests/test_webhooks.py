@@ -1425,6 +1425,17 @@ class TestFindSignalImplementationRun(TestCase):
         assert found.signal_report_id == self.report.id
         assert found.task_created_by_id == self.user.id
 
+    def test_completed_run_still_matches(self):
+        # Success flips the run to COMPLETED right after the PR opens, so treating COMPLETED as
+        # dead would end webhook re-reviews for every successful implementation the moment it
+        # finishes, dismissing the standing approval on the next push with no replacement.
+        run = self._make_run(output={"pr_url": self.PR_URL}, status=TaskRun.Status.COMPLETED)
+
+        found = find_signal_implementation_run(team_id=self.team.id, repository="posthog/posthog", pr_url=self.PR_URL)
+
+        assert found is not None
+        assert found.run_id == run.id
+
     def test_branch_match_covers_runs_without_a_recorded_pr_url(self):
         run = self._make_run(branch="posthog-code/sd-fix")
 

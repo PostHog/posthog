@@ -929,12 +929,15 @@ def _run_inbox_task(
     pr_url: str = f"https://github.com/{REPO}/pull/42",
     app_slug: str = APP_SLUG,
     repository: str = REPO,
-    resolver=lambda team_id, report_id, created_by: 777,
+    resolver=lambda team_id, report_id, preferred: (preferred or 0) + 111,
 ):
     """Run process_inbox_pr_review with GitHub and Temporal mocked; returns (mock_execute, mock_client).
 
     The resolver default models an opted-in reviewer; the execution-time re-check fails closed
-    without one (the process-global registry would otherwise resolve real, empty fixtures).
+    without one (the process-global registry would otherwise resolve real, empty fixtures). It
+    derives its pick from the preferred id (777 -> 888) so one provenance assertion proves both
+    halves of the contract: the queued id is passed through as the preferred pick, and the
+    resolver's return, not the queued id, is what gets stamped.
     """
     with (
         team_scope(team_id),
@@ -999,7 +1002,7 @@ def test_inbox_receiver_leg_reviews_the_draft_pr(team, repo_config):
         "trigger": "inbox",
         "signal_report_id": "report-1",
         "task_run_id": "run-1",
-        "acting_user_id": 777,
+        "acting_user_id": 888,
     }
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
 

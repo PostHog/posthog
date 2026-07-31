@@ -99,6 +99,11 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         task = instance.task  # first DB hit
         if task.signal_report_id is None:
             return
+        if task.deleted:
+            # A soft-deleted task's run can still save output. Its PR is disowned work, and the
+            # webhook leg already drops deleted tasks (find_signal_implementation_run), so the
+            # first review must gate the same way instead of minting the approval the delete disavowed.
+            return
         # Only the self-driving implementation run reviews. Report research and repo selection share
         # both signal_report_id and internal=True with it, so only ai_stage tells them apart.
         if (instance.state or {}).get("ai_stage") != "implementation":
@@ -147,36 +152,38 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         logger.exception("review_hog_inbox_trigger_failed")
 
 
-def resolve_stamphog_acting_reviewer(team_id: int, signal_report_id: str, task_created_by_id: int | None) -> int | None:
+def resolve_stamphog_acting_reviewer(team_id: int, signal_report_id: str, preferred_user_id: int | None) -> int | None:
     """A reviewer whose stamphog inbox toggle is currently on, else None.
 
     Registered with stamphog's inbox hook registry (see `connect()`). Stamphog calls it before
-    re-reviewing a self-driving PR on a later push, so turning the toggle off mid-PR stops further
-    stamphog runs. It has to gate the same way the initial trigger does: if one path fires on "any
-    assigned reviewer opted in" and the other only on the canonical reviewer, a push would treat the
-    PR as opted out and retract a standing approval while somebody is still opted in.
+    re-reviewing a self-driving PR on a later push and again when the queued first review executes,
+    so turning the toggle off mid-PR stops further stamphog runs. It has to gate the same way the
+    initial trigger does: if one path fires on "any assigned reviewer opted in" and the other only
+    on the canonical reviewer, a push would treat the PR as opted out and retract a standing
+    approval while somebody is still opted in. ``preferred_user_id`` (the task's creator, or the
+    reviewer a queued job was attributed to) wins while still opted in, keeping attribution stable.
     """
     resolved = _resolve_assigned_reviewers(team_id, signal_report_id)
     if not resolved:
         return None
     settings_by_user = ReviewUserSettings.load_many(team_id, [user.id for user in resolved])
-    return _pick_stamphog_reviewer(resolved, settings_by_user, task_created_by_id)
+    return _pick_stamphog_reviewer(resolved, settings_by_user, preferred_user_id)
 
 
 def _pick_stamphog_reviewer(
-    resolved: list[Any], settings_by_user: dict[int, ReviewUserSettings], task_created_by_id: int | None
+    resolved: list[Any], settings_by_user: dict[int, ReviewUserSettings], preferred_user_id: int | None
 ) -> int | None:
     """The user id to attribute a stamphog inbox review to, or None when nobody is opted in.
 
     Any assigned reviewer's opt-in is enough, unlike the ReviewHog review which gates on the
     canonical reviewer's: stamphog reads no per-user options, so the id is provenance only and
     narrowing to one reviewer would drop reviews the other assignees asked for. Among the opted-in
-    reviewers the pick follows the same created-by-else-first rule, so the same user is attributed
+    reviewers the pick follows the same preferred-else-first rule, so the same user is attributed
     on the first review and on later re-reviews. Either way there is one review per head: this
     returns a single id however many are opted in, and stamphog dedupes on (pull request, head sha).
     """
     opted_in = [user for user in resolved if settings_by_user[user.id].stamphog_review_inbox_prs]
-    return _pick_reviewer(opted_in, task_created_by_id) if opted_in else None
+    return _pick_reviewer(opted_in, preferred_user_id) if opted_in else None
 
 
 def _pick_reviewer(resolved: list[Any], task_created_by_id: int | None) -> int:

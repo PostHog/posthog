@@ -214,6 +214,23 @@ class TestInboxTrigger(BaseTest):
 
         mock_start.assert_not_called()
 
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_soft_deleted_task_does_not_trigger(self, mock_start, mock_queue) -> None:
+        # A soft-deleted task's run can still save output and re-fire the receiver; its PR is
+        # disowned work, and the webhook leg already excludes deleted tasks, so the first review
+        # (the one that mints the approval) must not fire either.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        task = self._task()
+        task.deleted = True
+        task.save(update_fields=["deleted"])
+        self._record_output(self._run(task), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+        mock_queue.assert_not_called()
+
     @parameterized.expand(
         [
             # (name, reviewer_logins, expected_login) — both members opted in; the first login that

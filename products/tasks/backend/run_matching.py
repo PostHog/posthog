@@ -15,6 +15,8 @@ TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
 
 TERMINAL_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 
+DEAD_RUN_STATUSES = (TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
 
 def find_task_run(
     pr_url: str | None = None,
@@ -22,7 +24,7 @@ def find_task_run(
     repository: str | None = None,
     *,
     team_id: int | None = None,
-    live_only: bool = False,
+    exclude_dead: bool = False,
 ) -> TaskRun | None:
     repository = repository.strip() if repository else None
 
@@ -31,10 +33,12 @@ def find_task_run(
         # needs. A caller that knows its team must filter first, or another team's run can win the pick.
         if team_id is not None:
             runs = runs.filter(team_id=team_id)
-        # The self-driving carve-out may act only on a run that is still live and still owned, so
-        # this drops terminal runs and soft-deleted tasks the same way the wizard branch below does.
-        if live_only:
-            runs = runs.filter(task__deleted=False).exclude(status__in=TERMINAL_RUN_STATUSES)
+        # The self-driving carve-out may act only on a run that is still owned and didn't die, so
+        # this drops failed/cancelled runs and soft-deleted tasks. COMPLETED stays in: success flips
+        # the run to COMPLETED right after it opens the PR, and later pushes to that PR must keep
+        # re-reviewing.
+        if exclude_dead:
+            runs = runs.filter(task__deleted=False).exclude(status__in=DEAD_RUN_STATUSES)
         return runs
 
     if pr_url:

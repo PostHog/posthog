@@ -188,7 +188,8 @@ def _inbox_rereview_carve_out(
     write permission, review mode). Their real gate is the acting reviewer's
     ``stamphog_review_inbox_prs`` toggle. A carve-out comes back only when everything is identified:
     a head branch in the base repo rather than a fork, a synced and enabled config, a tasks-facade
-    match for this exact repo scoped to the config's team carrying a signal report on a live task at
+    match for this exact repo scoped to the config's team carrying a signal report on an undeleted
+    task whose run didn't fail (COMPLETED counts: success ends the run right after the PR opens) at
     ``ai_stage="implementation"``, and an assigned reviewer who is opted in. Anything else returns an
     empty carve-out and the caller behaves exactly as before, so dependabot, renovate, posthog-bot
     and foreign Apps stay refused. An identified PR with no opted-in reviewer returns ``opted_out``.
@@ -1227,8 +1228,12 @@ def process_inbox_pr_review(
     # when it queued this job, but broker latency and the fetch retries above can stretch that gap
     # to minutes — the strictest read belongs at the moment of action, so a revoked opt-in must not
     # still earn the gate bypass. No registered resolver fails closed, same as the webhook leg.
+    # The provenance stamps the resolver's pick, not the queued id: if the queued reviewer opted out
+    # and someone else's opt-in is what keeps the run alive, attribution must follow that toggle.
+    # Passing the queued id as the preferred pick keeps attribution stable while they stay opted in.
     resolver = get_inbox_acting_reviewer_resolver()
-    if resolver is None or resolver(team_id, signal_report_id, None) is None:
+    acting_reviewer_id = resolver(team_id, signal_report_id, acting_user_id) if resolver is not None else None
+    if acting_reviewer_id is None:
         logger.info("stamphog_inbox_pr_opt_out", repository=repository, pr_number=pr_number)
         return
 
@@ -1236,7 +1241,7 @@ def process_inbox_pr_review(
         "trigger": "inbox",
         "signal_report_id": signal_report_id,
         "task_run_id": task_run_id,
-        "acting_user_id": acting_user_id,
+        "acting_user_id": acting_reviewer_id,
     }
     # Same transaction/on_commit shape as the webhook path (see process_pull_request_event).
     run_write_db = router.db_for_write(ReviewRun)

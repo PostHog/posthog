@@ -16,9 +16,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-# (team_id, signal_report_id, task_created_by_id) -> user id to attribute the re-review to when ANY assigned
-# reviewer has the toggle on, else None. The first review must gate the same way, or a push voids an approval
-# and nothing replaces it.
+# (team_id, signal_report_id, preferred_user_id) -> user id to attribute the review to when ANY assigned
+# reviewer has the toggle on, else None. The preferred user wins while still opted in, so attribution stays
+# stable across re-checks (the webhook leg prefers the task's creator, the receiver leg the reviewer it
+# queued under). Both legs must gate the same way, or a push voids an approval and nothing replaces it.
 InboxActingReviewerResolver = Callable[[int, str, int | None], int | None]
 
 _inbox_acting_reviewer_resolver: InboxActingReviewerResolver | None = None
