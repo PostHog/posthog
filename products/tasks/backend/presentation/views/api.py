@@ -30,7 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 
@@ -321,8 +321,38 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=TaskCreateSerializer, responses={201: TaskSerializer})
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
+        # Read before create_task, which pops the relationship out of the dict it's handed.
+        relationship = serializer.validated_data.get("signal_report_task_relationship")
         task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=dict(serializer.validated_data))
+        self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    def _forward_signals_discussion_note(
+        self, request, task: tasks_contracts.TaskDetailDTO, relationship: str | None
+    ) -> None:
+        """Hand an inbox "Discuss" question to Signals, which leaves it as a note for the report's scout.
+
+        Lives here rather than in the facade because the note write is gated on authorization creating
+        the task doesn't require, and that gate reads the credential off the request — which the facade,
+        shared with Celery and CLI callers, deliberately never sees.
+        """
+        if task.origin_product != tasks_facade.TaskOriginProduct.SIGNAL_REPORT or not task.signal_report:
+            return
+
+        from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
+            forward_report_discussion_note,
+        )
+
+        authenticator = getattr(request, "successful_authenticator", None)
+        forward_report_discussion_note(
+            team=self.team,
+            report_id=str(task.signal_report),
+            relationship=relationship,
+            text=task.description or "",
+            user_id=self._user_id(),
+            scoped_team_ids=get_authenticator_scoped_team_ids(authenticator),
+            api_scopes=get_authenticator_scopes(authenticator),
+        )
 
     @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
     def update(self, request, pk=None, **kwargs):

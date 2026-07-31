@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     STATUS_TABLE,
     STATUS_VIEW,
 )
+from products.warehouse_sources.backend.temporal.data_imports.post_import_job import PostImportWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
 
 BUCKET_NAME = "test-pipeline"
@@ -224,7 +225,7 @@ async def run_external_data_job_workflow(
             async with Worker(
                 activity_environment.client,
                 task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow],
+                workflows=[ExternalDataJobWorkflow, PostImportWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),

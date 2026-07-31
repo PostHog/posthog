@@ -850,6 +850,20 @@ class ErrorTrackingQueryBuilder:
                 op=ast.CompareOperationOp.NotILike, left=field, right=ast.Constant(value=f"%{value}%")
             )
 
+        if operator in (
+            PropertyOperator.STARTS_WITH,
+            PropertyOperator.NOT_STARTS_WITH,
+            PropertyOperator.ENDS_WITH,
+            PropertyOperator.NOT_ENDS_WITH,
+        ):
+            prefix_match = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH)
+            negated = operator in (PropertyOperator.NOT_STARTS_WITH, PropertyOperator.NOT_ENDS_WITH)
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike if negated else ast.CompareOperationOp.ILike,
+                left=field,
+                right=ast.Constant(value=f"{value}%" if prefix_match else f"%{value}"),
+            )
+
         if operator in (PropertyOperator.GT, PropertyOperator.IS_DATE_AFTER):
             return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=field, right=make_value(value))
 

@@ -96,7 +96,7 @@ function DashboardInsightRefreshHintOrLoading({
             />
         )
     }
-    return <InsightRefreshDataHint onRetry={onRetry} />
+    return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
 }
 
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
@@ -304,7 +304,7 @@ export function InsightVizDisplay({
                     />
                 )
             }
-            return <InsightRefreshDataHint onRetry={onRetry} />
+            return <InsightRefreshDataHint onRetry={onRetry} insightProps={insightProps} />
         }
 
         if (activeView === InsightType.FUNNELS && !isFlowViz) {

@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import type { ActivityRun } from '../components/RunActivityChart'
+import { runPrNumber } from '../components/runTables'
 import {
     engineeringAnalyticsJobAggregates,
     engineeringAnalyticsWorkflowJobs,
@@ -40,7 +41,8 @@ export interface WorkflowRunRow {
     id: number
     headBranch: string | null
     headSha: string
-    prNumber: number
+    /** The PR to link, already resolved from the run's association or its merge commit. */
+    prNumber: number | null
     repoOwner: string
     repoName: string
 }
@@ -357,7 +359,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     id: run.id,
                     headBranch: run.head_branch,
                     headSha: run.head_sha,
-                    prNumber: run.pr_number,
+                    prNumber: runPrNumber(run.pr_number, run.commit_pr_number),
                     repoOwner: run.repo.owner,
                     repoName: run.repo.name,
                 })),

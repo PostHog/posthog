@@ -5891,6 +5891,126 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.json()["run_status"], "queued")
         self.assertFalse(resp.json()["is_terminal"])
 
+    @parameterized.expand(
+        [
+            # (name, stored_repository, cached_repos, expected_body)
+            (
+                "no_integration",
+                None,
+                None,
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+            (
+                "single_repo",
+                None,
+                [{"full_name": "acme/web"}],
+                {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
+            ),
+            (
+                "ambiguous",
+                None,
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
+            ),
+            (
+                "explicit",
+                "acme/api",
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
+            ),
+            (
+                "stale_explicit_needs_a_new_choice",
+                "gone/repo",
+                [{"full_name": "acme/web"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
+            ),
+            (
+                "stale_explicit_with_empty_cache",
+                "gone/repo",
+                [],
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_flag_cleanup_target_endpoint(
+        self, _name, stored_repository, cached_repos, expected_body, mock_resolve_github, _mock_access
+    ):
+        exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
+        if stored_repository:
+            Experiment.objects.filter(id=exp_id).update(repository=stored_repository)
+        if cached_repos is None:
+            mock_resolve_github.return_value = None
+        else:
+            mock_resolve_github.return_value = SimpleNamespace(
+                list_all_cached_repositories=lambda max_repos: cached_repos
+            )
+
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json(), expected_body)
+
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False)
+    def test_flag_cleanup_target_requires_code_access(self, _mock_access):
+        exp_id = self._create_running_experiment(name="Cleanup Target Denied", flag_key="cleanup-target-denied-flag")[
+            "id"
+        ]
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+    @parameterized.expand(
+        [
+            # (name, open_cleanup_pr, repository, expected_status)
+            # Nothing persists in any of these: the value only sticks when a cleanup PR
+            # actually opens against it (team flag on + repo in the installation).
+            ("not_persisted_when_cleanup_does_not_run", True, "acme/web", status.HTTP_200_OK),
+            ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK),
+            ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
+    def test_end_endpoint_repository(
+        self, _name, open_cleanup_pr, repository, expected_status, _mock_flag, _mock_access
+    ):
+        exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
+
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+            {"conclusion": "won", "open_cleanup_pr": open_cleanup_pr, "repository": repository},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, expected_status, resp.content)
+        self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
+
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report, _mock_access
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True, "repository": "ACME/Web"},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(mock_create_task.call_args.kwargs["repository"], "Acme/Web")
+        self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
+
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
         experiment_id = data["id"]
