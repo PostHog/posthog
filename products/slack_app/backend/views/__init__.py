@@ -10,6 +10,8 @@ from products.slack_app.backend.views.slack_command import slack_app_command_han
 from products.slack_app.backend.views.slack_user_link import slack_user_link_authorize, slack_user_link_callback
 from products.slack_app.backend.views.telegram_events import telegram_event_handler
 from products.slack_app.backend.views.telegram_link import telegram_connect_start, telegram_link_start
+from products.slack_app.backend.views.whatsapp_events import whatsapp_event_handler
+from products.slack_app.backend.views.whatsapp_link import whatsapp_link_start
 
 __all__ = [
     "chat_workspace_claims_view",
@@ -19,4 +21,6 @@ __all__ = [
     "telegram_connect_start",
     "telegram_event_handler",
     "telegram_link_start",
+    "whatsapp_event_handler",
+    "whatsapp_link_start",
 ]

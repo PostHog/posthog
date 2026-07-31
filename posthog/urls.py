@@ -76,6 +76,8 @@ from products.slack_app.backend.views import (
     telegram_connect_start,
     telegram_event_handler,
     telegram_link_start,
+    whatsapp_event_handler,
+    whatsapp_link_start,
 )
 from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
@@ -673,9 +675,10 @@ urlpatterns = [
     # and likewise must precede `social_django.urls` for the same reason.
     path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
     path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
-    # Telegram linking has no OAuth callback — the bot's webhook redeems the codes.
+    # Telegram/WhatsApp linking has no OAuth callback — the bot webhooks redeem the codes.
     path("telegram/link/start/", telegram_link_start, name="telegram_link_start"),
     path("telegram/connect/start/", telegram_connect_start, name="telegram_connect_start"),
+    path("whatsapp/link/start/", whatsapp_link_start, name="whatsapp_link_start"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
@@ -683,6 +686,7 @@ urlpatterns = [
     opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
     opt_slash_path("telegram/event-callback", telegram_event_handler),
+    opt_slash_path("whatsapp/event-callback", whatsapp_event_handler),
     # Generic successor to the Slack-scoped claims route above; used by cross-region
     # probes for any chat provider. `path` (not `opt_slash_path`) because the route
     # needs the <provider> converter; the sender always uses the trailing slash.

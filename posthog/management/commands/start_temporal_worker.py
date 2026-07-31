@@ -27,6 +27,8 @@ from posthog.temporal.ai import (
     POSTHOG_CODE_SLACK_WORKFLOWS,
     POSTHOG_CODE_TELEGRAM_ACTIVITIES,
     POSTHOG_CODE_TELEGRAM_WORKFLOWS,
+    POSTHOG_CODE_WHATSAPP_ACTIVITIES,
+    POSTHOG_CODE_WHATSAPP_WORKFLOWS,
 )
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
@@ -392,8 +394,14 @@ _task_queue_specs = [
         # cut over and any in-flight runs have drained, drop them from
         # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
         # products/slack_app to settings.TASKS_TASK_QUEUE.
-        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS + POSTHOG_CODE_TELEGRAM_WORKFLOWS,
-        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES + POSTHOG_CODE_TELEGRAM_ACTIVITIES,
+        TASKS_WORKFLOWS
+        + POSTHOG_CODE_SLACK_WORKFLOWS
+        + POSTHOG_CODE_TELEGRAM_WORKFLOWS
+        + POSTHOG_CODE_WHATSAPP_WORKFLOWS,
+        TASKS_ACTIVITIES
+        + POSTHOG_CODE_SLACK_ACTIVITIES
+        + POSTHOG_CODE_TELEGRAM_ACTIVITIES
+        + POSTHOG_CODE_WHATSAPP_ACTIVITIES,
     ),
     (
         settings.MAX_AI_TASK_QUEUE,
