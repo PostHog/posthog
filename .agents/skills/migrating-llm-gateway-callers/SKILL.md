@@ -36,6 +36,8 @@ An existing Python client or product route is not a blocker by itself.
 
 Prefer the smallest existing pattern that matches the caller:
 
+Read [migration examples](references/migration-examples.md) for verified PRs covering Django clients, staged workload rollout, sandbox wiring, and attribution continuity. Follow the contract demonstrated by the relevant example rather than copying its code mechanically.
+
 1. Use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from `posthog/llm/gateway_client.py` for Django callers when possible.
 2. Use the slugless Go base URL. Do not carry a Python `/{product}/` path into the Go URL.
 3. Use a supported `phs_` or `pha_` credential with `llm_gateway:read`. Do not weaken auth or expose a shared secret to an untrusted runtime.
