@@ -70,7 +70,15 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_stamphog_connected(self, instance: ReviewUserSettings) -> bool:
-        return has_reviewable_repo_config(instance.team_id)
+        # Fail soft: this is an informational UI flag read from the stamphog product DB (a separate
+        # database behind a fail-fast circuit breaker), and it must not be able to take the whole
+        # settings endpoint down with it. False is the safe degradation — the toggle renders
+        # disabled until the read recovers.
+        try:
+            return has_reviewable_repo_config(instance.team_id)
+        except Exception:
+            logger.exception("review_hog_stamphog_connected_check_failed")
+            return False
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

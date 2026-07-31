@@ -2,6 +2,7 @@
 
 import sys
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock
@@ -261,7 +262,7 @@ def test_fresh_trusted_bot_eyes_reach_pr_data_and_flag_in_flight(monkeypatch) ->
 
 
 def _selfdriving_context(self_driving: bool) -> dict:
-    context = {
+    context: dict[str, Any] = {
         "repo": "PostHog/posthog",
         "head_sha": "abc123",
         "base_sha": "def456",
