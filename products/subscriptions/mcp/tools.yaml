@@ -137,8 +137,8 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        list: true
         enrich_url: '{id}'
+        list: true
         title: List subscriptions
         description: >
             List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated
