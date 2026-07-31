@@ -501,12 +501,28 @@ function isCustomFunctionToolResult(item: unknown): boolean {
     return isObject(item) && item.type === 'function' && isString(item.tool_name) && !isObject(item.function)
 }
 
+// Gemini function calls and their responses, in the raw form the google-genai
+// SDK emits. posthog-python 7.30.1 through 7.35.x copied that form into
+// `$ai_input` without converting it (PostHog/posthog-python#725), so traces from
+// that window still contain it.
+// `function_call` needs its nested object checked. The OpenAI Responses API uses
+// the same `type` with a top-level `name` and `call_id`, and
+// `isOpenAIResponsesFunctionCall` already owns that case.
+function isLegacyGeminiFunctionResponse(item: unknown): boolean {
+    return isObject(item) && item.type === 'function_response' && isObject(item.function_response)
+}
+
+function isLegacyGeminiFunctionCall(item: unknown): boolean {
+    return isObject(item) && item.type === 'function_call' && isObject(item.function_call)
+}
+
 export function isToolResult(item: unknown): boolean {
     return (
         isAnthropicToolResultMessage(item) ||
         isVercelSDKToolResultMessage(item) ||
         isOpenAIResponsesFunctionCallOutput(item) ||
-        isCustomFunctionToolResult(item)
+        isCustomFunctionToolResult(item) ||
+        isLegacyGeminiFunctionResponse(item)
     )
 }
 
@@ -531,7 +547,9 @@ export function isToolStepItem(item: unknown): boolean {
         isVercelSDKToolCallMessage(item) ||
         isVercelSDKToolResultMessage(item) ||
         isOpenAIResponsesFunctionCall(item) ||
-        isOpenAIResponsesBuiltinToolCall(item)
+        isOpenAIResponsesBuiltinToolCall(item) ||
+        isLegacyGeminiFunctionCall(item) ||
+        isLegacyGeminiFunctionResponse(item)
     ) {
         return true
     }

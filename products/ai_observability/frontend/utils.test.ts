@@ -1424,6 +1424,10 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 'custom {type:"function", tool_name, content}',
                 { type: 'function', tool_name: 'lookup', content: 'opaque' },
             ],
+            [
+                'legacy Gemini function_response (posthog-python 7.30.1-7.35.x)',
+                { type: 'function_response', function_response: { name: 'get_weather', response: { temp: '18C' } } },
+            ],
         ])('returns true for: %s', (_, item) => {
             expect(isToolResult(item)).toBe(true)
         })
@@ -1431,6 +1435,11 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
         it.each<[name: string, item: unknown]>([
             ['plain text part', { type: 'text', text: 'hi' }],
             ['Anthropic tool_use (a tool CALL, not a result)', { type: 'tool_use', id: 't1', name: 'x', input: {} }],
+            [
+                'legacy Gemini function_call (a tool CALL, not a result)',
+                { type: 'function_call', function_call: { name: 'get_weather', args: {} } },
+            ],
+            ['function_response without the nested payload', { type: 'function_response' }],
             [
                 'OpenAI tool CALL with nested function object',
                 { type: 'function', function: { name: 'get_weather', arguments: '{}' } },
@@ -2562,6 +2571,16 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             [
                 'accepts Vercel SDK `tool-result`',
                 { type: 'tool-result', toolCallId: 'a', toolName: 'search_docs', result: 'ok' },
+                true,
+            ],
+            [
+                'accepts legacy Gemini `function_call`',
+                { type: 'function_call', function_call: { name: 'get_weather', args: { city: 'SF' } } },
+                true,
+            ],
+            [
+                'accepts legacy Gemini `function_response`',
+                { type: 'function_response', function_response: { name: 'get_weather', response: { temp: '18C' } } },
                 true,
             ],
             ['rejects text content items', { type: 'text', text: 'hi' }, false],
