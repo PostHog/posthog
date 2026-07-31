@@ -7,6 +7,8 @@ import {
   RpcClient,
   type RpcClientOptions,
 } from "@earendil-works/pi-coding-agent";
+import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
+import type { McpServerConnection } from "@posthog/shared";
 import { safePiEnvironment } from "./rpc-environment";
 import type { PiQueueSnapshot } from "./types";
 
@@ -36,6 +38,36 @@ interface RpcClientInternals {
     signal: NodeJS.Signals | null,
   ): Error;
   rejectPendingRequests(error: Error): void;
+}
+
+export type PiRuntimeMcpServers = McpConfig["mcpServers"];
+
+export function createRuntimeMcpServers(
+  servers: McpServerConnection[],
+): PiRuntimeMcpServers {
+  return Object.fromEntries(
+    servers.map((server) => [
+      server.name,
+      {
+        transport:
+          server.type === "http"
+            ? ("streamable-http" as const)
+            : ("sse" as const),
+        url: server.url,
+        headers: Object.fromEntries(
+          (server.headers ?? []).map((header) => [header.name, header.value]),
+        ),
+        lifecycle: "lazy" as const,
+        args: [],
+        directTools: false,
+      },
+    ]),
+  );
+}
+
+interface PiRpcBootstrap {
+  providerOptions: PiRpcProviderOptions;
+  runtimeMcpServers?: PiRuntimeMcpServers;
 }
 
 interface PiHostRequest {
@@ -83,7 +115,7 @@ class SecurePiRpcClient extends RpcClient {
 
   constructor(
     private readonly secureOptions: RpcClientOptions,
-    private readonly providerOptions: PiRpcProviderOptions,
+    private readonly bootstrap: PiRpcBootstrap,
   ) {
     super(secureOptions);
   }
@@ -161,9 +193,7 @@ class SecurePiRpcClient extends RpcClient {
 
     const bootstrapPipe = child.stdio[3] as Writable | null;
     bootstrapPipe?.on("error", () => {});
-    bootstrapPipe?.end(
-      JSON.stringify({ providerOptions: this.providerOptions }),
-    );
+    bootstrapPipe?.end(JSON.stringify(this.bootstrap));
 
     await new Promise((resolve) => setTimeout(resolve, 100));
     if (child.exitCode !== null) {
@@ -265,10 +295,12 @@ export type PiRpcClientOptions = Pick<
 > & {
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
+  runtimeMcpServers?: PiRuntimeMcpServers;
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
-  const { sessionFile, providerOptions, ...rpcOptions } = options;
+  const { sessionFile, providerOptions, runtimeMcpServers, ...rpcOptions } =
+    options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
   const cliPath =
     rpcOptions.cliPath ??
@@ -280,6 +312,6 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       cliPath,
       provider: "posthog",
     },
-    providerOptions,
+    { providerOptions, runtimeMcpServers },
   );
 }

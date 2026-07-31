@@ -13,7 +13,11 @@ import { Hono } from "hono";
 import { z } from "zod/v4";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { OtelRunTelemetry } from "../otel-telemetry";
-import { createPiRpcClient, type PiRpcClient } from "../pi/rpc-client";
+import {
+  createPiRpcClient,
+  createRuntimeMcpServers,
+  type PiRpcClient,
+} from "../pi/rpc-client";
 import { piRpcCommandSchema, type RpcCommand } from "../pi/rpc-transport";
 import { PiRuntime } from "../pi/runtime";
 import { PostHogAPIClient } from "../posthog-api";
@@ -493,6 +497,7 @@ export class PiAgentServer {
       cwd,
       model: this.config.model,
       sessionFile: restoredSessionFile,
+      runtimeMcpServers: createRuntimeMcpServers(this.config.mcpServers ?? []),
       providerOptions: {
         apiKey: this.config.apiKey,
         baseUrl: resolveLlmGatewayUrl(

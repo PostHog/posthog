@@ -4,6 +4,7 @@ import {
   sanitizeMcpServerName,
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
+import type { McpServerConnection } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import type { AuthProxyService } from "../auth-proxy/auth-proxy";
 import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
@@ -20,13 +21,6 @@ const VALID_APPROVAL_STATES = new Set([
 ]);
 function isValidApprovalState(value: string): value is McpToolApprovalState {
   return VALID_APPROVAL_STATES.has(value);
-}
-
-export interface AcpMcpServer {
-  name: string;
-  type: "http";
-  url: string;
-  headers: Array<{ name: string; value: string }>;
 }
 
 export interface AgentPosthogConfig {
@@ -90,12 +84,21 @@ export class AgentAuthAdapter {
     return projectId === null ? null : { apiHost, projectId };
   }
 
+  async getMcpServerConnections(): Promise<McpServerConnection[]> {
+    const credentials = await this.getCurrentCredentials();
+    if (!credentials) {
+      return [];
+    }
+
+    return (await this.buildMcpServers(credentials)).servers;
+  }
+
   async buildMcpServers(credentials: Credentials): Promise<{
-    servers: AcpMcpServer[];
+    servers: McpServerConnection[];
     toolApprovals: McpToolApprovals;
     toolInstallations: McpToolInstallations;
   }> {
-    const servers: AcpMcpServer[] = [];
+    const servers: McpServerConnection[] = [];
     const mcpUrl = this.getPostHogMcpUrl(credentials.apiHost);
     // Warm the token so authenticatedFetch() has something cached, but do not
     // bake it into the MCP config — the proxy injects a fresh one on every

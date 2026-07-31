@@ -67,8 +67,12 @@ export type HarnessRuntimeOptions = HarnessExtensionOptions & {
 export async function createHarnessRuntime(
   options: HarnessRuntimeOptions = {},
 ): Promise<AgentSessionRuntime> {
-  const { credentialStore, posthogOAuthCredentials, ...runtimeOptions } =
-    options;
+  const {
+    credentialStore,
+    posthogOAuthCredentials,
+    runtimeMcpServers: _runtimeMcpServers,
+    ...runtimeOptions
+  } = options;
   // Pi reads its application branding when the SDK is first evaluated. Keep
   // every runtime import below dynamic so this always happens first.
   installHogBrandEnv();

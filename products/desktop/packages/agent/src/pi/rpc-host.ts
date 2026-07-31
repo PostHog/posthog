@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
+import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import type { PosthogProviderOptions } from "@posthog/harness/extensions/posthog-provider/provider";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
@@ -10,6 +11,7 @@ import { sanitizePiHostEnvironment } from "./rpc-environment";
 
 interface PiRpcBootstrap {
   providerOptions?: PosthogProviderOptions;
+  runtimeMcpServers?: McpConfig["mcpServers"];
 }
 
 interface PiHostRequest {
@@ -39,6 +41,7 @@ const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
   ...providerOptions,
+  runtimeMcpServers: bootstrap.runtimeMcpServers,
 });
 
 const persistedQueue = readPersistedPiQueue(sessionManager.getEntries());

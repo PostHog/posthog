@@ -5,13 +5,16 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { HogBrandingOptions } from "./hog-branding/extension";
 import { createHogBrandingExtension } from "./hog-branding/extension";
+import type { McpConfig } from "./mcp/config";
 import { createMcpExtension } from "./mcp/extension";
 import { createPosthogProviderExtension } from "./posthog-provider/extension";
 import type { PosthogProviderOptions } from "./posthog-provider/provider";
 import { createWebAccessExtension } from "./web-access/extension";
 
 export type HarnessExtensionOptions = PosthogProviderOptions &
-  HogBrandingOptions;
+  HogBrandingOptions & {
+    runtimeMcpServers?: McpConfig["mcpServers"];
+  };
 
 interface HarnessExtension {
   name: string;
@@ -22,9 +25,11 @@ const EXTENSIONS: HarnessExtension[] = [
   { name: "hog-branding", create: createHogBrandingExtension },
   { name: "posthog-provider", create: createPosthogProviderExtension },
   { name: "web-access", create: createWebAccessExtension },
-  // createMcpExtension's options are test seams (config loader, transport
-  // factory), not HarnessExtensionOptions, so drop the registry options.
-  { name: "mcp", create: () => createMcpExtension() },
+  {
+    name: "mcp",
+    create: (options) =>
+      createMcpExtension({ runtimeServers: options.runtimeMcpServers }),
+  },
 ];
 
 export const HARNESS_EXTENSION_NAMES: readonly string[] = EXTENSIONS.map(

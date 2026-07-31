@@ -3,7 +3,38 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createPiRpcClient } from "./rpc-client";
+import { createPiRpcClient, createRuntimeMcpServers } from "./rpc-client";
+
+describe("createRuntimeMcpServers", () => {
+  it("maps agent-server HTTP and SSE servers to Harness configuration", () => {
+    expect(
+      createRuntimeMcpServers([
+        {
+          name: "posthog",
+          type: "http",
+          url: "https://mcp.example/mcp",
+          headers: [{ name: "authorization", value: "Bearer token" }],
+        },
+        {
+          name: "legacy",
+          type: "sse",
+          url: "https://mcp.example/sse",
+          headers: [],
+        },
+      ]),
+    ).toMatchObject({
+      posthog: {
+        transport: "streamable-http",
+        url: "https://mcp.example/mcp",
+        headers: { authorization: "Bearer token" },
+      },
+      legacy: {
+        transport: "sse",
+        url: "https://mcp.example/sse",
+      },
+    });
+  });
+});
 
 describe("createPiRpcClient", () => {
   it("does not put provider credentials in the child environment", () => {
@@ -55,6 +86,47 @@ process.stdin.resume();
       await client.start();
       await vi.waitFor(async () => {
         await expect(readFile(capturePath, "utf8")).resolves.toBe("1");
+      });
+    } finally {
+      await client.stop();
+      await rm(directory, { recursive: true });
+    }
+  });
+
+  it("passes runtime MCP servers through the bootstrap channel", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-runtime-mcp-"));
+    const hostPath = join(directory, "host.mjs");
+    const capturePath = join(directory, "capture.json");
+    await writeFile(
+      hostPath,
+      `
+import { readFileSync, writeFileSync } from "node:fs";
+
+writeFileSync(${JSON.stringify(capturePath)}, readFileSync(3, "utf8"));
+process.stdin.resume();
+`,
+    );
+    const client = createPiRpcClient({
+      cliPath: hostPath,
+      cwd: directory,
+      providerOptions: { apiKey: "proxy-key" },
+      runtimeMcpServers: {
+        posthog: {
+          args: [],
+          directTools: false,
+          lifecycle: "lazy",
+          transport: "streamable-http",
+          url: "http://127.0.0.1:4321/posthog",
+        },
+      },
+    });
+
+    try {
+      await client.start();
+      await vi.waitFor(async () => {
+        await expect(readFile(capturePath, "utf8")).resolves.toContain(
+          '"runtimeMcpServers"',
+        );
       });
     } finally {
       await client.stop();

@@ -1,4 +1,4 @@
-import type { CloudRegion } from "@posthog/shared";
+import type { CloudRegion, McpServerConnection } from "@posthog/shared";
 
 // Narrow ports inverting AgentService's dependencies on core/host services so it
 // can live in workspace-server without importing @posthog/core or apps/code.
@@ -19,6 +19,10 @@ export interface AgentLogger {
 export interface AgentSleepCoordinator {
   acquire(activityId: string): void;
   release(activityId: string): void;
+}
+
+export interface McpServerConnectionSource {
+  getMcpServerConnections(): Promise<McpServerConnection[]>;
 }
 
 export interface AgentMcpServerConnectionConfig {
