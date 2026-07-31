@@ -169,11 +169,11 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                         `}
                     />
 
-                    <Markdown>
-                        {dedent`
-                            You can override any PostHog parameter per-query:
+                    <Markdown>You can override any PostHog parameter per-query:</Markdown>
 
-                            \`\`\`python
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
                             async for msg in ph.query(
                                 prompt="...",
                                 options=options,
@@ -181,9 +181,8 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                                 posthog_properties={"extra": "data"},
                             ):
                                 ...
-                            \`\`\`
                         `}
-                    </Markdown>
+                    />
                 </>
             ),
         },
