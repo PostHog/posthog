@@ -1,0 +1,5 @@
+.LemonModal__overlay.EmailTemplaterModal__overlay {
+    // Sits under the main nav and the side panel (--z-main-nav: 750) so navigation and the
+    // side panel stay usable next to the full-screen editor; still above all scene content.
+    z-index: 745;
+}

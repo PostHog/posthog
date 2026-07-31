@@ -51,6 +51,7 @@ export interface messageTemplateLogicValues {
     templateHasErrors: boolean
     templateLoading: boolean
     templateManualErrors: Record<string, any>
+    templatePickerOpen: boolean
     templateTouched: boolean
     templateTouches: Record<string, boolean>
     templateValidationErrors: DeepPartialMap<
@@ -156,6 +157,9 @@ export interface messageTemplateLogicActions {
     }
     setTemplateManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
+    }
+    setTemplatePickerOpen: (open: boolean) => {
+        open: boolean
     }
     setTemplateValue: (
         key: FieldName,
@@ -283,6 +287,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
         deleteTemplate: true,
+        setTemplatePickerOpen: (open: boolean) => ({ open }),
     }),
     selectors({
         logicProps: [
@@ -322,6 +327,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 loadTemplateSuccess: (_, { template }) => {
                     return template
                 },
+            },
+        ],
+        templatePickerOpen: [
+            false,
+            {
+                setTemplatePickerOpen: (_, { open }) => open,
             },
         ],
     }),
@@ -426,6 +437,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         } else {
             // If we've previously loaded a message, reset the template to the default
             actions.resetTemplate(NEW_TEMPLATE)
+        }
+
+        // A fresh template starts from the picker: blank, or one of the existing templates.
+        if (props.id === 'new' && !props.messageId) {
+            actions.setTemplatePickerOpen(true)
         }
     }),
     beforeUnload(({ values, actions }) => ({
