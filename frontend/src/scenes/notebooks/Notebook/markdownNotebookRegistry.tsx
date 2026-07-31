@@ -574,19 +574,14 @@ export function MountedRealNotebookNodeComponent({
 
     // The settings-panel instance (editOnly) shares the shell with the content instance;
     // only the latter publishes, so a hidden panel doesn't clear the other's extras.
+    // No unmount cleanup on purpose: collapsing the node unmounts the component, and the
+    // toolbar menu must survive the collapse. The shell drops the state when IT unmounts.
     useEffect(() => {
         if (editOnly || !setToolbarExtras) {
             return
         }
         setToolbarExtras({ actions: nodeActions, menuItems: nodeMenuItems })
     }, [editOnly, nodeActions, nodeMenuItems, setToolbarExtras])
-
-    useEffect(() => {
-        if (editOnly || !setToolbarExtras) {
-            return
-        }
-        return () => setToolbarExtras(null)
-    }, [editOnly, setToolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings

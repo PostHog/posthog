@@ -17,10 +17,10 @@ import {
     IconEllipsis,
     IconExpand,
     IconEye,
+    IconGear,
     IconGraph,
     IconHide,
     IconList,
-    IconPencil,
     IconPeople,
     IconTrash,
 } from '@posthog/icons'
@@ -397,7 +397,7 @@ export function NotebookComponentShell({
                             <LemonButton
                                 aria-label={filtersLabel}
                                 size="xsmall"
-                                icon={<IconPencil />}
+                                icon={<IconGear />}
                                 active={componentPanels.filters}
                                 tooltip={filtersLabel}
                                 onClick={() => toggleComponentPanel('filters')}

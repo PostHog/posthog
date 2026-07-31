@@ -328,4 +328,55 @@ describe('NotebookComponentShell', () => {
         expect(within(collapsedCanvas.container).queryByText('Results')).toBeNull()
         expect(within(collapsedCanvas.container).getByLabelText('Expand')).toBeTruthy()
     })
+
+    it('keeps the toolbar menu when collapsing unmounts the component', () => {
+        function ExtrasProbe(): JSX.Element {
+            const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+            useEffect(() => {
+                setToolbarExtras?.({ actions: [], menuItems: [{ label: 'Refresh', onClick: jest.fn() }] })
+            }, [setToolbarExtras])
+            return <div>Results</div>
+        }
+
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: ExtrasProbe,
+            },
+        ])
+
+        const buildShell = (componentPanels: { filters: boolean; results: boolean }): JSX.Element => (
+            <NotebookComponentShell
+                node={{
+                    id: 'probe-node',
+                    type: 'component',
+                    tagName: 'Probe',
+                    props: {},
+                }}
+                mode="edit"
+                componentPanels={componentPanels}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        const { container, rerender } = render(buildShell({ filters: false, results: true }))
+        expect(within(container).getByLabelText('More actions')).toBeTruthy()
+
+        rerender(buildShell({ filters: false, results: false }))
+        expect(within(container).queryByText('Results')).toBeNull()
+        expect(within(container).getByLabelText('More actions')).toBeTruthy()
+    })
 })
