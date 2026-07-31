@@ -35,14 +35,14 @@ For "what kind of run was this?" questions — did it author a self-improvement 
 
 There are six things you can observe about the fleet, each with its own tool:
 
-| What you want to know                        | Tool                            | What it tells you                                                                                 |
-| -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `emit`, `last_run_at`, `description`                      |
-| What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link |
-| What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                            |
-| What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)              |
-| Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`         |
-| What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)       |
+| What you want to know                        | Tool                            | What it tells you                                                                                       |
+| -------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Which scouts run, how often, in what posture | `scout-config-list`             | One row per scout: schedule, `enabled`, `status` / `pause_reason`, `emit`, `last_run_at`, `description` |
+| What the scouts actually did, run by run     | `scout-runs-list` / `-retrieve` | Per-run status, timing, end-of-run summary, `emitted_report_ids` / `edited_report_ids`, deep-link       |
+| What the fleet has learned across runs       | `scout-scratchpad-search`       | Durable per-team memory (baselines, noise, allowlists)                                                  |
+| What the team has told the fleet             | `scout-notes-list`              | Steering notes humans/agents left for scouts (per-scout or fleet-wide, newest first)                    |
+| Which reports a run wrote or edited          | the run row itself              | `emitted_report_ids` / `edited_report_ids` — resolve each id via `inbox-reports-retrieve`               |
+| What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (filter `source_product: "signals_scout"`)             |
 
 The orienting tool is `scout-project-profile-get` — the deterministic snapshot of "what's true about this project" that every scout cold-starts from.
 When a scout found nothing, this is usually why.
@@ -80,9 +80,11 @@ Read the result against three cases:
   Point the user at the Signals scout settings / PostHog Desktop onboarding rather than inventing activity.
 - **Configs exist but all `enabled: false`** — the fleet is registered but paused.
   Nothing is running.
-  Tell the user which scouts exist and that they're all off.
+  Tell the user which scouts exist and that they're all off — and say who switched each one off, which `status` carries: `paused_by_user` means a person (or a launch seed posture) turned it off, `paused_by_system` means an automatic pause with its cause in `pause_reason` (`no_output` / `ignored` / `repeated_failures`).
+  Either kind resumes with `enabled: true` via `scout-config-update`.
 - **At least one `enabled: true`** — the fleet is registered and that scout is allowed to run.
   For each enabled scout note its `run_interval_minutes` (cadence), `emit` (false = **dry-run**, runs but writes nothing to the inbox), and `last_run_at`.
+  A `status` of `pending_pause` means the scout still runs but the system has flagged it to pause soon (cause in `pause_reason`); any config edit clears the warning.
   One caveat before reporting "it's live": runs are gated by the `signals-scout` feature flag, not by `enabled`.
   A project that was enrolled and later drained from the flag keeps its `enabled: true` rows, but the coordinator no longer plans runs for it — so a stale or `null` `last_run_at` on an enabled scout usually means the project is no longer enrolled, not that the scout is idle.
 

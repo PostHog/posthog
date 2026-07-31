@@ -13,6 +13,7 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
+import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
@@ -326,6 +327,15 @@ export function InboxDetailFrame({
         [chartPlacements]
     )
 
+    // Reading depth on the report body: which supporting sections a reader actually opened.
+    const captureSectionToggle = (section: string) => (collapsed: boolean) =>
+        captureInboxReportAction({
+            report,
+            actionType: collapsed ? 'collapse_section' : 'expand_section',
+            surface: 'detail_pane',
+            extra: { section },
+        })
+
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
@@ -349,10 +359,15 @@ export function InboxDetailFrame({
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
             <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
                 <div className="min-w-0 flex flex-col gap-5">
-                    <DetailSection icon={summary.icon} title={summary.title}>
+                    <DetailSection
+                        icon={summary.icon}
+                        title={summary.title}
+                        collapsible
+                        onToggleCollapsed={captureSectionToggle('summary')}
+                    >
                         {report.summary ? (
                             <LemonMarkdown
-                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
+                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
                                 disableImages
                                 renderChartRef={renderChartRef}
                             >
@@ -364,7 +379,7 @@ export function InboxDetailFrame({
                             </p>
                         )}
                         {trailingCharts.length > 0 && (
-                            <div className="flex flex-col gap-3">
+                            <div className="flex flex-col gap-4 mt-5">
                                 {trailingCharts.map((chart) => (
                                     <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
                                 ))}
@@ -385,6 +400,8 @@ export function InboxDetailFrame({
                         <DetailSection
                             icon={<IconSearch />}
                             title="Evidence"
+                            collapsible
+                            onToggleCollapsed={captureSectionToggle('evidence')}
                             rightSlot={
                                 <Tooltip title={FINDINGS_TOOLTIP}>
                                     <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
@@ -494,7 +511,14 @@ export function InboxDetailFrame({
             {hasDiff ? (
                 <LemonTabs
                     activeKey={activeDetailTab}
-                    onChange={setActiveDetailTab}
+                    onChange={(key) => {
+                        setActiveDetailTab(key)
+                        // Reviewing the diff is the deepest engagement a report gets short of acting
+                        // on it, and it's the one desktop can't see either.
+                        if (key === 'files') {
+                            captureInboxReportAction({ report, actionType: 'view_diff', surface: 'detail_pane' })
+                        }
+                    }}
                     tabs={[
                         { key: 'overview', label: 'Overview', content: overviewBody },
                         {
@@ -567,6 +591,9 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                         to={prFilesUrl(prUrl)}
                         targetBlank
                         tooltip={`${prRef.repoSlug}#${prRef.number}`}
+                        onClick={() =>
+                            captureInboxReportAction({ report, actionType: 'open_pr', surface: 'detail_pane' })
+                        }
                     >
                         Open in GitHub
                     </LemonButton>

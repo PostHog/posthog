@@ -472,6 +472,34 @@ class TestSentrySourceValidation:
         assert row["issue_id"] == "100"
         assert "_issues_id" not in row
 
+    @parameterized.expand(
+        [
+            ("issue_events", "issues"),
+            ("project_events", "projects"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_event_fanout_requests_full_event_bodies(self, endpoint, parent_name, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource(parent_name, []),
+            _FakeDltResource(endpoint, []),
+        ]
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="job-id",
+        )
+
+        config = mock_rest_api_resources.call_args.args[0]
+        child_resource = next(r for r in config["resources"] if r["name"] == endpoint)
+        assert child_resource["endpoint"]["params"]["full"] == "true"
+
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
@@ -1378,6 +1406,40 @@ class TestSentryCustomIteratorEndpoints:
         assert rows[0]["quantity"] == 5
         assert rows[0]["period_start"] == "2026-01-01T00:00:00Z"
         assert rows[0]["period_end"] == "2026-03-01T00:00:00Z"
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_stats_summary_skips_when_token_has_no_project_access(self, mock_request) -> None:
+        # The requesting token's user can be a member of the org without being a
+        # member of any project's team — Sentry 400s this specific endpoint rather
+        # than returning an empty result.
+        mock_request.return_value = _response({"detail": "No projects available"}, status_code=400)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="organization_stats_summary",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        assert list(cast(Any, resp.items())) == []
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_stats_summary_propagates_other_400_errors(self, mock_request) -> None:
+        mock_request.return_value = _response({"detail": 'Invalid field: "bogus"'}, status_code=400)
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="organization_stats_summary",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        with pytest.raises(HTTPError):
+            list(cast(Any, resp.items()))
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
     def test_trace_item_attributes_stamps_dataset_and_skips_unavailable_ones(self, mock_request) -> None:

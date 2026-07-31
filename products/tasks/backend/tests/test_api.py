@@ -32,6 +32,7 @@ from posthog.storage import object_storage
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
@@ -65,6 +66,7 @@ from products.tasks.backend.models import (
     Task,
     TaskArtifact,
     TaskAutomation,
+    TaskPin,
     TaskRun,
     TaskSession,
 )
@@ -129,6 +131,13 @@ Uf+mepHBLw1Pbg5GJYIZPC6e5+wRNvtFjM5J6h5LVhyb7AjKeLBTeohoBKEfUyUO
 rl/ql9qDIh5lJFn3uNh7+r7tmG21Zl2pyh+O8GljjZ25mYhdiwl0uqzVZaINe2Wa
 vbMnD1ZQKgL8LHgb02cbTsc=
 -----END PRIVATE KEY-----"""
+
+
+# A discuss-report kickoff prompt: the report URL line the frontend prepends, then the user's question.
+_DISCUSS_PROMPT = (
+    "Let's discuss this PostHog Inbox report: "
+    "https://us.posthog.com/project/2/inbox/reports/x\n\nIs this still happening?"
+)
 
 
 class BaseTaskAPITest(TestCase):
@@ -936,6 +945,67 @@ class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
 
 
 class TestTaskAPI(BaseTaskAPITest):
+    def test_pin_state_is_persisted_per_user(self):
+        task = self.create_task()
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/pin/", {"pinned": True}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"task_id": str(task.id), "pinned": True})
+        self.assertTrue(TaskPin.objects.filter(user=self.user, task=task).exists())
+
+        response = self.client.get("/api/projects/@current/tasks/pinned/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"task_ids": [str(task.id)]})
+
+        other_user = self.create_organization_user()
+        self.client.force_authenticate(other_user)
+        response = self.client.get("/api/projects/@current/tasks/pinned/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"task_ids": []})
+
+    def test_setting_pin_state_is_idempotent(self):
+        task = self.create_task()
+        url = f"/api/projects/@current/tasks/{task.id}/pin/"
+
+        self.client.post(url, {"pinned": True}, format="json")
+        self.client.post(url, {"pinned": True}, format="json")
+        self.assertEqual(TaskPin.objects.filter(user=self.user, task=task).count(), 1)
+
+        response = self.client.post(url, {"pinned": False}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(TaskPin.objects.filter(user=self.user, task=task).exists())
+
+    def test_cannot_pin_invisible_task(self):
+        other_user = self.create_organization_user()
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/pin/", {"pinned": True}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_pins_are_team_scoped_and_hidden_after_task_deletion(self):
+        task = self.create_task()
+        self.client.post(f"/api/projects/@current/tasks/{task.id}/pin/", {"pinned": True}, format="json")
+        task.deleted = True
+        task.save(update_fields=["deleted"])
+
+        response = self.client.get("/api/projects/@current/tasks/pinned/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"task_ids": []})
+
+        other_organization = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_organization, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            created_by=self.user,
+            title="Other team task",
+            description="Not visible here",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{other_task.id}/pin/", {"pinned": True}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_list_tasks(self):
         self.create_task("Task 1")
         self.create_task("Task 2")
@@ -1383,6 +1453,54 @@ class TestTaskAPI(BaseTaskAPITest):
             ).exists()
         )
 
+    @parameterized.expand(
+        [
+            # no artefact yet → cascade picks the team's only connected repo, so "Create PR" works
+            # without the client pre-selecting one
+            ("no_selection", False, None, "acme/web"),
+            # a persisted selection wins over the cascade, even when it names another repo
+            ("persisted_repo", True, "acme/api", "acme/api"),
+            # a scout's deliberate no-repo must not fall through to the cascade
+            ("persisted_no_repo", True, None, None),
+        ]
+    )
+    def test_create_signal_report_task_resolves_repository_when_none_provided(
+        self, _name, has_artefact, persisted_repository, expected_repository
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="gh-cascade",
+            config={"installation_id": "gh-cascade"},
+            sensitive_config={},
+            repository_cache=[{"full_name": "acme/web", "name": "web", "id": 1}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        report = SignalReport.objects.create(team=self.team)
+        if has_artefact:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                content=RepoSelectionResult(repository=persisted_repository, reason="test").model_dump_json(),
+            )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Signal Task",
+                "description": "From a signal report",
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["repository"], expected_repository)
+
     def test_create_task_with_signal_report_discussion_records_artefact_without_gate_row(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
         from products.signals.backend.task_run_artefacts import (
@@ -1411,6 +1529,166 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_DISCUSSION), [data["id"]])
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [])
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
+
+    @parameterized.expand([("discussion", True), ("implementation", False), ("research", False)])
+    def test_signal_report_task_forwards_discussion_question_as_scout_note(self, relationship, should_forward):
+        # Wiring guard: a "Discuss" kickoff (and only a discussion relationship) forwards the user's
+        # question to the report's scout as a REPORT_DISCUSSION note. Guards the facade hook firing for
+        # discussion but not for implementation/research (which would spam a note on every PR kickoff),
+        # and the URL-prefix strip end to end.
+        from products.signals.backend.models import SignalReport, SignalScoutNote
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Discuss report",
+                "description": _DISCUSS_PROMPT,
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": relationship,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        notes = SignalScoutNote.objects.for_team(self.team.id).filter(origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
+        if should_forward:
+            note = notes.get()
+            self.assertIn("Is this still happening?", note.content)
+            self.assertNotIn("https://us.posthog.com", note.content)
+            self.assertEqual(note.skill_name, "")  # no authoring run recorded → addressed to the whole fleet
+        else:
+            self.assertFalse(notes.exists())
+
+    def _post_discussion_task(self, report_id, description=_DISCUSS_PROMPT):
+        return self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Discuss report",
+                "description": description,
+                "origin_product": "signal_report",
+                "signal_report": str(report_id),
+                "signal_report_task_relationship": "discussion",
+            },
+            format="json",
+        )
+
+    def _discussion_notes(self):
+        from products.signals.backend.models import SignalScoutNote
+
+        return SignalScoutNote.objects.for_team(self.team.id).filter(origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
+
+    def test_discussion_note_targets_authoring_scout(self):
+        # A discussion note is addressed to the scout that authored the report (resolved from its run
+        # rows), so a reviewer's question reaches the right scout rather than the whole fleet.
+        from posthog.models.scoping import team_scope
+
+        from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
+        from products.skills.backend.models.skills import LLMSkill
+
+        skill_name = "signals-scout-error-tracking"
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        LLMSkill.objects.create(team=self.team, name=skill_name, description="scout", body="# scout")
+        scout_task = Task.objects.create(
+            team=self.team, title="scout run", description="scout run", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+        )
+        with team_scope(self.team.id):
+            config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name=skill_name)
+            SignalScoutRun.objects.create(
+                team=self.team,
+                task_run=TaskRun.objects.create(task=scout_task, team=self.team),
+                scout_config=config,
+                skill_name=skill_name,
+                skill_version=1,
+                emitted_report_ids=[str(report.id)],
+            )
+
+        self.assertEqual(self._post_discussion_task(report.id).status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self._discussion_notes().get().skill_name, skill_name)
+
+    @parameterized.expand(
+        [
+            ("task_write_only", ["task:read", "task:write"], False),
+            ("with_note_scopes", ["task:read", "task:write", "signal_scout:write", "llm_skill:write"], True),
+            ("all_access", ["*"], True),
+        ]
+    )
+    def test_discussion_note_requires_the_note_write_scopes(self, _name, scopes, should_forward):
+        # Creating a discussion task needs only task:write, but the note the question becomes is the
+        # only path that question takes to a scout — so a token without the scopes the notes API
+        # demands still gets its task, and no steering note. Full stack, so the viewset reading the
+        # credential's scopes is covered along with the gate itself.
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key", user=self.user, secure_value=hash_key_value(key_value), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/",
+            {
+                "title": "Discuss report",
+                "description": _DISCUSS_PROMPT,
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": "discussion",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self._discussion_notes().exists(), should_forward)
+
+    def test_discussion_note_skipped_when_user_lacks_skill_editor_access(self):
+        # A caller who couldn't write a scout note by hand (no llm_skill editor access) can't plant one
+        # via a discussion, even though creating the task needs only task:write.
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+
+        def deny_llm_skill(self, resource, *args, **kwargs):
+            return resource != "llm_skill"
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_llm_skill
+        ):
+            response = self._post_discussion_task(report.id)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(self._discussion_notes().exists())
+
+    def test_discussion_note_forwarding_is_best_effort(self):
+        # Forwarding is a post-commit side effect: if the note write fails, the discussion task is still
+        # created (never a 5xx) and simply no note lands.
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        with patch("products.signals.backend.discussion_notes.leave_note", side_effect=RuntimeError("boom")):
+            response = self._post_discussion_task(report.id)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(self._discussion_notes().exists())
+
+    def test_discussion_note_skipped_for_blank_question(self):
+        # A discuss kickoff whose question is empty (only the URL prefix) forwards nothing.
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        response = self._post_discussion_task(
+            report.id, description="Let's discuss this PostHog Inbox report: x\n\n   "
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(self._discussion_notes().exists())
 
     def test_create_task_with_signal_report_accepts_free_form_relationship(self):
         from products.signals.backend.models import SignalReport, SignalReportTask

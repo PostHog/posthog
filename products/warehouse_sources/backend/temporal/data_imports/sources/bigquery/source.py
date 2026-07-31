@@ -316,6 +316,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.BIG_QUERY,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["bq", "gbq"],
             featured=True,
             iconPath="/static/services/bigquery.png",
             caption=(

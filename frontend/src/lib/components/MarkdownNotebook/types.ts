@@ -36,8 +36,18 @@ export type NotebookPropValue =
 
 export type NotebookComponentProps = Record<string, NotebookPropValue>
 
-export type NotebookTextBlockNode = {
+/** A run of consecutive text-like blocks shares one card (see `getMarkdownNotebookVisualGroups`).
+ * `startsGroup` opts a block out of the run above it, so it gets a card of its own: it is set when
+ * the block was added as a node in its own right — the insert menu's "+", an MCP cell insert, a
+ * block appended into the notebook — rather than typed as a continuation of the text before it.
+ * Stored in the markdown as a second blank line before the block so the split survives a save.
+ * Never set on the first block, which has no separator to widen and always starts a card. */
+type NotebookBlockNodeBase = {
     id: string
+    startsGroup?: boolean
+}
+
+export type NotebookTextBlockNode = NotebookBlockNodeBase & {
     type: 'paragraph' | 'heading' | 'blockquote'
     level?: 1 | 2 | 3 | 4 | 5 | 6
     /** A heading that is part of a blockquote: serialized with a `> ` prefix on every line. */
@@ -55,8 +65,7 @@ export type NotebookListItem = {
     checked?: boolean
 }
 
-export type NotebookListBlockNode = {
-    id: string
+export type NotebookListBlockNode = NotebookBlockNodeBase & {
     type: 'list'
     ordered: boolean
     start?: number
@@ -71,8 +80,7 @@ export type NotebookTableCell = {
     children: NotebookInlineNode[]
 }
 
-export type NotebookTableBlockNode = {
-    id: string
+export type NotebookTableBlockNode = NotebookBlockNodeBase & {
     type: 'table'
     headers: NotebookTableCell[]
     rows: NotebookTableCell[][]
@@ -88,16 +96,14 @@ export type NotebookCodeRefMark = {
     end: number
 }
 
-export type NotebookCodeBlockNode = {
-    id: string
+export type NotebookCodeBlockNode = NotebookBlockNodeBase & {
     type: 'code'
     language?: string
     text: string
     refs?: NotebookCodeRefMark[]
 }
 
-export type NotebookComponentBlockNode = {
-    id: string
+export type NotebookComponentBlockNode = NotebookBlockNodeBase & {
     type: 'component'
     tagName: string
     props: NotebookComponentProps
