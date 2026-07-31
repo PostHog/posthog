@@ -7,12 +7,16 @@ use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
 use dashmap::DashMap;
 use envconfig::Envconfig;
+use k8s_awareness::{K8sAwareness, PodInfo};
+use kube::Client;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -38,6 +42,14 @@ common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Install a process-wide rustls CryptoProvider before any TLS use. kube's
+    // HTTPS client (controller discovery) uses rustls 0.23, which can't
+    // auto-pick a provider with both aws-lc-rs and ring compiled in — it
+    // panics. Matches personhog-router / cymbal / ingestion-consumer.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring CryptoProvider");
+
     let config = Config::init_from_env().expect("Invalid configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
@@ -253,8 +265,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Invalid advertise address configuration");
     tracing::info!(%advertise_address, "advertising gRPC address for routing");
 
+    // Discover this pod's owning controller and generation so the
+    // coordinator can steer placement away from old-generation pods
+    // during rollouts. Fail-open, and bounded: this runs before the pod
+    // handle and gRPC server exist, so an unresponsive API server must
+    // cost a few seconds of startup at worst — never availability.
+    let (controller, generation, k8s_awareness) = if config.k8s_awareness_enabled {
+        let discovery = discover_own_controller(&config, coordination_handle.shutdown_token());
+        match timeout(K8S_DISCOVERY_TIMEOUT, discovery).await {
+            Ok(Ok((awareness, info))) => {
+                tracing::info!(
+                    controller = %info.controller,
+                    generation = %info.generation,
+                    "K8s awareness enabled; controller discovered"
+                );
+                (Some(info.controller), info.generation, Some(awareness))
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    error = %e,
+                    "K8s awareness enabled but controller discovery failed; \
+                     registering without rollout awareness"
+                );
+                (None, String::new(), None)
+            }
+            Err(_) => {
+                tracing::warn!(
+                    timeout = ?K8S_DISCOVERY_TIMEOUT,
+                    "K8s awareness enabled but controller discovery timed out; \
+                     registering without rollout awareness"
+                );
+                (None, String::new(), None)
+            }
+        }
+    } else {
+        (None, String::new(), None)
+    };
+
     let pod_config = PodConfig {
         pod_name: config.pod_name.clone(),
+        generation,
+        controller,
         lease_ttl: config.lease_ttl,
         heartbeat_interval: config.heartbeat_interval(),
         advertise_address: Some(advertise_address),
@@ -277,7 +328,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let pod = PodHandle::new(store, pod_config, Arc::new(handler), None);
+    let pod = PodHandle::new(store, pod_config, Arc::new(handler), k8s_awareness);
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
@@ -450,4 +501,28 @@ async fn run_dirty_index_prune_loop(
             .set(lag as f64);
         }
     }
+}
+
+/// How long startup may spend on controller discovery before falling
+/// open. Generous against a healthy API server (three small reads);
+/// tight against an unresponsive one, which must not delay serving.
+const K8S_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Build a K8s awareness client and discover this pod's owning controller
+/// and generation. The awareness handle is returned alongside so the pod
+/// can also classify its own departure at drain time.
+async fn discover_own_controller(
+    config: &Config,
+    cancel: CancellationToken,
+) -> Result<(Arc<K8sAwareness>, PodInfo), String> {
+    let namespace = config.resolve_k8s_namespace()?;
+    let client = Client::try_default()
+        .await
+        .map_err(|e| format!("failed to create K8s client: {e}"))?;
+    let awareness = Arc::new(K8sAwareness::new(client, namespace, cancel));
+    let info = awareness
+        .discover_controller(&config.pod_name)
+        .await
+        .map_err(|e| format!("controller discovery failed: {e}"))?;
+    Ok((awareness, info))
 }

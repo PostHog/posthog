@@ -24,8 +24,12 @@ from posthog.test.fixtures import create_app_metric2
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
-from products.workflows.backend.api.hog_flow import _should_validate_strictly, mint_audience_confirm_token
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.api.hog_flow import (
+    HogFlowActionSerializer,
+    _should_validate_strictly,
+    mint_audience_confirm_token,
+)
+from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -3613,6 +3617,98 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         if expected_error:
             assert response.json()["detail"] == expected_error
+
+    @parameterized.expand(
+        [
+            # Every unsupported type used to get the same person-properties example, so most of the
+            # stored offenders (webhooks, filters) were pointed at the wrong step.
+            ("person_property_family", "set_person_property", "template-posthog-update-person-properties"),
+            ("contact_family", "contact_update", "template-posthog-update-person-properties"),
+            ("outbound_call", "http", "template-webhook"),
+            # 'webhook' is a trigger kind, so the message has to say which of the two was confused.
+            ("trigger_kind", "webhook", "is a trigger type"),
+        ]
+    )
+    def test_rejection_points_at_the_step_the_caller_meant(self, _name, action_type, expected):
+        field = HogFlowActionSerializer().fields["type"]
+        with self.assertRaises(Exception) as ctx:
+            field.to_internal_value(action_type)
+        assert expected in str(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            # A step type invented from the name of a real feature ("Update person properties", which
+            # is really type 'function' + template-posthog-update-person-properties).
+            ("invented_from_a_feature_name", "update_person_properties"),
+            ("plausible_but_unhandled", "send_email"),
+            ("nonsense", "zzz_not_a_type"),
+        ]
+    )
+    def test_unsupported_action_type_is_rejected_at_write_time(self, _name, action_type):
+        # An action type with no worker handler can never run: it used to save fine and then kill
+        # every run that reached it, silently dropping every step downstream.
+        hog_flow, _ = self._create_hog_flow_with_action({})
+        hog_flow["actions"][1] = {
+            "id": "bad_node",
+            "name": "Tag person",
+            "type": action_type,
+            "config": {"properties": {"onboarding_variant": "A"}},
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert action_type in detail
+        # The valid set is what every caller needs; the template suggestion is per-type and is
+        # covered by test_rejection_points_at_the_step_the_caller_meant.
+        assert "Valid types are:" in detail
+        assert "wait_until_condition" in detail
+
+    @parameterized.expand(
+        [
+            ("object", {}),
+            ("populated_object", {"a": 1}),
+            ("array", []),
+            ("array_of_a_valid_type", ["trigger"]),
+            ("integer", 123),
+            ("null", None),
+        ]
+    )
+    def test_non_string_action_type_is_a_400_not_a_500(self, _name, action_type):
+        # Closing the type field over a dict of choices makes an unhashable value (a JSON object or
+        # array) raise TypeError out of the membership test. DRF only catches ValidationError, so it
+        # escapes validation entirely and the endpoint 500s instead of rejecting the payload.
+        hog_flow, _ = self._create_hog_flow_with_action({})
+        hog_flow["actions"][1] = {"id": "bad_node", "name": "Tag person", "type": action_type, "config": {}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+
+    def test_non_string_action_type_error_does_not_echo_the_payload(self):
+        # The message interpolates the offending value, so a nested object would land in the response
+        # body and the logs behind it.
+        hog_flow, _ = self._create_hog_flow_with_action({})
+        secret = "dont-echo-me-9f3a"
+        hog_flow["actions"][1] = {"id": "bad_node", "name": "Tag person", "type": {"k": secret}, "config": {}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert secret not in response.json()["detail"]
+
+    @parameterized.expand([(action_type,) for action_type in SUPPORTED_ACTION_TYPES])
+    def test_every_supported_action_type_is_accepted(self, action_type):
+        # The counterpart to the rejection above: tightening `type` must not lock out a type the
+        # worker does handle. Only the type field is under test, so per-type config errors are fine.
+        serializer = HogFlowActionSerializer(
+            data={"id": "a", "name": "a", "type": action_type, "config": {}},
+            context={"is_draft": True},
+        )
+        serializer.is_valid()
+
+        assert "type" not in serializer.errors
 
 
 class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):

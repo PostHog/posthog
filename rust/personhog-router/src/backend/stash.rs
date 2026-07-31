@@ -242,7 +242,7 @@ impl StashTable {
     /// progress) returns `Forward` from the dashmap miss without copying
     /// anything.
     ///
-    /// `possibly_applied` carries the live path's transport-failure mark
+    /// `possibly_applied` carries the direct path's transport-failure mark
     /// into the parked entry: a request that bounced at the transport
     /// layer before parking may already have reached the leader, and the
     /// drain's eventual re-forward of it must count as a replay.
@@ -303,6 +303,10 @@ impl StashTable {
         queue.messages += 1;
         queue.bytes += request_size;
         metrics::counter!("personhog_router_stash_enqueued_total").increment(1);
+        // Occupancy gauges count a parked entry until its outcome
+        // resolves, so in-attempt entries still occupy capacity.
+        metrics::gauge!("personhog_router_stash_queued_messages").increment(1.0);
+        metrics::gauge!("personhog_router_stash_queued_bytes").increment(request_size as f64);
         StashDecision::Stashed(rx)
     }
 
@@ -395,6 +399,8 @@ impl DrainSession {
         q.queue.complete(&key);
         q.messages -= 1;
         q.bytes = q.bytes.saturating_sub(size);
+        metrics::gauge!("personhog_router_stash_queued_messages").decrement(1.0);
+        metrics::gauge!("personhog_router_stash_queued_bytes").decrement(size as f64);
     }
 
     /// Return in-attempt entries whose delivery was aborted before any
@@ -918,7 +924,7 @@ mod tests {
             // created a fresh one). If begin_stash logically ran first
             // (observed the prior `Some` queue, was idempotent), then
             // the drain legitimately drained that prior queue and a
-            // subsequent enqueue forwards via the live path — that's a
+            // subsequent enqueue forwards via the direct path — that's a
             // protocol-violation scenario, not a stash-module bug, and
             // the routing-table layer prevents it. We accept either
             // outcome here; what we *don't* accept is a non-empty

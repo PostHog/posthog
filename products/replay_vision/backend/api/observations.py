@@ -958,7 +958,7 @@ class ReplayObservationViewSet(
                 "created_by": user,
             },
         )
-        # The core quality/calibration signal: thumbs up/down on whether the scanner got the session right.
+        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
         report_user_action(
             user,
             "replay_vision_observation_rated",
