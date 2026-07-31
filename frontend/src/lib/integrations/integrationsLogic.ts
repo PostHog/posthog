@@ -118,7 +118,7 @@ export interface integrationsLogicActions {
         onDeleted?: () => void
     ) => {
         id: number
-        onDeleted?: () => void
+        onDeleted: (() => void) | undefined
     }
     handleOauthCallback: (
         kind: IntegrationKind,
