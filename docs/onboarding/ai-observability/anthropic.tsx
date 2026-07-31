@@ -49,12 +49,49 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
             title: 'Configure PostHog',
             badge: 'required',
             content: (
-                <Markdown>
-                    {dedent`
-                        Create a PostHog client, then swap in PostHog's Anthropic wrapper. The example in the next
-                        step creates both, then calls Anthropic and captures a tool call as a span in one flow.
-                    `}
-                </Markdown>
+                <>
+                    <Markdown>
+                        {dedent`
+                            Create a PostHog client, then swap in PostHog's Anthropic wrapper.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    from posthog import Posthog
+                                    from posthog.ai.anthropic import Anthropic
+                                    import time, uuid
+
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
+
+                                    client = Anthropic(
+                                        api_key="sk-ant-api...",
+                                        posthog_client=posthog,
+                                    )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    import { Anthropic } from '@posthog/ai/anthropic'
+                                    import { PostHog } from 'posthog-node'
+
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new Anthropic({
+                                      apiKey: 'sk-ant-api...',
+                                      posthog,
+                                    })
+                                `,
+                            },
+                        ]}
+                    />
+                </>
             ),
         },
         {
@@ -87,24 +124,13 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from posthog import Posthog
-                                    from posthog.ai.anthropic import Anthropic
-                                    import time, uuid
-
-                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
-
-                                    client = Anthropic(
-                                        api_key="sk-ant-api...",
-                                        posthog_client=posthog,
-                                    )
-
                                     session_id = "conversation-abc"  # same across every turn of the conversation
                                     trace_id = str(uuid.uuid4())     # one per turn
                                     distinct_id = "user_123"
 
                                     # tools and get_weather() are your existing tool-calling setup
                                     response = client.messages.create(
-                                        model="claude-sonnet-4-20250514",
+                                        model="claude-sonnet-4-5",
                                         max_tokens=1024,
                                         messages=[{"role": "user", "content": "What's the weather in Paris?"}],
                                         tools=tools,
@@ -112,28 +138,6 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                         posthog_trace_id=trace_id,
                                         posthog_properties={"$ai_session_id": session_id},
                                     )
-
-                                    # Capture each tool_use block as a span nested under the generation above
-                                    for block in response.content:
-                                        if block.type != "tool_use":
-                                            continue
-
-                                        start = time.time()
-                                        result = get_weather(**block.input)
-
-                                        posthog.capture(
-                                            distinct_id=distinct_id,
-                                            event="$ai_span",
-                                            properties={
-                                                "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
-                                                "$ai_span_id": str(uuid.uuid4()),
-                                                "$ai_span_name": block.name,
-                                                "$ai_input_state": block.input,
-                                                "$ai_output_state": result,
-                                                "$ai_latency": time.time() - start,
-                                            },
-                                        )
                                 `,
                             },
                             {
@@ -146,7 +150,7 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                                     // tools and getWeather() are your existing tool-calling setup
                                     const response = await client.messages.create({
-                                      model: 'claude-sonnet-4-20250514',
+                                      model: 'claude-sonnet-4-5',
                                       max_tokens: 1024,
                                       messages: [{ role: 'user', content: "What's the weather in Paris?" }],
                                       tools,
@@ -154,28 +158,6 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                       posthogTraceId: traceId,
                                       posthogProperties: { $ai_session_id: sessionId },
                                     })
-
-                                    // Capture each tool_use block as a span nested under the generation above
-                                    for (const block of response.content) {
-                                      if (block.type !== 'tool_use') continue
-
-                                      const start = Date.now()
-                                      const result = await getWeather(block.input)
-
-                                      posthog.capture({
-                                        distinctId,
-                                        event: '$ai_span',
-                                        properties: {
-                                          $ai_trace_id: traceId,
-                                          $ai_session_id: sessionId,
-                                          $ai_span_id: crypto.randomUUID(),
-                                          $ai_span_name: block.name,
-                                          $ai_input_state: block.input,
-                                          $ai_output_state: result,
-                                          $ai_latency: (Date.now() - start) / 1000,
-                                        },
-                                      })
-                                    }
                                 `,
                             },
                         ]}
@@ -240,6 +222,65 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                             of work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
                         `}
                     </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    # Capture each tool_use block as a span nested under the generation above
+                                    for block in response.content:
+                                        if block.type != "tool_use":
+                                            continue
+
+                                        start = time.time()
+                                        result = get_weather(**block.input)
+
+                                        posthog.capture(
+                                            distinct_id=distinct_id,
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": session_id,
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": block.name,
+                                                "$ai_input_state": block.input,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    // Capture each tool_use block as a span nested under the generation above
+                                    for (const block of response.content) {
+                                      if (block.type !== 'tool_use') continue
+
+                                      const start = Date.now()
+                                      const result = await getWeather(block.input)
+
+                                      posthog.capture({
+                                        distinctId,
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: sessionId,
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: block.name,
+                                          $ai_input_state: block.input,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
 
                     <Markdown>
                         {dedent`
