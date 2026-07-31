@@ -112,7 +112,11 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                             # is_litellm=True routes calls through LiteLLM so the PostHog
                             # callback fires. Without it, CrewAI uses its own provider client
                             # and no events are captured.
-                            llm = LLM(model="gpt-4o-mini", is_litellm=True)
+                            llm = LLM(
+                                model="gpt-4o-mini",
+                                is_litellm=True,
+                                metadata={"$ai_session_id": "conversation-abc"},  # Groups calls into one session
+                            )
 
                             researcher = Agent(
                                 role="Researcher",
@@ -136,6 +140,12 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                             print(result)
                         `}
                     />
+
+                    <Markdown>
+                        Pass `$ai_session_id` in the `metadata` on `LLM()` to group every call made through that LLM
+                        into one PostHog session — it forwards straight through LiteLLM's callback like any other
+                        metadata key.
+                    </Markdown>
 
                     <Markdown>
                         {dedent`

@@ -127,7 +127,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         ],
                                         metadata={
                                             "user_id": "user_123",  # Maps to PostHog distinct_id
-                                            "company": "company_id_in_your_db"  # Custom property
+                                            "company": "company_id_in_your_db",  # Custom property
+                                            "$ai_session_id": "conversation-abc"  # Groups calls into one session
                                         }
                                     )
 
@@ -151,7 +152,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                         ],
                                         "metadata": {
                                           "user_id": "user_123",
-                                          "company": "company_id_in_your_db" # Custom property
+                                          "company": "company_id_in_your_db", # Custom property
+                                          "$ai_session_id": "conversation-abc" # Groups calls into one session
                                         }
                                       }'
                                 `,
@@ -165,6 +167,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 **Notes:**
                                 - This works with streaming responses by setting \`stream=True\`.
                                 - To disable logging for specific requests, add \`{"no-log": true}\` to metadata.
+                                - Pass \`$ai_session_id\` in metadata to group calls from the same conversation into
+                                  one PostHog session.
                                 - If you want to capture LLM events anonymously, **don't** pass a \`user_id\` in metadata.
 
                                 See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.

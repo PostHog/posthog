@@ -90,7 +90,7 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                                     posthog_client=posthog,
                                     posthog_distinct_id="user_123", # optional
                                     posthog_trace_id="trace_123", # optional
-                                    posthog_properties={"conversation_id": "abc123"}, # optional
+                                    posthog_properties={"conversation_id": "abc123", "$ai_session_id": "conversation-abc"}, # optional
                                     posthog_groups={"company": "company_id_in_your_db"}, # optional
                                     posthog_privacy_mode=False, # optional
                                 ):
@@ -106,6 +106,7 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                             {dedent`
                             **Notes:**
                             - All original messages are yielded unchanged — the wrapper is fully transparent.
+                            - Pass \`$ai_session_id\` in \`posthog_properties\` to group every generation, span, and trace from a call into one PostHog session.
                             - If you want to capture LLM events anonymously, **don't** pass a distinct ID. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                             `}
                         </Markdown>

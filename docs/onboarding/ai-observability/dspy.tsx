@@ -73,10 +73,19 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             litellm.failure_callback = ["posthog"]
 
                             # Configure DSPy to use an LLM
-                            lm = dspy.LM("openai/gpt-5-mini", api_key="your_openai_api_key")
+                            lm = dspy.LM(
+                                "openai/gpt-5-mini",
+                                api_key="your_openai_api_key",
+                                metadata={"$ai_session_id": "conversation-abc"},  # Groups calls into one session
+                            )
                             dspy.configure(lm=lm)
                         `}
                     />
+
+                    <Markdown>
+                        Pass `$ai_session_id` in `metadata` to group every call made through that LM into one PostHog
+                        session — it forwards straight through LiteLLM's callback like any other metadata key.
+                    </Markdown>
 
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>

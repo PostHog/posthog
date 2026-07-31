@@ -109,17 +109,38 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            from agents import Agent, Runner
+                            from agents import Agent, Runner, RunConfig
 
                             agent = Agent(
                                 name="Assistant",
                                 instructions="You are a helpful assistant.",
                             )
 
-                            result = Runner.run_sync(agent, "Tell me a fun fact about hedgehogs")
+                            result = Runner.run_sync(
+                                agent,
+                                "Tell me a fun fact about hedgehogs",
+                                run_config=RunConfig(group_id="conversation-abc"),
+                            )
                             print(result.final_output)
                         `}
                     />
+
+                    <Markdown>
+                        Pass `group_id` in `RunConfig` to link multiple runs from the same conversation — OpenAI
+                        documents it as "a grouping identifier to link multiple traces from the same conversation."
+                    </Markdown>
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Version requirement for session grouping">
+                        <Markdown>
+                            {dedent`
+                                Session grouping via \`group_id\` requires a posthog-python version that includes
+                                [PR #819](https://github.com/PostHog/posthog-python/pull/819) and a posthog-js
+                                version that includes [PR #4335](https://github.com/PostHog/posthog-js/pull/4335).
+                                Older versions map \`group_id\` to \`$ai_group_id\` instead, which nothing in
+                                PostHog reads.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
 
                     <Markdown>
                         {dedent`

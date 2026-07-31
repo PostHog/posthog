@@ -3,7 +3,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, Blockquote, dedent, snippets } = ctx
+    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
@@ -84,6 +84,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 metadata: {
                                   posthog_distinct_id: 'user_123', // optional
                                   posthog_environment: 'production', // custom property: sets "environment" on the event
+                                  $ai_session_id: 'conversation-abc', // optional: groups calls into one session
                                 },
                               },
                             })
@@ -91,6 +92,11 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                             console.log(result.text)
                         `}
                     />
+
+                    <Markdown>
+                        Pass `$ai_session_id` in `metadata` to group every call in a conversation into one PostHog
+                        session.
+                    </Markdown>
 
                     <Blockquote>
                         <Markdown>
@@ -108,6 +114,19 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                             Other metadata fields aren't captured.
                         </Markdown>
                     </Blockquote>
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Tool calls aren't fully captured">
+                        <Markdown>
+                            {dedent`
+                                PostHog's ingestion strips \`ai.prompt.tools\` and \`ai.response.toolCalls\` from the
+                                spans this integration emits, so \`$ai_tools\` isn't populated and the model's
+                                requested tool calls don't reach \`$ai_output_choices\`. Tool executions still appear
+                                as \`$ai_span\` events. If you need full tool-call visibility, use
+                                [OpenTelemetry](https://posthog.com/docs/ai-observability/installation/opentelemetry)
+                                instead.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
 
                     <Markdown>
                         {dedent`
