@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconInfo, IconPencil, IconTrash } from '@posthog/icons'
+import { IconInfo, IconLogomark, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -55,7 +55,16 @@ export function CustomPropertiesConfig(): JSX.Element {
         {
             title: 'Name',
             dataIndex: 'name',
-            render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
+            render: (_, definition) => (
+                <span className="flex items-center gap-1 font-semibold">
+                    {definition.is_canonical && (
+                        <Tooltip title="PostHog sets this property automatically">
+                            <IconLogomark className="text-lg shrink-0" />
+                        </Tooltip>
+                    )}
+                    {definition.name}
+                </span>
+            ),
         },
         {
             title: 'Attach to',
