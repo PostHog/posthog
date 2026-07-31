@@ -5,6 +5,7 @@ import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import IconPostHog from 'public/posthog-icon.svg'
+import IconClickHouse from 'public/services/clickhouse.png'
 import IconDuckDB from 'public/services/duckdb.svg'
 import IconMySQL from 'public/services/mysql.png'
 import IconPostgres from 'public/services/postgres.png'
@@ -44,7 +45,7 @@ export interface ConnectionSelectOptionGroup {
     options: ConnectionSelectOption[]
 }
 
-type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift'
+type ConnectionEngine = 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | 'clickhouse'
 
 const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     duckdb: 'DuckDB',
@@ -52,6 +53,7 @@ const ENGINE_LABELS: Record<ConnectionEngine, string> = {
     mysql: 'MySQL',
     snowflake: 'Snowflake',
     redshift: 'Redshift',
+    clickhouse: 'ClickHouse',
 }
 
 const ENGINE_ICONS: Record<ConnectionEngine, string> = {
@@ -60,6 +62,7 @@ const ENGINE_ICONS: Record<ConnectionEngine, string> = {
     mysql: IconMySQL,
     snowflake: IconSnowflake,
     redshift: IconRedshift,
+    clickhouse: IconClickHouse,
 }
 
 function getConnectionEngine(
@@ -69,7 +72,8 @@ function getConnectionEngine(
         source.engine === 'duckdb' ||
         source.engine === 'mysql' ||
         source.engine === 'snowflake' ||
-        source.engine === 'redshift'
+        source.engine === 'redshift' ||
+        source.engine === 'clickhouse'
     ) {
         return source.engine
     }
