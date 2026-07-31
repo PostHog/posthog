@@ -413,6 +413,7 @@ class TestFilters(BaseTest):
             f"SELECT group_key FROM groups WHERE lessOrEquals(created_at, toDateTime('2020-02-02 23:59:59.999999')) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+        # an explicit datetime upper bound is used verbatim and compared exclusively
         select = replace_filters(
             self._parse_select("SELECT group_key FROM groups where {filters}"),
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
@@ -421,7 +422,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT group_key FROM groups WHERE "
-            "and(lessOrEquals(created_at, toDateTime('2020-02-03 23:59:59.000000')), "
+            "and(less(created_at, toDateTime('2020-02-03 23:59:59.000000')), "
             f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
