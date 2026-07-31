@@ -1837,6 +1837,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        # Stage provenance stamped once at run creation (create_and_run's extra_state).
+        # ai_stage="implementation" is what identifies a self-driving implementation run to the
+        # review carve-outs (find_signal_implementation_run, review_hog's inbox trigger); a
+        # PATCHable value would let any task controller forge implementation provenance onto a
+        # run and route an App-bot PR into the approve-first bot/draft/mode/permission bypass.
+        "ai_stage",
         # The run's model posture, chosen at creation by the server-owned caller and read back out
         # of state when the run dispatches. It decides what the run costs, and for a run routed to
         # an unbilled gateway product (create_wizard_cloud_run pins claude-sonnet-5 for the

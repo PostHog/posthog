@@ -88,14 +88,14 @@ ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exc
 
 - Identification is **task linkage plus server-attested PR identity** — both required, neither
   trusted alone. The task link (a signal-report `TaskRun` at `ai_stage="implementation"` matched
-  through the tasks facade — the pipeline's research/repo_selection runs share `signal_report_id`
+  through the tasks facade — the pipeline's research/repo*selection runs share `signal_report_id`
   and `internal=True`, so stage is what selects the PR-opening run) rides on `TaskRun.output.pr_url`,
   which any team member can write through the task-run
   APIs, so it can't gate the bypass by itself: `_is_self_driving_pr` also requires two facts only
   GitHub attests — the PR is authored by this instance's PostHog Code App machine user
   (`<GITHUB_APP_SLUG>[bot]`) and its head is repo-native (never a fork) — enforced on **both** the
   receiver leg (`process_inbox_pr_review`) and the webhook leg (`_inbox_rereview_carve_out`), and
-  failing closed when the App slug is unconfigured. This is a *positive App-identity* match, not the
+  failing closed when the App slug is unconfigured. This is a \_positive App-identity* match, not the
   general "any bot" rule: `github.py::is_bot_author` must not be weakened, and
   dependabot/renovate/posthog-bot and non-inbox PostHog Code PRs (wizard/manual tasks) stay refused
   everywhere — a foreign bot fails the identity match even if a forged `output.pr_url` fakes the

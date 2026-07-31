@@ -4704,6 +4704,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "ai_stage": "research",
                 "runtime_adapter": "claude",
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
@@ -4748,6 +4749,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    # implementation provenance is what the self-driving review carve-outs trust
+                    "ai_stage": "implementation",
                     "runtime_adapter": "codex",
                     "provider": "openai",
                     "model": "claude-opus-4-8",
@@ -4778,6 +4781,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["runtime_adapter"] == "claude"
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
