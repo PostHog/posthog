@@ -159,7 +159,10 @@ export const QueryDatabase = ({
     )
     const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
     const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
-    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
+    // Embedded editors mount no modals (SQLEditor gates them on FullScene), so an access control
+    // item there opens nothing. Most embedded callers hide the tree entirely, but not all.
+    const warehouseAccessControlEnabled =
+        !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL] && !isEmbeddedMode
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
