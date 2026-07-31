@@ -683,6 +683,7 @@ const zodJobs = skipZod
                               body: true,
                               response: false,
                           },
+                          generateReusableSchemas: true,
                       },
                       components: {
                           schemas: { suffix: 'Api' },
