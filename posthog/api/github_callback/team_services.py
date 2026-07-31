@@ -32,6 +32,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubUserAuthorization,
     Integration,
+    defer_repository_cache_fields,
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.organization import Organization
@@ -420,13 +421,18 @@ def link_existing_team_github_integration(
     if installation_id_param and not is_valid_github_installation_id(installation_id_param):
         raise ValidationError("Invalid installation_id")
 
+    # Reusing a source project's GitHub access requires access to that project; target-team admin isn't
+    # enough. Filter the candidates rather than checking the winner, so this stays in step with what
+    # `list_org_github_installations` offers.
+    accessible_team_ids = _accessible_org_team_ids(user, organization)
+
     if source_team_id:
         try:
             source_team_id_int = int(source_team_id)
         except (TypeError, ValueError):
             raise ValidationError("source_team_id must be an integer")
 
-        if not organization.teams.filter(id=source_team_id_int).exists():
+        if source_team_id_int not in accessible_team_ids:
             raise ValidationError("Source team not found in your organization")
 
         qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
@@ -440,6 +446,7 @@ def link_existing_team_github_integration(
         existing = (
             Integration.objects.filter(
                 team__organization_id=organization.id,
+                team_id__in=accessible_team_ids,
                 kind="github",
             )
             .for_github_installation_id(str(installation_id_param))
@@ -457,7 +464,9 @@ def link_existing_team_github_integration(
         # one-click "Link existing installation" UI, where a second project reuses the org's single
         # install without the caller having to know a sibling team id or the installation id.
         org_github = (
-            Integration.objects.filter(team__organization_id=organization.id, kind="github")
+            Integration.objects.filter(
+                team__organization_id=organization.id, team_id__in=accessible_team_ids, kind="github"
+            )
             .exclude(team_id=team_id)
             .order_by("id")
         )
@@ -481,16 +490,6 @@ def link_existing_team_github_integration(
                 "No team in your organization has a GitHub installation to link",
                 code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
             )
-
-    # The source project is the one whose GitHub access we're reusing, so the requester must be able
-    # to access it — target-team admin alone is not enough. Without this, an org member who admins the
-    # target project but is locked out of a private sibling could pull that sibling's installation
-    # (and its repositories) in by supplying its source_team_id/installation_id.
-    if source.team_id not in _accessible_org_team_ids(user, organization):
-        raise ValidationError(
-            "No team in your organization has this GitHub installation linked",
-            code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
-        )
 
     installation_id = (source.config or {}).get("installation_id")
     if not installation_id:
@@ -529,10 +528,12 @@ def list_org_github_installations(
     access boundary enforced in ``link_existing_team_github_integration`` so the picker never
     surfaces an installation the user couldn't actually link.
     """
-    org_github = Integration.objects.filter(
-        team__organization_id=organization.id,
-        team_id__in=_accessible_org_team_ids(user, organization),
-        kind="github",
+    org_github = defer_repository_cache_fields(
+        Integration.objects.filter(
+            team__organization_id=organization.id,
+            team_id__in=_accessible_org_team_ids(user, organization),
+            kind="github",
+        )
     )
     if exclude_team_id is not None:
         org_github = org_github.exclude(team_id=exclude_team_id)

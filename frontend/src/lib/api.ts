@@ -233,7 +233,6 @@ import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/Err
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
-    GitHubAvailableInstallationApi,
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
@@ -6314,13 +6313,6 @@ const api = {
             teamId?: TeamType['id']
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrations(teamId).withAction('github/link_existing').create({ data })
-        },
-        async githubAvailableInstallations(teamId?: TeamType['id']): Promise<GitHubAvailableInstallationApi[]> {
-            const response = await new ApiRequest()
-                .integrations(teamId)
-                .withAction('github/available_installations')
-                .get()
-            return response.installations
         },
         async githubOAuthAuthorize(
             data: {

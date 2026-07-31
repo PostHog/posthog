@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import {
+    integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
     integrationsRequestAccessCreate,
 } from 'products/integrations/frontend/generated/api'
@@ -856,7 +857,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             null as GitHubAvailableInstallationApi[] | null,
             {
                 loadGithubAvailableInstallations: async () => {
-                    return await api.integrations.githubAvailableInstallations()
+                    const response = await integrationsGithubAvailableInstallationsRetrieve(
+                        String(values.currentProjectId)
+                    )
+                    return response.installations
                 },
             },
         ],
