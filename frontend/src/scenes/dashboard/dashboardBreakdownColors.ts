@@ -11,7 +11,7 @@ export type BreakdownColorConfig = {
     colorToken: DataColorToken | null
     breakdownValue: string
     breakdownType: BreakdownFilter['breakdown_type']
-    /** Normalized breakdown property the value belongs to (see getBreakdownPropertyKey).
+    /** Normalized breakdown property the value belongs to (see breakdownValuePropertyKey).
      * Scopes the color to tiles breaking down by that property. Entries without one predate
      * property scoping and match their value under any property. */
     breakdownProperty?: string
@@ -33,6 +33,25 @@ export const MULTI_BREAKDOWN_SEPARATOR = '\u001f'
  * property, so all cohort breakdowns form one color group, matching their pre-scoping
  * behavior of one identity per cohort id. */
 export const COHORT_BREAKDOWN_PROPERTY_KEY = 'cohort'
+
+/** Property key of every boolean breakdown value. Like a cohort id, `true` denotes the same
+ * thing under every property, so booleans form one color group instead of one per property.
+ * They are also the values most likely to swap chart position between tiles, because series
+ * order follows volume, which is exactly what a dashboard-wide color fixes. */
+export const BOOLEAN_BREAKDOWN_PROPERTY_KEY = 'boolean'
+
+// Matched case-insensitively, so a property serializing booleans as "True" joins the group.
+// Grouping only decides which values compete for slots, so "true" and "True" still get a
+// color each — they read as two labels.
+const BOOLEAN_BREAKDOWN_VALUES = new Set(['true', 'false'])
+
+/** Property scope of a single normalized value: the shared boolean group, or the property its
+ * tile breaks down by. Narrows a tile's key (getBreakdownPropertyKey) per value, so a mixed
+ * result — a HogQL breakdown returning "true", "false", and "unknown" — keeps its non-boolean
+ * values scoped to the tile's property. */
+export function breakdownValuePropertyKey(breakdownValue: string, tilePropertyKey: string | null): string | null {
+    return BOOLEAN_BREAKDOWN_VALUES.has(breakdownValue.toLowerCase()) ? BOOLEAN_BREAKDOWN_PROPERTY_KEY : tilePropertyKey
+}
 
 /** Breakdown values arrive as string | number | boolean | array depending on insight type and
  * persistence round-trips, while configs compare with strict equality. One canonical string form
@@ -63,7 +82,9 @@ function breakdownPropertyPart(
  * each part, multi parts joined in order. A single breakdown and a one-entry multi breakdown
  * of the same property produce the same key, so their values share colors. Display options
  * (URL normalization, histogram bins, limits) stay out of the key because they change how
- * values render, not which property they come from. Returns null without a breakdown. */
+ * values render, not which property they come from. Returns null without a breakdown.
+ *
+ * This is the tile's key; breakdownValuePropertyKey narrows it to a single value. */
 export function getBreakdownPropertyKey(breakdownFilter: BreakdownFilter | null | undefined): string | null {
     if (breakdownFilter?.breakdowns?.length) {
         return breakdownFilter.breakdowns
@@ -93,7 +114,8 @@ export type BreakdownPropertyKeyPart = {
     property: string
 }
 
-/** Type and property name of a key's parts, for display. Not meaningful for the cohort key. */
+/** Type and property name of a key's parts, for display. Not meaningful for the cohort or
+ * boolean keys, which the colors modal labels itself. */
 export function parseBreakdownPropertyKey(key: string): BreakdownPropertyKeyPart[] {
     // The first two colon-separated fields are type and group index; the property itself may
     // contain colons, so everything past the second one belongs to it.
@@ -116,7 +138,7 @@ export function breakdownConfigMatches(
     // A property key already encodes each part's type, so scoped entries match on it alone;
     // property-less entries keep the legacy value-and-type match under any property.
     return config.breakdownProperty != null
-        ? config.breakdownProperty === breakdownPropertyKey
+        ? config.breakdownProperty === breakdownValuePropertyKey(normalized, breakdownPropertyKey ?? null)
         : config.breakdownType === (breakdownType ?? 'event')
 }
 
@@ -137,13 +159,14 @@ export function findBreakdownColorConfig(
     breakdownType: BreakdownFilter['breakdown_type'] | null | undefined,
     breakdownPropertyKey?: string | null
 ): BreakdownColorConfig | undefined {
-    if (normalizeBreakdownValue(breakdownValue) == null) {
+    const normalized = normalizeBreakdownValue(breakdownValue)
+    if (normalized == null) {
         return undefined
     }
     // A property-scoped entry beats a property-less one, which acts as a fallback pin
     // across all properties.
     const scoped =
-        breakdownPropertyKey != null
+        breakdownValuePropertyKey(normalized, breakdownPropertyKey ?? null) != null
             ? configs?.find(
                   (config) =>
                       config.breakdownProperty != null &&
@@ -192,9 +215,10 @@ function makeBreakdownValue(
     breakdownType: BreakdownFilter['breakdown_type'],
     breakdownPropertyKey: string | null
 ): BreakdownValueAndType {
-    return breakdownPropertyKey == null
+    const propertyKey = breakdownValuePropertyKey(breakdownValue, breakdownPropertyKey)
+    return propertyKey == null
         ? { breakdownValue, breakdownType }
-        : { breakdownValue, breakdownType, breakdownProperty: breakdownPropertyKey }
+        : { breakdownValue, breakdownType, breakdownProperty: propertyKey }
 }
 
 function extractTileBreakdownValues(tile: DashboardTile<QueryBasedInsightModel>): BreakdownValueAndType[] {
@@ -411,9 +435,16 @@ function collectValueTileStats(tileBreakdownValues: BreakdownValueAndType[][]): 
     const byValue: ValueTileStats['byValue'] = new Map()
     const tileProperties: (string | null)[] = []
     tileBreakdownValues.forEach((values, tileIndex) => {
-        // All real values of a tile share the tile's breakdown property; only sentinel rows
-        // (the funnel baseline) are property-less.
-        tileProperties.push(values.find((value) => value.breakdownProperty != null)?.breakdownProperty ?? null)
+        // All real values of a tile share the tile's breakdown property, except booleans, which
+        // belong to the shared boolean group. Prefer a real property key, so a tile mixing
+        // boolean and other values books its slots under the property it breaks down by; only
+        // sentinel rows (the funnel baseline) are property-less.
+        const scopedProperties = values
+            .map((value) => value.breakdownProperty)
+            .filter((key): key is string => key != null)
+        tileProperties.push(
+            scopedProperties.find((key) => key !== BOOLEAN_BREAKDOWN_PROPERTY_KEY) ?? scopedProperties[0] ?? null
+        )
         values.forEach((value, position) => {
             const identityEntry = byIdentity.get(breakdownIdentityKey(value))
             if (identityEntry) {
@@ -469,9 +500,10 @@ function buildAssignmentRankComparator(
 
 /** Membership test for values that appear on two or more tiles of one breakdown property.
  * Only those receive a dashboard-wide auto color: cross-tile consistency is what the feature
- * buys, and it only means something between tiles breaking down by the same property. A
- * value spread across different properties (say "true" under two boolean properties) is a
- * coincidence of names, not one series to keep consistent. Property-less entries count the
+ * buys, and it only means something between tiles breaking down by the same property: a value
+ * spread across different properties is usually a coincidence of names, not one series to keep
+ * consistent. Booleans are the exception, forming one group across properties, so "true" on a
+ * tile of each of two boolean properties does count as shared. Property-less entries count the
  * value's best tile count under any single property, so legacy configs prune the same way. */
 export function buildSharedBreakdownValueLookup(
     tileBreakdownValues: BreakdownValueAndType[][]
@@ -490,8 +522,10 @@ export function buildSharedBreakdownValueLookup(
  * dashboard breaking down by several properties reuses the palette from the first slot for
  * each of them, the way standalone insights do, instead of exhausting it across the union of
  * all values. Values under different properties may share a color; they never meet on one
- * tile, since a tile breaks down by exactly one property. Property-less legacy entries keep
- * matching their value everywhere and claim their slot in every property they appear under.
+ * tile, since a tile breaks down by exactly one property. Booleans opt out of the split and
+ * form one group, so "true" keeps one color across every boolean breakdown on the dashboard.
+ * Property-less legacy entries keep matching their value everywhere and claim their slot in
+ * every property they appear under.
  *
  * Stability comes from persistence, not from the algorithm: manual pins never move, and
  * persisted auto entries keep their slots unless two of them meet on one tile with the same

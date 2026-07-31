@@ -2,10 +2,12 @@ import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/sch
 import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import {
+    BOOLEAN_BREAKDOWN_PROPERTY_KEY,
     BreakdownColorConfig,
     BreakdownValueAndType,
     MULTI_BREAKDOWN_SEPARATOR,
     applyAutoBreakdownColors,
+    breakdownValuePropertyKey,
     buildSharedBreakdownValueLookup,
     computeTileFallbackTokens,
     extractBreakdownValues,
@@ -106,6 +108,20 @@ describe('dashboardBreakdownColors', () => {
             ],
         ] as const)('normalizes %s', (_name, breakdownFilter, expected) => {
             expect(getBreakdownPropertyKey(breakdownFilter as any)).toEqual(expected)
+        })
+    })
+
+    describe('breakdownValuePropertyKey', () => {
+        it.each([
+            ['a boolean value to the shared boolean group', 'true', 'event::is_admin', 'boolean'],
+            ['a boolean value regardless of its tile', 'false', 'person::has_paid', 'boolean'],
+            ['a differently-cased boolean', 'True', 'event::is_admin', 'boolean'],
+            ['a boolean value on a tile without a breakdown key', 'true', null, 'boolean'],
+            ['any other value to its tile property', 'Chrome', 'event::$browser', 'event::$browser'],
+            ['a value merely starting with a boolean', 'truest', 'event::$browser', 'event::$browser'],
+            ['a non-boolean value without a tile property', 'Chrome', null, null],
+        ] as const)('keys %s', (_name, breakdownValue, tilePropertyKey, expected) => {
+            expect(breakdownValuePropertyKey(breakdownValue, tilePropertyKey)).toEqual(expected)
         })
     })
 
@@ -362,6 +378,32 @@ describe('dashboardBreakdownColors', () => {
             ])
         })
 
+        it('keys boolean values to the shared boolean group, whatever property they came from', () => {
+            const tiles = [
+                trendsTile(
+                    [
+                        { action: { order: 0 }, breakdown_value: ['true'] },
+                        { action: { order: 0 }, breakdown_value: ['false'] },
+                    ],
+                    { breakdown: 'is_admin' }
+                ),
+                trendsTile(
+                    [
+                        { action: { order: 0 }, breakdown_value: ['false'] },
+                        { action: { order: 0 }, breakdown_value: ['true'] },
+                    ],
+                    { breakdown: 'is_mobile' }
+                ),
+            ]
+
+            // chart order follows volume, so "true" leads one chart and trails the other; both
+            // are on both charts and tie on rank, leaving value order to settle the listing
+            expect(extractBreakdownValues(tiles)).toEqual([
+                { breakdownValue: 'false', breakdownType: 'event', breakdownProperty: BOOLEAN_BREAKDOWN_PROPERTY_KEY },
+                { breakdownValue: 'true', breakdownType: 'event', breakdownProperty: BOOLEAN_BREAKDOWN_PROPERTY_KEY },
+            ])
+        })
+
         it('clusters values by property in tile order before ranking within each property', () => {
             const tiles = [
                 trendsTile([{ action: { order: 0 }, breakdown_value: ['Mac OS X'] }], { breakdown: '$os' }),
@@ -419,6 +461,31 @@ describe('dashboardBreakdownColors', () => {
                 [
                     { breakdownValue: 'Baseline', breakdownType: 'event' },
                     { breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+                ],
+            ])
+        })
+
+        it('groups only the boolean values of a mixed result', () => {
+            const tile = trendsTile(
+                [
+                    { action: { order: 0 }, breakdown_value: ['true'] },
+                    { action: { order: 0 }, breakdown_value: ['unknown'] },
+                ],
+                { breakdown: 'properties.flag', breakdown_type: 'hogql' }
+            )
+
+            expect(extractBreakdownValuesByTile([tile])).toEqual([
+                [
+                    {
+                        breakdownValue: 'true',
+                        breakdownType: 'hogql',
+                        breakdownProperty: BOOLEAN_BREAKDOWN_PROPERTY_KEY,
+                    },
+                    {
+                        breakdownValue: 'unknown',
+                        breakdownType: 'hogql',
+                        breakdownProperty: 'hogql::properties.flag',
+                    },
                 ],
             ])
         })
@@ -753,25 +820,56 @@ describe('dashboardBreakdownColors', () => {
 
         it('keeps one value under different properties apart', () => {
             const result = applyAutoBreakdownColors(
-                [...scopedTiles('event::is_admin', 'true'), ...scopedTiles('event::is_mobile', 'true')],
+                [...scopedTiles('event::$geoip_country_code', 'US'), ...scopedTiles('event::billing_country', 'US')],
                 []
             )
 
-            // "true" under two boolean properties is a coincidence of names, not one series:
+            // "US" under two country properties is a coincidence of names, not one series:
             // each property gets its own entry, free to diverge via pinning
             expect(result).toEqual([
-                scopedAutoConfig('true', 'event::is_admin', 'preset-1'),
-                scopedAutoConfig('true', 'event::is_mobile', 'preset-1'),
+                scopedAutoConfig('US', 'event::$geoip_country_code', 'preset-1'),
+                scopedAutoConfig('US', 'event::billing_country', 'preset-1'),
             ])
         })
 
         it('does not treat a value on single tiles of two different properties as shared', () => {
             const result = applyAutoBreakdownColors(
-                [[scopedValue('true', 'event::is_admin')], [scopedValue('true', 'event::is_mobile')]],
+                [[scopedValue('US', 'event::$geoip_country_code')], [scopedValue('US', 'event::billing_country')]],
                 []
             )
 
             expect(result).toEqual([])
+        })
+
+        it('shares one entry for a boolean value on tiles of different properties', () => {
+            // extraction keys both tiles' booleans to the shared group, so a single tile each
+            // adds up to a shared value, where two other properties would not
+            const result = applyAutoBreakdownColors(
+                [
+                    [scopedValue('true', BOOLEAN_BREAKDOWN_PROPERTY_KEY)],
+                    [scopedValue('true', BOOLEAN_BREAKDOWN_PROPERTY_KEY)],
+                ],
+                []
+            )
+
+            expect(result).toEqual([scopedAutoConfig('true', BOOLEAN_BREAKDOWN_PROPERTY_KEY, 'preset-1')])
+        })
+
+        it("keeps a boolean value off the slots of its tile's other values", () => {
+            const result = applyAutoBreakdownColors(
+                [
+                    [scopedValue('true', BOOLEAN_BREAKDOWN_PROPERTY_KEY), scopedValue('unknown', 'hogql::flag')],
+                    [scopedValue('true', BOOLEAN_BREAKDOWN_PROPERTY_KEY), scopedValue('unknown', 'hogql::flag')],
+                ],
+                []
+            )
+
+            // the boolean group and the tile's own property are separate pools, but these two
+            // values do meet on a chart, so "unknown" has to move off the slot "true" took
+            expect(result).toEqual([
+                scopedAutoConfig('true', BOOLEAN_BREAKDOWN_PROPERTY_KEY, 'preset-1'),
+                scopedAutoConfig('unknown', 'hogql::flag', 'preset-2'),
+            ])
         })
 
         it('lets a property-less pin cover its value and claim its slot under every property', () => {
@@ -842,25 +940,38 @@ describe('dashboardBreakdownColors', () => {
             const isShared = buildSharedBreakdownValueLookup([
                 [
                     { breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' },
-                    { breakdownValue: 'true', breakdownType: 'event', breakdownProperty: 'event::$browser' },
+                    { breakdownValue: 'US', breakdownType: 'event', breakdownProperty: 'event::$browser' },
                 ],
                 [{ breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' }],
-                [{ breakdownValue: 'true', breakdownType: 'event', breakdownProperty: 'event::is_admin' }],
+                [{ breakdownValue: 'US', breakdownType: 'event', breakdownProperty: 'event::billing_country' }],
             ])
 
             expect(
                 isShared({ breakdownValue: 'Chrome', breakdownType: 'event', breakdownProperty: 'event::$browser' })
             ).toBe(true)
-            // "true" is on two tiles, but of different properties, so neither side is shared
+            // "US" is on two tiles, but of different properties, so neither side is shared
             expect(
-                isShared({ breakdownValue: 'true', breakdownType: 'event', breakdownProperty: 'event::$browser' })
+                isShared({ breakdownValue: 'US', breakdownType: 'event', breakdownProperty: 'event::$browser' })
             ).toBe(false)
             expect(
-                isShared({ breakdownValue: 'true', breakdownType: 'event', breakdownProperty: 'event::is_admin' })
+                isShared({ breakdownValue: 'US', breakdownType: 'event', breakdownProperty: 'event::billing_country' })
             ).toBe(false)
             // property-less legacy entries follow the value's best single-property tile count
-            expect(isShared({ breakdownValue: 'true', breakdownType: 'event' })).toBe(false)
+            expect(isShared({ breakdownValue: 'US', breakdownType: 'event' })).toBe(false)
             expect(isShared({ breakdownValue: 'Chrome', breakdownType: 'event' })).toBe(true)
+        })
+
+        it('shares a boolean value across the properties it appears under', () => {
+            const trueValue = {
+                breakdownValue: 'true',
+                breakdownType: 'event' as const,
+                breakdownProperty: BOOLEAN_BREAKDOWN_PROPERTY_KEY,
+            }
+            // the two tiles break down by different boolean properties, which extraction keys
+            // to one group, so "true" reaches the two tiles it needs
+            const isShared = buildSharedBreakdownValueLookup([[trueValue], [trueValue]])
+
+            expect(isShared(trueValue)).toBe(true)
         })
     })
 
@@ -1029,6 +1140,26 @@ describe('dashboardBreakdownColors', () => {
         it('returns undefined for null or undefined dataset values', () => {
             expect(findBreakdownColorConfig(configs, undefined, 'event')).toBeUndefined()
             expect(findBreakdownColorConfig(configs, null, 'event')).toBeUndefined()
+        })
+
+        it('matches a boolean entry on a tile of any property', () => {
+            const booleanConfigs: BreakdownColorConfig[] = [
+                {
+                    breakdownValue: 'true',
+                    breakdownType: 'event',
+                    breakdownProperty: BOOLEAN_BREAKDOWN_PROPERTY_KEY,
+                    colorToken: 'preset-7',
+                },
+            ]
+
+            expect(findBreakdownColorConfig(booleanConfigs, 'true', 'event', 'event::is_admin')?.colorToken).toBe(
+                'preset-7'
+            )
+            expect(findBreakdownColorConfig(booleanConfigs, 'true', 'event', 'event::is_mobile')?.colorToken).toBe(
+                'preset-7'
+            )
+            // a value that only looks boolean still belongs to its tile's property
+            expect(findBreakdownColorConfig(booleanConfigs, 'truest', 'event', 'event::is_admin')).toBeUndefined()
         })
 
         it('prefers a property-scoped entry and falls back to a property-less one', () => {
