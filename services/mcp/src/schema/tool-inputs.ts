@@ -883,13 +883,19 @@ const TicketGroupFilterField = z.union([
             .string()
             .min(1)
             .max(1000)
+            // Not `.trim().min(1)`: the rule is "contains something other than
+            // whitespace", and a regex is the only spelling of it that survives
+            // into the generated JSON Schema as a `pattern` the calling model
+            // can read. `.min(1)` alone is satisfied by a single space.
+            .regex(/\S/, 'A sql filter expression cannot be only whitespace.')
             .describe(
                 'A HogQL boolean expression over the ticket, e.g. "message_count > 5" or ' +
                     '"message_count > 5 AND priority = \'high\'". The escape hatch for conditions the filters ' +
                     'above cannot express. Tags are NOT reachable from here (they are a relational join, not a ' +
                     'column) — AND a ticket_tags filter alongside the sql filter instead. Capped at 1000 ' +
-                    'characters, and at most 5 sql filters across ALL groups. The server compiles and test-runs ' +
-                    'the expression and rejects anything that does not work, so expect errors to surface on save.'
+                    'characters, must contain at least one non-whitespace character, and at most 5 sql filters ' +
+                    'across ALL groups. The server compiles and test-runs the expression and rejects anything ' +
+                    'that does not work, so expect errors to surface on save.'
             ),
     }),
 ])

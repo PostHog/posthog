@@ -315,6 +315,36 @@ describe('sla_state values at the zod boundary', () => {
     })
 })
 
+describe('sql expressions at the zod boundary', () => {
+    const withSqlFilters = (expressions: string[]): unknown => ({
+        // One filter per group, so a per-group cap can never be what trips.
+        groups: expressions.map((expression, index) => ({
+            label: `Group ${index}`,
+            filters: [{ type: 'sql', expression }],
+        })),
+    })
+
+    it('accepts a normal expression', () => {
+        const result = ConversationsTicketGroupsUpdateSchema.safeParse(withSqlFilters(['message_count > 5']))
+        expect(result.success).toBe(true)
+    })
+
+    it('rejects an expression of only spaces', () => {
+        expect(ConversationsTicketGroupsUpdateSchema.safeParse(withSqlFilters(['   '])).success).toBe(false)
+    })
+
+    it('rejects an expression of only tabs and newlines', () => {
+        expect(ConversationsTicketGroupsUpdateSchema.safeParse(withSqlFilters(['\t\n '])).success).toBe(false)
+    })
+
+    it('accepts 5 sql filters spread across groups', () => {
+        const result = ConversationsTicketGroupsUpdateSchema.safeParse(
+            withSqlFilters(Array.from({ length: 5 }, (_, index) => `message_count > ${index}`))
+        )
+        expect(result.success).toBe(true)
+    })
+})
+
 describe('conversations-ticket-groups-get', () => {
     it('reports the saved groups when customized', async () => {
         const context = mockContext({ conversationsSettings: { ticket_groups: GROUPS } })

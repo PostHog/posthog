@@ -186,6 +186,10 @@ function validateFilter(filter: TicketGroupFilter, label: string): void {
         // A sql filter has no operator — just an expression. We can only check
         // that it is present and within length; whether it actually compiles is
         // the server's call, since parsing HogQL client-side isn't possible.
+        // The non-blank check below is deliberately duplicated by the zod schema
+        // (a `\S` regex, so the calling model reads it as a JSON Schema
+        // `pattern` before it submits). Keep BOTH — this path also runs for
+        // callers that never zod-parse, and the backend is authoritative anyway.
         const expression = typeof filter.expression === 'string' ? filter.expression.trim() : ''
         if (!expression) {
             throw new Error(`The SQL expression filter in "${label}" needs a non-empty expression.`)
@@ -246,7 +250,11 @@ export function validateTicketGroups(groups: TicketGroup[]): void {
     if (groups.length > 50) {
         throw new Error(`At most 50 groups are allowed (got ${groups.length}).`)
     }
-    // Counted across ALL groups, not per group — same order the backend checks in.
+    // Counted across ALL groups, not per group — same order the backend checks
+    // in. This cap has NO zod counterpart on purpose: JSON Schema can't express
+    // a count over a nested array, so a zod `.refine()` would enforce it while
+    // emitting nothing into the generated schema. The prose in the sql filter's
+    // `.describe()` is what tells the calling model; this is what enforces it.
     const sqlFilterCount = groups.reduce(
         (total, group) => total + group.filters.filter((filter) => filter.type === 'sql').length,
         0
