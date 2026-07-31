@@ -260,6 +260,10 @@ export function isWebExternalClicksQuery(node?: Record<string, any> | null): boo
     return node?.kind === NodeKind.WebExternalClicksTableQuery
 }
 
+export function isWebBotsTableQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.WebBotsTableQuery
+}
+
 export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebGoalsQuery {
     return node?.kind === NodeKind.WebGoalsQuery
 }

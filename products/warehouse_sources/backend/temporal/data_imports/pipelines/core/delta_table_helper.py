@@ -11,6 +11,7 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 import posthoganalytics
+import botocore.exceptions
 import deltalake.exceptions
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
@@ -69,13 +70,20 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 
 
 def is_transient_object_store_error(error: BaseException) -> bool:
-    """True for a transient object-store error, however delta-rs happened to surface it.
+    """True for a transient object-store error, however it happened to surface.
 
     `DeltaTable.is_deltatable()` raises these as a plain `OSError`, but table-level operations
     (e.g. `vacuum()`, `optimize.compact()`) wrap the identical underlying object-store error text in
     `deltalake.exceptions.DeltaError` instead — same blip, different exception type depending on
-    which delta-rs entry point hit it.
+    which delta-rs entry point hit it. `_purge_s3_prefix`'s s3fs/aiobotocore calls can also raise a
+    bare `botocore.exceptions.NoCredentialsError` unwrapped — the same IMDS/STS credential-provider
+    blip, just surfaced by aiobotocore's own credential resolution instead of delta-rs's Rust
+    `object_store` crate. `NoCredentialsError`'s message is a fixed, generic string (no needle to
+    match), but hitting our own instance-role-authenticated bucket always means the same transient
+    resolution hiccup, so it's recognized by type rather than by message.
     """
+    if isinstance(error, botocore.exceptions.NoCredentialsError):
+        return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
     )
@@ -274,6 +282,24 @@ def _first_per_pk_table(
 
     # 4. Materialize the rows at those positions from the original table
     return pa_table.take(kept_indices)
+
+
+def _merge_predicate_ops(normalized_primary_keys: list[str]) -> list[str]:
+    """Per-key merge match conditions, using NULL-safe equality.
+
+    delta-rs matches source↔target with plain `source.c = target.c`, which is NULL-*un*safe:
+    `NULL = NULL` evaluates to NULL (not true). Composite keys with nullable columns — e.g. the
+    GoogleAds report resources keyed on `segments.ad_network_type` / `segments.click_type` /
+    `segments.device`, which are frequently NULL — therefore never match their existing target row,
+    so `when_not_matched_insert_all` re-inserts them on *every* incremental sync and the table
+    silently accumulates a duplicate per NULL-keyed row. `IS NOT DISTINCT FROM` treats NULL == NULL,
+    matching the source dedup (`_first_per_pk_table` groups NULLs together) and stopping the drift.
+
+    Each term is parenthesised: delta-rs's predicate parser (1.6.1) mis-associates a bare
+    `a IS NOT DISTINCT FROM b AND c IS NOT DISTINCT FROM d` (it groups `b AND c`), so the parens are
+    required for it to plan.
+    """
+    return [f"(source.{c} IS NOT DISTINCT FROM target.{c})" for c in normalized_primary_keys]
 
 
 def delta_storage_options() -> dict[str, str]:
@@ -633,7 +659,7 @@ class DeltaTableHelper:
                 if n in py_table_column_names:
                     normalized_primary_keys.append(n)
 
-            predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
+            predicate_ops = _merge_predicate_ops(normalized_primary_keys)
             if use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
