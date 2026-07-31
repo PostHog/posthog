@@ -351,6 +351,12 @@ def handle_cold_miss(*, runner: Any, family: str) -> None:
     re-run the stale path uses: the re-run carries a background warming trigger,
     builds the exact namespace this reader computes, and the next read hits.
     """
+    # The enqueued background re-run comes back through this same read path; if
+    # its build fails (OOM, transient CH error) it must not re-enqueue itself —
+    # a permanently-failing shape would otherwise retry every debounce window
+    # forever. Only user-facing reads seed the build.
+    if is_background_warming_request():
+        return
     WEB_ANALYTICS_LAZY_PRECOMPUTE_COLD_MISS_ENQUEUED.labels(family=family).inc()
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
 
