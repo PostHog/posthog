@@ -129,6 +129,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "meta-webindexer/1.1 (facebook)",
         "Mozilla/5.0 (compatible; archive.org_bot Zeno/warc; +http://archive.org/details/archive.org_bot)",
         "jobcrawler/0.1",
+        "Mozilla/5.0 (compatible; url-crawler/1.0)",
         "FlamingoBot (hackernews.pink)",
         "heritrix/3.14.2 (+image-meta.com)",
         "crawlcrawl-actors/1.0",

@@ -617,6 +617,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Internet Archive", "search_crawler", "Bot", "Internet Archive", documentation_url="https://archive.org/"
     ),
     "jobcrawler": BotDefinition("jobcrawler", "search_crawler", "Bot", "Unknown"),
+    "url-crawler": BotDefinition("url-crawler", "search_crawler", "Bot", "Unknown"),
     "FlamingoBot": BotDefinition("FlamingoBot", "search_crawler", "Bot", "hackernews.pink"),
     # Archival / research crawlers
     "heritrix": BotDefinition(
