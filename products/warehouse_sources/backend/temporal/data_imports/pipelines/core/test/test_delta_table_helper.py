@@ -1476,12 +1476,13 @@ class TestDeltaliteWritePath:
     async def test_post_commit_failure_does_not_fall_back(self, failing_step: str):
         # Once the upsert commits, NO post-commit step (handle refresh, log, metric) may raise into the
         # caller — that would return False / bubble up and re-run the MERGE on top of deltalite's commit.
-        helper = self._helper()
+        logger = _make_logger()  # set the side effect on the mock before it becomes the typed _logger attr
         existing = MagicMock()
         if failing_step == "refresh":
             existing.update_incremental.side_effect = RuntimeError("post-commit refresh boom")
         else:
-            helper._logger.ainfo.side_effect = RuntimeError("post-commit log boom")
+            logger.ainfo.side_effect = RuntimeError("post-commit log boom")
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
         fake_table = MagicMock()
         fake_table.upsert.return_value = MagicMock(version=5, rows_inserted=1, rows_updated=0, rows_copied=0)
         fake_deltalite = MagicMock()
