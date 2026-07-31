@@ -22,15 +22,14 @@ ReadinessState = Literal[
 ]
 
 PERSISTENT_BACKFILL_FAILURES = 3
-# sync_paused ranks below every active-work or failure state (those are still worth surfacing even
-# on a paused schema's source) but above up_to_date: a source with some schemas paused shouldn't
-# read as fully "up to date" when part of it isn't being kept current at all.
+# A paused schema is intentional configuration, so active and healthy schemas determine a source's
+# rollup first. A source still reports sync_paused when every visible schema is paused.
 READINESS_PRIORITY: tuple[ReadinessState, ...] = (
     "needs_attention",
     "backfilling",
     "waiting",
-    "sync_paused",
     "up_to_date",
+    "sync_paused",
 )
 
 

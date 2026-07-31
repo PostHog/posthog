@@ -33,8 +33,8 @@ export const STATUS_SEVERITY: Record<ManagedWarehouseReadinessStateEnumApi, numb
     needs_attention: 0,
     backfilling: 1,
     waiting: 2,
-    sync_paused: 3,
-    up_to_date: 4,
+    up_to_date: 3,
+    sync_paused: 4,
     not_configured: 5,
 }
 
