@@ -95,19 +95,27 @@ class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert res.result["httpResponse"]["status"] == 200
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
-    def test_workflow_job_row_lands_unchanged(self):
-        job = {"id": 1, "status": "completed", "conclusion": "success"}
-        self._run("workflow_job", {"action": "completed", "workflow_job": job}, {"workflow_job": "schema_jobs"})
+    @parameterized.expand(
+        [
+            ("workflow_job", "completed", {"id": 1, "status": "completed", "conclusion": "success"}),
+            ("deployment", "created", {"id": 7, "environment": "production", "sha": "abc123"}),
+            (
+                "check_run",
+                "completed",
+                {"id": 42, "head_sha": "abc123", "status": "completed", "conclusion": "success"},
+            ),
+        ]
+    )
+    def test_row_lands_unchanged_when_event_nests_under_its_own_key(
+        self, event_type: str, action: str, obj: dict[str, Any]
+    ):
+        # These events nest the object under body.<event_type>, matching the polled REST shape, so
+        # the row lands as-is. check_run is the one that could regress silently: it is a per-commit
+        # fan-out child, and if it ever started injecting a parent column the way reviews and
+        # deployment_statuses do, webhook rows would drift from poll rows without erroring.
+        self._run(event_type, {"action": action, event_type: obj}, {event_type: "schema_x"})
 
-        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(job, "schema_jobs")
-
-    def test_deployment_row_lands_unchanged(self):
-        # The deployment event nests the object under body.deployment, matching the polled REST
-        # shape, so it lands as-is like workflow_job / workflow_run.
-        deployment = {"id": 7, "environment": "production", "sha": "abc123"}
-        self._run("deployment", {"action": "created", "deployment": deployment}, {"deployment": "schema_deploys"})
-
-        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(deployment, "schema_deploys")
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(obj, "schema_x")
 
     def test_deployment_status_row_is_reshaped_to_poll_shape(self):
         # The deployment_status event nests the status under body.deployment_status and its

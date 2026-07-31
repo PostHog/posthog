@@ -69,3 +69,9 @@ pub const V2_PROP_DEFS_BATCH_SIZE: &str = "propdefs_v2_propdefs_batch_size";
 // the shared dedup cache, so a later $groupidentify (whose type resolves once the mapping
 // lands) is not filtered out and can persist.
 pub const V2_PROP_DEFS_DROPPED_UNCACHED: &str = "propdefs_v2_propdefs_dropped_uncached";
+
+// Rows stripped from a write batch because they reference a team/project that no longer
+// exists (Postgres FK violation, e.g. a deleted team still sending events). Labeled by
+// target table. Stripped rows stay in the shared dedup cache on purpose, so the dead
+// tenant's events stop re-issuing the same failing write.
+pub const V2_BATCH_ROWS_DROPPED_FK: &str = "propdefs_v2_batch_rows_dropped_fk";
