@@ -462,6 +462,46 @@ return result`,
                 window_seconds: 900,
             })
         })
+
+        it('seeds inactivity defaults when switching to the session target', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    target: 'session',
+                    target_config: {
+                        strategy: 'inactivity',
+                        quiet_period_seconds: 3600,
+                        max_age_seconds: 86400,
+                    },
+                }),
+            })
+        })
+
+        it('reseeds with session defaults, not trace defaults, when switching strategy', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+                logic.actions.setSettleStrategy('fixed_window')
+                logic.actions.setSettleStrategy('inactivity')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({
+                    target_config: {
+                        strategy: 'inactivity',
+                        quiet_period_seconds: 3600,
+                        max_age_seconds: 86400,
+                    },
+                }),
+            })
+        })
+
+        it('clears the settle bag when switching back to generation', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setEvaluationTarget('session')
+                logic.actions.setEvaluationTarget('generation')
+            }).toMatchValues({
+                evaluation: expect.objectContaining({ target: 'generation', target_config: {} }),
+            })
+        })
     })
 
     describe('selectors', () => {

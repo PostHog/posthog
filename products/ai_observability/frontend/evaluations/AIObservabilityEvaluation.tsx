@@ -52,6 +52,9 @@ import {
 } from './evaluationCapabilities'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import {
+    DEFAULT_SESSION_MAX_AGE_SECONDS,
+    DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
+    DEFAULT_SESSION_WINDOW_SECONDS,
     DEFAULT_TRACE_MAX_AGE_SECONDS,
     DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
     DEFAULT_TRACE_WINDOW_SECONDS,
@@ -115,8 +118,10 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
     const isHog = evaluation.evaluation_type === 'hog'
     const isSentiment = evaluation.evaluation_type === 'sentiment'
+    const isAggregateTarget = evaluation.target === 'trace' || evaluation.target === 'session'
+    const isSessionTarget = evaluation.target === 'session'
     const effectiveStrategy: EvaluationSettleStrategy = settlingStrategyEnabled
-        ? (evaluation.target_config.strategy ?? 'fixed_window')
+        ? (evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window'))
         : 'fixed_window'
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
     const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
@@ -474,16 +479,20 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                             Hog code
                                                         </Link>{' '}
                                                         against{' '}
-                                                        {evaluation.target === 'trace'
-                                                            ? 'the whole trace'
-                                                            : 'each generation'}
+                                                        {isSessionTarget
+                                                            ? 'the whole session'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'the whole trace'
+                                                              : 'each generation'}
                                                         . No LLM cost.
                                                     </>
                                                 ) : (
                                                     `Use an LLM to evaluate ${
-                                                        evaluation.target === 'trace'
-                                                            ? 'the whole trace'
-                                                            : 'each generation'
+                                                        isSessionTarget
+                                                            ? 'the whole session'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'the whole trace'
+                                                              : 'each generation'
                                                     } against a natural-language prompt.`
                                                 )}
                                             </p>
@@ -503,16 +512,26 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                     value: 'trace',
                                                                     label: 'Whole trace',
                                                                 },
+                                                                ...(settlingStrategyEnabled
+                                                                    ? [
+                                                                          {
+                                                                              value: 'session' as const,
+                                                                              label: 'Whole session',
+                                                                          },
+                                                                      ]
+                                                                    : []),
                                                             ]}
                                                             fullWidth
                                                         />
                                                     </Field>
                                                     <p className="text-muted text-sm -mt-2">
-                                                        {evaluation.target === 'trace'
-                                                            ? 'Runs once per trace on all of its events together, after it settles.'
-                                                            : 'Runs on each matching generation event individually, right after it is ingested.'}
+                                                        {isSessionTarget
+                                                            ? 'Runs once per session on every trace it contains, after the session settles. Only fires for events that carry an AI session id.'
+                                                            : evaluation.target === 'trace'
+                                                              ? 'Runs once per trace on all of its events together, after it settles.'
+                                                              : 'Runs on each matching generation event individually, right after it is ingested.'}
                                                     </p>
-                                                    {evaluation.target === 'trace' && (
+                                                    {isAggregateTarget && (
                                                         <>
                                                             {settlingStrategyEnabled && (
                                                                 <Field name="settle_strategy" label="Evaluate when">
@@ -526,7 +545,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                             },
                                                                             {
                                                                                 value: 'inactivity',
-                                                                                label: 'The trace goes quiet',
+                                                                                label: isSessionTarget
+                                                                                    ? 'The session goes quiet'
+                                                                                    : 'The trace goes quiet',
                                                                             },
                                                                         ]}
                                                                         fullWidth
@@ -543,7 +564,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                             value={
                                                                                 evaluation.target_config
                                                                                     .window_seconds ??
-                                                                                DEFAULT_TRACE_WINDOW_SECONDS
+                                                                                (isSessionTarget
+                                                                                    ? DEFAULT_SESSION_WINDOW_SECONDS
+                                                                                    : DEFAULT_TRACE_WINDOW_SECONDS)
                                                                             }
                                                                             onChange={(value) => {
                                                                                 if (
@@ -558,11 +581,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                             }}
                                                                         />
                                                                         <p className="text-muted text-xs">
-                                                                            How long to wait after the first matching
-                                                                            generation before pulling the whole trace
-                                                                            (10s–2h). Captured when the run is scheduled
-                                                                            — changing it won't affect trace runs
-                                                                            already in flight.
+                                                                            {isSessionTarget
+                                                                                ? "How long to wait after the first matching generation before pulling the whole session (10s to 7 days). Captured when the run is scheduled, so changing it won't affect runs already in flight."
+                                                                                : "How long to wait after the first matching generation before pulling the whole trace (10s–2h). Captured when the run is scheduled — changing it won't affect trace runs already in flight."}
                                                                         </p>
                                                                     </div>
                                                                 </Field>
@@ -577,7 +598,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                                 value={
                                                                                     evaluation.target_config
                                                                                         .quiet_period_seconds ??
-                                                                                    DEFAULT_TRACE_QUIET_PERIOD_SECONDS
+                                                                                    (isSessionTarget
+                                                                                        ? DEFAULT_SESSION_QUIET_PERIOD_SECONDS
+                                                                                        : DEFAULT_TRACE_QUIET_PERIOD_SECONDS)
                                                                                 }
                                                                                 onChange={(value) =>
                                                                                     patchTargetConfig({
@@ -586,8 +609,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                                 }
                                                                             />
                                                                             <p className="text-muted text-xs">
-                                                                                Evaluate once the trace has had no new
-                                                                                activity for this long (10s–30m).
+                                                                                {isSessionTarget
+                                                                                    ? 'Evaluate once the session has had no new activity for this long (10s to 24 hours). Sessions often pause for a while mid-conversation, so a longer quiet period means fewer verdicts on a session that was not finished.'
+                                                                                    : 'Evaluate once the trace has had no new activity for this long (10s–30m).'}
                                                                             </p>
                                                                         </div>
                                                                     </Field>
@@ -597,7 +621,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                                 value={
                                                                                     evaluation.target_config
                                                                                         .max_age_seconds ??
-                                                                                    DEFAULT_TRACE_MAX_AGE_SECONDS
+                                                                                    (isSessionTarget
+                                                                                        ? DEFAULT_SESSION_MAX_AGE_SECONDS
+                                                                                        : DEFAULT_TRACE_MAX_AGE_SECONDS)
                                                                                 }
                                                                                 onChange={(value) =>
                                                                                     patchTargetConfig({
@@ -606,8 +632,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                                 }
                                                                             />
                                                                             <p className="text-muted text-xs">
-                                                                                Always evaluate once the trace is this
-                                                                                old, even if it's still active (1m–2h).
+                                                                                {isSessionTarget
+                                                                                    ? 'Always evaluate once the session is this old, even if it is still active (1m to 7 days).'
+                                                                                    : "Always evaluate once the trace is this old, even if it's still active (1m–2h)."}
                                                                             </p>
                                                                         </div>
                                                                     </Field>

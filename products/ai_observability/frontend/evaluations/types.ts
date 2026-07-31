@@ -10,7 +10,7 @@ import type {
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
-export type EvaluationTarget = 'generation' | 'trace'
+export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
@@ -36,13 +36,14 @@ export interface EvaluationOutputConfig {
     allows_na?: boolean
 }
 
-/** Settle config for aggregate targets. Rows saved before strategies existed have no
- * `strategy` key and mean 'fixed_window'. */
+/** Settle config for aggregate targets (trace, session). Rows saved before strategies existed
+ * have no `strategy` key and mean 'fixed_window'. Accepted ranges differ per target, enforced by
+ * the backend's `validate_target_config`. */
 export interface EvaluationTargetConfig {
     strategy?: EvaluationSettleStrategy
     /** fixed_window: seconds to wait after the first matching generation before evaluating. */
     window_seconds?: number
-    /** inactivity: seconds without new trace activity before the trace counts as settled. */
+    /** inactivity: seconds without new activity before the target counts as settled. */
     quiet_period_seconds?: number
     /** inactivity: hard cap in seconds on the total wait from the first matching generation. */
     max_age_seconds?: number

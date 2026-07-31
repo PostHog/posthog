@@ -57,6 +57,36 @@ export const DEFAULT_TRACE_WINDOW_SECONDS = 30 * 60
 export const DEFAULT_TRACE_QUIET_PERIOD_SECONDS = 5 * 60
 export const DEFAULT_TRACE_MAX_AGE_SECONDS = 2 * 60 * 60
 
+export const DEFAULT_SESSION_WINDOW_SECONDS = 30 * 60
+export const DEFAULT_SESSION_QUIET_PERIOD_SECONDS = 60 * 60
+export const DEFAULT_SESSION_MAX_AGE_SECONDS = 24 * 60 * 60
+
+const AGGREGATE_TARGETS: EvaluationTarget[] = ['trace', 'session']
+
+function seedSettleConfig(target: EvaluationTarget, strategy: EvaluationSettleStrategy): EvaluationTargetConfig {
+    if (!AGGREGATE_TARGETS.includes(target)) {
+        return {}
+    }
+    const isSession = target === 'session'
+    if (strategy === 'inactivity') {
+        return {
+            strategy: 'inactivity',
+            quiet_period_seconds: isSession ? DEFAULT_SESSION_QUIET_PERIOD_SECONDS : DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
+            max_age_seconds: isSession ? DEFAULT_SESSION_MAX_AGE_SECONDS : DEFAULT_TRACE_MAX_AGE_SECONDS,
+        }
+    }
+    return {
+        strategy: 'fixed_window',
+        window_seconds: isSession ? DEFAULT_SESSION_WINDOW_SECONDS : DEFAULT_TRACE_WINDOW_SECONDS,
+    }
+}
+
+// A fixed window measured from the first matching generation is unrelated to when a session ends,
+// so sessions open on inactivity. Traces keep fixed_window to match every stored config.
+function defaultStrategyForTarget(target: EvaluationTarget): EvaluationSettleStrategy {
+    return target === 'session' ? 'inactivity' : 'fixed_window'
+}
+
 export const DEFAULT_HOG_SOURCE = getHogEvalExample('output_not_empty').source
 
 const LEGACY_HOG_DEFAULT_SOURCES = [
@@ -132,7 +162,16 @@ function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFi
     return completedRuns.filter((r) => r.sentiment_label?.toLowerCase() === filter)
 }
 
-function buildHogTestRequest(evaluation: HogEvaluation): TestHogRequestApi {
+// The test_hog endpoint only samples generations and traces. Previewing a session would mean
+// fetching several whole sessions per request, which it does not do, so its target enum has no
+// 'session' member and a session evaluation must never reach here.
+type TestableHogEvaluation = HogEvaluation & { target: 'generation' | 'trace' }
+
+function isTestableHogEvaluation(evaluation: EvaluationConfig | null): evaluation is TestableHogEvaluation {
+    return evaluation?.evaluation_type === 'hog' && evaluation.target !== 'session'
+}
+
+function buildHogTestRequest(evaluation: TestableHogEvaluation): TestHogRequestApi {
     const request: TestHogRequestApi = {
         source: evaluation.evaluation_config.source,
         sample_count: 5,
@@ -498,7 +537,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return null
                     }
                     const evaluation = values.evaluation
-                    if (!evaluation || evaluation.evaluation_type !== 'hog') {
+                    if (!isTestableHogEvaluation(evaluation)) {
                         return null
                     }
 
@@ -531,8 +570,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     breakpoint?.()
                     const currentEvaluation = values.evaluation
                     if (
-                        !currentEvaluation ||
-                        currentEvaluation.evaluation_type !== 'hog' ||
+                        !isTestableHogEvaluation(currentEvaluation) ||
                         JSON.stringify(buildHogTestRequest(currentEvaluation)) !== requestFingerprint
                     ) {
                         return null
@@ -665,12 +703,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!state) {
                         return null
                     }
-                    // Seed a fixed-window settle config when switching to trace so the fields show a
-                    // sane default; clear the bag when switching back so we don't persist stale settings.
-                    const target_config: EvaluationTargetConfig =
-                        target === 'trace'
-                            ? { strategy: 'fixed_window', window_seconds: DEFAULT_TRACE_WINDOW_SECONDS }
-                            : {}
+                    // Seed the target's default settle config so the fields show sane values;
+                    // clear the bag for generation so we don't persist stale settings.
+                    const target_config = seedSettleConfig(target, defaultStrategyForTarget(target))
                     if (
                         state.evaluation_type === 'hog' &&
                         LEGACY_HOG_DEFAULT_SOURCES.includes(state.evaluation_config.source)
@@ -685,20 +720,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return { ...state, target, target_config }
                 },
                 setSettleStrategy: (state, { strategy }) => {
-                    if (!state || state.target !== 'trace') {
+                    if (!state || !AGGREGATE_TARGETS.includes(state.target)) {
                         return state
                     }
                     // Full reseed rather than a patch: the two strategies carry disjoint fields and
                     // extra="forbid" on the backend rejects leftovers from the other one.
-                    const target_config: EvaluationTargetConfig =
-                        strategy === 'inactivity'
-                            ? {
-                                  strategy: 'inactivity',
-                                  quiet_period_seconds: DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
-                                  max_age_seconds: DEFAULT_TRACE_MAX_AGE_SECONDS,
-                              }
-                            : { strategy: 'fixed_window', window_seconds: DEFAULT_TRACE_WINDOW_SECONDS }
-                    return { ...state, target_config }
+                    return { ...state, target_config: seedSettleConfig(state.target, strategy) }
                 },
                 patchTargetConfig: (state, { patch }) =>
                     state ? { ...state, target_config: { ...state.target_config, ...patch } } : null,
