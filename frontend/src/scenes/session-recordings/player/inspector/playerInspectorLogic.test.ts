@@ -453,9 +453,33 @@ describe('playerInspectorLogic', () => {
                 recording_duration: 60,
             } as SessionRecordingType)
 
-            await expectLogic(matchingLogic)
-                .toDispatchActions(['loadRecordingMetaSuccess', 'trySkipToFirstMatchingEvent'])
-                .delay(25)
+            // The deferred arming trigger is the last chance for a seek to fire
+            await expectLogic(matchingLogic).toDispatchActions([
+                'setSkipToFirstMatchingEvent',
+                'trySkipToFirstMatchingEvent',
+            ])
+            await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
+
+            // The out-of-window verdict is terminal: a filter change reloading matching events
+            // with an in-window match must not fire the skip mid-playback
+            playerInspectorLogic({
+                ...matchingProps,
+                matchingEventsMatchType: {
+                    matchType: 'uuid' as const,
+                    matchedEvents: [
+                        {
+                            uuid: 'in-window-event',
+                            timestamp: '2025-01-01T00:00:10.000Z',
+                            session_id: '1',
+                            window_id: '1',
+                        },
+                    ],
+                },
+            })
+            await expectLogic(matchingLogic).toDispatchActions([
+                'loadMatchingEventsSuccess',
+                'trySkipToFirstMatchingEvent',
+            ])
             await expectLogic(playerLogic).toNotHaveDispatchedActions(['seekToTime'])
 
             matchingLogic.unmount()

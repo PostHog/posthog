@@ -2188,8 +2188,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             const { timestamp, timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
             // The matching-events query has slack around the recording window, so the earliest
             // match can fall past the playable range — seeking there would pin the player to its
-            // final frame and immediately trigger end-reached (auto-advancing playlists).
+            // final frame and immediately trigger end-reached (auto-advancing playlists). The
+            // verdict is terminal for this recording: consume the flag so a matching-events
+            // reload can't fire the skip mid-playback.
             if (values.end && timestamp.isAfter(values.end)) {
+                actions.markSkippedToFirstMatchingEvent()
                 return
             }
             const seekTime = Math.max(0, ceilMsToClosestSecond(timeInRecording) - 1000)
