@@ -1,9 +1,0 @@
-{
-  "name": "desktop-react-doctor-runner",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Pinned, integrity-locked react-doctor for the desktop React Doctor CI workflow.",
-  "dependencies": {
-    "react-doctor": "0.5.4"
-  }
-}

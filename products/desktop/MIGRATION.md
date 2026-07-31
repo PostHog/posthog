@@ -92,9 +92,6 @@ separate project.
   real static security coverage from the universal registry packs (p/javascript, p/python,
   owasp-top-ten, security-audit, trailofbits) at ERROR severity, gated on `products/desktop/**`
   and wired into the `Semgrep Checks Pass` aggregate.
-- `.github/scripts/desktop/react-doctor/{package.json,package-lock.json}`: pinned,
-  integrity-locked react-doctor so `desktop-react-doctor.yml` runs `npm ci` instead of
-  `npx --yes` (no unverified runtime fetch).
 
 ## Workflow mapping
 
@@ -117,13 +114,13 @@ separate project.
 | mobile-build.yml | desktop-mobile-build.yml | |
 | mobile-promote.yml | desktop-mobile-promote.yml | |
 | pr-build-installer.yml | desktop-pr-build-installer.yml | |
-| react-doctor.yml | desktop-react-doctor.yml | comment script moved to `.github/scripts/products/desktop/`; changed-files list filtered to `products/desktop/` so mixed PRs don't get posthog frontend files scanned; sticky-comment marker renamed `desktop-react-doctor:summary` to avoid colliding with a future monorepo react-doctor |
 
 Dropped (the monorepo already provides the function):
 
 | Source | Reason |
 | --- | --- |
 | codeql.yml | monorepo `ci-security.yaml` covers the repo |
+| react-doctor.yml | intentionally not imported for now; re-add on a later resync if desktop wants it in the monorepo |
 | stale.yml | monorepo `stale.yaml` |
 | trunk-impacted-targets.yml | code repo's Trunk merge queue does not carry over; desktop inherits the monorepo queue |
 | pr-approval-agent.yml | monorepo runs its own `pr-approval-agent.yml` on all PRs |
@@ -189,12 +186,6 @@ ports from source using these rules.
     the allowlist guards pass. `desktop-pr-build-installer.yml`'s `comment` job posts a PR
     comment rather than gating, so it carries a `# hogli-lint: not-a-required-gate` opt-out
     above the job key.
-15. **react-doctor supply-chain hardening** (`desktop-react-doctor.yml`): the source runs
-    `npx --yes react-doctor@0.5.4`, which fetches and runs an unverified package at CI
-    runtime. The port installs it from the pinned, integrity-locked
-    `.github/scripts/desktop/react-doctor/` lockfile via `npm ci` and runs the local bin.
-    `pull-requests: write` is scoped to the `react-doctor` job (the sticky comment) instead
-    of workflow-wide. Upstreamed to PostHog/code.
 
 ## Intentional references still pointing at PostHog/code
 
