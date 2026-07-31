@@ -43,6 +43,26 @@ describe('sidepanelTicketsLogic', () => {
         delete (posthog as any).conversations
     })
 
+    it.each([
+        ['an active boost trial lets a free plan open a ticket', 'boost', 'active', true],
+        ['an active scale trial lets a free plan open a ticket', 'scale', 'active', true],
+        ['an active enterprise trial lets a free plan open a ticket', 'enterprise', 'active', true],
+        ['an active paid trial does not, as that target carries no support', 'paid', 'active', false],
+        ['an active teams trial does not, as that target carries no support', 'teams', 'active', false],
+        ['an expired scale trial does not', 'scale', 'expired', false],
+    ])('%s', async (_case, target, status, expected) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        billingLogic.actions.loadBillingSuccess({
+            subscription_level: 'free',
+            trial: { status, target },
+        } as BillingType)
+
+        expect(logic.values.canCreateTicket).toBe(expected)
+    })
+
     it('opens the composer with the prefilled message when the support form intent exists at mount', async () => {
         supportLogic.actions.openSupportForm({
             kind: 'bug',
