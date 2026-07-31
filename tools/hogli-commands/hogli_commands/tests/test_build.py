@@ -24,6 +24,9 @@ class TestTriggerMatching:
             ("posthog/scopes.py", "build:openapi"),
             ("ee/api/some_view.py", "build:openapi"),
             ("products/surveys/backend/api/serializers.py", "build:openapi"),
+            # Module layout, not package: a real path from one of the 8 products that keep
+            # `backend/api.py` as a single file rather than a package.
+            ("products/marketing_analytics/backend/api.py", "build:openapi"),
             ("products/surveys/backend/presentation/views.py", "build:openapi"),
             ("products/surveys/mcp/tools.yaml", "build:openapi"),
             ("services/mcp/definitions/core.yaml", "build:openapi"),

@@ -24,6 +24,10 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "posthog/scopes.py",
         "ee/api/*.py",
         "products/*/backend/api/*.py",
+        # Both layouts are in use: 34 products keep a `backend/api/` package, 8 keep a single
+        # `backend/api.py` module. The package glob does not match the module, so without this
+        # line a serializer edit in those 8 ships a stale generated client with no CI signal.
+        "products/*/backend/api.py",
         "products/*/backend/presentation/*.py",
         "products/*/backend/widget_specs/*.py",
         "products/*/mcp/*.yaml",
