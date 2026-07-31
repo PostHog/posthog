@@ -515,12 +515,14 @@ class InheritedObjectAccess:
 
 
 @dataclass(frozen=True)
-class InheritedTier:
-    """A resolved inherited level plus which tier supplied it, so the panel can attribute it."""
+class ResolvedObjectAccess:
+    """An object access resolution plus which tier supplied it, so displays can attribute it."""
 
     access_level: AccessControlLevel
-    tier: Literal["parent_object", "resource"]
-    resource: APIScopeObject
+    tier: Literal["object_explicit", "parent_object", "resource", "object_default", "builtin_default"]
+    # The resource the winning tier belongs to — a table resolved through its source reports the
+    # source's resource, not its own
+    tier_resource: APIScopeObject
 
 
 class UserAccessControl:
@@ -1365,58 +1367,58 @@ class UserAccessControl:
         object_access_controls: list[_AccessControl],
         explicit: bool = False,
         fallback_parent_id: Optional[str] = None,
-    ) -> Optional[AccessControlLevel]:
+    ) -> Optional[ResolvedObjectAccess]:
         """Row-based object access resolution, most specific rule first: explicit (role/member) object
-        rows, then the inherited tiers (see `inherited_object_access_level`), then default object
-        rows, then the resource default. Shared by `get_user_access_level` and
-        `bulk_object_access_levels`.
+        rows, then the fallback parent's object rows, then resource-level rows, then the parent's
+        resource-level rows, then default object rows, then the resource default. Shared by
+        `get_user_access_level` and `bulk_object_access_levels`, which read only `.access_level`.
+
+        Returns the tier that supplied the level alongside it, so a display can attribute the
+        resolution without re-implementing it: `resolve_inherited_object_access` computes the
+        inherited level by calling this very walk with the object's own rows masked out of
+        `object_access_controls`.
         """
+        parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
+
         explicit_rows = [
             ac for ac in object_access_controls if ac.role_id is not None or ac.organization_member_id is not None
         ]
         if explicit_rows:
-            return self._highest_access_level_from_rows(resource, explicit_rows)
-
-        inherited = self.inherited_object_access_level(resource, fallback_parent_id)
-        if inherited:
-            return inherited.access_level
-
-        if object_access_controls:
-            return self._highest_access_level_from_rows(resource, object_access_controls)
-
-        return None if explicit else default_access_level(resource)
-
-    def inherited_object_access_level(
-        self, resource: APIScopeObject, fallback_parent_id: Optional[str]
-    ) -> Optional["InheritedTier"]:
-        """The tiers between an object's own rows and the built-in default, most specific first:
-        the fallback parent's object rows (a table's source), then resource-level rows, then the
-        parent's resource-level rows. This is the single definition of what an object inherits —
-        enforcement consumes it above, and the access panel's "No override" display consumes it
-        through `resolve_inherited_object_access` with a baseline-member perspective.
-        """
-        parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
+            return ResolvedObjectAccess(
+                self._highest_access_level_from_rows(resource, explicit_rows), "object_explicit", resource
+            )
 
         if parent:
             parent_rows = self._get_access_controls(
                 self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
             )
             if parent_rows:
-                return InheritedTier(self._highest_access_level_from_rows(parent, parent_rows), "parent_object", parent)
+                return ResolvedObjectAccess(
+                    self._highest_access_level_from_rows(parent, parent_rows), "parent_object", parent
+                )
 
         if self.has_access_levels_for_resource(resource):
             access_level_for_resource = self.access_level_for_resource(resource)
             if access_level_for_resource:
-                return InheritedTier(
+                return ResolvedObjectAccess(
                     access_level_for_resource, "resource", RESOURCE_INHERITANCE_MAP.get(resource, resource)
                 )
 
         if parent and self.has_access_levels_for_resource(parent):
             access_level_for_parent = self.access_level_for_resource(parent)
             if access_level_for_parent:
-                return InheritedTier(access_level_for_parent, "resource", parent)
+                return ResolvedObjectAccess(access_level_for_parent, "resource", parent)
 
-        return None
+        if object_access_controls:
+            return ResolvedObjectAccess(
+                self._highest_access_level_from_rows(resource, object_access_controls), "object_default", resource
+            )
+
+        if explicit:
+            return None
+        return ResolvedObjectAccess(
+            default_access_level(resource), "builtin_default", RESOURCE_INHERITANCE_MAP.get(resource, resource)
+        )
 
     @staticmethod
     def _fallback_parent_id(obj: Model, resource: APIScopeObject) -> Optional[str]:
@@ -1436,12 +1438,13 @@ class UserAccessControl:
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         )
-        return self._object_access_level_from_rows(
+        resolution = self._object_access_level_from_rows(
             resource,
             object_access_controls,
             explicit=explicit,
             fallback_parent_id=self._fallback_parent_id(obj, resource),
         )
+        return resolution.access_level if resolution else None
 
     def bulk_object_access_levels(
         self,
@@ -1478,7 +1481,8 @@ class UserAccessControl:
                 for ac in self._get_access_controls(self._access_controls_filters_for_queryset(resource)):
                     rows_by_object_id[ac.resource_id].append(ac)
 
-            results[object_id] = self._object_access_level_from_rows(resource, rows_by_object_id.get(object_id, []))
+            resolution = self._object_access_level_from_rows(resource, rows_by_object_id.get(object_id, []))
+            results[object_id] = resolution.access_level if resolution else None
 
         return results
 
@@ -1502,11 +1506,12 @@ class _BaselineMemberAccessControl(UserAccessControl):
 def resolve_inherited_object_access(
     user: User, team: Team, resource: APIScopeObject, obj: Model
 ) -> Optional[InheritedObjectAccess]:
-    """The level `obj` falls back to while it carries no default of its own, and where it comes from.
+    """The level `obj` falls back to while it carries no rules of its own, and where it comes from.
 
-    Resolved by the same `inherited_object_access_level` tiers that enforcement walks, through a
-    baseline-member perspective — so what the panel displays next to "No override" cannot drift
-    from what removing the override actually grants.
+    Inherited access is the enforcement resolution itself, run for a baseline member with the
+    object's own rows masked out of the pool — not a re-implementation of the tier order. Whatever
+    `_object_access_level_from_rows` resolves to without those rows is what removing the override
+    grants, by construction.
 
     None means nothing sits above this object to fall back to, and the UI must not offer
     "No override" — a project's own default is the case that hits.
@@ -1515,19 +1520,22 @@ def resolve_inherited_object_access(
         return None
 
     baseline = _BaselineMemberAccessControl(user, team)
-    tier = baseline.inherited_object_access_level(resource, UserAccessControl._fallback_parent_id(obj, resource))
-    if tier is None:
-        inherited_resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+    object_rows = baseline._get_access_controls(baseline._access_controls_filters_for_object(resource, str(obj.pk)))
+    # Masking the object's own rows is what turns "resolve access" into "resolve inherited access"
+    resolution = baseline._object_access_level_from_rows(
+        resource,
+        [row for row in object_rows if row.organization_member_id is not None or row.role_id is not None],
+        fallback_parent_id=UserAccessControl._fallback_parent_id(obj, resource),
+    )
+    if resolution is None:
+        return None
+
+    if resolution.tier == "parent_object":
         return InheritedObjectAccess(
-            default_access_level(inherited_resource),
-            f"Based on the default for {resource_to_display_name(inherited_resource)}",
-        )
-    if tier.tier == "parent_object":
-        return InheritedObjectAccess(
-            tier.access_level, f"Based on default access to its {tier.resource.replace('_', ' ')}"
+            resolution.access_level, f"Based on default access to its {resolution.tier_resource.replace('_', ' ')}"
         )
     return InheritedObjectAccess(
-        tier.access_level, f"Based on the default for {resource_to_display_name(tier.resource)}"
+        resolution.access_level, f"Based on the default for {resource_to_display_name(resolution.tier_resource)}"
     )
 
 
