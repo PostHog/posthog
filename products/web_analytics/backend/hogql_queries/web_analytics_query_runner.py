@@ -498,9 +498,6 @@ WHERE and(
         ]
 
     def all_properties(self) -> ast.Expr:
-        """Every user filter an events scan applies, pairing
-        `effective_query_properties` with `first_pageview_filter_exprs`.
-        """
         return property_to_expr(
             [*self.effective_query_properties, *self.first_pageview_filter_exprs, *self._test_account_filters],
             team=self.team,

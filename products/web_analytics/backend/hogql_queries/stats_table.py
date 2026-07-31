@@ -406,9 +406,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         )
 
     def _event_properties(self) -> ast.Expr:
-        # The path-bounce shapes give each events scan its own WHERE, so the
-        # rewritten predicates ride with the event-side list here and in the
-        # bounce/scroll variants below, while `session_properties` drops them.
+        # Each path-bounce events scan gets its own WHERE, so the rewritten
+        # predicates repeat across the bounce and scroll variants below.
         properties: list = [
             p
             for p in self.effective_query_properties + self._test_account_filters

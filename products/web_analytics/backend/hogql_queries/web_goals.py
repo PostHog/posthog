@@ -352,7 +352,5 @@ WHERE {periods_expression}
             for p in self.effective_query_properties + self._test_account_filters
             if get_property_type(p) in ["event", "person"]
         ]
-        # The rewritten filters are events-side predicates (they match on the
-        # session's first pageview), so they belong here, not with the session ones.
         properties.extend(self.first_pageview_filter_exprs)
         return property_to_expr(properties, team=self.team, scope="event")
