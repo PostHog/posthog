@@ -2445,6 +2445,10 @@ class ExperimentService:
             if (full_name := repo.get("full_name"))
         }
         candidates = sorted(cached.values(), key=str.lower)
+        if not cached:
+            # An integration with nothing to target is as good as none — without this, a
+            # stale saved repo would report "ambiguous" and the modal would show an empty picker.
+            return {"repository": None, "source": "no_integration", "candidates": []}
         if experiment.repository:
             # An explicit repo must still belong to this team's installation — GitHub
             # installations can be shared, so an unchecked name could reach another
@@ -2461,8 +2465,6 @@ class ExperimentService:
             return {"repository": None, "source": "ambiguous", "candidates": candidates}
         if len(cached) == 1:
             return {"repository": candidates[0], "source": "single_repo", "candidates": candidates}
-        if not cached:
-            return {"repository": None, "source": "no_integration", "candidates": []}
         return {"repository": None, "source": "ambiguous", "candidates": candidates}
 
     def _report_experiment_ended(

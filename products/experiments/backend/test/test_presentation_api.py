@@ -5924,6 +5924,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [{"full_name": "acme/web"}],
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
             ),
+            (
+                "stale_explicit_with_empty_cache",
+                "gone/repo",
+                [],
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
         ]
     )
     @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
