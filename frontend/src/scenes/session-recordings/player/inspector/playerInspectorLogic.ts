@@ -431,6 +431,7 @@ export interface playerInspectorLogicValues {
     windowIds: number[] // sessionRecordingDataCoordinatorLogic
     experimentItems: ExperimentSessionContextItemApi[] // sessionRecordingExperimentContextLogic
     currentPlayerTime: number // sessionRecordingPlayerLogic
+    currentTimestamp: number | undefined // sessionRecordingPlayerLogic
     doctorDiagnostics: DoctorDiagnostics | null // sessionRecordingPlayerLogic
     skipToFirstMatchingEvent: boolean // sessionRecordingPlayerLogic
     allContextItems: InspectorListItem[]
@@ -879,7 +880,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'uuidToIndex',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'doctorDiagnostics'],
+            ['currentPlayerTime', 'currentTimestamp', 'skipToFirstMatchingEvent', 'doctorDiagnostics'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
@@ -2166,9 +2167,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             }
             // In playlist embeds the flag is armed by initializePlayerFromStart, which only runs
             // once snapshots start syncing — usually after both matching events and meta have
-            // loaded, so without this trigger the skip never fires. The flag is also armed before
-            // the player's initial timestamp is set (and seekToTime no-ops until it exists), so
-            // defer past that synchronous init chain.
+            // loaded, so without this trigger the skip never fires. The arming is also dispatched
+            // before the player's initial timestamp exists (which the skip requires) and no later
+            // trigger is guaranteed, so defer past that synchronous init chain rather than firing
+            // inline.
             await breakpoint(1)
             actions.trySkipToFirstMatchingEvent()
         },
@@ -2177,7 +2179,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 !values.skipToFirstMatchingEvent ||
                 values.hasSkippedToFirstMatchingEvent ||
                 !values.start ||
-                !values.matchingEvents?.length
+                !values.matchingEvents?.length ||
+                // seekToTime no-ops until the player has an initial timestamp — bail without
+                // consuming the skip so a later trigger retries once the player is ready
+                values.currentTimestamp == null
             ) {
                 return
             }
