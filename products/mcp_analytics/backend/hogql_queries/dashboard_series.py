@@ -5,7 +5,11 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import (
     AnyPropertyFilterDiscriminated,
+    CachedMCPToolCallBreakdownQueryResponse,
     CachedMCPToolCallsAndErrorsQueryResponse,
+    MCPToolCallBreakdownItem,
+    MCPToolCallBreakdownQuery,
+    MCPToolCallBreakdownQueryResponse,
     MCPToolCallsAndErrorsItem,
     MCPToolCallsAndErrorsQuery,
     MCPToolCallsAndErrorsQueryResponse,
@@ -122,5 +126,82 @@ class MCPToolCallsAndErrorsQueryRunner(AnalyticsQueryRunner[MCPToolCallsAndError
             for row in (response.results or [])
         ]
         return MCPToolCallsAndErrorsQueryResponse(
+            results=results, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers
+        )
+
+
+class MCPToolCallBreakdownQueryRunner(AnalyticsQueryRunner[MCPToolCallBreakdownQueryResponse]):
+    """Interval-bucketed call counts per tool behind the dashboard's "Tool call breakdown" chart."""
+
+    query: MCPToolCallBreakdownQuery
+    cached_response: CachedMCPToolCallBreakdownQueryResponse
+
+    def validate_query_runner_access(self, user: "User") -> bool:
+        return validate_mcp_analytics_access(self.team, user)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return mcp_query_date_range(self.team, self.query.dateRange, self.query.interval)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # See MCPToolCallsAndErrorsQueryRunner.to_query for why the bucket is stringified here.
+        #
+        # These rows fan out over buckets × distinct tools, so the cap has to clear that product
+        # rather than the sibling runner's bucket count. Truncating costs more than a short axis
+        # here: the client sums each tool across buckets to rank the top ones and roll the rest into
+        # "Other", so dropped rows silently undercount totals and reorder the legend. The dashboard
+        # keeps bucket counts near 90 on its own, but this kind is also reachable through /query/,
+        # where an hourly interval over a month is 720 buckets and only needs 14 tools to overrun a
+        # 10k cap.
+        interval = self.query.interval.value if self.query.interval else "day"
+        return parse_select(
+            """
+            SELECT
+                toString(dateTrunc({interval}, timestamp)) AS bucket,
+                toString(properties.$mcp_tool_name) AS tool,
+                count() AS calls
+            FROM events
+            WHERE {where}
+            GROUP BY bucket, tool
+            ORDER BY bucket
+            LIMIT 100000
+            """,
+            placeholders={
+                "interval": ast.Constant(value=interval),
+                "where": _dashboard_where(
+                    self.query_date_range,
+                    self.query.properties,
+                    self.query.filterTestAccounts,
+                    self.team,
+                ),
+            },
+        )
+
+    def _calculate(self) -> MCPToolCallBreakdownQueryResponse:
+        with tags_context(
+            product=Product.MCP_ANALYTICS,
+            feature=Feature.QUERY,
+            team_id=self.team.id,
+            name="mcp_tool_call_breakdown_query",
+        ):
+            response = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                user=self.user,
+                query_type="mcp_tool_call_breakdown_query",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        results = [
+            MCPToolCallBreakdownItem(
+                bucket=str(row[0] or ""),
+                tool=str(row[1] or ""),
+                calls=int(row[2] or 0),
+            )
+            for row in (response.results or [])
+        ]
+        return MCPToolCallBreakdownQueryResponse(
             results=results, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers
         )

@@ -187,6 +187,7 @@ export enum NodeKind {
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
     // MCP analytics
+    MCPToolCallBreakdownQuery = 'MCPToolCallBreakdownQuery',
     MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
@@ -264,6 +265,7 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPToolCallBreakdownQuery
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
@@ -387,6 +389,7 @@ export type QuerySchema =
     | EndpointsUsageTrendsQuery
 
     // MCP analytics
+    | MCPToolCallBreakdownQuery
     | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
@@ -2677,6 +2680,31 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One tool's call count within one interval bucket. */
+export interface MCPToolCallBreakdownItem {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"), never zone-stamped, so
+     * the client can join it against generated axis keys without reinterpreting it as an instant. */
+    bucket: string
+    tool: string
+    calls: integer
+}
+
+export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCallBreakdownItem[]
+}
+
+/** Interval-bucketed call counts per tool, powering the dashboard's "Tool call breakdown" chart. */
+export interface MCPToolCallBreakdownQuery extends DataNode<MCPToolCallBreakdownQueryResponse> {
+    kind: NodeKind.MCPToolCallBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolCallBreakdownQueryResponse = CachedQueryResponse<MCPToolCallBreakdownQueryResponse>
 
 /** One interval bucket of MCP tool-call activity, split into successful and failed calls. */
 export interface MCPToolCallsAndErrorsItem {
