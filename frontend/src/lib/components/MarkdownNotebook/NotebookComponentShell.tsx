@@ -334,6 +334,29 @@ export function NotebookComponentShell({
                     ) : (
                         <div className={titleClassName}>{titleContent}</div>
                     )}
+                    {showModeActions || showViewModeFilters ? (
+                        <div className="MarkdownNotebook__component-mode-actions">
+                            <LemonButton
+                                aria-label={filtersLabel}
+                                size="xsmall"
+                                icon={<IconGear />}
+                                active={componentPanels.filters}
+                                tooltip={filtersLabel}
+                                disabledReason={toolbarExtras?.filtersDisabledReason ?? undefined}
+                                onClick={() => toggleComponentPanel('filters')}
+                            />
+                            {showModeActions ? (
+                                <LemonButton
+                                    aria-label={resultsLabel}
+                                    size="xsmall"
+                                    icon={componentPanels.results ? <IconEye /> : <IconHide />}
+                                    active={componentPanels.results}
+                                    tooltip={resultsLabel}
+                                    onClick={() => toggleComponentPanel('results')}
+                                />
+                            ) : null}
+                        </div>
+                    ) : null}
                 </div>
                 {mode === 'edit' ? (
                     isEditingTitle ? (
@@ -391,29 +414,8 @@ export function NotebookComponentShell({
                         {resolvedTitle}
                     </div>
                 ) : null}
-                {mode === 'edit' || toolbarMenuItems || showViewModeFilters || showCollapseToggle ? (
+                {mode === 'edit' || toolbarMenuItems || showCollapseToggle ? (
                     <div className="MarkdownNotebook__component-actions">
-                        {showModeActions || showViewModeFilters ? (
-                            <LemonButton
-                                aria-label={filtersLabel}
-                                size="xsmall"
-                                icon={<IconGear />}
-                                active={componentPanels.filters}
-                                tooltip={filtersLabel}
-                                disabledReason={toolbarExtras?.filtersDisabledReason ?? undefined}
-                                onClick={() => toggleComponentPanel('filters')}
-                            />
-                        ) : null}
-                        {showModeActions ? (
-                            <LemonButton
-                                aria-label={resultsLabel}
-                                size="xsmall"
-                                icon={componentPanels.results ? <IconEye /> : <IconHide />}
-                                active={componentPanels.results}
-                                tooltip={resultsLabel}
-                                onClick={() => toggleComponentPanel('results')}
-                            />
-                        ) : null}
                         {showCollapseToggle ? (
                             <LemonButton
                                 aria-label={hasOpenComponentPanel ? 'Collapse' : 'Expand'}
