@@ -261,7 +261,7 @@ export function SQLEditor({
                                                         className="EditorScene relative flex min-h-0 grow flex-row overflow-hidden"
                                                         ref={ref}
                                                     >
-                                                        <ViewLoadingOverlay />
+                                                        <EditorLoadingOverlay />
                                                         <QueryWindow
                                                             mode={mode}
                                                             tabId={tabId || ''}
@@ -303,9 +303,13 @@ export function SQLEditor({
     )
 }
 
-function ViewLoadingOverlay(): JSX.Element | null {
-    const { viewQueryLoading } = useValues(sqlEditorLogic)
-    if (!viewQueryLoading) {
+function EditorLoadingOverlay(): JSX.Element | null {
+    // Covers the editor while a view or insight is being opened. For insights this also hides
+    // the Source layout during the fetch: everything after it resolves (node landing, tab flip
+    // to Visualization) is synchronous, so the overlay hands off straight to the hydrated
+    // canvas without a stale frame in between.
+    const { viewQueryLoading, insightLoading } = useValues(sqlEditorLogic)
+    if (!viewQueryLoading && !insightLoading) {
         return null
     }
     return (
