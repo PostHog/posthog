@@ -671,8 +671,16 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                     lemonToast.error(`Couldn't add ${file.name}: files must be 1 MB or smaller`)
                     continue
                 }
-                const content = await file.text()
-                if (content.includes('\u0000') || content.includes('\ufffd')) {
+                // Strict decoding distinguishes real binary (invalid UTF-8, or NUL bytes) from
+                // text that legitimately contains a U+FFFD replacement character.
+                let content: string
+                try {
+                    content = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
+                } catch {
+                    lemonToast.error(`Couldn't add ${file.name}: only text files are supported`)
+                    continue
+                }
+                if (content.includes('\u0000')) {
                     lemonToast.error(`Couldn't add ${file.name}: only text files are supported`)
                     continue
                 }

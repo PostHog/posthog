@@ -62,14 +62,20 @@ describe('llmSkillLogic file uploads', () => {
     it('rejects oversized and binary files with an error toast but keeps valid ones', async () => {
         await upload([
             new File([new ArrayBuffer(1_000_001)], 'big.txt'),
-            new File(['\u0000binary'], 'image.png'),
+            new File(['\u0000binary'], 'nul.txt'),
+            new File([new Uint8Array([0xc3, 0x28])], 'invalid-utf8.txt'),
+            new File(['has a \ufffd char'], 'replacement.txt'),
             new File(['ok'], 'ok.txt'),
         ])
 
-        expect(logic.values.skillForm.files).toEqual([{ path: 'ok.txt', content: 'ok', content_type: 'text/plain' }])
+        expect(logic.values.skillForm.files).toEqual([
+            { path: 'replacement.txt', content: 'has a \ufffd char', content_type: 'text/plain' },
+            { path: 'ok.txt', content: 'ok', content_type: 'text/plain' },
+        ])
         expect(jest.mocked(lemonToast.error).mock.calls.map(([message]) => message)).toEqual([
             "Couldn't add big.txt: files must be 1 MB or smaller",
-            "Couldn't add image.png: only text files are supported",
+            "Couldn't add nul.txt: only text files are supported",
+            "Couldn't add invalid-utf8.txt: only text files are supported",
         ])
     })
 })
