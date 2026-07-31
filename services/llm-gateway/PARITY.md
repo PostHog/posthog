@@ -1,43 +1,95 @@
 # Choosing an AI gateway
 
-✅ **Default to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway)** for new callers.
+✅ **Default to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway)** for new callers and features.
 
-⚠️ **Keep `services/llm-gateway`** when the Go gateway does not support the caller's contract.
+⚠️ **Use `services/llm-gateway` temporarily** only when an active caller is blocked by a gap below.
 
-## ✅ Ready on the Go gateway
+## Migration policy
 
-- OpenAI Chat Completions and Responses
-- Anthropic Messages and token counting
-- Streaming and non-streaming requests
-- `phs_` and `pha_` credentials
-- Distinct ID, trace, and custom property attribution
-- OpenAI, Anthropic, Azure OpenAI, Bedrock, and selected Modal models
+`services/llm-gateway` is under an unofficial code freeze. Everyone should move to the Go gateway unless they can name a contract it does not support.
 
-Existing Django callers should use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). These builders keep the Python fallback during rollout.
+A PR that changes the Python gateway must:
 
-## ⚠️ Check before migrating
+1. Name the active caller and its use case.
+2. Name the exact Go gateway parity gap.
+3. Explain why the change cannot wait for or land in the Go gateway.
+4. Limit the Python change to the blocked caller's needs.
+5. Update this document when it discovers or closes a gap.
 
-| Area                   | Blocker                                                                                                           | Action                                                                                            |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Product policy         | The Go gateway does not enforce Python `ProductConfig` rules or trusted `$ai_product` policy.                     | Keep callers that depend on product model allowlists, auth rules, or unbilled products on Python. |
-| Billing and limits     | Go uses prepaid wallet admission. Python has product and user limits, plan checks, quotas, and unbilled products. | Confirm the call should debit the Go wallet.                                                      |
-| Authentication         | Python accepts `phx_` and `pha_`. Go accepts `phs_` and `pha_`.                                                   | Provision a supported credential and verify its scope, team, and model allowlist.                 |
-| Providers              | Go does not yet support OpenRouter, Fireworks, Cloudflare, or Baseten.                                            | Keep models on Python until their provider is in the Go catalog.                                  |
-| API surfaces           | Go has no audio transcription endpoint. The gateways also expose different usage APIs.                            | Check the exact path and response contract.                                                       |
-| Models and translation | Go owns a stricter model catalog and does not translate OpenAI models to Anthropic Messages.                      | Confirm the model appears in `GET /v1/models` and supports the chosen API shape.                  |
-| Fallback behavior      | Python has opt-in Bedrock fallback. Go routes by host health unless `X-PostHog-Provider` pins a host.             | Confirm the required provider and fallback behavior.                                              |
-| Request metadata       | Go reads `X-PostHog-Properties`, not Python's per-key property or feature flag headers.                           | Convert metadata to the JSON properties header.                                                   |
+Bug, security, and reliability fixes for blocked callers are valid reasons. Convenience, an existing Python client, or an unfamiliar Go API are not parity gaps.
+
+When a gap closes, new work uses the Go gateway and affected callers should migrate. Do not add the same feature to both gateways by default.
+
+## Choose by use case
+
+### ✅ Use the Go gateway
+
+| Use case                      | Why it fits                                                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Customer LLM traffic          | The caller uses a project secret or OAuth credential, the team wallet should pay, and standard OpenAI or Anthropic APIs are enough.        |
+| Server-to-server PostHog call | A `phs_` credential, team wallet billing, and informational event properties provide enough policy and attribution.                        |
+| Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog. |
+| Gateway-managed routing       | The caller accepts Go host selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or selected Modal models.                            |
+
+Existing Django callers should use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). These builders keep a temporary Python fallback during rollout.
+
+### ⛔ Stay on the Python gateway for now
+
+| Use case                                                                                          | Blocking contract                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PostHog Desktop, PostHog Code, cloud agents, onboarding, Wizard, and similar first-party products | Trusted product identity, OAuth application allowlists, server-minted credential requirements, per-product model policy, and product billing or unbilled policy are not available together in Go. An `ai_product` event property is not an authorization or billing boundary. |
+| Product or user budget enforcement                                                                | Python supports product and user cost limits, plan checks, quota buckets, and unbilled products. Go currently admits against the team wallet and does not branch settlement on credential billing mode.                                                                       |
+| OpenRouter, Fireworks, Cloudflare Workers AI, or Baseten                                          | These provider paths are not available in Go.                                                                                                                                                                                                                                 |
+| OpenAI audio transcription                                                                        | Go has no transcription endpoint.                                                                                                                                                                                                                                             |
+| OpenAI models through Anthropic Messages                                                          | Go does not provide this reverse translation.                                                                                                                                                                                                                                 |
+| Python product usage status                                                                       | The Python product usage and quota API is different from Go request usage and wallet APIs.                                                                                                                                                                                    |
+
+### 🔎 Verify before switching
+
+These are compatibility checks, not automatic blockers:
+
+- **Model:** it appears in `GET /v1/models` and supports the requested API shape and capabilities.
+- **Credential:** Go accepts the credential type and projects the correct team, scope, and revocation state.
+- **Billing:** the request should reserve and debit the Go wallet.
+- **Attribution:** `X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`, and `X-PostHog-Properties` provide enough event context. Caller-supplied properties are not trusted policy.
+- **Provider behavior:** health-based routing or strict `X-PostHog-Provider` pinning matches the caller's fallback requirements.
+- **Wire behavior:** request fields, streaming chunks, errors, timeouts, and retries match what the caller handles.
+- **Metadata:** Python per-key property and feature flag headers are converted to the Go JSON properties header.
+
+## Parity map
+
+| Contract                     | Go gateway today                                                                                                            | Python-only behavior that can block migration                                                                 |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Authentication               | `phs_` project secrets and `pha_` OAuth credentials with `llm_gateway:read`; credential resolves team and revocation state. | `phx_` personal keys and product-specific API key or OAuth application rules.                                 |
+| Trusted first-party identity | No trusted product identity or product-scoped authorization boundary.                                                       | Product route selects allowlisted OAuth apps, server credential requirements, and model policy.               |
+| Attribution                  | Distinct ID, trace ID, custom JSON properties, team project token, provider, usage, and cost.                               | Product route owns `$ai_product` and `$ai_billable`; per-key properties and feature flag headers.             |
+| Billing and limits           | Wallet reservation and settlement, idempotency, balance read, request usage read, and front-line rate limiting.             | Product and user cost windows, plans, quota buckets, free tiers, unbilled products, and product usage status. |
+| OpenAI APIs                  | Chat Completions, Responses, bare Responses alias, and normalized router chat.                                              | Audio transcription and broader LiteLLM translation.                                                          |
+| Anthropic APIs               | Messages and token counting, including Bedrock-hosted models.                                                               | OpenAI models exposed through the Anthropic shape and Python-specific Bedrock opt-in behavior.                |
+| Providers                    | OpenAI, Anthropic, Azure OpenAI, Bedrock, and selected Modal models.                                                        | OpenRouter, Fireworks, Cloudflare Workers AI, and Baseten.                                                    |
+| Models                       | Gateway-owned catalog, canonical IDs and aliases, capability checks, and router categories.                                 | Broader LiteLLM model acceptance and Python product allowlists.                                               |
+| Routing and failure behavior | Health-based host choice, circuit breakers, hosted-provider failover, and strict provider pinning.                          | Caller opt-in Bedrock fallback and provider-specific Python routing.                                          |
+| Event metadata               | One `X-PostHog-Properties` JSON object plus dedicated distinct ID, trace ID, and provider headers.                          | `X-POSTHOG-PROPERTY-*` and `X-POSTHOG-FLAG-*` headers.                                                        |
 
 ## Migration checklist
 
-1. Start with the Go gateway and a shared builder.
-2. Check the caller against every applicable blocker above.
-3. Keep the Python fallback when blocked. Record the specific gap in the change.
-4. Test the selected gateway, including streaming, provider errors, attribution, and billing when relevant.
+1. Describe the caller and identify which identity controls its access and spend.
+2. Check every relevant contract above against the real request and response.
+3. Start with a shared Go-capable builder where one exists.
+4. Test success, streaming if used, provider errors, attribution, and billing.
+5. Keep the Python fallback only for a named blocker. Record that blocker in the PR.
+
+## Refreshing this document
+
+Run `/migrating-llm-gateway-callers` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file.
+
+Last verified on 2026-07-31 against:
+
+- `PostHog/posthog` master at `801dfa4bd67e534ee4c09ec4adc21cde66d3497d`
+- `PostHog/ai-gateway` main at `ea8230b6dbc4ebf6c4be83d359e561477a13b215`
 
 ## References
 
 - Python gateway: [`services/llm-gateway`](./README.md)
+- Shared clients: [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py)
 - Go gateway: [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway), especially `docs/product.md`
-
-Update this file when a gap closes or a new incompatibility is found.
