@@ -320,17 +320,15 @@ function ToolsSection({
     const subjectId = getEntryId(entry)
     const [showAllTools, setShowAllTools] = useState(false)
 
-    // Show only tools where the subject has a rule of their own; if there are none, show the first 3.
-    // Collapse the rest behind a toggle.
+    // Tools with a rule of their own sort first, then the rest alphabetically. Show at least 3 rows
+    // (all ruled ones, padded with no-override tools) and collapse the remainder behind a toggle.
     const hasRule = (key: APIScopeObject): boolean => entry.resources[key]?.access_level != null
-    const ruledResources = resourceKeys.filter((r) => hasRule(r.key))
-    const baseVisibleKeys = new Set(
-        (ruledResources.length > 0 ? ruledResources : resourceKeys.slice(0, 3)).map((r) => r.key)
-    )
-    const collapsedCount = resourceKeys.length - baseVisibleKeys.size
+    const ruledCount = resourceKeys.filter((r) => hasRule(r.key)).length
+    const orderedResources = [...resourceKeys].sort((a, b) => Number(hasRule(b.key)) - Number(hasRule(a.key)))
+    const visibleCount = Math.max(ruledCount, 3)
+    const collapsedCount = orderedResources.length - visibleCount
     const canCollapse = collapsedCount > 3
-    const visibleResources =
-        showAllTools || !canCollapse ? resourceKeys : resourceKeys.filter((r) => baseVisibleKeys.has(r.key))
+    const visibleResources = showAllTools || !canCollapse ? orderedResources : orderedResources.slice(0, visibleCount)
 
     // Persist immediately on every change — no explicit save button
     const onResourceChange = (resource: APIScopeObject, level: AccessControlLevel | null): void => {
