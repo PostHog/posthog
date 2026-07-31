@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::str::from_utf8;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use etcd_client::{EventType, WatchStream};
 use metrics::{counter, gauge, histogram};
@@ -35,12 +36,11 @@ pub struct CoordinatorConfig {
     /// rapid pod registrations into a single rebalance.
     pub rebalance_debounce_interval: Duration,
     /// How often to re-evaluate in-flight handoffs regardless of watch
-    /// events. Phase advancement is normally event-driven, but some state
-    /// changes produce no watched event at all — a router departing
-    /// (nothing watches router registrations) can newly satisfy a freeze
-    /// quorum. The tick backstops those so handoffs cannot stall
-    /// indefinitely, and doubles as defense-in-depth for anything else
-    /// that slips through the event-driven paths.
+    /// events. Phase advancement is event-driven — acks, handoff writes,
+    /// and router departures are all watched — so the tick is pure
+    /// defense-in-depth: it catches a dropped stream or an event lost in
+    /// a coordinator failover window, keeping a handoff from stalling
+    /// indefinitely on a missed delivery.
     pub reconcile_interval: Duration,
     /// How long a handoff may sit in Freezing or Draining before the
     /// coordinator cancels it — by atomic replacement with whatever
@@ -170,6 +170,7 @@ impl Coordinator {
     /// election immediately instead of stranding it until TTL expiry.
     /// `run` relies on that by awaiting this call to completion.
     async fn try_lead(&self, cancel: CancellationToken) -> Result<bool> {
+        let granted_at = Instant::now();
         let lease_id = self.store.grant_lease(self.config.leader_lease_ttl).await?;
 
         let acquired = match self
@@ -206,12 +207,35 @@ impl Coordinator {
         let keepalive_handle = {
             let store = Arc::clone(&self.store);
             let interval = self.config.keepalive_interval;
+            let lease_ttl = self.config.leader_lease_ttl;
             let token = keepalive_cancel.clone();
             let lease_lost = lease_lost.clone();
             tokio::spawn(async move {
-                if let Err(e) = util::run_lease_keepalive(store, lease_id, interval, token).await {
-                    tracing::error!(error = %e, "election lease keepalive failed");
-                    lease_lost.cancel();
+                // The keepalive runs as its own inner task so a panic
+                // surfaces as a JoinError here instead of silently
+                // unwinding this watcher: a leader whose keepalive died
+                // without signalling would coordinate on with no renewal
+                // until a successor is elected alongside it.
+                let inner = tokio::spawn(util::run_lease_keepalive(
+                    store,
+                    lease_id,
+                    interval,
+                    lease_ttl,
+                    granted_at,
+                    "coordinator",
+                    token.clone(),
+                ));
+                let failure = match inner.await {
+                    Ok(Ok(())) => (!token.is_cancelled())
+                        .then(|| "election lease keepalive exited unexpectedly".to_string()),
+                    Ok(Err(e)) => Some(format!("election lease keepalive failed: {e}")),
+                    Err(join_err) => Some(format!("election lease keepalive panicked: {join_err}")),
+                };
+                if let Some(reason) = failure {
+                    if !token.is_cancelled() {
+                        tracing::error!(reason, "abdicating leadership");
+                        lease_lost.cancel();
+                    }
                 }
             })
         };
@@ -250,6 +274,7 @@ impl Coordinator {
         let freeze_acks_stream = self.store.watch_freeze_acks_from(anchor).await?;
         let drained_acks_stream = self.store.watch_drained_acks_from(anchor).await?;
         let warmed_acks_stream = self.store.watch_warmed_acks_from(anchor).await?;
+        let routers_stream = self.store.watch_routers_from(anchor).await?;
 
         let mut tasks = tokio::task::JoinSet::new();
 
@@ -325,6 +350,14 @@ impl Coordinator {
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::run_ack_watch("warmed", warmed_acks_stream, &store, token).await
+            });
+        }
+
+        {
+            let store = Arc::clone(&self.store);
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::run_router_departure_watch(routers_stream, &store, token).await
             });
         }
 
@@ -483,7 +516,7 @@ impl Coordinator {
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             let partition = event.kv().and_then(|kv| {
-                                let key = std::str::from_utf8(kv.key()).ok()?;
+                                let key = from_utf8(kv.key()).ok()?;
                                 store::extract_partition_from_ack_key(key)
                             });
 
@@ -497,13 +530,47 @@ impl Coordinator {
         }
     }
 
+    /// React to router departures. The freeze quorum's required set is
+    /// the handoff's creation snapshot intersected with the live
+    /// registry, so a router leaving — deregistering at shutdown, or its
+    /// lease expiring after a crash — can newly satisfy the quorum of
+    /// every in-flight freeze. Nothing else fires an event for that:
+    /// without this watch, such handoffs wait for the reconcile tick.
+    /// Registrations (Put events) are ignored — a router that joins
+    /// after a handoff's creation is never added to its quorum, so a Put
+    /// can't change any evaluation.
+    async fn run_router_departure_watch(
+        mut stream: WatchStream,
+        store: &PersonhogStore,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                msg = stream.message() => {
+                    let resp = msg?.ok_or_else(|| {
+                        Error::invalid_state("router watch stream ended".to_string())
+                    })?;
+                    let departed = resp
+                        .events()
+                        .iter()
+                        .any(|e| e.event_type() == EventType::Delete);
+                    if departed {
+                        for handoff in store.list_handoffs().await? {
+                            Self::check_phase_advance(store, handoff.partition).await?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Periodically re-evaluate every in-flight handoff, mirroring what
-    /// the ack watches do on events. This is the liveness backstop for
-    /// state changes that fire no watched event — a router departing
-    /// (nothing watches router registrations) can newly satisfy a freeze
-    /// quorum. All the work it drives is idempotent: phase transitions
-    /// use CAS and completed-handoff cleanup tolerates already-deleted
-    /// records.
+    /// the ack and router-departure watches do on events. This is the
+    /// liveness backstop for anything the watches miss — a dropped
+    /// stream, an event lost in a coordinator failover window. All the
+    /// work it drives is idempotent: phase transitions use CAS and
+    /// completed-handoff cleanup tolerates already-deleted records.
     async fn reconcile_tick_loop(
         store: Arc<PersonhogStore>,
         interval: Duration,
@@ -601,6 +668,18 @@ impl Coordinator {
                             "freeze quorum reached, advanced from Freezing"
                         );
                     }
+                } else {
+                    // Evaluations are event-driven (acks, router
+                    // departures, the reconcile tick), so this names the
+                    // blocker a handful of times per stalled handoff
+                    // rather than spamming.
+                    tracing::info!(
+                        partition,
+                        handoff_id = %handoff.handoff_id,
+                        missing_freeze_ackers =
+                            ?missing_freeze_ackers(&routers, &freeze_acks, &handoff),
+                        "freeze quorum not yet met"
+                    );
                 }
             }
             HandoffPhase::Draining => {
@@ -925,6 +1004,19 @@ impl Coordinator {
             tracing::info!("concurrent plan won handoff creation; standing down");
             return Ok(());
         }
+        for handoff in creations
+            .iter()
+            .chain(replacements.iter().map(|r| &r.handoff))
+        {
+            tracing::info!(
+                partition = handoff.partition,
+                handoff_id = %handoff.handoff_id,
+                old_owner = ?handoff.old_owner,
+                new_owner = %handoff.new_owner,
+                phase = ?handoff.phase,
+                "handoff created"
+            );
+        }
         for disposition in &replaced_dispositions {
             counter!(
                 "personhog_coordination_handoffs_replaced_total",
@@ -1227,6 +1319,22 @@ async fn filter_pods_for_k8s(
         };
 
         if generation.is_empty() {
+            continue;
+        }
+
+        // Lazily start the controller watch from the registration's own
+        // ref — the coordinator has no pod of its own to discover from,
+        // and without a watch `classify_departure` has no intent to
+        // consult. Idempotent, so calling per evaluation is cheap; the
+        // first evaluation after a watch starts may still classify
+        // Unknown, which safely leaves the pod active until intent
+        // arrives.
+        if let Err(e) = k8s.watch_controller(controller).await {
+            tracing::warn!(
+                controller = %controller,
+                error = %e,
+                "failed to start controller watch; treating pod as active"
+            );
             continue;
         }
 
