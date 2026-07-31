@@ -1415,6 +1415,7 @@ async def test_create_export_assets_empty_dashboard(team, user):
     assert result.exported_asset_ids == []
     assert result.total_insight_count == 0
     assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert result.failure_context is not None
     assert result.failure_context["reason"] == NoExportableInsightsReason.EMPTY_DASHBOARD
 
 
@@ -1430,6 +1431,7 @@ async def test_create_export_assets_excludes_deleted_standalone_insight(team, us
         )
 
     assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert result.failure_context is not None
     assert result.failure_context["reason"] == NoExportableInsightsReason.MISSING_RESOURCE
 
 

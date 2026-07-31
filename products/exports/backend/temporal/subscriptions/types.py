@@ -284,7 +284,7 @@ class UpdateDeliveryRecordInputs:
     status: str
     exported_asset_ids: typing.Optional[list[int]] = None
     recipient_results: typing.Optional[list[dict[str, typing.Any]]] = None
-    error: typing.Optional[dict[str, typing.Any]] = None
+    error: typing.Optional[dict[str, typing.Any] | NoExportableInsightsErrorDetails] = None
     change_summary: typing.Optional[str] = None
     finished: bool = False
 

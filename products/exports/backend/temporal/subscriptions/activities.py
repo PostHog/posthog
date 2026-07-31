@@ -96,7 +96,9 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
                 (x.layouts or {}).get("sm", {}).get("x", 100),
             )
         )
-        tile_insight_pairs = [(tile, tile.insight) for tile in tiles if tile.insight]
+        tile_insight_pairs: list[tuple[DashboardTile | None, Insight]] = [
+            (tile, tile.insight) for tile in tiles if tile.insight
+        ]
         available_insight_count = len(tile_insight_pairs)
         selected_ids = await database_sync_to_async(
             lambda: (
@@ -107,7 +109,9 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
             thread_sensitive=False,
         )()
         if selected_ids:
-            selected_pairs = [(tile, insight) for tile, insight in tile_insight_pairs if insight.id in selected_ids]
+            selected_pairs: list[tuple[DashboardTile | None, Insight]] = [
+                (tile, insight) for tile, insight in tile_insight_pairs if insight.id in selected_ids
+            ]
             return ResolvedExportableInsights(
                 tile_insight_pairs=selected_pairs,
                 available_insight_count=available_insight_count,
