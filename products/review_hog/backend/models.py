@@ -370,3 +370,9 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         """The user's settings row, or an unsaved instance carrying the defaults when none exists."""
         row = cls.objects.for_team(team_id).filter(user_id=user_id).first()
         return row if row is not None else cls(team_id=team_id, user_id=user_id)
+
+    @classmethod
+    def load_many(cls, team_id: int, user_ids: list[int]) -> dict[int, "ReviewUserSettings"]:
+        """`load` for a set of users in one query — same defaults for users with no row."""
+        rows = {row.user_id: row for row in cls.objects.for_team(team_id).filter(user_id__in=user_ids)}
+        return {user_id: rows.get(user_id) or cls(team_id=team_id, user_id=user_id) for user_id in user_ids}
