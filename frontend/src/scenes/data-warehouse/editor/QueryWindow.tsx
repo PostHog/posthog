@@ -248,8 +248,11 @@ export function QueryWindow({
 
     return (
         <div className="flex grow flex-col overflow-hidden">
-            {/* Hidden (not unmounted) on the builder's Visualization tab so Monaco stays alive */}
-            <div className={cn('flex min-h-0 flex-col', queryPanelHidden && 'hidden')}>
+            {/* Hidden (not unmounted) on the builder's Visualization tab so Monaco stays alive.
+                `contents` when visible: a real box here would become QueryPane's containing
+                block, and its `max-height: 35%` would resolve against the pane instead of the
+                full editor column — collapsing the editor and leaving a dead band below it. */}
+            <div className={queryPanelHidden ? 'hidden' : 'contents'}>
                 {showQueryPanel ? (
                     <div
                         className={cn(
@@ -380,7 +383,9 @@ export function QueryWindow({
                 ) : null}
             </div>
 
-            {showOutputPanel ? <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} /> : null}
+            {showOutputPanel ? (
+                <InternalQueryWindow tabId={tabId} onShareTab={onShareTab} forceRender={queryPanelHidden} />
+            ) : null}
         </div>
     )
 }
@@ -546,13 +551,21 @@ function RunButton({
 const InternalQueryWindow = memo(function InternalQueryWindow({
     tabId,
     onShareTab,
+    forceRender = false,
 }: {
     tabId: string
     onShareTab?: () => void
+    /**
+     * Render even before Monaco initializes. `finishedLoading` only flips once Monaco mounts,
+     * but with the query pane hidden (builder Visualization tab) Monaco never mounts — the
+     * AutoSizer measures 0×0 inside display:none — so a reload landing straight on the canvas
+     * would deadlock into a blank pane. The canvas doesn't need Monaco; render it anyway.
+     */
+    forceRender?: boolean
 }): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
-    if (finishedLoading) {
+    if (finishedLoading && !forceRender) {
         return null
     }
 
