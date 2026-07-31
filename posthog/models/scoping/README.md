@@ -8,15 +8,13 @@ Related: [#47073](https://github.com/PostHog/posthog/pull/47073), [#50899](https
 
 ## The contract
 
-Project-scoped models use a ContextVar containing the **canonical** team_id: the parent team's id when the team is a child environment, or the team's own id otherwise. Exact-team models use a separate ContextVar containing the team_id from the URL. No context means an exception.
-
-`TeamScopedRootMixin` and `ProductTeamModel` use canonical scope. `ExactTeamScopedMixin` is for resources that must remain isolated to one team_id, including child environments.
+A ContextVar holds the **canonical** team_id — the parent team's id when the team is a child environment, the team's own id otherwise. Reads filter by it. Writes through `ProductTeamModel.save()` rewrite child team_ids to canonical (mirror of `RootTeamMixin.save()` for main-DB models). No context = exception.
 
 `team_scope()` / `with_team_scope()` / `for_team()` auto-resolve to canonical by default — one Team lookup per scope entry, much cheaper than per-query resolution and removes the silent-zero-rows footgun where `with team_scope(child_id):` would scope reads to a child id with no data. Pass `canonical=True` to skip resolution when the caller already has the canonical id (or in tests with synthetic ids).
 
 ## Where context gets set
 
-- **DRF nested views** - `TeamAndOrgViewSetMixin.initial()` sets both canonical and exact contexts from the URL `self.team_id` (the team being acted on, not the user's "current" team). It reuses `self.team.parent_team_id` if permission checks already cached it.
+- **DRF nested views** — `TeamAndOrgViewSetMixin.initial()` sets it from the URL `self.team_id` (the team being acted on, not the user's "current" team). Reuses `self.team.parent_team_id` if cached by permission checks for free.
 - **Celery tasks** — `@with_team_scope()` decorator extracts a `team_id` parameter from the task signature.
 - **Management commands / ad-hoc scripts** — `with team_scope(team_id):` block.
 
@@ -70,19 +68,7 @@ class Campaign(TeamScopedRootMixin):
     name = models.CharField(max_length=255)
 ```
 
-`hogli product:bootstrap` scaffolds new products with the correct fail-closed base automatically: `ProductTeamModel` for separate-DB products and `TeamScopedRootMixin` for main-DB products. CI enforces it. Any new team-scoped model on a non-fail-closed manager that is not in `posthog/models/scoping/baseline_unmigrated.txt` fails `check-idor-model-coverage.py`.
-
-For a model owned by one exact team_id, use `ExactTeamScopedMixin`. It keeps child-environment rows on the child team instead of rewriting them to the parent.
-
-```python
-from posthog.models.scoping.exact_mixin import ExactTeamScopedMixin
-
-class EnvironmentDataset(ExactTeamScopedMixin):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    name = models.CharField(max_length=255)
-```
-
-Use the exact-team variant only when parent and child teams must not share rows. Outside a DRF request, query with `Model.objects.for_team(team_id)` or use `exact_team_scope(team_id)`.
+`hogli product:bootstrap` scaffolds new products with the correct fail-closed base automatically — `ProductTeamModel` for separate-DB products, `TeamScopedRootMixin` for main-DB products. CI enforces it: any new team-scoped model on a non-fail-closed manager (i.e., not in `posthog/models/scoping/baseline_unmigrated.txt`) fails `check-idor-model-coverage.py`.
 
 ### New product on a separate database
 
@@ -130,7 +116,7 @@ Remove the marker once the underlying model migrates to `TeamScopedManager`. The
 
 ## Bypass managers
 
-Two surfaces let canonical and exact-team models opt out of scoping, named distinctly to avoid an autocomplete trap:
+Two surfaces to opt out of scoping, named distinctly to avoid an autocomplete trap:
 
 - `Model.objects.unscoped()` — queryset method on the scoped manager. Returns a fresh `TeamScopedQuerySet` with no filter applied. Use this for "I want to query across teams in this one place" within normal request lifecycle code.
 - `Model.all_teams` — second plain `Manager` declared on `ProductTeamModel`. Use this for code that runs _outside_ the request lifecycle (admin classes, migrations, manage.py commands) where setting context with `team_scope(...)` is awkward.

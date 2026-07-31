@@ -215,7 +215,7 @@ def _validate_external_id(external_id: str | None) -> None:
 
 def _lock_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
     dataset = (
-        Dataset.objects.for_team(team_id)
+        Dataset.objects.for_team(team_id, canonical=True)
         .select_for_update(of=("self",))
         .select_related("current_revision")
         .get(id=dataset_id)
@@ -230,7 +230,7 @@ def _lock_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
 
 def _lock_item(*, team_id: int, dataset: Dataset, item_id: UUID) -> DatasetItem:
     item = (
-        DatasetItem.objects.for_team(team_id)
+        DatasetItem.objects.for_team(team_id, canonical=True)
         .select_for_update(of=("self",))
         .select_related("current_version", "current_version__dataset_revision")
         .get(id=item_id, dataset_id=dataset.id)
@@ -266,7 +266,7 @@ def _check_base_version(*, current_version: DatasetItemVersion, base_version: in
 
 def _create_revision(*, dataset: Dataset, created_by: User | None) -> DatasetRevision:
     revision_number = dataset.current_revision.revision + 1 if dataset.current_revision is not None else 1
-    return DatasetRevision.objects.for_team(dataset.team_id).create(
+    return DatasetRevision.objects.for_team(dataset.team_id, canonical=True).create(
         team_id=dataset.team_id,
         dataset=dataset,
         revision=revision_number,
@@ -284,7 +284,7 @@ def _create_item_version(
     content: _DatasetItemContent,
 ) -> DatasetItemVersion:
     revision = _create_revision(dataset=dataset, created_by=created_by)
-    version = DatasetItemVersion.objects.for_team(dataset.team_id).create(
+    version = DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True).create(
         team_id=dataset.team_id,
         dataset_item=item,
         dataset_revision=revision,
@@ -319,7 +319,7 @@ def create_dataset(
     normalized_metadata = metadata if metadata is not None else {}
     normalized_name = _validate_dataset_fields(name=name, description=description, metadata=normalized_metadata)
     try:
-        return Dataset.objects.for_team(team.id).create(
+        return Dataset.objects.for_team(team.id, canonical=True).create(
             team=team,
             created_by=created_by,
             name=normalized_name,
@@ -435,7 +435,7 @@ def create_dataset_item(
 
     if external_id is not None:
         existing_item = (
-            DatasetItem.objects.for_team(team_id)
+            DatasetItem.objects.for_team(team_id, canonical=True)
             .select_related("current_version", "current_version__dataset_revision")
             .filter(dataset=dataset, external_id=external_id)
             .first()
@@ -469,7 +469,7 @@ def create_dataset_item(
                 current_item_id=existing_item.id,
             )
 
-    item = DatasetItem.objects.for_team(dataset.team_id).create(
+    item = DatasetItem.objects.for_team(dataset.team_id, canonical=True).create(
         team_id=dataset.team_id,
         dataset=dataset,
         external_id=external_id,
@@ -608,7 +608,7 @@ def restore_dataset_item(
 
     restored_version = current_version
     if source_version is not None:
-        restored_version = DatasetItemVersion.objects.for_team(team_id).get(
+        restored_version = DatasetItemVersion.objects.for_team(team_id, canonical=True).get(
             dataset_item=item,
             version=source_version,
         )

@@ -73,7 +73,9 @@ def _evaluation_asset_key(prepared_dataset: PreparedDataset) -> dagster.AssetKey
 def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetConfig) -> PreparedDataset:
     team_id = _get_team_id()
     dataset = (
-        Dataset.objects.for_team(team_id).select_related("current_revision").get(id=config.dataset_id, archived=False)
+        Dataset.objects.for_team(team_id, canonical=True)
+        .select_related("current_revision")
+        .get(id=config.dataset_id, archived=False)
     )
     current_revision_number = dataset.current_revision.revision if dataset.current_revision is not None else None
     if config.revision is not None:

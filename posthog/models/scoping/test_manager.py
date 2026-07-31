@@ -1,14 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from posthog.models.scoping import (
-    exact_team_scope,
-    get_current_exact_team_id,
-    get_current_team_id,
-    team_scope,
-    unscoped,
-)
-from posthog.models.scoping.manager import ExactTeamScopedManager, TeamScopedManager, TeamScopeError
+from posthog.models.scoping import team_scope, unscoped
+from posthog.models.scoping.manager import TeamScopedManager, TeamScopeError
 from posthog.models.team import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -78,40 +72,15 @@ class TestTeamScopedManager(BaseTest):
             assert flag.key == "active-flag"
 
     def test_unscoped_context_clears_team(self):
-        with team_scope(self.team.id), exact_team_scope(self.team.id):
+        with team_scope(self.team.id):
+            from posthog.models.scoping import get_current_team_id
+
             assert get_current_team_id() == self.team.id
-            assert get_current_exact_team_id() == self.team.id
 
             with unscoped():
                 assert get_current_team_id() is None
-                assert get_current_exact_team_id() is None
 
             assert get_current_team_id() == self.team.id
-            assert get_current_exact_team_id() == self.team.id
-
-
-class TestExactTeamScopedManager(BaseTest):
-    def _make_manager(self) -> ExactTeamScopedManager[FeatureFlag]:
-        manager: ExactTeamScopedManager[FeatureFlag] = ExactTeamScopedManager()
-        manager.model = FeatureFlag
-        manager._db = "default"
-        return manager
-
-    def test_no_scope_raises_team_scope_error(self):
-        with pytest.raises(TeamScopeError, match="No exact team context set"):
-            self._make_manager().get_queryset()
-
-    def test_exact_team_scope_does_not_resolve_child_to_parent(self):
-        parent = Team.objects.create(organization=self.organization, name="Parent")
-        child = Team.objects.create(organization=self.organization, name="Child", parent_team=parent)
-        FeatureFlag.objects.create(team=parent, key="parent-flag", created_by=self.user)
-        child_flag = FeatureFlag.objects.create(team=child, key="child-flag", created_by=self.user)
-        FeatureFlag.objects.filter(pk=child_flag.pk).update(team_id=child.id)
-
-        with exact_team_scope(child.id):
-            keys = set(self._make_manager().get_queryset().values_list("key", flat=True))
-
-        assert keys == {"child-flag"}
 
 
 class TestTeamScopedQuerySet(BaseTest):

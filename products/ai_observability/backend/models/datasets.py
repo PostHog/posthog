@@ -6,7 +6,7 @@ from django.db.models import F, Func, Q, Value
 from django.db.models.expressions import NegatedExpression
 from django.db.models.lookups import Exact
 
-from posthog.models.scoping.exact_mixin import ExactTeamScopedMixin
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
@@ -21,7 +21,9 @@ def _json_type_is_not(field_name: str, json_type: str) -> NegatedExpression:
     return NegatedExpression(_json_type_is(field_name, json_type))
 
 
-class Dataset(ExactTeamScopedMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+    objects = TeamScopedManager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
         "posthog.User",
@@ -71,7 +73,9 @@ class Dataset(ExactTeamScopedMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFie
         ]
 
 
-class DatasetRevision(ExactTeamScopedMixin, UUIDModel, CreatedMetaFields):
+class DatasetRevision(UUIDModel, CreatedMetaFields):
+    objects = TeamScopedManager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
         "posthog.User",
@@ -99,7 +103,9 @@ class DatasetRevision(ExactTeamScopedMixin, UUIDModel, CreatedMetaFields):
         ]
 
 
-class DatasetItem(ExactTeamScopedMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+    objects = TeamScopedManager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
         "posthog.User",
@@ -137,7 +143,9 @@ class DatasetItem(ExactTeamScopedMixin, UUIDModel, CreatedMetaFields, UpdatedMet
         ]
 
 
-class DatasetItemVersion(ExactTeamScopedMixin, UUIDModel, CreatedMetaFields):
+class DatasetItemVersion(UUIDModel, CreatedMetaFields):
+    objects = TeamScopedManager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
         "posthog.User",

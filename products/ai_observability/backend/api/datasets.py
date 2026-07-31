@@ -683,7 +683,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     def revisions(self, request: Request, *args: object, **kwargs: object) -> Response:
         dataset = self.get_object()
         queryset = (
-            DatasetRevision.objects.for_team(self.team.id)
+            DatasetRevision.objects.for_team(self.team.id, canonical=True)
             .filter(dataset_id=dataset.id)
             .select_related("created_by")
             .order_by("-revision")
@@ -724,7 +724,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         self,
         queryset: QuerySet[DatasetItemVersion, DatasetItemVersion],
     ) -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
-        accessible_datasets: QuerySet[Dataset, Dataset] = Dataset.objects.unscoped().filter(team_id=self.team.id)
+        accessible_datasets: QuerySet[Dataset, Dataset] = Dataset.objects.for_team(self.team.id, canonical=True)
         accessible_datasets = self.user_access_control.filter_queryset_by_access_level(
             accessible_datasets,
             include_all_if_admin=True,
@@ -748,9 +748,9 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def _get_dataset(self, dataset_id: UUID) -> Dataset:
         try:
             dataset = (
-                Dataset.objects.unscoped()
+                Dataset.objects.for_team(self.team.id, canonical=True)
                 .select_related("created_by", "current_revision")
-                .get(id=dataset_id, team_id=self.team.id)
+                .get(id=dataset_id)
             )
         except Dataset.DoesNotExist as error:
             raise Http404 from error
