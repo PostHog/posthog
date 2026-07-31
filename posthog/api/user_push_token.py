@@ -128,7 +128,8 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         # listed there won't be written even though `pre_save` ran for them.
         # A push token identifies the physical app installation, so registration
         # intentionally transfers it from any previous account to the authenticated user.
-        push_token, _ = UserPushToken.objects.update_or_create(  # nosemgrep: idor-lookup-without-user (cross-user lookup is required to transfer device ownership)
+        # nosemgrep: idor-lookup-without-user (cross-user lookup is required to transfer device ownership)
+        push_token, _ = UserPushToken.objects.update_or_create(
             token=token,
             defaults={"user": user, "platform": platform, "last_seen_at": django_timezone.now()},
         )
