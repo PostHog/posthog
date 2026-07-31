@@ -114,7 +114,11 @@ export const SidePanelDiscussion: Story = {
 }
 
 export const SidePanelAccessControl: Story = {
-    args: { panel: SidePanelTab.AccessControl },
+    // Without the entitlements the panel renders the PayGateMini upsell instead of the permissions UI
+    args: {
+        panel: SidePanelTab.AccessControl,
+        availableFeatures: [AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS],
+    },
     parameters: { pageUrl: objectScenePageUrl },
 }
 
