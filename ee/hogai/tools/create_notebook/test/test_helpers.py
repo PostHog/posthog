@@ -12,8 +12,14 @@ from products.notebooks.backend.facade.collab import apply_utf16_text_changes, m
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
+from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_EVENT, UNRESOLVED_VISUALIZATION_MESSAGE
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
-from ee.hogai.tools.create_notebook.helpers import NotebookEditNotAllowedError, save_notebook_to_db
+from ee.hogai.tools.create_notebook.helpers import (
+    NotebookEditNotAllowedError,
+    amaterialize_visualization_refs,
+    save_notebook_to_db,
+)
 
 
 def _get_notebook_markdown(notebook: Notebook) -> str:
@@ -161,16 +167,44 @@ class TestSaveNotebookToDb(BaseTest):
         self.assertEqual(queries[0]["source"]["kind"], "TrendsQuery")
 
     def test_save_notebook_emits_placeholder_when_artifact_missing(self):
-        # Sanity: when the ref can't be resolved from any source, we still get the
-        # "[Visualization not found]" placeholder paragraph instead of a ph-query.
-        notebook = self._save_and_get_notebook(
-            viz_short_id="vmis",
-            parent_short_id="nmis",
-        )
+        with patch("ee.hogai.artifacts.telemetry.posthoganalytics.capture") as mock_capture:
+            notebook = self._save_and_get_notebook(
+                viz_short_id="vmis",
+                parent_short_id="nmis",
+            )
 
         markdown = _get_notebook_markdown(notebook)
         self.assertEqual(len(_extract_query_props(markdown)), 0)
-        self.assertIn("Visualization not found", markdown)
+        self.assertIn(UNRESOLVED_VISUALIZATION_MESSAGE, markdown)
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["event"], UNRESOLVED_VISUALIZATION_EVENT)
+        self.assertEqual(mock_capture.call_args.kwargs["properties"]["unresolved_artifact_ids"], ["vmis"])
+
+    def test_state_only_visualizations_are_persisted_before_the_notebook_references_them(self):
+        # The chart only lives in conversation state, so a ref to it dies with the conversation.
+        # Materializing it as an artifact is what keeps the saved notebook renderable later.
+        viz_message = VisualizationMessage(id="statev1z", answer=TrendsQuery(series=[]))
+        ref_block = VisualizationRefBlock(artifact_id="statev1z", title="Chart")
+        blocks: list[StoredBlock] = [ref_block]
+        manager = ArtifactManager(
+            team=self.team,
+            user=self.user,
+            config={"configurable": {"thread_id": self.conversation.id}},
+        )
+
+        unresolved = async_to_sync(amaterialize_visualization_refs)(manager, self.team, blocks, [viz_message])
+
+        self.assertEqual(unresolved, [])
+        new_id = ref_block.artifact_id
+        self.assertNotEqual(new_id, "statev1z")
+        persisted = AgentArtifact.objects.get(team=self.team, short_id=new_id, type=AgentArtifact.Type.VISUALIZATION)
+        self.assertEqual(persisted.data["query"]["kind"], "TrendsQuery")
+
+        # The rewritten ref now resolves without any conversation state at all.
+        notebook = self._save_and_get_notebook(new_id, "nstp", state_messages=[])
+        queries = _extract_query_props(_get_notebook_markdown(notebook))
+        self.assertEqual(len(queries), 1)
+        self.assertEqual(queries[0]["source"]["kind"], "TrendsQuery")
 
     def test_save_notebook_creates_markdown_notebook(self):
         self._create_visualization_artifact(query={"kind": "TrendsQuery", "series": []}, short_id="vmkd")

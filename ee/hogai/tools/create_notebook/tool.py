@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, AssistantToolCallMessage
 
+from ee.hogai.artifacts.telemetry import report_unresolved_notebook_visualizations
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tools.create_notebook.helpers import (
     ArtifactStatus,
@@ -129,11 +130,21 @@ class CreateNotebookTool(MaxTool):
         notebook_content = draft_content if is_draft else content
         assert notebook_content is not None
 
-        artifact, status, blocks = await create_or_update_notebook_artifact(
+        artifact, status, blocks, unresolved_viz_ids = await create_or_update_notebook_artifact(
             artifacts_manager=self._context_manager.artifacts,
+            team=self._team,
             content=notebook_content,
             title=title,
+            state_messages=self._state.messages,
             artifact_id=artifact_id,
+        )
+
+        report_unresolved_notebook_visualizations(
+            team=self._team,
+            notebook_artifact_id=artifact.short_id,
+            unresolved_artifact_ids=unresolved_viz_ids,
+            stage="create",
+            user=self._user,
         )
 
         # Check if this artifact already has a saved notebook

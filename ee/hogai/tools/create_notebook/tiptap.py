@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from posthog.schema import MarkdownBlock, SessionReplayBlock
 
+from ee.hogai.artifacts.telemetry import UNRESOLVED_VISUALIZATION_MESSAGE
 from ee.hogai.artifacts.types import VisualizationRefBlock
 
 
@@ -79,7 +80,7 @@ def _visualization_ref_to_tiptap(
 
     viz_data = resolve_visualization(block.artifact_id)
     if viz_data is None:
-        return [_paragraph([{"type": "text", "text": f"[Visualization not found: {block.artifact_id}]"}])]
+        return [_paragraph([{"type": "text", "text": UNRESOLVED_VISUALIZATION_MESSAGE}])]
 
     query = viz_data.get("query")
     name = viz_data.get("name") or block.title
