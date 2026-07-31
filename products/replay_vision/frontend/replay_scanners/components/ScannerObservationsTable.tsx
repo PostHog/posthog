@@ -153,16 +153,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             render: (_, obs) => (
                 <div className="flex items-center gap-1">
                     <ObservationStatusTag status={obs.status} errorReason={obs.error_reason} />
-                    {obs.status === 'failed' && (
-                        <ObservationRetryButton
-                            errorReason={obs.error_reason}
-                            onRetry={() => retryObservation(obs.id)}
-                            loading={retryingObservationIds.includes(obs.id)}
-                            userAccessLevel={scanner?.user_access_level}
-                            iconOnly
-                            dataAttr="vision-observation-retry"
-                        />
-                    )}
+                    <ObservationRetryButton
+                        status={obs.status}
+                        errorReason={obs.error_reason}
+                        onRetry={() => retryObservation(obs.id)}
+                        loading={retryingObservationIds.includes(obs.id)}
+                        userAccessLevel={scanner?.user_access_level}
+                        iconOnly
+                        dataAttr="vision-observation-retry"
+                    />
                 </div>
             ),
         },

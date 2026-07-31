@@ -16,6 +16,16 @@ def gemini_api_key() -> str:
 _TRANSIENT_STATUS_CODES = frozenset({408, 409, 429, 500, 502, 503, 504})
 
 
+def describe_gemini_error(error: APIError) -> str:
+    """Fixed-shape summary for user-visible error reasons.
+
+    The raw error body can quote parts of the request (prompt text, file references), so it must never reach
+    `error_reason`; callers log the full body and show the user only the status code and its meaning.
+    """
+    status = f" {error.status}" if error.status else ""
+    return f"The AI provider returned HTTP {error.code}{status}"
+
+
 def classify_gemini_error(error: BaseException) -> FailureKind | None:
     """Map a `google-genai` transport error onto a failure kind, or None when it isn't one.
 

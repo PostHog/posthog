@@ -79,6 +79,10 @@ _STATE_ACTIVITY_RETRY = common.RetryPolicy(
     maximum_attempts=5,
 )
 
+# Bounds each state write's whole retry chain, backoff included, so the failure path provably fits inside
+# APPLY_SCANNER_EXECUTION_TIMEOUT (see the arithmetic on that constant).
+_STATE_ACTIVITY_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=3)
+
 # Create's `ValueError` paths (scanner missing, user not in org) won't recover on retry.
 _CREATE_OBSERVATION_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=1),
@@ -231,6 +235,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 workflow_id=workflow_id,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
+            schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_CREATE_OBSERVATION_RETRY,
         )
         if not create_result.was_created or create_result.observation_id is None:
@@ -246,6 +251,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 mark_observation_running_activity,
                 MarkObservationRunningInputs(observation_id=observation_id),
                 start_to_close_timeout=dt.timedelta(seconds=30),
+                schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
                 retry_policy=_STATE_ACTIVITY_RETRY,
             )
             self._advance_phase("fetching")
@@ -271,9 +277,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
                 ),
-                # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single call.
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                # Bounds the whole retry chain, so four slow attempts can't overrun the workflow's own timeout.
+                # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single
+                # call, and must cover both mission passes: a second pass that overruns would surface as a Temporal
+                # timeout labeled provider_transient when the real problem is the scanner's prompt.
+                start_to_close_timeout=dt.timedelta(minutes=20),
+                # Bounds the whole retry chain, so slow attempts can't overrun the workflow's own timeout.
                 schedule_to_close_timeout=dt.timedelta(minutes=25),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_PROVIDER_CALL_RETRY,
@@ -307,6 +315,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     scanner_result=ScannerResult(model_output=call_output.model_output, signals_count=signals_count),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
+                schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
                 retry_policy=_STATE_ACTIVITY_RETRY,
             )
             try:
@@ -314,6 +323,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     emit_observation_event_activity,
                     EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
                     start_to_close_timeout=dt.timedelta(seconds=30),
+                    schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
                     retry_policy=_STATE_ACTIVITY_RETRY,
                 )
             except Exception:
@@ -355,12 +365,15 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 session_id=inputs.session_id,
             ),
             start_to_close_timeout=dt.timedelta(minutes=2),
+            # Bounds the whole retry chain: six 2m attempts with backoff would otherwise stretch past 13m.
+            schedule_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=_FETCH_RETRY,
         )
         asset_task = wf.execute_activity(
             ensure_session_asset_activity,
             EnsureSessionAssetInputs(team_id=inputs.team_id, session_id=inputs.session_id),
             start_to_close_timeout=dt.timedelta(seconds=30),
+            schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_ENSURE_ASSET_RETRY,
         )
         _, asset_result = await asyncio.gather(fetch_task, asset_task)
@@ -405,6 +418,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 error_reason=_encode_reason(kind, message),
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
+            schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
 
@@ -417,6 +431,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 error_reason=_encode_reason(kind, message),
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
+            schedule_to_close_timeout=_STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
 
@@ -447,6 +462,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         model_output=model_output,
                     ),
                     start_to_close_timeout=dt.timedelta(seconds=30),
+                    schedule_to_close_timeout=dt.timedelta(minutes=2),
                     retry_policy=_SIDE_EFFECT_RETRY,
                 )
             except Exception:
@@ -463,6 +479,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         classifier_output=model_output,
                     ),
                     start_to_close_timeout=dt.timedelta(seconds=30),
+                    schedule_to_close_timeout=dt.timedelta(minutes=2),
                     retry_policy=_SIDE_EFFECT_RETRY,
                 )
             except Exception:

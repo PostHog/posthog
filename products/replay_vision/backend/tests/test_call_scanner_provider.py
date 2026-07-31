@@ -2,11 +2,13 @@ from typing import Any, cast
 
 import pytest
 
+from google.genai.errors import APIError
 from pydantic import BaseModel
 
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
     _run_mission_attempts,
+    _run_pass,
     _run_steps,
     _step_config,
 )
@@ -268,6 +270,49 @@ class TestMissionAttempts:
         with pytest.raises(ScannerFailureError):
             await _run_mission_attempts(run=run, cache=None, model="m")
         assert len(calls) == 1
+
+
+class TestRunPass:
+    """Which retry layer owns a cached-run failure. Transients belong to the Temporal activity retry (it backs
+    off across the quota window); only cache-shaped failures get the one inline fallback. Blanket inline retries
+    here multiplied with the other layers into many video re-sends per observation."""
+
+    class _Cache:
+        name = "cache-1"
+
+    @staticmethod
+    def _cached_run_failing_with(error: Exception) -> tuple[Any, list[str | None]]:
+        calls: list[str | None] = []
+
+        async def run(*, cache_name: str | None) -> dict[str, BaseModel]:
+            calls.append(cache_name)
+            if cache_name is not None:
+                raise error
+            return {"core": _Core(verdict="yes")}
+
+        return run, calls
+
+    @pytest.mark.asyncio
+    async def test_transient_provider_error_is_not_retried_inline(self) -> None:
+        error = APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}})
+        run, calls = self._cached_run_failing_with(error)
+        with pytest.raises(APIError):
+            await _run_pass(run=run, cache=self._Cache(), model="m")
+        assert calls == ["cache-1"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error",
+        [
+            APIError(403, {"error": {"message": "CachedContent not found"}}),
+            ValueError("unrecognized transport failure"),
+        ],
+    )
+    async def test_cache_shaped_failure_falls_back_inline_once(self, error: Exception) -> None:
+        run, calls = self._cached_run_failing_with(error)
+        out = await _run_pass(run=run, cache=self._Cache(), model="m")
+        assert cast(_Core, out["core"]).verdict == "yes"
+        assert calls == ["cache-1", None]
 
 
 class TestStepConfig:

@@ -3,17 +3,20 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlLevel } from '~/types'
 
-import { failureRetryGuidance, parseFailureReason } from '../replay_scanners/types'
+import type { ReplayObservationApi } from '../generated/api.schemas'
+import { observationRetryOffer } from '../replay_scanners/types'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 
 /**
- * Retry control for a failed observation, shared by the dock card, the observations table, and the detail scene.
+ * Retry control for a terminal observation, shared by the dock card, the observations table, and the detail scene.
  *
- * Retry stays available for every failure kind, because the user can know things we don't (that they just rewrote the
- * scanner prompt, say). What varies per kind is how hard we push it: kinds that recover on their own keep the caller's
- * emphasis, and the rest drop to secondary and use the tooltip to say why a plain retry probably isn't the next step.
+ * Renders nothing when a retry isn't offered for the observation's status and kind (see `observationRetryOffer`).
+ * Where it is offered, what varies per kind is how hard we push it: kinds that recover on their own keep the
+ * caller's emphasis, and the rest drop to secondary and use the tooltip to say why a plain retry probably isn't
+ * the next step.
  */
 export function ObservationRetryButton({
+    status,
     errorReason,
     onRetry,
     loading = false,
@@ -23,6 +26,7 @@ export function ObservationRetryButton({
     iconOnly = false,
     dataAttr,
 }: {
+    status: ReplayObservationApi['status']
     errorReason: string
     onRetry: () => void
     loading?: boolean
@@ -31,8 +35,11 @@ export function ObservationRetryButton({
     size?: 'xsmall' | 'small'
     iconOnly?: boolean
     dataAttr: string
-}): JSX.Element {
-    const { worthwhile, hint } = failureRetryGuidance(parseFailureReason(errorReason)?.kind ?? null)
+}): JSX.Element | null {
+    const { show, worthwhile, hint } = observationRetryOffer(status, errorReason)
+    if (!show) {
+        return null
+    }
     return (
         <LemonButton
             size={size}

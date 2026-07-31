@@ -20,6 +20,7 @@ from google.genai import (
     Client as GoogleGenAIClient,
     types,
 )
+from google.genai.errors import APIError
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
@@ -34,8 +35,8 @@ from products.replay_vision.backend.temporal.conversation import function_calls,
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, gemini_api_key
-from products.replay_vision.backend.temporal.metrics import record_provider_call
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.metrics import record_mission_pass, record_provider_call
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     TIMESTAMP_CITATION_RE,
@@ -79,17 +80,25 @@ class _StepResult:
 @track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
-    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 10-min timeout.
+    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 20-min timeout.
     async with Heartbeater(factor=4):
         try:
             return await _call_scanner_provider(inputs)
-        except Exception as e:
-            # Classify at the activity boundary, not inside the mission: the cached-run fallback below needs to see
-            # the raw provider error so a transient failure still gets its one inline retry before we give up.
+        except APIError as e:
+            # Classify at the activity boundary, not inside the mission, so the cached-run fallback below can
+            # inspect the raw provider error and decide which layer owns the retry.
             kind = classify_gemini_error(e)
             if kind is None:
                 raise
-            raise ScannerFailureError(str(e), kind=kind) from e
+            # The raw body can quote request content, so it goes to logs, never into the user-visible error_reason.
+            logger.warning(
+                "replay_vision.call_scanner_provider.provider_error",
+                code=e.code,
+                status=e.status,
+                kind=kind.value,
+                error=str(e)[:2000],
+            )
+            raise ScannerFailureError(describe_gemini_error(e), kind=kind) from e
 
 
 async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
@@ -283,17 +292,24 @@ async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> d
 
 
 async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
-    """One mission pass over the cached prefix, falling back to an inline video on a non-validation failure."""
+    """One mission pass over the cached prefix, falling back to an inline video when the cached request itself fails."""
     if cache is None:
+        record_mission_pass(model=model, path="inline")
         return await run(cache_name=None)
+    record_mission_pass(model=model, path="cached")
     try:
         return await run(cache_name=cache.name)
     except ScannerFailureError:
-        raise  # a required step genuinely couldn't be satisfied — re-running won't help.
+        raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
     except Exception as exc:
-        # The cached request failed (a bad cache reference, or a transient provider error) — retry inline once.
-        # Capture the cause: this fallback fires often enough that we need to know whether it's the
-        # cached-content + response-schema combination, a stale cache reference, or a transient provider error.
+        # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
+        # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
+        # still rate-limiting or down, and it multiplied with the other retry layers.
+        if classify_gemini_error(exc) is FailureKind.PROVIDER_TRANSIENT:
+            raise
+        # The cached request failed some other way (a stale cache reference, an unrecognized error), so retry
+        # inline once. Capture the cause: this fallback fires often enough that we need to know whether it's
+        # the cached-content + response-schema combination or something new.
         logger.warning(
             "replay_vision.video_cache.run_failed_retrying_inline",
             model=model,
@@ -301,6 +317,7 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
             error_type=type(exc).__name__,
             exc_info=True,
         )
+        record_mission_pass(model=model, path="inline_fallback")
         return await run(cache_name=None)
 
 

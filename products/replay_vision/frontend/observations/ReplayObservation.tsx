@@ -353,6 +353,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             )}
                             <div>
                                 <ObservationRetryButton
+                                    status={observation.status}
                                     errorReason={observation.error_reason}
                                     onRetry={() => retryObservation()}
                                     loading={retrying}
@@ -384,6 +385,17 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
                                 </LabeledRow>
                             )}
+                            <div>
+                                <ObservationRetryButton
+                                    status={observation.status}
+                                    errorReason={observation.error_reason}
+                                    onRetry={() => retryObservation()}
+                                    loading={retrying}
+                                    userAccessLevel={scanner?.user_access_level}
+                                    size="small"
+                                    dataAttr="vision-observation-detail-retry"
+                                />
+                            </div>
                         </div>
                     )}
 

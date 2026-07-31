@@ -2050,7 +2050,31 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(inputs.triggered_by, ObservationTrigger.RETRY)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
 
-    def test_retry_rejects_non_failed_statuses(
+    def test_retry_accepts_ineligible_observation(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Ineligibility can be a timing artifact (snapshots that finished ingesting after the scan), and the
+        # UNIQUE(scanner, session_id) row would otherwise lock the session out of this scanner forever.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="sess-ineligible",
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.INELIGIBLE,
+            error_reason="no_snapshots:No snapshots after processing",
+            completed_at=timezone.now(),
+        )
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+        args, _kwargs = start_workflow.call_args
+        self.assertEqual(args[1].triggered_by, ObservationTrigger.RETRY)
+
+    def test_retry_rejects_non_terminal_statuses(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         # Plain loop, not @parameterized: class-level @patch mis-orders expanded args.
@@ -2058,8 +2082,8 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         cases = [
             (ObservationStatus.SUCCEEDED, timezone.now()),
-            (ObservationStatus.INELIGIBLE, timezone.now()),
             (ObservationStatus.PENDING, None),
+            (ObservationStatus.RUNNING, None),
         ]
         for status_value, completed_at in cases:
             with self.subTest(status=status_value):
@@ -2069,7 +2093,7 @@ class TestRetryActions(_VisionAPITestCase):
                     scanner_snapshot=_snapshot_for(self.scanner),
                     triggered_by=ObservationTrigger.SCHEDULE,
                     status=status_value,
-                    error_reason="kind:msg" if status_value == ObservationStatus.INELIGIBLE else "",
+                    error_reason="",
                     completed_at=completed_at,
                 )
 

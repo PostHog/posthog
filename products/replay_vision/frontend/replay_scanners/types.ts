@@ -55,11 +55,23 @@ export type IneligibleKind =
     | 'no_events'
     | 'no_ai_consent'
 
-const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: string }> = {
+type IneligibleKindInfo = {
+    label: string
+    description: string
+    /** Set where the gate can be a timing artifact rather than a property of the session, so a retry is offered. */
+    retryable?: boolean
+    /** Why a retry might change the outcome. Shown on the retry control. */
+    retryHint?: string
+}
+
+const INELIGIBLE_KINDS: Record<IneligibleKind, IneligibleKindInfo> = {
     no_recording: { label: 'No recording', description: 'No recording was found for this session.' },
     no_snapshots: {
         label: 'Nothing to play back',
-        description: 'This recording has no screen data to play back, so there was no video for the AI to watch.',
+        description:
+            'This recording has no screen data to play back, so there was no video for the AI to watch. If you expect this recording to have visuals, its screen data may still be ingesting. Retry the scan later.',
+        retryable: true,
+        retryHint: 'Screen data can finish ingesting after a scan. Retry if you expect this recording to play back.',
     },
     too_short: { label: 'Too short', description: 'The session was too short to analyze.' },
     too_inactive: { label: 'Too inactive', description: 'The session had too little active interaction to analyze.' },
@@ -174,6 +186,31 @@ export function failureKindDescription(kind: FailureKind): string {
 export function failureRetryGuidance(kind: FailureKind | null): { worthwhile: boolean; hint: string | null } {
     const info = kind ? FAILURE_KINDS[kind] : null
     return { worthwhile: info?.retryWorthwhile ?? true, hint: info?.retryHint ?? null }
+}
+
+export type ObservationRetryOffer = { show: boolean; worthwhile: boolean; hint: string | null }
+
+/**
+ * Whether and how to offer a retry for an observation. Failed observations always offer it, because the user can
+ * know things we don't (that they just rewrote the scanner prompt, say). Ineligible ones offer it only where the
+ * gate can be a timing artifact rather than a property of the session, matching what the retry endpoint accepts.
+ */
+export function observationRetryOffer(
+    status: ReplayObservationApi['status'],
+    errorReason: string | null | undefined
+): ObservationRetryOffer {
+    if (status === 'failed') {
+        const kind = errorReason ? (parseFailureReason(errorReason)?.kind ?? null) : null
+        return { show: true, ...failureRetryGuidance(kind) }
+    }
+    if (status === 'ineligible' && errorReason) {
+        const parsed = parseIneligibleReason(errorReason)
+        const info = parsed ? INELIGIBLE_KINDS[parsed.kind] : null
+        if (info?.retryable) {
+            return { show: true, worthwhile: false, hint: info.retryHint ?? null }
+        }
+    }
+    return { show: false, worthwhile: false, hint: null }
 }
 
 export function ineligibleKindDescription(kind: IneligibleKind): string {

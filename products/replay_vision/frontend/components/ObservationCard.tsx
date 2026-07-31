@@ -433,6 +433,7 @@ export function ObservationDockCard({
                     <FailureDetail errorReason={observation.error_reason} />
                     {onRetry && (
                         <ObservationRetryButton
+                            status={observation.status}
                             errorReason={observation.error_reason}
                             onRetry={onRetry}
                             loading={retrying}
@@ -444,7 +445,19 @@ export function ObservationDockCard({
             )}
 
             {observation.status === 'ineligible' && observation.error_reason && (
-                <IneligibleDetail errorReason={observation.error_reason} />
+                <div className="space-y-2">
+                    <IneligibleDetail errorReason={observation.error_reason} />
+                    {onRetry && (
+                        <ObservationRetryButton
+                            status={observation.status}
+                            errorReason={observation.error_reason}
+                            onRetry={onRetry}
+                            loading={retrying}
+                            userAccessLevel={scanner?.user_access_level}
+                            dataAttr="vision-dock-retry-observation"
+                        />
+                    )}
+                </div>
             )}
 
             {observation.status === 'succeeded' && snapshot && result && (

@@ -2304,6 +2304,44 @@ class TestClassifyGeminiError:
         assert classify_gemini_error(ValueError("bad arg")) is None
 
 
+class TestGeminiErrorRedaction:
+    """`error_reason` is shown to the user verbatim, and a Gemini error body can quote request content
+    (prompt text, file references). The provider-facing activities must surface only the fixed summary."""
+
+    _BODY = {
+        "error": {"message": "invalid prompt: 'the user's confidential prompt text'", "status": "INVALID_ARGUMENT"}
+    }
+
+    @pytest.mark.asyncio
+    async def test_provider_activity_redacts_the_error_body(self) -> None:
+        with patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._call_scanner_provider",
+            side_effect=APIError(400, self._BODY),
+        ):
+            with pytest.raises(ScannerFailureError) as exc_info:
+                await ActivityEnvironment().run(
+                    call_scanner_provider_activity,
+                    CallScannerProviderInputs(
+                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                    ),
+                )
+        assert exc_info.value.kind is FailureKind.PROVIDER_REJECTED
+        assert exc_info.value.message == "The AI provider returned HTTP 400 INVALID_ARGUMENT"
+
+    @pytest.mark.asyncio
+    async def test_upload_activity_redacts_the_error_body(self) -> None:
+        with patch(
+            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini._upload_video",
+            side_effect=APIError(
+                429, {"error": {"message": "quota for 'wf-secret-name'", "status": "RESOURCE_EXHAUSTED"}}
+            ),
+        ):
+            with pytest.raises(ScannerFailureError) as exc_info:
+                await ActivityEnvironment().run(upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=1))
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.message == "The AI provider returned HTTP 429 RESOURCE_EXHAUSTED"
+
+
 class TestWorkflowErrorHelpers:
     """Unit tests for the workflow's exception-classification helpers."""
 

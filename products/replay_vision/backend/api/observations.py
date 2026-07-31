@@ -867,14 +867,17 @@ class ReplayObservationViewSet(
     @extend_schema(request=None, responses={202: RetryResponseSerializer})
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def retry(self, request: Request, **kwargs: Any) -> Response:
-        """Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
+        """Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
         observation = self.get_object()
         # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
         # Retry writes to the scanner; the session route's get_object only object-checks the observation row.
         self.check_object_permissions(self.request, scanner)
-        if observation.status != ObservationStatus.FAILED:
-            raise ValidationError("Only failed observations can be retried.")
+        # Ineligible is retryable because some gates are timing artifacts: the recording or its snapshots can
+        # finish ingesting after the scan ran (see IneligibleSessionKind.NO_SNAPSHOTS). Without this, the
+        # UNIQUE(scanner, session_id) row would lock the session out of that scanner forever.
+        if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+            raise ValidationError("Only failed or ineligible observations can be retried.")
         check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
         check_team_in_flight_capacity(self.team.id)
         session_id = observation.session_id
@@ -889,7 +892,7 @@ class ReplayObservationViewSet(
             trigger=ObservationTrigger.RETRY,
         )
         if outcome is not WorkflowStartOutcome.STARTED:
-            # The replacement run never started, so restore the failed row (its shared label, if any, is lost
+            # The replacement run never started, so restore the original row (its shared label, if any, is lost
             # to the cascade) instead of leaving the recording looking unscanned.
             observation.pk = original_pk
             observation.save(force_insert=True)
