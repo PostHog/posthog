@@ -1,3 +1,4 @@
+import json
 import time
 
 import pytest
@@ -11,6 +12,13 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 
 FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
+
+
+def _mock_response(status_code: int, body: dict) -> MagicMock:
+    # The view streams the body via res.raw.read(...), so mock that rather than res.json().
+    m = MagicMock(status_code=status_code)
+    m.raw.read.return_value = json.dumps(body).encode()
+    return m
 
 
 class TestPostHogConnectionForward:
@@ -44,8 +52,7 @@ class TestPostHogConnectionForward:
     def test_forward_injects_token_and_passes_through(self, client: HttpClient):
         client.force_login(self.user)
         with patch(FORWARD_PATH) as mock_request:
-            mock_request.return_value = MagicMock(status_code=200)
-            mock_request.return_value.json.return_value = {"results": [1, 2, 3]}
+            mock_request.return_value = _mock_response(200, {"results": [1, 2, 3]})
 
             response = client.post(
                 self._forward_url(),
@@ -65,8 +72,7 @@ class TestPostHogConnectionForward:
     def test_forward_sends_body_only_for_write_methods(self, client: HttpClient):
         client.force_login(self.user)
         with patch(FORWARD_PATH) as mock_request:
-            mock_request.return_value = MagicMock(status_code=201)
-            mock_request.return_value.json.return_value = {"id": "abc"}
+            mock_request.return_value = _mock_response(201, {"id": "abc"})
 
             client.post(
                 self._forward_url(),
@@ -79,8 +85,7 @@ class TestPostHogConnectionForward:
     def test_forward_passes_through_target_error_status(self, client: HttpClient):
         client.force_login(self.user)
         with patch(FORWARD_PATH) as mock_request:
-            mock_request.return_value = MagicMock(status_code=403)
-            mock_request.return_value.json.return_value = {"detail": "nope"}
+            mock_request.return_value = _mock_response(403, {"detail": "nope"})
 
             response = client.post(
                 self._forward_url(),
@@ -134,3 +139,32 @@ class TestPostHogConnectionForward:
                 content_type="application/json",
             )
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+    def test_forward_refuses_a_request_already_forwarded(self, client: HttpClient):
+        # A request that arrived through a connection carries the marker header; forwarding it again
+        # would let a connection be chained into itself.
+        client.force_login(self.user)
+        with patch(FORWARD_PATH) as mock_request:
+            response = client.post(
+                self._forward_url(),
+                {"method": "GET", "path": "api/projects/2/insights/"},
+                content_type="application/json",
+                HTTP_X_POSTHOG_CONNECTION="1",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_request.assert_not_called()
+
+    def test_forward_requires_caller_token_to_cover_connection_scopes(self, client: HttpClient):
+        # A scoped key that lacks the scopes the connection was granted can't wield the connection.
+        self.integration.config["granted_scopes"] = ["insight:read", "task:write"]
+        self.integration.save()
+        client.force_login(self.user)
+        with patch("posthog.api.posthog_connection.get_authenticator_scopes", return_value=["integration:write"]):
+            with patch(FORWARD_PATH) as mock_request:
+                response = client.post(
+                    self._forward_url(),
+                    {"method": "GET", "path": "api/projects/2/insights/"},
+                    content_type="application/json",
+                )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_request.assert_not_called()

@@ -1329,6 +1329,7 @@ class TestPosthogConnectIntegration(BaseTest):
                 "access_token": "AT",
                 "refresh_token": "RT",
                 "expires_in": 3600,
+                "scope": "task:read task:write openid email",
             }
             mock_get.return_value = MagicMock(status_code=200)
             mock_get.return_value.json.return_value = {"sub": "user-uuid-123", "email": "person@posthog.com"}
@@ -1347,6 +1348,8 @@ class TestPosthogConnectIntegration(BaseTest):
             # Dedup key is namespaced by region so the same account in two cells doesn't collide.
             assert integration.integration_id == "EU:user-uuid-123"
             assert integration.config["email"] == "person@posthog.com"
+            # Only the resource scopes are persisted (identity scopes dropped), for the caller-scope check.
+            assert integration.config["granted_scopes"] == ["task:read", "task:write"]
             assert integration.sensitive_config["access_token"] == "AT"
             assert integration.sensitive_config["refresh_token"] == "RT"
 

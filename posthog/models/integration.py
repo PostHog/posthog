@@ -1532,6 +1532,10 @@ class OauthIntegration:
         if kind == "posthog" and integration_id:
             config["region"] = region
             integration_id = f"{region}:{integration_id}"
+            # Persist the resource scopes the target actually granted (obj:action only, dropping the
+            # openid/email identity scopes). The connection proxy uses this to require a caller's own
+            # token to cover these scopes before it will wield the connection's grant.
+            config["granted_scopes"] = sorted({s for s in (config.get("scope") or "").split() if ":" in s})
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)

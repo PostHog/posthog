@@ -11,6 +11,7 @@ side only resolves the token and forwards; it does not re-implement or gate indi
 """
 
 import re
+import json
 from typing import Any
 
 import requests
@@ -25,10 +26,17 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
+from posthog.permissions import get_authenticator_scopes
 
 logger = structlog.get_logger(__name__)
 
 CONNECTION_FORWARD_TIMEOUT_SECONDS = 30
+# Read at most this much of the target's response into memory. The proxy holds the whole body to
+# re-serialize it, so cap it to keep an oversized upstream response from exhausting a worker.
+CONNECTION_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+# Header stamped on every forwarded request so the target (and this endpoint) can tell a request came
+# through a connection — used here to refuse a forwarded request being forwarded again.
+CONNECTION_MARKER_HEADER = "X-PostHog-Connection"
 _METHODS_WITH_BODY = ("POST", "PUT", "PATCH", "DELETE")
 _ALLOWED_METHODS = ("GET", *_METHODS_WITH_BODY)
 # A relative API path on the target, e.g. `api/projects/2/insights/`. The host comes from the fixed
@@ -46,6 +54,23 @@ def _connection_access_token(integration: Integration) -> str:
     if not token:
         raise ValidationError("This PostHog connection has no usable access token — reconnect it.")
     return token
+
+
+def _enforce_caller_covers_connection_scopes(request: Request, integration: Integration) -> None:
+    """A connection acts with the creator's stored grant, which may be broader than the API key making
+    this call. Require that key to itself carry the scopes the connection was granted, so a narrowly
+    scoped (or leaked) key can't wield the connection to exceed its own authority. Session auth and
+    full-access (`*`) keys already carry the user's full authority, so they pass."""
+    caller_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if caller_scopes is None or "*" in caller_scopes:
+        return
+    granted = set(integration.config.get("granted_scopes") or [])
+    missing = granted - set(caller_scopes)
+    if missing:
+        raise PermissionDenied(
+            "Your API key must carry the scopes this connection was granted to use it. "
+            f"Missing: {', '.join(sorted(missing))}."
+        )
 
 
 def _validate_target_path(path: str) -> str:
@@ -102,7 +127,14 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="forward", required_scopes=["integration:write"])
     def forward(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        # Refuse to forward a request that itself arrived through a connection, so a same-region (or
+        # cross-region) connection can't be chained into itself and tie up workers one hop at a time.
+        if request.headers.get(CONNECTION_MARKER_HEADER):
+            raise ValidationError("A request forwarded through a PostHog connection cannot be forwarded again.")
+
         integration = self._get_connection(pk)
+        _enforce_caller_covers_connection_scopes(request, integration)
+
         serializer = PostHogConnectionForwardSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
@@ -118,12 +150,16 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 f"{base}/{path}",
                 params=payload.get("query") or None,
                 json=payload.get("data") if method in _METHODS_WITH_BODY else None,
-                headers={"Authorization": f"Bearer {token}", "X-PostHog-Connection": "1"},
+                headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
                 timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
                 # A compromised/misconfigured target must not be able to 30x us into resending the
                 # bearer token to another origin.
                 allow_redirects=False,
+                # Stream so an oversized body is capped below rather than fully buffered by requests.
+                stream=True,
             )
+            with res:
+                raw = res.raw.read(CONNECTION_MAX_RESPONSE_BYTES + 1, decode_content=True) or b""
         except requests.RequestException as err:
             logger.warning(
                 "posthog_connection_forward_unreachable",
@@ -136,8 +172,17 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        if len(raw) > CONNECTION_MAX_RESPONSE_BYTES:
+            return Response(
+                {
+                    "status": status.HTTP_502_BAD_GATEWAY,
+                    "data": {"error": "The target project's response was too large."},
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         try:
-            body = res.json()
+            body = json.loads(raw) if raw else None
         except ValueError:
             body = None
         # Pass the target's status and body straight through. The target owns the residency policy for
