@@ -8819,6 +8819,20 @@
                   "schema_valid": true,
                   "table": "ticket_tags",
                   "type": "lazy_table"
+              },
+              "assignee": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "user_id",
+                      "role_id"
+                  ],
+                  "hogql_value": "assignee",
+                  "id": "assignee",
+                  "name": "assignee",
+                  "schema_valid": true,
+                  "table": "ticket_assignment",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",
@@ -17694,6 +17708,20 @@
                   "name": "tags",
                   "schema_valid": true,
                   "table": "ticket_tags",
+                  "type": "lazy_table"
+              },
+              "assignee": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "user_id",
+                      "role_id"
+                  ],
+                  "hogql_value": "assignee",
+                  "id": "assignee",
+                  "name": "assignee",
+                  "schema_valid": true,
+                  "table": "ticket_assignment",
                   "type": "lazy_table"
               }
           },

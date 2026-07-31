@@ -1,15 +1,18 @@
 import json
 import asyncio
+import contextlib
 from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 
 import numpy as np
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 import posthoganalytics
+import botocore.exceptions
 import deltalake.exceptions
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
@@ -68,13 +71,20 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 
 
 def is_transient_object_store_error(error: BaseException) -> bool:
-    """True for a transient object-store error, however delta-rs happened to surface it.
+    """True for a transient object-store error, however it happened to surface.
 
     `DeltaTable.is_deltatable()` raises these as a plain `OSError`, but table-level operations
     (e.g. `vacuum()`, `optimize.compact()`) wrap the identical underlying object-store error text in
     `deltalake.exceptions.DeltaError` instead — same blip, different exception type depending on
-    which delta-rs entry point hit it.
+    which delta-rs entry point hit it. `_purge_s3_prefix`'s s3fs/aiobotocore calls can also raise a
+    bare `botocore.exceptions.NoCredentialsError` unwrapped — the same IMDS/STS credential-provider
+    blip, just surfaced by aiobotocore's own credential resolution instead of delta-rs's Rust
+    `object_store` crate. `NoCredentialsError`'s message is a fixed, generic string (no needle to
+    match), but hitting our own instance-role-authenticated bucket always means the same transient
+    resolution hiccup, so it's recognized by type rather than by message.
     """
+    if isinstance(error, botocore.exceptions.NoCredentialsError):
+        return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
     )
@@ -107,6 +117,20 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
 # _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
 # backoff is as safe as retrying a single failed call, and simpler.
 _PURGE_S3_PREFIX_MAX_ATTEMPTS = 4
+
+
+def is_transient_maintenance_error(error: BaseException) -> bool:
+    """Infra blips seen during pre-write maintenance that aren't a maintenance bug.
+
+    Covers S3/object-store hiccups reaching our own data-warehouse bucket (see
+    `is_transient_object_store_error` above), racy concurrent-maintenance DeltaErrors (see
+    `is_transient_delta_maintenance_error` above), and app-DB connection blips (DNS, pooler drops) hit
+    while resolving `job.folder_path()` on a pooled connection — the same `OperationalError`/`InterfaceError`
+    classification used for this failure class in `repartition_table.py`'s `_is_transient_infra_error`.
+    """
+    if isinstance(error, OperationalError | InterfaceError):
+        return True
+    return is_transient_object_store_error(error) or is_transient_delta_maintenance_error(error)
 
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
@@ -259,6 +283,24 @@ def _first_per_pk_table(
 
     # 4. Materialize the rows at those positions from the original table
     return pa_table.take(kept_indices)
+
+
+def _merge_predicate_ops(normalized_primary_keys: list[str]) -> list[str]:
+    """Per-key merge match conditions, using NULL-safe equality.
+
+    delta-rs matches source↔target with plain `source.c = target.c`, which is NULL-*un*safe:
+    `NULL = NULL` evaluates to NULL (not true). Composite keys with nullable columns — e.g. the
+    GoogleAds report resources keyed on `segments.ad_network_type` / `segments.click_type` /
+    `segments.device`, which are frequently NULL — therefore never match their existing target row,
+    so `when_not_matched_insert_all` re-inserts them on *every* incremental sync and the table
+    silently accumulates a duplicate per NULL-keyed row. `IS NOT DISTINCT FROM` treats NULL == NULL,
+    matching the source dedup (`_first_per_pk_table` groups NULLs together) and stopping the drift.
+
+    Each term is parenthesised: delta-rs's predicate parser (1.6.1) mis-associates a bare
+    `a IS NOT DISTINCT FROM b AND c IS NOT DISTINCT FROM d` (it groups `b AND c`), so the parens are
+    required for it to plan.
+    """
+    return [f"(source.{c} IS NOT DISTINCT FROM target.{c})" for c in normalized_primary_keys]
 
 
 def delta_storage_options() -> dict[str, str]:
@@ -500,48 +542,95 @@ class DeltaTableHelper:
             )
         return deduped
 
-    async def _maybe_run_deltalite_shadow(
+    async def _write_via_deltalite(
         self,
         *,
+        existing_delta_table: deltalake.DeltaTable,
         data: pa.Table,
-        primary_keys: list[str],
-        partition_key: str | None,
-        version_before: int,
-        version_after: int | None,
+        normalized_primary_keys: list[str],
+        use_partitioning: bool,
         commit_metadata: dict[str, str] | None,
-    ) -> None:
-        """Best-effort deltalite shadow verification for this incremental batch.
+    ) -> bool:
+        """Phase 2: perform the incremental merge via deltalite instead of the delta-rs MERGE.
 
-        Checks the per-schema rollout flag, then re-applies the batch through deltalite into a
-        throwaway copy and compares to the merge result (see ``deltalite_shadow``). Wrapped so that
-        nothing here — flag eval, import, comparison — can ever raise into the real sync. Imported
-        lazily to avoid a circular import (``deltalite_shadow`` reuses ``_purge_s3_prefix``).
+        Returns True if deltalite committed the write (caller then skips the delta-rs MERGE), or False
+        to fall back to the MERGE. Falls back on *anything* — flag off, import failure, deltalite error /
+        commit conflict / refusal — so switching a schema to deltalite can only change which engine
+        writes, never whether the sync succeeds; the worst case is today's behaviour. Controlled solely
+        by the per-schema ``data-warehouse-deltalite-write`` feature flag (no env switch), so it can be
+        ramped / killed entirely from the flag UI without a deploy.
         """
+        if not normalized_primary_keys:
+            return False
+
+        # The flag check is a rollout gate, not part of the write: a flag miss (off) or any error here
+        # (including the import) must fall back to the delta-rs MERGE *silently*.
         try:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_shadow import (
-                is_deltalite_shadow_enabled,
-                run_shadow_comparison,
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_write import (
+                is_deltalite_write_enabled,
             )
 
-            enabled = await database_sync_to_async_pool(is_deltalite_shadow_enabled)(
+            enabled = await database_sync_to_async_pool(is_deltalite_write_enabled)(
                 self._job.team_id, str(self._job.schema_id), None
             )
-            if not enabled:
-                return
+        except Exception:  # noqa: BLE001 - a flag-eval / import error just means "don't use deltalite"
+            return False
+        if not enabled:
+            return False
 
-            await run_shadow_comparison(
-                uri=await self._get_delta_table_uri(),
-                storage_options=self._get_credentials(),
-                data=data,
-                primary_keys=primary_keys,
-                partition_key=partition_key,
-                version_before=version_before,
-                version_after=version_after,
-                commit_metadata=commit_metadata,
-                logger=self._logger,
+        # deltalite is enabled. Only the upsert *commit* gates the fallback: a pre-commit failure means
+        # nothing was written, so we re-run the delta-rs MERGE. Anything AFTER the commit is best-effort
+        # bookkeeping and must NOT return False — otherwise the MERGE would re-run on top of deltalite's
+        # already-committed write. (Lazy metrics import keeps the heavy pipeline_v3 chain off the module
+        # import path — circular.)
+        try:
+            import deltalite
+
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+                DELTALITE_WRITE_TOTAL,
             )
-        except Exception as e:  # noqa: BLE001 - shadow must never affect the sync
-            await self._logger.awarning(f"deltalite shadow wrapper errored (ignored): {e}")
+
+            uri = await self._get_delta_table_uri()
+            storage_options = self._get_credentials()
+            partition_key = PARTITION_KEY if use_partitioning else None
+
+            def _upsert() -> Any:
+                table = deltalite.DeltaLiteTable.open(uri, storage_options)
+                return table.upsert(
+                    data,
+                    list(normalized_primary_keys),
+                    partition_key,
+                    commit_metadata=commit_metadata,
+                )
+
+            stats = await asyncio.to_thread(_upsert)
+        except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
+            await self._logger.awarning(
+                f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
+            )
+            try:
+                DELTALITE_WRITE_TOTAL.labels(outcome="fallback").inc()
+            except Exception:  # noqa: BLE001 - the metrics import itself failed; the warning is enough
+                pass
+            return False
+
+        # Committed — the real table is now deltalite's output. NOTHING past this point may raise into
+        # the caller: an exception here would leave `deltalite_wrote` unset and either fail/retry the
+        # sync or re-run the delta-rs MERGE on top of deltalite's already-committed write. So every
+        # post-commit step (handle refresh, log, metric) is wrapped best-effort and we always return True.
+        try:
+            # Refresh the in-memory delta-rs handle to deltalite's new version so the table returned by
+            # write_to_deltalake (and any subsequent reads) reflects the real state.
+            await asyncio.to_thread(existing_delta_table.update_incremental)
+            await self._logger.ainfo(
+                f"deltalite write: committed v{stats.version} "
+                f"(+{stats.rows_inserted} inserted / ~{stats.rows_updated} updated / {stats.rows_copied} copied)"
+            )
+            DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
+        except Exception as e:  # noqa: BLE001 - the write is committed; bookkeeping must never raise
+            with contextlib.suppress(Exception):
+                await self._logger.awarning(f"deltalite write committed but post-commit bookkeeping failed: {e}")
+        return True
 
     async def write_to_deltalake(
         self,
@@ -604,10 +693,6 @@ class DeltaTableHelper:
 
             existing_delta_table = delta_table
 
-            # Captured before the merge so the deltalite shadow (below) can time-travel to the exact
-            # pre-merge state when it re-applies this batch into a throwaway copy.
-            version_before_merge = existing_delta_table.version()
-
             await self._logger.adebug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
@@ -618,8 +703,20 @@ class DeltaTableHelper:
                 if n in py_table_column_names:
                     normalized_primary_keys.append(n)
 
-            predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
-            if use_partitioning:
+            predicate_ops = _merge_predicate_ops(normalized_primary_keys)
+
+            # Phase 2 canary: try deltalite for the real merge. On success the delta-rs MERGE (and the
+            # now-redundant forward shadow) below are skipped; on any failure this returns False and we
+            # fall through to the MERGE, so a deltalite issue can never fail the sync.
+            deltalite_wrote = await self._write_via_deltalite(
+                existing_delta_table=existing_delta_table,
+                data=data,
+                normalized_primary_keys=normalized_primary_keys,
+                use_partitioning=use_partitioning,
+                commit_metadata=commit_metadata,
+            )
+
+            if not deltalite_wrote and use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
@@ -673,7 +770,7 @@ class DeltaTableHelper:
 
                     if progress_callback:
                         progress_callback()
-            else:
+            elif not deltalite_wrote:
                 # Single merge call → safe to tag directly; this is the terminal commit.
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
@@ -697,26 +794,6 @@ class DeltaTableHelper:
                     "write_to_deltalake: merge",
                 )
                 await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
-
-            # deltalite shadow verification (rollout canary, phase 1). Re-applies this exact batch
-            # through the deltalite streaming upsert into a throwaway copy and compares the result to
-            # the merge above. deltalite never writes the real table; the call is best-effort and can
-            # never affect the sync. Master-switched off by default (cheap env check first), then
-            # gated per-schema by a feature flag.
-            if settings.DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED:
-                # Version the merge just produced. delta-rs advances the table in place on commit; guard
-                # against it not advancing (fall back to latest) so we never read the pre-merge state.
-                version_after_merge: int | None = existing_delta_table.version()
-                if version_after_merge is None or version_after_merge <= version_before_merge:
-                    version_after_merge = None
-                await self._maybe_run_deltalite_shadow(
-                    data=data,
-                    primary_keys=normalized_primary_keys,
-                    partition_key=PARTITION_KEY if use_partitioning else None,
-                    version_before=version_before_merge,
-                    version_after=version_after_merge,
-                    commit_metadata=commit_metadata,
-                )
         elif (
             write_type == "full_refresh"
             or (write_type == "incremental" and delta_table is None)
