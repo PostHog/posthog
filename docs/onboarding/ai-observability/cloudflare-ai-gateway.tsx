@@ -55,9 +55,41 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                         {dedent`
                             Cloudflare AI Gateway exposes an OpenAI-compatible \`compat\` endpoint at
                             \`https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat\`. Create a
-                            PostHog client, then swap in PostHog's OpenAI wrapper, pointed at this URL with your
-                            upstream provider key (e.g. your OpenAI key) and your AI Gateway token passed via the
-                            \`cf-aig-authorization\` header.
+                            PostHog client, then swap in PostHog's OpenAI wrapper, pointed at this URL.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            Pass your upstream provider key (for example, your OpenAI key) as \`api_key\`, and your
+                            AI Gateway token via the \`cf-aig-authorization\` header. The example in the next step
+                            creates both, then calls Cloudflare AI Gateway and captures a tool call as a span in one
+                            flow.
+                        `}
+                    </Markdown>
+                </>
+            ),
+        },
+        {
+            title: 'Call Cloudflare AI Gateway',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            When you use the wrapped client to call Cloudflare AI Gateway, PostHog automatically
+                            captures an \`$ai_generation\` event. Specify models as \`provider/model-id\`, for
+                            example \`openai/gpt-5-mini\` or \`anthropic/claude-sonnet-4-5\`. The wrapper does not
+                            see tools you call afterward. The example below also captures a tool call as an
+                            \`$ai_span\` event, right after the generation that triggered it.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            Both events share the same \`$ai_trace_id\`, so they nest in one trace, and the same
+                            \`$ai_session_id\`, so they group into the same conversation. \`client\` wraps Cloudflare
+                            AI Gateway and captures the generation. \`posthog\` captures the span.
                         `}
                     </Markdown>
 
@@ -69,6 +101,7 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 code: dedent`
                                     from posthog import Posthog
                                     from posthog.ai.openai import OpenAI
+                                    import time, uuid, json
 
                                     posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
@@ -80,6 +113,40 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                         },
                                         posthog_client=posthog,
                                     )
+
+                                    session_id = "conversation-abc"  # same across every turn of the conversation
+                                    trace_id = str(uuid.uuid4())     # one per turn
+                                    distinct_id = "user_123"
+
+                                    # tools and get_weather() are your existing tool-calling setup
+                                    response = client.chat.completions.create(
+                                        model="openai/gpt-5-mini",
+                                        max_completion_tokens=1024,
+                                        messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                                        tools=tools,
+                                        posthog_distinct_id=distinct_id,
+                                        posthog_trace_id=trace_id,
+                                        posthog_properties={"$ai_session_id": session_id, "$ai_provider": "cloudflare"},
+                                    )
+
+                                    # Capture each tool call as a span nested under the generation above
+                                    for call in response.choices[0].message.tool_calls:
+                                        start = time.time()
+                                        result = get_weather(**json.loads(call.function.arguments))
+
+                                        posthog.capture(
+                                            distinct_id=distinct_id,
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": session_id,
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": call.function.name,
+                                                "$ai_input_state": call.function.arguments,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
                                 `,
                             },
                             {
@@ -99,59 +166,41 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                       },
                                       posthog,
                                     })
-                                `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-        {
-            title: 'Call Cloudflare AI Gateway',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Now, when you use the wrapped client to call Cloudflare AI Gateway, PostHog
-                            automatically captures \`$ai_generation\` events. Specify models as
-                            \`provider/model-id\` (for example \`openai/gpt-5-mini\` or
-                            \`anthropic/claude-sonnet-4-5\`).
-                        `}
-                    </Markdown>
 
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'python',
-                                file: 'Python',
-                                code: dedent`
-                                    response = client.chat.completions.create(
-                                        model="openai/gpt-5-mini",
-                                        max_completion_tokens=1024,
-                                        messages=[
-                                            {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                        ],
-                                        posthog_distinct_id="user_123",
-                                        posthog_properties={"$ai_session_id": "conversation-abc", "$ai_provider": "cloudflare"},
-                                    )
+                                    const sessionId = 'conversation-abc' // same across every turn of the conversation
+                                    const traceId = crypto.randomUUID()  // one per turn
+                                    const distinctId = 'user_123'
 
-                                    print(response.choices[0].message.content)
-                                `,
-                            },
-                            {
-                                language: 'typescript',
-                                file: 'Node',
-                                code: dedent`
+                                    // tools and getWeather() are your existing tool-calling setup
                                     const response = await client.chat.completions.create({
                                       model: 'openai/gpt-5-mini',
                                       max_completion_tokens: 1024,
-                                      messages: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
-                                      posthogDistinctId: 'user_123',
-                                      posthogProperties: { $ai_session_id: 'conversation-abc', $ai_provider: 'cloudflare' },
+                                      messages: [{ role: 'user', content: "What's the weather in Paris?" }],
+                                      tools,
+                                      posthogDistinctId: distinctId,
+                                      posthogTraceId: traceId,
+                                      posthogProperties: { $ai_session_id: sessionId, $ai_provider: 'cloudflare' },
                                     })
 
-                                    console.log(response.choices[0].message.content)
+                                    // Capture each tool call as a span nested under the generation above
+                                    for (const call of response.choices[0].message.tool_calls) {
+                                      const start = Date.now()
+                                      const result = await getWeather(JSON.parse(call.function.arguments))
+
+                                      posthog.capture({
+                                        distinctId,
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: sessionId,
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: call.function.name,
+                                          $ai_input_state: call.function.arguments,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
                                 `,
                             },
                         ]}
@@ -194,114 +243,18 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                 <>
                     <Markdown>
                         {dedent`
-                            The wrapper above captures the \`$ai_generation\` event for the LLM call, but it never
-                            sees the tools you call after that. A tool call stays invisible unless you capture it
-                            yourself, as an \`$ai_span\` event.
+                            The recommended example above already captures a tool call as a span nested under its
+                            generation. The rules below apply whenever you capture a span by hand, including cases
+                            with more than one tool.
                         `}
                     </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            Here's a tool call captured as a span right after the generation that triggered it. Both
-                            share the same \`$ai_trace_id\`, so they nest in one trace, and the same
-                            \`$ai_session_id\`, so they group into the same conversation. \`client\` is the wrapper
-                            configured above, which captures the \`$ai_generation\` automatically. \`posthog\` is the
-                            raw client used to capture the span.
-                        `}
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'python',
-                                file: 'Python',
-                                code: dedent`
-                                    import time, uuid, json
-
-                                    session_id = "conversation-abc"  # same across every turn of the conversation
-                                    trace_id = str(uuid.uuid4())     # one per turn
-                                    distinct_id = "user_123"
-
-                                    # tools and get_weather() are your existing tool-calling setup
-                                    response = client.chat.completions.create(
-                                        model="openai/gpt-5-mini",
-                                        max_completion_tokens=1024,
-                                        messages=[{"role": "user", "content": "What's the weather in Paris?"}],
-                                        tools=tools,
-                                        posthog_distinct_id=distinct_id,
-                                        posthog_trace_id=trace_id,
-                                        posthog_properties={"$ai_session_id": session_id, "$ai_provider": "cloudflare"},
-                                    )
-
-                                    # Capture each tool call as a span nested under the generation above
-                                    for call in response.choices[0].message.tool_calls:
-                                        start = time.time()
-                                        result = get_weather(**json.loads(call.function.arguments))
-
-                                        posthog.capture(
-                                            distinct_id=distinct_id,
-                                            event="$ai_span",
-                                            properties={
-                                                "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
-                                                "$ai_span_id": str(uuid.uuid4()),
-                                                "$ai_span_name": call.function.name,
-                                                "$ai_input_state": call.function.arguments,
-                                                "$ai_output_state": result,
-                                                "$ai_latency": time.time() - start,
-                                            },
-                                        )
-                                `,
-                            },
-                            {
-                                language: 'typescript',
-                                file: 'Node',
-                                code: dedent`
-                                    const sessionId = 'conversation-abc' // same across every turn of the conversation
-                                    const traceId = crypto.randomUUID()  // one per turn
-                                    const distinctId = 'user_123'
-
-                                    // tools and getWeather() are your existing tool-calling setup
-                                    const response = await client.chat.completions.create({
-                                      model: 'openai/gpt-5-mini',
-                                      max_completion_tokens: 1024,
-                                      messages: [{ role: 'user', content: "What's the weather in Paris?" }],
-                                      tools,
-                                      posthogDistinctId: distinctId,
-                                      posthogTraceId: traceId,
-                                      posthogProperties: { $ai_session_id: sessionId, $ai_provider: 'cloudflare' },
-                                    })
-
-                                    // Capture each tool call as a span nested under the generation above
-                                    for (const call of response.choices[0].message.tool_calls) {
-                                      const start = Date.now()
-                                      const result = await getWeather(JSON.parse(call.function.arguments))
-
-                                      posthog.capture({
-                                        distinctId,
-                                        event: '$ai_span',
-                                        properties: {
-                                          $ai_trace_id: traceId,
-                                          $ai_session_id: sessionId,
-                                          $ai_span_id: crypto.randomUUID(),
-                                          $ai_span_name: call.function.name,
-                                          $ai_input_state: call.function.arguments,
-                                          $ai_output_state: result,
-                                          $ai_latency: (Date.now() - start) / 1000,
-                                        },
-                                      })
-                                    }
-                                `,
-                            },
-                        ]}
-                    />
 
                     <Markdown>
                         {dedent`
                             The span must carry the same \`$ai_trace_id\` as the generation it belongs to, or it
-                            won't nest under the same trace. Nothing measures duration for you: time your own code
-                            and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind of
-                            work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
+                            will not nest under the same trace. Nothing measures duration for you: time your own
+                            code and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind
+                            of work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
                         `}
                     </Markdown>
 
