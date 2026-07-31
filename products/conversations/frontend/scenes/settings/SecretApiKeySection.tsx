@@ -50,9 +50,7 @@ export function SecretApiKeySection(): JSX.Element {
                                 size="xsmall"
                                 onClick={openRotateDialog}
                                 disabledReason={
-                                    !isTeamTokenResetAvailable
-                                        ? 'You need to be a project admin to do this'
-                                        : undefined
+                                    !isTeamTokenResetAvailable ? 'You need to be a project admin to do this' : undefined
                                 }
                             />
                         }
@@ -68,8 +66,8 @@ export function SecretApiKeySection(): JSX.Element {
 
                 {!isTeamTokenResetAvailable && (
                     <LemonBanner type="info" className="my-2">
-                        You need to be a project admin to {actionVerb} the secret API key. Ask an admin on this
-                        project for help.
+                        You need to be a project admin to {actionVerb} the secret API key. Ask an admin on this project
+                        for help.
                     </LemonBanner>
                 )}
 
