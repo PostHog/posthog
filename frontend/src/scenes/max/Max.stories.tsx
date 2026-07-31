@@ -381,8 +381,8 @@ export const SharedThread: Story = {
                         id: sharedConversationId,
                         status: 'idle',
                         title: 'Shared Analysis: User Retention Insights',
-                        created_at: '2025-01-15T10:30:00.000000Z',
-                        updated_at: '2025-01-15T11:45:00.000000Z',
+                        created_at: '2023-01-15T10:30:00.000000Z',
+                        updated_at: '2023-01-15T11:45:00.000000Z',
                         user: {
                             id: 1337, // Different user from MOCK_DEFAULT_BASIC_USER
                             uuid: 'ANOTHER_USER_UUID',
@@ -395,14 +395,14 @@ export const SharedThread: Story = {
                                 id: 'msg-1',
                                 content: 'Can you analyze our user retention patterns and suggest improvements?',
                                 type: 'human',
-                                created_at: '2025-01-15T10:30:00.000000Z',
+                                created_at: '2023-01-15T10:30:00.000000Z',
                             },
                             {
                                 id: 'msg-2',
                                 content:
                                     "I'll analyze your user retention patterns. Let me start by examining your data.\n\nBased on the analysis, I can see several key insights:\n\n1. **Day 1 retention**: 45% of users return the next day\n2. **Week 1 retention**: 28% of users are still active after 7 days\n3. **Month 1 retention**: 15% of users remain engaged after 30 days\n\n**Key findings:**\n- Mobile users have 20% higher retention than desktop users\n- Users who complete onboarding have 3x better retention\n- Peak usage occurs between 6-9 PM local time\n\n**Recommendations:**\n1. Improve onboarding completion rate\n2. Implement mobile-first features\n3. Add engagement features for the 6-9 PM window\n4. Create re-engagement campaigns for users who drop off after day 1",
                                 type: 'ai',
-                                created_at: '2025-01-15T11:45:00.000000Z',
+                                created_at: '2023-01-15T11:45:00.000000Z',
                             },
                         ],
                     },
