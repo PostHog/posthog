@@ -58,6 +58,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -66,10 +70,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
@@ -316,6 +320,10 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -324,10 +332,10 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
@@ -575,6 +583,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -583,10 +595,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
@@ -1243,3 +1255,30 @@ export const ExperimentsCreateFromPromptCreateBody = /* @__PURE__ */ zod.object(
         .describe('Optional feature flag key. If omitted, a slug is derived from the experiment name.'),
     description: zod.string().optional().describe('Optional experiment description.'),
 })
+
+/**
+ * Resolve experiment context for a batch of session recordings.
+ *
+ * Batch variant of `session_context`, used to prefetch the replay player's experiments
+ * box for a whole recordings list in one request. POST because the id list doesn't fit a
+ * query string; the endpoint only reads. Already-computed sessions are served from (and
+ * cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+ * uses, so opening any prefetched recording renders its context instantly. Sessions whose
+ * recording metadata doesn't exist yet are omitted from the response, as are recordings
+ * the caller can't access and sessions beyond the batch's recording-day budget (each
+ * distinct recording day costs its own set of ClickHouse scans, so only the most recent
+ * days are computed per request).
+ */
+export const experimentsSessionContextsCreateBodySessionIdsMax = 20
+
+export const ExperimentsSessionContextsCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_ids: zod
+            .array(zod.string().describe('ID of one session recording.'))
+            .min(1)
+            .max(experimentsSessionContextsCreateBodySessionIdsMax)
+            .describe(
+                'IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.'
+            ),
+    })
+    .describe('Request body for the batch session-context endpoint.')

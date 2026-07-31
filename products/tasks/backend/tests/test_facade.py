@@ -440,6 +440,33 @@ class TestFacadeReadsAndMappers(TestCase):
         else:
             self.assertNotIn("custom_image_id", new_run.state)
 
+    def test_run_task_resume_carries_self_driving_head_branch(self):
+        # The signals review carve-out binds a PR to its run by matching the PR head ref against the
+        # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
+        # stamp must be copied forward or the carve-out stops matching the successor — the receiver
+        # leg refuses on the run-id mismatch and the webhook leg drops a cancelled predecessor — which
+        # silently ends re-reviews after the usual resume-after-cancel. Mirrors the wizard_head_branch
+        # carry that sits beside it.
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
         now = django_timezone.now()
@@ -585,6 +612,23 @@ class TestFacadeReadsAndMappers(TestCase):
         # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
         # and the run never opens a PR. Wizard runs must pin the overlap boot off.
         self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_pins_its_model(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_wizard_cloud_run(
+            team=self.team,
+            user_id=self.user.id,
+            repository="acme-co/web",
+        )
+        run = TaskRun.objects.get(task_id=created.task_id)
+        # Wizard runs route to the unbilled `onboarding` gateway product, which allowlists only
+        # these models. Dropping the pin puts the run back on the agent-server's premium default,
+        # which that product rejects, so every wizard cloud run would 403 at the gateway. Changing
+        # the pin means changing the allowlist in services/llm-gateway too.
+        self.assertEqual(run.state.get("runtime_adapter"), "claude")
+        self.assertEqual(run.state.get("model"), "claude-sonnet-5")
+        self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
 
 class TestRecentWizardCloudRunTimes(TestCase):

@@ -99,7 +99,7 @@ from products.conversations.backend.teams import (
 from products.conversations.backend.teams_attachments import extract_teams_graph_images
 from products.conversations.backend.teams_formatting import build_teams_reply_html
 
-from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_missing_file_scopes
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
@@ -499,6 +499,7 @@ def post_reply_to_slack(
                     ticket_id=ticket_id,
                     channel=slack_channel_id,
                     fallback_count=len(unique_urls),
+                    missing_file_scopes=supporthog_missing_file_scopes(team),
                 )
 
         logger.info(

@@ -1,11 +1,13 @@
 import re
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import uuid4
 
 from django.conf import settings
 
+import botocore.exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
@@ -14,6 +16,20 @@ from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+
+# A best-effort delete of old query folders can hit a transient S3 connectivity blip
+# (connect/read timeout, dropped connection). The folder is timestamped and simply gets
+# picked up by the age-based GC on a later sync, so these aren't worth an error-tracking
+# issue - unlike a real failure (permissions, missing bucket), which still gets captured.
+_TRANSIENT_S3_CONNECTION_EXCEPTIONS = (
+    botocore.exceptions.ConnectionError,  # covers ConnectTimeoutError, EndpointConnectionError
+    botocore.exceptions.ReadTimeoutError,
+    botocore.exceptions.ConnectionClosedError,
+)
+
+
+def _is_transient_s3_connection_error(error: BaseException) -> bool:
+    return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
 class NonRetryableException(Exception):
@@ -60,6 +76,7 @@ async def prepare_s3_files_for_querying(
     preserve_table_name_casing: Optional[bool] = False,
     delete_existing: bool = True,
     logger: Optional[FilteringBoundLogger] = None,
+    refresh_file_uris: Optional[Callable[[], Awaitable[list[str]]]] = None,
 ) -> str:
     """Async version that uses s3fs native async methods for concurrent file operations."""
 
@@ -160,9 +177,25 @@ async def prepare_s3_files_for_querying(
         async def copy_file(file: str) -> None:
             async with semaphore:
                 file_name = file.replace(f"{s3_folder_for_schema}/", "")
-                await s3._copy(file, f"{s3_path_for_querying}/{file_name}")
+                # _cp_file() copies a single known source to a known destination key directly.
+                # The generic _copy() also globs the source and probes whether the destination
+                # is a directory, each requiring its own S3 ListObjectsV2 call — with hundreds of
+                # files copied concurrently, that multiplies into enough LIST traffic to trigger
+                # S3's SlowDown rate limiting on the destination prefix.
+                await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
-        await asyncio.gather(*[copy_file(file) for file in file_uris])
+        try:
+            await asyncio.gather(*[copy_file(file) for file in file_uris])
+        except FileNotFoundError as e:
+            if refresh_file_uris is None:
+                raise
+            # A concurrent compact/vacuum pass on the same Delta table (e.g. a zombie attempt
+            # from a heartbeat timeout still running) can physically delete a source file
+            # between our listing and this copy. Re-listing picks up wherever that pass left
+            # the table and retries once against the current file set.
+            await _log(f"Source file vanished mid-copy, retrying with a fresh file listing: {e}", level="error")
+            file_uris = await refresh_file_uris()
+            await asyncio.gather(*[copy_file(file) for file in file_uris])
 
         # Delete existing files after copying new ones
         if delete_existing and files_to_delete:
@@ -174,7 +207,8 @@ async def prepare_s3_files_for_querying(
                         await s3._rm(file, recursive=True)
                     except Exception as e:
                         await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                        capture_exception(e)
+                        if not _is_transient_s3_connection_error(e):
+                            capture_exception(e)
 
             await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
 

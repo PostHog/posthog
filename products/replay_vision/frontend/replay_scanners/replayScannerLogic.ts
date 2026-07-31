@@ -18,6 +18,7 @@ import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
@@ -47,6 +48,7 @@ import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
 import { refreshVisionQuota } from '../logics/visionQuotaLogic'
+import { observationClipboardText } from '../utils/observation'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
@@ -76,6 +78,8 @@ const OBSERVATION_TRIGGERED_BY_VALUES: readonly ObservationTriggeredByValue[] = 
 const OBSERVATION_VERDICT_VALUES: readonly ObservationVerdictValue[] = ['yes', 'no', 'inconclusive']
 
 export const OBSERVATIONS_PAGE_SIZE = 50
+// Past this many rows the clipboard is the wrong tool.
+const COPY_ALL_OBSERVATIONS_LIMIT = 500
 
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
@@ -213,6 +217,7 @@ export interface replayScannerLogicValues {
     availableTags: string[]
     chartDateFrom: string | null
     chartDateTo: string | null
+    copyingAllObservations: boolean
     durationValidationError: string | null
     estimateRequestVersion: number
     hasActiveObservationFilters: boolean
@@ -276,6 +281,12 @@ export interface replayScannerLogicActions {
         tags: string[]
     }
     clearObservationFilters: () => {
+        value: true
+    }
+    copyAllObservations: () => {
+        value: true
+    }
+    copyAllObservationsFinished: () => {
         value: true
     }
     dismissTagSuggestions: () => {
@@ -601,6 +612,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         retryObservationSuccess: (observationId: string) => ({ observationId }),
         retryObservationFailure: (observationId: string) => ({ observationId }),
         refreshObservations: true,
+        copyAllObservations: true,
+        copyAllObservationsFinished: true,
     }),
 
     forms(({ props, values, actions }) => ({
@@ -785,6 +798,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggerOnDemandObservation: () => true,
                 triggerOnDemandObservationSuccess: () => false,
                 triggerOnDemandObservationFailure: () => false,
+            },
+        ],
+        copyingAllObservations: [
+            false,
+            {
+                copyAllObservations: () => true,
+                copyAllObservationsFinished: () => false,
             },
         ],
         onDemandObservationSuccessCount: [
@@ -1311,6 +1331,36 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             refreshObservations: () => reloadObservationsAndStats(),
+
+            copyAllObservations: async (_, breakpoint) => {
+                try {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (props.id === 'new' || !teamId) {
+                        return
+                    }
+                    // Only succeeded rows have a result body to paste.
+                    const params = {
+                        ...buildObservationListParams(values, COPY_ALL_OBSERVATIONS_LIMIT, 0),
+                        status: 'succeeded',
+                    }
+                    const response = await visionScannersObservationsList(String(teamId), props.id, params)
+                    breakpoint()
+                    const results = (response.results ?? []) as ReplayObservationApi[]
+                    const texts = results.map(observationClipboardText).filter((text): text is string => text !== null)
+                    if (texts.length === 0) {
+                        lemonToast.info('No results to copy for the current filters.')
+                        return
+                    }
+                    const count = response.count ?? texts.length
+                    const description =
+                        count > results.length
+                            ? `the latest ${texts.length.toLocaleString()} of ${count.toLocaleString()} results`
+                            : `${texts.length.toLocaleString()} result${texts.length === 1 ? '' : 's'}`
+                    await copyToClipboard(texts.join('\n\n---\n\n'), description)
+                } finally {
+                    actions.copyAllObservationsFinished()
+                }
+            },
 
             loadObservations: async (_, breakpoint) => {
                 if (props.id === 'new') {

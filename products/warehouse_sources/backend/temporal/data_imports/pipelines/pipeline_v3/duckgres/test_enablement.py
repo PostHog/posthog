@@ -7,7 +7,6 @@ from posthog.models import Organization, Team
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import enablement
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
-    duckgres_sink_team_ids,
     is_duckgres_sink_team_member,
 )
 
@@ -47,7 +46,10 @@ def test_duckgres_sink_flag_evaluated_locally_with_group_properties(
     mock_feature_enabled.return_value = True
 
     with _patch_all_rows([_cp_row(team)]):
-        assert duckgres_sink_team_ids() == [team.id]
+        result = enablement.duckgres_sink_enablement()
+
+    assert result is not None
+    assert result.team_ids == [team.id]
 
     mock_feature_enabled.assert_called_once_with(
         "duckgres-batch-sink",
@@ -76,7 +78,10 @@ def test_duckgres_sink_skips_team_when_flag_unresolved_locally(
     mock_feature_enabled.return_value = None
 
     with _patch_all_rows([_cp_row(team)]):
-        assert duckgres_sink_team_ids() == []
+        result = enablement.duckgres_sink_enablement()
+
+    assert result is not None
+    assert result.team_ids == []
 
 
 @pytest.mark.django_db
@@ -108,6 +113,32 @@ def test_duckgres_sink_enablement_uses_memberships_and_carries_org_budgets(
         (team_b.id, str(org_b.id), 7),
     }
     assert mock_feature_enabled.call_count == 2
+
+
+@pytest.mark.django_db
+@patch.object(enablement, "is_dev_mode", return_value=False)
+@patch.object(enablement.posthoganalytics, "feature_enabled")
+def test_duckgres_sink_enablement_ignores_non_uuid_control_plane_org_ids(
+    mock_feature_enabled: MagicMock, _mock_dev: MagicMock
+) -> None:
+    """The control plane can report extra rows for a team keyed by a non-UUID
+    organization_id (e.g. dev/test rows using human-readable slugs instead of a real
+    org id). Those must not crash the whole refresh via a Django UUID lookup — they
+    should just fail the org match-up and be skipped, like any other mismatched row."""
+    org = Organization.objects.create(name="Org")
+    team = Team.objects.create(organization=org)
+    DuckgresServer.objects.create(organization=org, host="h", username="root", password="x")
+    mock_feature_enabled.return_value = True
+
+    mismatched_row = _cp_row(team)
+    mismatched_row["org_id"] = "not-a-uuid-slug"
+
+    with _patch_all_rows([_cp_row(team), mismatched_row]):
+        result = enablement.duckgres_sink_enablement()
+
+    assert result is not None
+    assert result.team_ids == [team.id]
+    mock_feature_enabled.assert_called_once()
 
 
 @pytest.mark.django_db

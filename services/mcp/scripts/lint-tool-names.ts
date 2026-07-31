@@ -19,6 +19,10 @@
  * generated schema JSONs) must point at an existing tool/skill. This only covers
  * name-level staleness — it cannot validate documented schemas or tool behavior.
  *
+ * url_prefix: each category's prefix must be a real frontend route (it becomes the
+ * `_posthogUrl` link on tool results), checked against the generated app-url manifest
+ * plus the SettingSectionId union. Pointing it at an API path is the easy mistake.
+ *
  * Usage:
  *   pnpm --filter=@posthog/mcp lint-tool-names
  */
@@ -87,6 +91,134 @@ function validateYamlDefinitions(violations: Violation[], knownToolNames: Set<st
     }
 
     return hasErrors
+}
+
+/**
+ * Routes the frontend actually serves. Two sources, because neither is complete on its own: the
+ * generated app-url manifest only covers routes that have a `urls` builder, while the route maps in
+ * products.tsx / manifest.tsx carry the rest (scenes reachable by path but with no builder).
+ */
+function loadAppRoutes(): Set<string> {
+    const routes = new Set<string>()
+
+    const manifestPath = path.resolve(MCP_ROOT, 'src/tools/links/app-url-manifest.json')
+    if (fs.existsSync(manifestPath)) {
+        const walk = (node: unknown): void => {
+            if (!node || typeof node !== 'object') {
+                return
+            }
+            const template = (node as { template?: unknown }).template
+            if (typeof template === 'string') {
+                routes.add(template)
+            }
+            for (const value of Object.values(node)) {
+                walk(value)
+            }
+        }
+        walk(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')))
+    }
+
+    const routeMapFiles = [path.resolve(REPO_ROOT, 'frontend/src/products.tsx')]
+    if (fs.existsSync(PRODUCTS_DIR)) {
+        for (const entry of fs.readdirSync(PRODUCTS_DIR, { withFileTypes: true })) {
+            const manifest = path.join(PRODUCTS_DIR, entry.name, 'manifest.tsx')
+            if (entry.isDirectory() && fs.existsSync(manifest)) {
+                routeMapFiles.push(manifest)
+            }
+        }
+    }
+    for (const file of routeMapFiles) {
+        if (!fs.existsSync(file)) {
+            continue
+        }
+        const src = fs.readFileSync(file, 'utf-8')
+        // Route-map keys: `'/path/:param': [...]` and url builders returning a literal path.
+        for (const match of src.matchAll(/['"](\/[a-zA-Z0-9_\-/:{}]*)['"]\s*:/g)) {
+            if (match[1]) {
+                routes.add(match[1])
+            }
+        }
+        for (const match of src.matchAll(/=>\s*[`'"](\/[a-zA-Z0-9_\-/:${}]*)/g)) {
+            if (match[1]) {
+                routes.add(match[1])
+            }
+        }
+    }
+
+    return routes
+}
+
+/**
+ * Settings pages are `/settings/<SettingSectionId>`, and only a couple of sections have a urls.ts
+ * builder, so the app-url manifest doesn't carry them. Read the union instead. It has no terminating
+ * semicolon, so the block runs until the next top-level declaration.
+ */
+function loadSettingSectionIds(): Set<string> {
+    const ids = new Set<string>()
+    const typesPath = path.resolve(REPO_ROOT, 'frontend/src/scenes/settings/types.ts')
+    if (!fs.existsSync(typesPath)) {
+        return ids
+    }
+    const src = fs.readFileSync(typesPath, 'utf-8')
+    const union = /export type SettingSectionId =([\s\S]*?)(?=\n\S|$)/.exec(src)?.[1]
+    for (const match of (union ?? '').matchAll(/'([a-z0-9-]+)'/g)) {
+        if (match[1]) {
+            ids.add(match[1])
+        }
+    }
+    return ids
+}
+
+/**
+ * `url_prefix` is the frontend app route used to build the `_posthogUrl` link on tool results, so a
+ * prefix that isn't a real route hands agents (and the humans they answer) a 404. The API path is the
+ * easy mistake: `/conversations/tickets` is a valid endpoint but the scene lives at `/support/tickets`.
+ */
+function validateUrlPrefixes(violations: Violation[]): void {
+    const routes = loadAppRoutes()
+    const settingSectionIds = loadSettingSectionIds()
+    if (routes.size === 0) {
+        return
+    }
+
+    const isRoute = (prefix: string): boolean =>
+        [...routes].some((route) => route === prefix || route.startsWith(`${prefix}/`))
+    const isSettingsSection = (prefix: string): boolean =>
+        prefix.startsWith('/settings/') && settingSectionIds.has(prefix.slice('/settings/'.length))
+
+    for (const def of discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })) {
+        const parsed = parseYaml(fs.readFileSync(def.filePath, 'utf-8')) as {
+            url_prefix?: unknown
+            tools?: Record<string, { enrich_url?: unknown }>
+        }
+        const prefix = parsed?.url_prefix
+        if (typeof prefix !== 'string') {
+            continue
+        }
+        const source = path.relative(REPO_ROOT, def.filePath)
+
+        if (prefix === '/') {
+            // `/` + enrich_url concatenates into `//{id}`, which a browser reads as protocol-relative.
+            const enriching = Object.entries(parsed.tools ?? {}).filter(([, config]) => config?.enrich_url)
+            if (enriching.length > 0) {
+                violations.push({
+                    source,
+                    tool: `url_prefix: / with enrich_url on ${enriching.map(([name]) => name).join(', ')}`,
+                    reason: 'a "/" prefix cannot carry enrich_url (yields "//{id}") — add a real scene path or drop enrich_url',
+                })
+            }
+            continue
+        }
+
+        if (isRoute(prefix) || isSettingsSection(prefix)) {
+            continue
+        }
+        violations.push({
+            source,
+            tool: `url_prefix: ${prefix}`,
+            reason: 'not a frontend app route (use the scene path, or "/" when the product has no page)',
+        })
+    }
 }
 
 function validateJsonDefinitions(fileName: string, violations: Violation[], knownToolNames: Set<string>): boolean {
@@ -199,6 +331,7 @@ function main(): void {
     const knownToolNames = new Set<string>()
 
     hasErrors = validateYamlDefinitions(violations, knownToolNames) || hasErrors
+    validateUrlPrefixes(violations)
 
     for (const jsonFile of ['tool-definitions.json', 'generated-tool-definitions.json']) {
         hasErrors = validateJsonDefinitions(jsonFile, violations, knownToolNames) || hasErrors
@@ -217,11 +350,11 @@ function main(): void {
         return
     }
 
-    process.stderr.write(`Found ${violations.length} tool name violation(s):\n\n`)
+    process.stderr.write(`Found ${violations.length} violation(s):\n\n`)
     for (const v of violations) {
         process.stderr.write(`  ${v.tool}: ${v.reason} (${v.source})\n`)
     }
-    process.stderr.write(`\nTo fix: shorten or rename the tool name to satisfy the length/pattern constraints.\n`)
+    process.stderr.write(`\nTo fix: follow the reason on each line above.\n`)
     process.exitCode = 1
 }
 
