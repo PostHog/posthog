@@ -4847,6 +4847,16 @@ def run_task(
         if prev_wizard_head_branch:
             extra_state["wizard_head_branch"] = prev_wizard_head_branch
 
+        # Same reasoning for a signals self-driving run: the head branch is baked into the original
+        # prompt, so the resumed run pushes it too, and the review carve-out's branch linkage
+        # (find_signal_implementation_run) only matches the successor if its stamp is carried
+        # forward — otherwise a resume (the usual recovery for a cancelled run) silently ends
+        # re-reviews. The key is PATCH-protected, so this server-side copy is the only way it
+        # reaches the successor run.
+        prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
+        if prev_self_driving_head_branch:
+            extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
+
         # A read-only GitHub grant describes how the task was created, not one run — without the
         # carry-forward, a resumed successor of a repo-less read-only run falls through to the
         # full credential path and regains the write-capable token. (The key is PATCH-protected,
