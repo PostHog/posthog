@@ -124,6 +124,12 @@ pub struct ConsistencyArgs {
 
 #[derive(Args, Clone)]
 pub struct GateArgs {
+    /// Extra KEY=VALUE environment for spawned leaders — the lever for
+    /// benchmarking leader features (e.g. KAFKA_TRANSACTIONAL_FENCING)
+    /// without a harness change per flag. Repeatable.
+    #[arg(long = "leader-env", value_parser = parse_env_pair)]
+    pub leader_env: Vec<(String, String)>,
+
     /// Target an already-running stack at this router URL instead of
     /// spawning one. When unset, the harness spawns its own isolated stack
     /// (replica, leaders, leader-mode router, writer) against the
@@ -256,9 +262,10 @@ pub struct GateArgs {
     #[arg(long, default_value_t = false)]
     pub kill_handoff_target: bool,
 
-    /// Leader cache capacity in entries. Set below --persons to put the
-    /// cache under eviction pressure.
-    #[arg(long, default_value_t = 100_000)]
+    /// Leader per-partition cache budget in bytes (CACHE_MEMORY_CAPACITY_BYTES).
+    /// Set below the seeded pool's footprint to put the cache under
+    /// eviction pressure. Default matches the dev deployment (16 MiB).
+    #[arg(long, default_value_t = 16_777_216)]
     pub cache_capacity: usize,
 
     /// Recovery consumer pool size for spawned leaders
@@ -431,4 +438,11 @@ pub struct TrafficArgs {
     /// this namespace.
     #[arg(long, env = "CHAOS_ETCD_NAMESPACE")]
     pub chaos_etcd_namespace: Option<String>,
+}
+
+/// Parse a `KEY=VALUE` pair for environment passthrough arguments.
+fn parse_env_pair(s: &str) -> Result<(String, String), String> {
+    s.split_once('=')
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .ok_or_else(|| format!("expected KEY=VALUE, got {s:?}"))
 }
