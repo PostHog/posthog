@@ -79,6 +79,7 @@ from products.tasks.backend.logic.services.local_skills import (
     LocalSkillsCache,
     populate_skills_directory,
 )
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     SandboxProvisionDiagnostics,
     capture_modal_output_if_debug,
@@ -157,6 +158,9 @@ def _session_init_probe_hosts() -> list[str]:
     reason to exist.
     """
     hosts = list(SESSION_INIT_PROBE_HOSTS)
+    mcp_host = _hostname_from_url(resolve_mcp_url())
+    if mcp_host and mcp_host not in hosts:
+        hosts.insert(0, mcp_host)
     for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
         gateway_host = _hostname_from_url(getattr(settings, setting_name, None))
         if gateway_host and gateway_host not in hosts:
