@@ -1,4 +1,7 @@
+import pytest
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.salesforce.template_salesforce import (
@@ -63,6 +66,52 @@ class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            (
+                "expired_session",
+                401,
+                [{"message": "Session expired or invalid", "errorCode": "INVALID_SESSION_ID"}],
+                "Salesforce rejected the credentials (status 401, INVALID_SESSION_ID: Session expired or invalid). Reconnect the Salesforce account for this destination.",
+            ),
+            (
+                "missing_create_permission",
+                400,
+                [{"message": "entity type cannot be inserted: Form Entry", "errorCode": "INSUFFICIENT_ACCESS"}],
+                "Salesforce rejected the request (status 400, INSUFFICIENT_ACCESS: entity type cannot be inserted: Form Entry). Retrying will not help. Check the object permissions, the field values, and the object path in Salesforce.",
+            ),
+            (
+                "field_too_long",
+                400,
+                [{"message": "Landing_URL__c: data value too large", "errorCode": "STRING_TOO_LONG"}],
+                "Salesforce rejected the request (status 400, STRING_TOO_LONG: Landing_URL__c: data value too large). Retrying will not help. Check the object permissions, the field values, and the object path in Salesforce.",
+            ),
+            (
+                "forbidden_without_error_code",
+                403,
+                "Forbidden",
+                "Salesforce rejected the request (status 403, Forbidden). Retrying will not help. Check the object permissions, the field values, and the object path in Salesforce.",
+            ),
+            (
+                "rate_limited",
+                429,
+                [{"message": "Too many requests", "errorCode": "REQUEST_LIMIT_EXCEEDED"}],
+                "Salesforce request failed with status 429",
+            ),
+            (
+                "server_error",
+                503,
+                "Service Unavailable",
+                "Salesforce request failed with status 503: Service Unavailable",
+            ),
+        ]
+    )
+    def test_error_is_classified(self, _name, status, body, expected):
+        self.mock_fetch_response = lambda *args: {"status": status, "body": body}  # type: ignore
+        with pytest.raises(Exception) as exc:
+            self.run_function(self._inputs())
+        assert expected in str(exc.value)
+
 
 class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
     template = template_salesforce_update
@@ -116,6 +165,16 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
                 "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
             },
         )
+
+    def test_permission_error_is_not_reported_as_auth(self):
+        self.mock_fetch_response = lambda *args: {  # type: ignore
+            "status": 400,
+            "body": [{"message": "entity type cannot be inserted: Form Entry", "errorCode": "INSUFFICIENT_ACCESS"}],
+        }
+        with pytest.raises(Exception) as exc:
+            self.run_function(self._inputs())
+        assert "INSUFFICIENT_ACCESS" in str(exc.value)
+        assert "credentials" not in str(exc.value)
 
 
 class TestTemplateMigration(BaseTest):

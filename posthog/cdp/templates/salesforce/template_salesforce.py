@@ -9,6 +9,37 @@ common_filters = {
     "filter_test_accounts": True,
 }
 
+# Salesforce answers every rejection with a 4xx, so the status alone can't tell an expired session apart from a
+# missing object permission or an over-long field. The errorCode in the body is what distinguishes them.
+error_handling_hog = """
+let salesforceError := (res) -> {
+  let code := ''
+  let message := ''
+  if (typeof(res.body) in ('array', 'tuple') and typeof(res.body.1) == 'object') {
+    code := res.body.1.errorCode ?? ''
+    message := res.body.1.message ?? ''
+  } else if (typeof(res.body) == 'object') {
+    code := res.body.errorCode ?? ''
+    message := res.body.message ?? ''
+  }
+  let detail := code != '' ? f'{code}: {message}' : f'{res.body}'
+
+  if (code in ('INVALID_SESSION_ID', 'INVALID_AUTH_HEADER', 'INVALID_LOGIN') or (res.status == 401 and code == '')) {
+    return f'Salesforce rejected the credentials (status {res.status}, {detail}). Reconnect the Salesforce account for this destination.'
+  }
+  if (res.status >= 400 and res.status < 500 and res.status != 408 and res.status != 429) {
+    return f'Salesforce rejected the request (status {res.status}, {detail}). Retrying will not help. Check the object permissions, the field values, and the object path in Salesforce.'
+  }
+  return f'Salesforce request failed with status {res.status}: {res.body}'
+}
+
+if (res.status >= 400) {
+  throw Error(salesforceError(res));
+} else {
+  print(res.status, res.body)
+}
+""".strip()
+
 common_inputs = {
     "oauth": {
         "key": "oauth",
@@ -61,13 +92,9 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
     'Content-Type': 'application/json'
   }
 });
-
-if (res.status >= 400) {
-  throw Error(f'Salesforce request failed with status {res.status}: {res.body}');
-} else {
-  print(res.status, res.body)
-}
-""".strip(),
+""".strip()
+    + "\n\n"
+    + error_handling_hog,
     inputs_schema=[
         common_inputs["oauth"],
         {
@@ -149,13 +176,9 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
     'Content-Type': 'application/json'
   }
 });
-
-if (res.status >= 400) {
-  throw Error(f'Salesforce request failed with status {res.status}: {res.body}');
-} else {
-  print(res.status, res.body)
-}
-""".strip(),
+""".strip()
+    + "\n\n"
+    + error_handling_hog,
     inputs_schema=[
         common_inputs["oauth"],
         {
