@@ -5,6 +5,7 @@ import random
 import threading
 import importlib.metadata
 from collections.abc import Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from types import FrameType
 from typing import Any, cast
@@ -167,18 +168,24 @@ RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
 DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ResolvedParserBackends:
+    primary: HogQLParserBackend
+    shadow: HogQLParserBackend | None = None
+
+
 # `parserMode` (a HogQLQueryModifier) selects the parser backend per query.
-# Each mode maps to a `(primary, shadow)` backend pair: the primary parses
+# Each mode maps to a primary/shadow backend pair: the primary parses
 # the query and its result is always what's returned; a non-None shadow is
 # run on a small sample of parses purely to detect divergence.
-_PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBackend | None]] = {
-    ParserMode.CPP_ONLY: ("cpp-json", None),
-    ParserMode.RUST_ONLY: ("rust-json", None),
-    ParserMode.CPP_WITH_RUST_SHADOW: ("cpp-json", "rust-json"),
-    ParserMode.CPP_WITH_RUST_PY_SHADOW: ("cpp-json", "rust-py"),
-    ParserMode.RUST_WITH_CPP_SHADOW: ("rust-json", "cpp-json"),
-    ParserMode.RUST_PY_ONLY: ("rust-py", None),
-    ParserMode.RUST_PY_WITH_CPP_SHADOW: ("rust-py", "cpp-json"),
+_PARSER_MODE_BACKENDS: dict[ParserMode, ResolvedParserBackends] = {
+    ParserMode.CPP_ONLY: ResolvedParserBackends(primary="cpp-json"),
+    ParserMode.RUST_ONLY: ResolvedParserBackends(primary="rust-json"),
+    ParserMode.CPP_WITH_RUST_SHADOW: ResolvedParserBackends(primary="cpp-json", shadow="rust-json"),
+    ParserMode.CPP_WITH_RUST_PY_SHADOW: ResolvedParserBackends(primary="cpp-json", shadow="rust-py"),
+    ParserMode.RUST_WITH_CPP_SHADOW: ResolvedParserBackends(primary="rust-json", shadow="cpp-json"),
+    ParserMode.RUST_PY_ONLY: ResolvedParserBackends(primary="rust-py"),
+    ParserMode.RUST_PY_WITH_CPP_SHADOW: ResolvedParserBackends(primary="rust-py", shadow="cpp-json"),
 }
 
 # Parser modes whose *primary* backend is the C++ parser. `parserMode` is a public
@@ -232,10 +239,8 @@ def _shadow_sample_rate() -> float:
     return 1.0 if _is_test_mode() else _SHADOW_SAMPLE_RATE
 
 
-def _resolve_parser_mode(
-    parser_mode: ParserMode | None, backend: HogQLParserBackend | None
-) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
-    """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
+def _resolve_parser_mode(parser_mode: ParserMode | None, backend: HogQLParserBackend | None) -> ResolvedParserBackends:
+    """Resolve a `parserMode` modifier to primary/shadow backends.
 
     With neither `parser_mode` nor an explicit `backend=` set, the prod
     default is `RUST_PY_WITH_CPP_SHADOW`: rust-py is the primary (its result
@@ -273,12 +278,12 @@ def _resolve_parser_mode(
     if parser_mode is not None:
         return _PARSER_MODE_BACKENDS[parser_mode]
     if backend is not None:
-        return backend, None
+        return ResolvedParserBackends(primary=backend)
     if _RUST_PARSER_AVAILABLE:
         if _is_test_mode():
             return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_ONLY]
         return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
-    return DEFAULT_BACKEND, None
+    return ResolvedParserBackends(primary=DEFAULT_BACKEND)
 
 
 class HogQLParserShadowMismatch(Exception):
@@ -574,20 +579,22 @@ def parse_string_template(
     """Parse a full template string without start/end quotes"""
     if timings is None:
         timings = HogQLTimings()
-    primary, shadow = _resolve_parser_mode(parser_mode, backend)
+    resolved = _resolve_parser_mode(parser_mode, backend)
     # The cache is keyed on `"F'" + string` (a runtime concat that never
     # matches a frame literal), so pass the raw `string` as the classify
     # target — that keeps the frame walk on the cold path here too.
-    with timings.measure(f"parse_full_template_string_{primary}"):
+    with timings.measure(f"parse_full_template_string_{resolved.primary}"):
         node = _parse_cached(
             ParseRule.FULL_TEMPLATE_STRING,
             "F'" + string,
-            primary,
+            resolved.primary,
             cache_origin,
             classify_input=string,
         )
-        if shadow is not None:
-            _run_shadow_comparison(ParseRule.FULL_TEMPLATE_STRING, "F'" + string, primary, shadow, node, None)
+        if resolved.shadow is not None:
+            _run_shadow_comparison(
+                ParseRule.FULL_TEMPLATE_STRING, "F'" + string, resolved.primary, resolved.shadow, node, None
+            )
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -608,11 +615,11 @@ def parse_expr(
         raise SyntaxError("Empty query")
     if timings is None:
         timings = HogQLTimings()
-    primary, shadow = _resolve_parser_mode(parser_mode, backend)
-    with timings.measure(f"parse_expr_{primary}"):
-        node = _parse_cached(ParseRule.EXPR, expr, primary, cache_origin, start=start)
-        if shadow is not None:
-            _run_shadow_comparison(ParseRule.EXPR, expr, primary, shadow, node, start)
+    resolved = _resolve_parser_mode(parser_mode, backend)
+    with timings.measure(f"parse_expr_{resolved.primary}"):
+        node = _parse_cached(ParseRule.EXPR, expr, resolved.primary, cache_origin, start=start)
+        if resolved.shadow is not None:
+            _run_shadow_comparison(ParseRule.EXPR, expr, resolved.primary, resolved.shadow, node, start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -630,11 +637,11 @@ def parse_order_expr(
 ) -> ast.OrderExpr:
     if timings is None:
         timings = HogQLTimings()
-    primary, shadow = _resolve_parser_mode(parser_mode, backend)
-    with timings.measure(f"parse_order_expr_{primary}"):
-        node = _parse_cached(ParseRule.ORDER_EXPR, order_expr, primary, cache_origin)
-        if shadow is not None:
-            _run_shadow_comparison(ParseRule.ORDER_EXPR, order_expr, primary, shadow, node, None)
+    resolved = _resolve_parser_mode(parser_mode, backend)
+    with timings.measure(f"parse_order_expr_{resolved.primary}"):
+        node = _parse_cached(ParseRule.ORDER_EXPR, order_expr, resolved.primary, cache_origin)
+        if resolved.shadow is not None:
+            _run_shadow_comparison(ParseRule.ORDER_EXPR, order_expr, resolved.primary, resolved.shadow, node, None)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -652,12 +659,12 @@ def parse_select(
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
-    primary, shadow = _resolve_parser_mode(parser_mode, backend)
-    with timings.measure(f"parse_select_{primary}"):
+    resolved = _resolve_parser_mode(parser_mode, backend)
+    with timings.measure(f"parse_select_{resolved.primary}"):
         with tracer.start_as_current_span("parse_statement_to_node"):
-            node = _parse_cached(ParseRule.SELECT, statement, primary, cache_origin)
-        if shadow is not None:
-            _run_shadow_comparison(ParseRule.SELECT, statement, primary, shadow, node, None)
+            node = _parse_cached(ParseRule.SELECT, statement, resolved.primary, cache_origin)
+        if resolved.shadow is not None:
+            _run_shadow_comparison(ParseRule.SELECT, statement, resolved.primary, resolved.shadow, node, None)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -674,9 +681,9 @@ def parse_program(
 ) -> ast.Program:
     if timings is None:
         timings = HogQLTimings()
-    primary, shadow = _resolve_parser_mode(parser_mode, backend)
-    with timings.measure(f"parse_program_{primary}"):
-        node = _parse_cached(ParseRule.PROGRAM, source, primary, cache_origin)
-        if shadow is not None:
-            _run_shadow_comparison(ParseRule.PROGRAM, source, primary, shadow, node, None)
+    resolved = _resolve_parser_mode(parser_mode, backend)
+    with timings.measure(f"parse_program_{resolved.primary}"):
+        node = _parse_cached(ParseRule.PROGRAM, source, resolved.primary, cache_origin)
+        if resolved.shadow is not None:
+            _run_shadow_comparison(ParseRule.PROGRAM, source, resolved.primary, resolved.shadow, node, None)
     return cast("ast.Program", node)

@@ -1,4 +1,5 @@
 import typing
+from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
 from typing import Optional, cast
@@ -38,6 +39,15 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.models import Team
 
 from products.actions.backend.models.action import Action
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class DateWhereExprs:
+    date_from_expr: ast.Expr
+    date_to_expr: ast.Expr
+
+    def as_exprs(self) -> list[ast.Expr]:
+        return [self.date_from_expr, self.date_to_expr]
 
 
 class TrendsActorsQueryBuilder:
@@ -215,11 +225,11 @@ class TrendsActorsQueryBuilder:
         ]
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
-            date_from, date_to = self._date_where_expr()
+            date_where = self._date_where_expr()
             query_builder = FirstTimeForUserEventsQueryAlternator(
                 ast.SelectQuery(select=[]),
-                date_from,
-                date_to,
+                date_where.date_from_expr,
+                date_where.date_to_expr,
                 filters=self._events_where_expr(
                     with_date_range_expr=False, with_event_or_action_expr=False, with_breakdown_expr=False
                 ),
@@ -310,7 +320,7 @@ class TrendsActorsQueryBuilder:
         exprs: list[ast.Expr] = [
             *self._entity_where_expr(),
             *self._prop_where_expr(),
-            *(self._date_where_expr() if with_date_range_expr else []),
+            *(self._date_where_expr().as_exprs() if with_date_range_expr else []),
             *self._day_of_week_where_expr(),
             *(self._breakdown_where_expr() if with_breakdown_expr else []),
             *self._filter_empty_actors_expr(),
@@ -388,7 +398,7 @@ class TrendsActorsQueryBuilder:
 
         return conditions
 
-    def _date_where_expr(self) -> tuple[ast.Expr, ast.Expr]:
+    def _date_where_expr(self) -> DateWhereExprs:
         # types
         date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange
         if self.is_compare_previous:
@@ -473,13 +483,13 @@ class TrendsActorsQueryBuilder:
             actors_from_expr = ast.Constant(value=actors_from)
             actors_to_expr = ast.Constant(value=actors_to)
 
-        return (
-            ast.CompareOperation(
+        return DateWhereExprs(
+            date_from_expr=ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
                 right=actors_from_expr,
             ),
-            ast.CompareOperation(
+            date_to_expr=ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
                 op=actors_to_op,
                 right=actors_to_expr,

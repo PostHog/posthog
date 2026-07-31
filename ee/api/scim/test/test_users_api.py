@@ -34,14 +34,14 @@ class TestSCIMUsersAPI(APILicensedTest):
         )
 
         # Generate SCIM token
-        self.plain_token, hashed_token = generate_scim_token()
+        self.scim_token = generate_scim_token()
         config = IdentityProviderConfig.objects.create(
-            organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
+            organization=self.organization, scim_enabled=True, scim_bearer_token=self.scim_token.hashed_token
         )
         self.domain.identity_provider_config = config
         self.domain.save()
 
-        self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
+        self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.scim_token.plain_token}"}
         self.client.credentials(**self.scim_headers)
 
     def test_users_list(self):

@@ -12,6 +12,7 @@ reads degrade to not-onboarded, and the team-deletion guard fails closed.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 
 import structlog
@@ -42,8 +43,14 @@ def _get_cp_row(team_id: int) -> cp_teams.CPTeam | None:
 # --- events/persons table names (Dagster duckling backfill) -----------------------
 
 
-def resolve_events_persons_tables(team_id: int) -> tuple[str, str]:
-    """The per-team (events, persons) duckling table names the backfill writes to.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class DucklingTables:
+    events_table: str
+    persons_table: str
+
+
+def resolve_events_persons_tables(team_id: int) -> DucklingTables:
+    """The per-team events/persons duckling table names the backfill writes to.
 
     Failure posture: raises :class:`CPUnavailableError` when the control plane can't
     answer and the cache is cold — the backfill run fails and retries rather than
@@ -52,11 +59,11 @@ def resolve_events_persons_tables(team_id: int) -> tuple[str, str]:
     row = _get_cp_row(team_id)
     if row is None:
         # Legacy single-team ducklings without a team row share the base tables.
-        return "events", "persons"
+        return DucklingTables(events_table="events", persons_table="persons")
     events_table, persons_table = row.resolved_events_table, row.resolved_persons_table
     validate_duckgres_identifier(events_table)
     validate_duckgres_identifier(persons_table)
-    return events_table, persons_table
+    return DucklingTables(events_table=events_table, persons_table=persons_table)
 
 
 # --- data-imports schema (v3 sink hot path) ---------------------------------------

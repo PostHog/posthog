@@ -1,4 +1,5 @@
 import traceback
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
@@ -14,6 +15,13 @@ logger = structlog.get_logger(__name__)
 
 ACTIVITY_LOG_CLIENT_HEADER = "x-posthog-client"
 ACTIVITY_LOG_CLIENT_MAX_LENGTH = 32
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CreatedByInfo:
+    user_id: str | None
+    email: str | None
+    name: str | None
 
 
 class ActivityLoggingStorage:

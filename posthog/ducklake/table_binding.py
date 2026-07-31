@@ -33,7 +33,8 @@ def _bind_posthog_tables(database: Any, team_id: int) -> None:
 
     from posthog.ducklake.team_state import resolve_events_persons_tables
 
-    physical_names = dict(zip(("events", "persons"), resolve_events_persons_tables(team_id), strict=True))
+    tables = resolve_events_persons_tables(team_id)
+    physical_names = {"events": tables.events_table, "persons": tables.persons_table}
     for logical_name, physical_name in physical_names.items():
         node = database.get_table_node([logical_name])
         existing = node.table

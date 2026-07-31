@@ -1,9 +1,16 @@
-from typing import Optional
+from dataclasses import dataclass
 
 from posthog.models.tagged_item import RELATED_OBJECTS
 
 
-def get_tagged_item_related_object_info(tagged_item) -> tuple[Optional[str], Optional[str], Optional[str]]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class RelatedObjectInfo:
+    type: str | None
+    id: str | None
+    name: str | None
+
+
+def get_tagged_item_related_object_info(tagged_item) -> RelatedObjectInfo:
     related_object_type = None
     related_object_id = None
     related_object_name = None
@@ -26,4 +33,4 @@ def get_tagged_item_related_object_info(tagged_item) -> tuple[Optional[str], Opt
                 related_object_name = related_obj.label
             break
 
-    return related_object_type, related_object_id, related_object_name
+    return RelatedObjectInfo(type=related_object_type, id=related_object_id, name=related_object_name)

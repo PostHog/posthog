@@ -43,6 +43,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.llm.completions import OpenAICompletion
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -1294,7 +1295,10 @@ class TestQueryRetrieve(APIBaseTest):
 
 
 class TestQueryDraftSql(APIBaseTest):
-    @patch("posthog.hogql.ai.hit_openai", return_value=("SELECT 1", 21, 37))
+    @patch(
+        "posthog.hogql.ai.hit_openai",
+        return_value=OpenAICompletion(content="SELECT 1", prompt_tokens=21, completion_tokens=37),
+    )
     def test_draft_sql(self, hit_openai_mock):
         response = self.client.get(
             f"/api/environments/{self.team.id}/query/draft_sql/", {"prompt": "I need the number 1"}

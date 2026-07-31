@@ -61,6 +61,7 @@ from posthog.dags.events_backfill_to_duckling import (
     table_exists,
 )
 from posthog.ducklake.common import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
+from posthog.ducklake.team_state import DucklingTables
 
 from products.data_warehouse.backend.facade.backfill_status import BackfillOutcome, get_months_in_range
 
@@ -173,14 +174,14 @@ class TestResolveTableNames:
     def test_passes_through_resolved_names(self):
         with patch(
             "posthog.ducklake.team_state.resolve_events_persons_tables",
-            return_value=("events_alpha", "persons_alpha"),
+            return_value=DucklingTables(events_table="events_alpha", persons_table="persons_alpha"),
         ):
             assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
 
     def test_unsafe_resolved_name_is_rejected(self):
         with patch(
             "posthog.ducklake.team_state.resolve_events_persons_tables",
-            return_value=("events_a-b; DROP", "persons"),
+            return_value=DucklingTables(events_table="events_a-b; DROP", persons_table="persons"),
         ):
             with pytest.raises(ValueError):
                 _resolve_table_names(1)

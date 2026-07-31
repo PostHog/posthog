@@ -50,10 +50,16 @@ class SCIMPaginationError(Exception):
         super().__init__(detail)
 
 
-def _parse_scim_pagination(request: Request) -> tuple[int, int]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ScimPagination:
+    start_index: int
+    count: int
+
+
+def _parse_scim_pagination(request: Request) -> ScimPagination:
     """Parse startIndex and count from SCIM query params.
 
-    Returns (start_index, count) following django-scim2 conventions.
+    Returns a ScimPagination following django-scim2 conventions.
     Raises SCIMPaginationError for invalid values.
     """
     try:
@@ -73,7 +79,7 @@ def _parse_scim_pagination(request: Request) -> tuple[int, int]:
         raise SCIMPaginationError("Invalid count (must be >= 0)")
 
     count = min(count, MAX_ITEMS_PER_PAGE)
-    return start_index, count
+    return ScimPagination(start_index=start_index, count=count)
 
 
 def _build_scim_list_response(
@@ -313,7 +319,7 @@ class SCIMUsersView(SCIMBaseView):
         filter_param = request.query_params.get("filter")
 
         try:
-            start_index, count = _parse_scim_pagination(request)
+            pagination = _parse_scim_pagination(request)
         except SCIMPaginationError as e:
             return Response(
                 {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": e.detail},
@@ -337,7 +343,11 @@ class SCIMUsersView(SCIMBaseView):
         else:
             queryset = PostHogSCIMUser.get_queryset_for_organization(organization_domain)
 
-        return Response(_build_scim_list_response(queryset, start_index, count, PostHogSCIMUser, organization_domain))
+        return Response(
+            _build_scim_list_response(
+                queryset, pagination.start_index, pagination.count, PostHogSCIMUser, organization_domain
+            )
+        )
 
     def post(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
@@ -479,7 +489,7 @@ class SCIMGroupsView(SCIMBaseView):
         filter_param = request.query_params.get("filter")
 
         try:
-            start_index, count = _parse_scim_pagination(request)
+            pagination = _parse_scim_pagination(request)
         except SCIMPaginationError as e:
             return Response(
                 {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": e.detail},
@@ -503,7 +513,11 @@ class SCIMGroupsView(SCIMBaseView):
         else:
             queryset = PostHogSCIMGroup.get_queryset_for_organization(organization_domain)
 
-        return Response(_build_scim_list_response(queryset, start_index, count, PostHogSCIMGroup, organization_domain))
+        return Response(
+            _build_scim_list_response(
+                queryset, pagination.start_index, pagination.count, PostHogSCIMGroup, organization_domain
+            )
+        )
 
     def post(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)

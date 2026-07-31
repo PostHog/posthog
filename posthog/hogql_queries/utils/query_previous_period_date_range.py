@@ -3,7 +3,7 @@ from typing import Optional
 
 from posthog.schema import DateRange, IntervalType
 
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import DateRangeBounds, QueryDateRange
 from posthog.models.team import Team
 from posthog.utils import get_compare_period_dates, relative_date_parse_with_delta_mapping
 
@@ -51,7 +51,7 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
             return delta_mapping
         return None
 
-    def dates(self) -> tuple[datetime, datetime]:
+    def dates(self) -> DateRangeBounds:
         current_period_date_from = super().date_from()
         current_period_date_to = super().date_to()
 
@@ -64,12 +64,10 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
             exclude_incomplete_periods=bool(self._date_range and self._date_range.excludeIncompletePeriods),
         )
 
-        return previous_period_date_from, previous_period_date_to
+        return DateRangeBounds(date_from=previous_period_date_from, date_to=previous_period_date_to)
 
     def date_to(self) -> datetime:
-        previous_period_date_to = self.dates()[1]
-        return previous_period_date_to
+        return self.dates().date_to
 
     def date_from(self) -> datetime:
-        previous_period_date_from = self.dates()[0]
-        return previous_period_date_from
+        return self.dates().date_from

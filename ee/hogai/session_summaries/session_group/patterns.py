@@ -300,9 +300,16 @@ def _enriched_event_from_session_summary_event(
     return enriched_event
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class SegmentOutcome:
+    name: str
+    outcome: str
+    success: bool
+
+
 def _get_segment_name_and_outcome_from_session_summary(
     target_segment_index: int, session_summary: SessionSummarySerializer
-) -> tuple[str, str, bool]:
+) -> SegmentOutcome:
     """Return segment name and outcome for a given index."""
     segment_name = segment_outcome = segment_success = None
     for segment_state in session_summary.data["segments"]:
@@ -320,7 +327,7 @@ def _get_segment_name_and_outcome_from_session_summary(
         msg = f"Segment name, outcome or success not found for segment index {target_segment_index} in session summary: {session_summary.data}"
         logger.error(msg, signals_type="session-summaries")
         raise ValueError(msg)
-    return segment_name, segment_outcome, segment_success
+    return SegmentOutcome(name=segment_name, outcome=segment_outcome, success=segment_success)
 
 
 def _enrich_pattern_assigned_event_with_session_summary_data(
@@ -361,16 +368,16 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
                         for next_event in events_in_segment[event_index + 1 : event_index + 4]
                     ]
                 segment_index = segment_key_actions["segment_index"]
-                segment_name, segment_outcome, segment_success = _get_segment_name_and_outcome_from_session_summary(
+                segment = _get_segment_name_and_outcome_from_session_summary(
                     target_segment_index=segment_index, session_summary=session_summary
                 )
                 event_segment_context = PatternAssignedEventSegmentContext(
                     previous_events_in_segment=previous_events_in_segment,
                     target_event=current_event,
                     next_events_in_segment=next_events_in_segment,
-                    segment_name=segment_name,
-                    segment_outcome=segment_outcome,
-                    segment_success=segment_success,
+                    segment_name=segment.name,
+                    segment_outcome=segment.outcome,
+                    segment_success=segment.success,
                     segment_index=segment_index,
                     session_start_time_str=(
                         db_summary.session_start_time.isoformat() if db_summary.session_start_time else None

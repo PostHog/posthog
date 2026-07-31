@@ -4,6 +4,7 @@ import json
 import uuid
 import asyncio
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -181,6 +182,14 @@ class SessionSummariesConfigSerializer(serializers.ModelSerializer):
         return cleaned
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ValidatedSummaryInput:
+    session_ids: list[str]
+    min_timestamp: datetime
+    max_timestamp: datetime
+    extra_summary_context: ExtraSummaryContext | None
+
+
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "session_recording"  # Keeping recording, as Replay is the main source of info for summary, for now
     permission_classes = [IsAuthenticated]
@@ -203,11 +212,16 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
         return user
 
-    def _validate_input(self, request: Request) -> tuple[list[str], datetime, datetime, ExtraSummaryContext | None]:
+    def _validate_input(self, request: Request) -> ValidatedSummaryInput:
         """Strict input validation for the group flow — needs all sessions to exist to compute timestamps."""
         session_ids, extra_summary_context = self._parse_input(request)
-        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self.team)
-        return session_ids, min_timestamp, max_timestamp, extra_summary_context
+        timestamps = find_sessions_timestamps(session_ids=session_ids, team=self.team)
+        return ValidatedSummaryInput(
+            session_ids=session_ids,
+            min_timestamp=timestamps.min_timestamp,
+            max_timestamp=timestamps.max_timestamp,
+            extra_summary_context=extra_summary_context,
+        )
 
     def _parse_input(self, request: Request) -> tuple[list[str], ExtraSummaryContext | None]:
         """Parse and validate request body without checking session existence.
@@ -277,7 +291,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["session_recording:read"])
     def create_session_summaries(self, request: Request, **kwargs) -> Response:
         user = self._validate_user(request)
-        session_ids, min_timestamp, max_timestamp, extra_summary_context = self._validate_input(request)
+        validated = self._validate_input(request)
         summary_source = self._resolve_summary_source(request)
         tracking_id = (
             generate_tracking_id()
@@ -288,17 +302,17 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tracking_id=tracking_id,
             summary_source=summary_source,
             summary_type="group",
-            session_ids=session_ids,
+            session_ids=validated.session_ids,
         )
         # Summarize provided sessions
         try:
             summary, failed_sessions = async_to_sync(self._get_summary_from_progress_stream)(
-                session_ids=session_ids,
+                session_ids=validated.session_ids,
                 user=user,
                 team=self.team,
-                min_timestamp=min_timestamp,
-                max_timestamp=max_timestamp,
-                extra_summary_context=extra_summary_context,
+                min_timestamp=validated.min_timestamp,
+                max_timestamp=validated.max_timestamp,
+                extra_summary_context=validated.extra_summary_context,
             )
             capture_session_summary_generated(
                 user=user,
@@ -306,7 +320,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source=summary_source,
                 summary_type="group",
-                session_ids=session_ids,
+                session_ids=validated.session_ids,
                 success=True,
                 failed_session_count=len(failed_sessions),
             )
@@ -318,7 +332,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response(response_body, status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
-                f"Failed to generate session group summary for sessions {logging_session_ids(session_ids)} from team {self.team.id} by user {user.id}: {err}",
+                f"Failed to generate session group summary for sessions {logging_session_ids(validated.session_ids)} from team {self.team.id} by user {user.id}: {err}",
                 team_id=self.team.id,
                 user_id=user.id,
                 error=str(err),
@@ -329,13 +343,13 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 tracking_id=tracking_id,
                 summary_source=summary_source,
                 summary_type="group",
-                session_ids=session_ids,
+                session_ids=validated.session_ids,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
             )
             raise exceptions.APIException(
-                f"Failed to generate session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
+                f"Failed to generate session summaries for sessions {logging_session_ids(validated.session_ids)}. Please try again later."
             )
 
     @staticmethod
@@ -431,9 +445,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # Don't fail the whole batch if some sessions have no recording — partition them out and surface
         # each missing session as a per-session error in the response (matches the partial-success contract
         # this endpoint already had for downstream summary failures).
-        found_session_ids, missing_session_ids = partition_sessions_by_recording_existence(
-            session_ids=session_ids, team=self.team
-        )
+        partition = partition_sessions_by_recording_existence(session_ids=session_ids, team=self.team)
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=user,
@@ -446,16 +458,16 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # Summarize provided sessions individually
         try:
             summaries: dict[str, dict[str, Any]] = {}
-            if found_session_ids:
+            if partition.found_session_ids:
                 summaries.update(
                     async_to_sync(self._get_individual_summaries)(
-                        session_ids=found_session_ids,
+                        session_ids=partition.found_session_ids,
                         user=user,
                         team=self.team,
                         extra_summary_context=extra_summary_context,
                     )
                 )
-            for missing_id in missing_session_ids:
+            for missing_id in partition.missing_session_ids:
                 summaries[missing_id] = {
                     "error": "recording_not_found",
                     "error_message": (

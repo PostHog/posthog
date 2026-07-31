@@ -7,6 +7,7 @@ from posthog.schema import HogQLQuery, HogQLVariable
 
 from posthog.ducklake import cp_teams
 from posthog.ducklake.client import _SEARCH_PATH_SCHEMAS, compile_hogql_to_ducklake_sql, execute_ducklake_query
+from posthog.ducklake.team_state import DucklingTables
 
 
 @pytest.fixture(autouse=True)
@@ -151,7 +152,7 @@ class TestDuckLakeModelRedirect:
 
         with mock.patch(
             "posthog.ducklake.team_state.resolve_events_persons_tables",
-            return_value=("events_prod", "persons_prod"),
+            return_value=DucklingTables(events_table="events_prod", persons_table="persons_prod"),
         ):
             events_sql, _values, _hogql = compile_hogql_to_ducklake_sql(
                 team.pk, HogQLQuery(query="SELECT uuid FROM events LIMIT 1")

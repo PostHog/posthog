@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -112,8 +113,14 @@ def generate_session_group_patterns_combination_prompt(
     )
 
 
-def partition_sessions_by_recording_existence(session_ids: list[str], team: Team) -> tuple[list[str], list[str]]:
-    """Split session_ids into (found, missing) based on whether a replay row exists for the team.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SessionRecordingPartition:
+    found_session_ids: list[str]
+    missing_session_ids: list[str]
+
+
+def partition_sessions_by_recording_existence(session_ids: list[str], team: Team) -> SessionRecordingPartition:
+    """Split session_ids into found/missing based on whether a replay row exists for the team.
 
     Used by flows that want to surface per-session "no recording" errors instead of failing the
     whole batch — see ``find_sessions_timestamps`` for the strict variant used by the group flow.
@@ -122,10 +129,16 @@ def partition_sessions_by_recording_existence(session_ids: list[str], team: Team
     sessions_found = replay_events.sessions_found_with_timestamps(session_ids, team).session_ids
     found = [sid for sid in session_ids if sid in sessions_found]
     missing = [sid for sid in session_ids if sid not in sessions_found]
-    return found, missing
+    return SessionRecordingPartition(found_session_ids=found, missing_session_ids=missing)
 
 
-def find_sessions_timestamps(session_ids: list[str], team: Team) -> tuple[datetime, datetime]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SessionsTimestampRange:
+    min_timestamp: datetime
+    max_timestamp: datetime
+
+
+def find_sessions_timestamps(session_ids: list[str], team: Team) -> SessionsTimestampRange:
     """Validate that all session IDs exist and belong to the team and return min/max timestamps for the entire list of sessions"""
     replay_events = SessionReplayEvents()
     result = replay_events.sessions_found_with_timestamps(session_ids, team)
@@ -147,4 +160,4 @@ def find_sessions_timestamps(session_ids: list[str], team: Team) -> tuple[dateti
         msg = f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
         logger.error(msg, team_id=team.id, signals_type="session-summaries")
         raise exceptions.ValidationError(msg)
-    return min_timestamp, max_timestamp
+    return SessionsTimestampRange(min_timestamp=min_timestamp, max_timestamp=max_timestamp)
