@@ -30,8 +30,14 @@ class KnowledgeGapSuggestion(TeamScopedRootMixin, UUIDModel):
         KnowledgeSource, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
 
-    class Meta:
+    # Framework escape hatch for Django admin / related-object access, which read
+    # through `_default_manager` and expect an unfiltered manager — see
+    # posthog/models/scoping/README.md "Known limitations".
+    all_teams = models.Manager()  # noqa: DJ012
+
+    class Meta(TeamScopedRootMixin.Meta):
         db_table = "posthog_business_knowledge_knowledgegapsuggestion"
+        default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "ticket_id", "normalized_topic"],

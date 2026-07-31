@@ -4,13 +4,13 @@ from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 
-from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 
 from .knowledge_document import KnowledgeDocument
 from .knowledge_source import KnowledgeSource
 
 
-class KnowledgeChunk(models.Model):
+class KnowledgeChunk(TeamScopedRootMixin):
     """
     A retrievable text chunk — the grain the AI agent queries with ILIKE.
 
@@ -45,10 +45,14 @@ class KnowledgeChunk(models.Model):
     content_search_vector = SearchVectorField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = TeamScopedManager()
+    # Framework escape hatch for Django admin / related-object access, which read
+    # through `_default_manager` and expect an unfiltered manager — see
+    # posthog/models/scoping/README.md "Known limitations".
+    all_teams = models.Manager()  # noqa: DJ012
 
-    class Meta:
+    class Meta(TeamScopedRootMixin.Meta):
         db_table = "posthog_business_knowledge_knowledgechunk"
+        default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "source"], name="bk_chunk_team_source"),
             models.Index(fields=["document", "ordinal"], name="bk_chunk_doc_ordinal"),

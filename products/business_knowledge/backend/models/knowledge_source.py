@@ -1,13 +1,13 @@
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from .constants import CrawlMode, RefreshInterval, RefreshStatus, SourceStatus, SourceType
 
 
-class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class KnowledgeSource(TeamScopedRootMixin, ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     """
     A user-created collection of business knowledge (e.g. "Product docs",
     "Support macros"). One source groups one or more documents.
@@ -68,10 +68,14 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
     # Size of the uploaded file in bytes (compressed, as received).
     file_size_bytes = models.PositiveIntegerField(null=True, blank=True)
 
-    objects = TeamScopedManager()
+    # Framework escape hatch for Django admin / related-object access, which read
+    # through `_default_manager` and expect an unfiltered manager — see
+    # posthog/models/scoping/README.md "Known limitations".
+    all_teams = models.Manager()  # noqa: DJ012
 
-    class Meta:
+    class Meta(TeamScopedRootMixin.Meta):
         db_table = "posthog_business_knowledge_knowledgesource"
+        default_manager_name = "all_teams"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["team", "-created_at"], name="bk_source_team_created"),

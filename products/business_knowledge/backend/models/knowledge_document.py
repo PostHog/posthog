@@ -1,13 +1,13 @@
 from django.db import models
 
-from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 from .constants import SafetyVerdict
 from .knowledge_source import KnowledgeSource
 
 
-class KnowledgeDocument(UUIDModel):
+class KnowledgeDocument(TeamScopedRootMixin, UUIDModel):
     """
     One parsed artifact inside a KnowledgeSource. Stage 1 text sources have
     exactly one document per source; Stage 2/3 URL/file sources can have many.
@@ -68,10 +68,14 @@ class KnowledgeDocument(UUIDModel):
     # Kafka, not confirmed-present in ClickHouse — see logic.emit_pending_embeddings.
     embeddings_emitted_at = models.DateTimeField(null=True, blank=True)
 
-    objects = TeamScopedManager()
+    # Framework escape hatch for Django admin / related-object access, which read
+    # through `_default_manager` and expect an unfiltered manager — see
+    # posthog/models/scoping/README.md "Known limitations".
+    all_teams = models.Manager()  # noqa: DJ012
 
-    class Meta:
+    class Meta(TeamScopedRootMixin.Meta):
         db_table = "posthog_business_knowledge_knowledgedocument"
+        default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "source"], name="bk_doc_team_source"),
             models.Index(fields=["source"], name="bk_doc_source"),
