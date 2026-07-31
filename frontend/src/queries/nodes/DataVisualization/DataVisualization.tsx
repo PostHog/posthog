@@ -40,6 +40,7 @@ import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatma
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
 import { SideBar } from './Components/SideBar'
 import { SqlInsightDateFilterNotice } from './Components/SqlInsightDateFilterNotice'
+import { SqlInsightRowLimitNotice } from './Components/SqlInsightRowLimitNotice'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -210,7 +211,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const { queryId, pollResponse } = useValues(dataNodeLogic)
+    const { queryId, pollResponse, hasMoreData, dataLimit } = useValues(dataNodeLogic)
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
@@ -293,8 +294,24 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = <HogQLBoldNumber />
     }
 
+    // Charts have no built-in row-limit notice like the table's `LoadNext` footer, so a truncated
+    // result set silently renders as if it were complete - surface it here instead.
+    const isChartVisualization = [
+        ChartDisplayType.ActionsLineGraph,
+        ChartDisplayType.ActionsBar,
+        ChartDisplayType.ActionsAreaGraph,
+        ChartDisplayType.ActionsStackedBar,
+        ChartDisplayType.ActionsPie,
+    ].includes(effectiveVisualizationType)
+    const rowLimitNoticeLimit = isChartVisualization && hasMoreData ? dataLimit : null
+
     if (props.embedded) {
-        return <div className="DataVisualization InsightCard__viz">{component}</div>
+        return (
+            <div className="DataVisualization InsightCard__viz flex flex-col">
+                {rowLimitNoticeLimit && <SqlInsightRowLimitNotice dataLimit={rowLimitNoticeLimit} />}
+                <div className="flex-1 min-h-0">{component}</div>
+            </div>
+        )
     }
 
     return (
@@ -376,7 +393,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <LemonDivider vertical className="h-full" />
                         </>
                     )}
-                    <div className="w-full h-full flex-1 overflow-auto">{component}</div>
+                    <div className="w-full h-full flex-1 overflow-auto flex flex-col">
+                        {rowLimitNoticeLimit && (
+                            <div className="flex justify-end">
+                                <SqlInsightRowLimitNotice dataLimit={rowLimitNoticeLimit} />
+                            </div>
+                        )}
+                        <div className="flex-1 min-h-0">{component}</div>
+                    </div>
                 </div>
             </div>
         </div>

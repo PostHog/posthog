@@ -1,10 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconWarning } from '@posthog/icons'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import { DataNode } from '~/queries/schema/schema-general'
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
@@ -36,9 +40,9 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                     numberOfRows === 1 ? 'entry' : 'entries'
                 }`
             }
-            return `Default limit of ${dataLimit} rows reached`
+            return `Results limited to ${dataLimit} rows. Add a LIMIT clause to see more.`
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
-            return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
+            return `Results limited to ${dataLimit} rows. Add a LIMIT clause to see more.`
         }
         let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
@@ -88,10 +92,18 @@ export function LoadPreviewText({ localResponse }: { localResponse?: Record<stri
 
     return (
         <>
-            <span>
-                {showFirstPrefix ? 'Limited to the first ' : 'Showing '}
-                {isSingleEntry ? 'one row' : `${resultCount} rows`}
-            </span>
+            {showFirstPrefix ? (
+                <Tooltip
+                    title={`You can override this by adding your own LIMIT clause to the query, e.g. LIMIT ${MAX_SELECT_RETURNED_ROWS}`}
+                >
+                    <span className="text-warning-dark cursor-help">
+                        <IconWarning className="mr-1" />
+                        Results limited to the first {resultCount} rows
+                    </span>
+                </Tooltip>
+            ) : (
+                <span>Showing {isSingleEntry ? 'one row' : `${resultCount} rows`}</span>
+            )}
             {lastRefreshTimeUtc && (
                 <>
                     <span className="ml-2 mr-2">|</span>

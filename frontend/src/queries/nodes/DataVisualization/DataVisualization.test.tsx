@@ -1,4 +1,6 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import '@testing-library/jest-dom'
+
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -23,6 +25,10 @@ jest.mock('@posthog/lemon-ui', () => ({
         mockLemonTable(props)
         return null
     },
+}))
+
+jest.mock('./Components/Charts/SqlChart', () => ({
+    SqlChart: (): null => null,
 }))
 
 describe('DataTableVisualization', () => {
@@ -81,4 +87,41 @@ describe('DataTableVisualization', () => {
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
+
+    test.each([
+        { embedded: false, description: 'full insight view' },
+        { embedded: true, description: 'dashboard tile' },
+    ])('shows a row limit notice on a chart when the result was truncated ($description)', async ({ embedded }) => {
+        const chartQuery: DataVisualizationNode = { ...query, display: ChartDisplayType.ActionsLineGraph }
+        const truncatedResults: HogQLQueryResponse<number[][]> = { ...cachedResults, hasMore: true, limit: 100 }
+
+        render(
+            <DataTableVisualization
+                uniqueKey={`data-visualization-row-limit-${embedded}`}
+                query={chartQuery}
+                setQuery={jest.fn()}
+                cachedResults={truncatedResults}
+                readOnly
+                embedded={embedded}
+            />
+        )
+
+        await waitFor(() => expect(screen.getByText(/Showing first 100 rows/)).toBeInTheDocument())
+    })
+
+    it('does not show a row limit notice on a chart when the result was not truncated', async () => {
+        const chartQuery: DataVisualizationNode = { ...query, display: ChartDisplayType.ActionsLineGraph }
+
+        render(
+            <DataTableVisualization
+                uniqueKey="data-visualization-row-limit-not-truncated"
+                query={chartQuery}
+                setQuery={jest.fn()}
+                cachedResults={cachedResults}
+                readOnly
+            />
+        )
+
+        await waitFor(() => expect(screen.queryByText(/Showing first/)).not.toBeInTheDocument())
+    })
 })
