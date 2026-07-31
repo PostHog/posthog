@@ -275,6 +275,22 @@ class ClassifierStatsSerializer(serializers.Serializer):
     total_with_tags = serializers.IntegerField(help_text="Succeeded observations that emitted at least one tag.")
 
 
+class FacetCountSerializer(serializers.Serializer):
+    term = serializers.CharField(help_text="The facet value as emitted by the summarizer (lowercased).")
+    count = serializers.IntegerField(help_text="Number of succeeded observations that emitted this value.")
+
+
+class SummarizerStatsSerializer(serializers.Serializer):
+    friction_ranked = FacetCountSerializer(many=True, help_text="Top friction points by emission count.")
+    keyword_ranked = FacetCountSerializer(many=True, help_text="Top keywords by emission count.")
+    total_with_facets = serializers.IntegerField(
+        help_text="Succeeded observations that emitted at least one friction point or keyword."
+    )
+    total_with_friction = serializers.IntegerField(
+        help_text="Succeeded observations that reported at least one friction point."
+    )
+
+
 class ScorerSummarySerializer(serializers.Serializer):
     min = serializers.FloatField(help_text="Minimum observed score.")
     p25 = serializers.FloatField(help_text="25th-percentile score.")
@@ -384,6 +400,10 @@ class ObservationStatsSerializer(serializers.Serializer):
     scorer = ScorerStatsSerializer(
         allow_null=True,
         help_text="Scorer-type aggregates; null when the scanner is not a scorer.",
+    )
+    summarizer = SummarizerStatsSerializer(
+        allow_null=True,
+        help_text="Summarizer-type facet aggregates; null when the scanner is not a summarizer.",
     )
 
 
@@ -938,7 +958,7 @@ class ReplayObservationViewSet(
                 "created_by": user,
             },
         )
-        # The core quality/calibration signal: thumbs up/down on whether the scanner got the session right.
+        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
         report_user_action(
             user,
             "replay_vision_observation_rated",

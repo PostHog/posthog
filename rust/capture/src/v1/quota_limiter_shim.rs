@@ -263,9 +263,9 @@ mod tests {
             capture_ingestion_warnings_enabled: false,
             capture_ingestion_warnings_kafka_queue_mib: 16,
             capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
-            capture_ingestion_warnings_kafka_topic: None,
-            capture_ingestion_warnings_kafka_hosts: None,
-            capture_ingestion_warnings_kafka_tls: None,
+            capture_ingestion_warnings_kafka_topic: String::new(),
+            capture_ingestion_warnings_kafka_hosts: String::new(),
+            capture_ingestion_warnings_kafka_tls: false,
         }
     }
 

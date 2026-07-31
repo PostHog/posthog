@@ -96,12 +96,17 @@ KEEP_COLUMNS = (
     "lc_modifiers",
 )
 
+# ClickHouse folds leaf read_rows/read_bytes into the initial row via progress packets, but
+# ProfileEvents and memory_usage stay per-host, so each initial row gets its leaves rolled up
+# here where the per-query-id join is cheap; consumers cannot afford it at read time.
+LEAF_SUM_COLUMNS = tuple(column for column in KEEP_COLUMNS if column.startswith("ProfileEvents_"))
+
 ONE_GB = 1024 * 1024 * 1024
 
 
 class QueryLogArchiveExportConfig(dagster.Config):
     max_threads: int = pydantic.Field(
-        default=24,
+        default=12,
         ge=1,
         description="ClickHouse max_threads for the export scan. Must be ≥ 1 (0 means auto/all-cores in ClickHouse and will re-enable the OOM risk).",
     )
@@ -131,15 +136,44 @@ def export_query_log_archive_day(
 
     s3_url = f"https://{config.s3_bucket}.s3.amazonaws.com/{config.s3_prefix}/day={day}/data.parquet"
     columns = ",\n    ".join(f"`{column}`" for column in KEEP_COLUMNS)
+    leaf_sums = ",\n        ".join(f"sum(`{column}`) AS `leaf_{column}`" for column in LEAF_SUM_COLUMNS)
+    leaf_columns = ",\n    ".join(f"`leaf_{column}`" for column in LEAF_SUM_COLUMNS)
+    # Leaf rows of a query straddling midnight land on the next event_date, hence the two-day window.
+    # The rollup GROUP BY holds millions of initial_query_id keys and the join builds a hash table of
+    # them, sharing the query memory cap with the log_comment-heavy scan; both must spill to disk or
+    # the query exceeds the cap.
     query = f"""
 INSERT INTO FUNCTION s3('{s3_url}', 'Parquet')
 SELECT
     {columns},
     normalizeQuery(query) AS query_shape,
-    normalizeQuery(lc_query__query) AS hogql_shape
-FROM {SOURCE_TABLE}
-WHERE event_date = toDate('{day}') AND is_initial_query
-SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads}
+    normalizeQuery(lc_query__query) AS hogql_shape,
+    leaf_count,
+    leaf_memory_usage_max,
+    {leaf_columns}
+FROM
+(
+    SELECT
+        {columns},
+        query,
+        lc_query__query
+    FROM {SOURCE_TABLE}
+    WHERE event_date = toDate('{day}') AND is_initial_query
+) AS initial_rows
+LEFT JOIN
+(
+    SELECT
+        initial_query_id AS leaf_initial_query_id,
+        count() AS leaf_count,
+        max(memory_usage) AS leaf_memory_usage_max,
+        {leaf_sums}
+    FROM {SOURCE_TABLE}
+    WHERE event_date >= toDate('{day}') AND event_date <= toDate('{day}') + 1 AND NOT is_initial_query
+    GROUP BY leaf_initial_query_id
+) AS leaf ON initial_rows.query_id = leaf.leaf_initial_query_id
+SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads},
+    join_algorithm = 'grace_hash', max_bytes_in_join = 1500000000,
+    max_bytes_before_external_group_by = 2000000000
 """
 
     def run(client: Client) -> str:
@@ -159,7 +193,7 @@ SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads}
     resource_defs={
         "cluster": OpsClickhouseClusterResource(max_execution_time=2 * 60 * 60, max_memory_usage=20 * ONE_GB)
     },
-    tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value},
 )
 def export_query_log_archive_to_s3():
     export_query_log_archive_day()

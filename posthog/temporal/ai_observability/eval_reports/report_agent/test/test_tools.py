@@ -221,12 +221,12 @@ class TestSummaryMetrics(SimpleTestCase):
 
 
 class TestTargetAwareEvalResults(SimpleTestCase):
-    def _state(self, evaluation_target: str) -> dict:
+    def _state(self, evaluation_target: str, output_type: str = "boolean") -> dict:
         return {
             "team_id": 1,
             "evaluation_id": "eval-id",
             "evaluation_target": evaluation_target,
-            "output_type": "boolean",
+            "output_type": output_type,
             "period_start": "2026-04-08T14:00:00+00:00",
             "period_end": "2026-04-08T15:00:00+00:00",
             "trace_id_allowlist": [],
@@ -274,6 +274,36 @@ class TestTargetAwareEvalResults(SimpleTestCase):
         query = mock_execute_hogql.call_args_list[1].args[1]
         self.assertIn("properties.$ai_target_id", query)
         self.assertIn("properties.$ai_target_event_id", query)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sentiment_list_omits_classifier_reasoning(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [
+            [[1]],
+            [[_VALID_GEN_ID, "negative", None, 0.91, "identical classifier reasoning"]],
+        ]
+
+        result = _list_all_eval_results_fn(state=self._state("generation", "sentiment"))
+
+        self.assertIn(f"negative (0.91) | {_VALID_GEN_ID}", result)
+        self.assertNotIn("classifier reasoning", result)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sentiment_sample_orders_by_score_and_omits_reasoning(self, mock_execute_hogql):
+        mock_execute_hogql.return_value = [[_VALID_GEN_ID, "negative", "identical classifier reasoning", None, 0.91]]
+
+        result = json.loads(
+            _sample_eval_results_fn(
+                state=self._state("generation", "sentiment"),
+                outcome="negative",
+                order_by="score",
+            )
+        )
+
+        self.assertEqual(
+            result,
+            [{"generation_id": _VALID_GEN_ID, "outcome": "negative", "score": 0.91}],
+        )
+        self.assertIn("ORDER BY score DESC, timestamp DESC", mock_execute_hogql.call_args.args[1])
 
 
 class TestTraceDetailTools(SimpleTestCase):
@@ -361,15 +391,18 @@ class TestTraceDetailTools(SimpleTestCase):
         mock_fetch.assert_not_called()
         mock_execute_hogql.assert_not_called()
 
-    def test_target_specific_tool_sets_do_not_expose_irrelevant_detail_tools(self):
-        generation_tools = {tool.name for tool in get_eval_report_tools("generation")}
-        trace_tools = {tool.name for tool in get_eval_report_tools("trace")}
+    def test_target_and_output_specific_tool_sets_do_not_expose_irrelevant_tools(self):
+        generation_tools = {tool.name for tool in get_eval_report_tools("generation", "boolean")}
+        trace_tools = {tool.name for tool in get_eval_report_tools("trace", "boolean")}
+        sentiment_tools = {tool.name for tool in get_eval_report_tools("generation", "sentiment")}
 
         self.assertIn("sample_generation_details", generation_tools)
         self.assertNotIn("sample_trace_details", generation_tools)
         self.assertIn("sample_trace_details", trace_tools)
         self.assertIn("get_trace_detail", trace_tools)
         self.assertNotIn("sample_generation_details", trace_tools)
+        self.assertIn("get_top_outcome_reasons", generation_tools)
+        self.assertNotIn("get_top_outcome_reasons", sentiment_tools)
 
 
 class TestUuidRegex(SimpleTestCase):

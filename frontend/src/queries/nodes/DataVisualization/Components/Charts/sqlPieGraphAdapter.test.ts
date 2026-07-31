@@ -1,18 +1,8 @@
 import { getSeriesColor } from 'lib/colors'
 
-import { ChartDisplayType } from '~/types'
-
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
-import { buildPieSeries, buildPieSlices, canRenderSqlPieGraph, formatPieSliceCount } from './sqlPieGraphAdapter'
-
-const baseProps = (visualizationType: ChartDisplayType): LineGraphProps => ({
-    xData: null,
-    yData: [],
-    visualizationType,
-    chartSettings: {},
-})
+import { buildPieSeries, buildPieSlices, formatPieSliceCount } from './sqlPieGraphAdapter'
 
 describe('sqlPieGraphAdapter', () => {
     describe('formatPieSliceCount', () => {
@@ -167,18 +157,6 @@ describe('sqlPieGraphAdapter', () => {
 
         it('returns an empty array when there are no slices', () => {
             expect(buildPieSeries([])).toEqual([])
-        })
-    })
-
-    describe('canRenderSqlPieGraph', () => {
-        it.each([
-            [ChartDisplayType.ActionsPie, true],
-            [ChartDisplayType.ActionsLineGraph, false],
-            [ChartDisplayType.ActionsBar, false],
-            [ChartDisplayType.ActionsStackedBar, false],
-            [ChartDisplayType.ActionsAreaGraph, false],
-        ])('returns %s -> %s', (visualizationType, expected) => {
-            expect(canRenderSqlPieGraph(baseProps(visualizationType))).toBe(expected)
         })
     })
 })
