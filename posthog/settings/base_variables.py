@@ -25,6 +25,13 @@ TEST = get_from_env(
 # level once the REPL opens, so forcing ERROR would silence its whole session. For
 # `dbshell` there is no Python REPL (it execs the DB client), so nothing to restore.
 IS_INTERACTIVE_SHELL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "dbshell")
+# A REPL is an ad-hoc scratchpad: an uncaught exception there is an operator typo, not a
+# production error, and reporting it mints a fresh error tracking issue every time. Both
+# variants run arbitrary operator code (`shell -c` included), so neither should autocapture.
+IS_PYTHON_REPL: bool = len(sys.argv) > 1 and sys.argv[1] in ("shell", "shell_plus")
+EXCEPTION_AUTOCAPTURE_ENABLED: bool = get_from_env(
+    "EXCEPTION_AUTOCAPTURE_ENABLED", not IS_PYTHON_REPL, type_cast=str_to_bool
+)
 COMMAND_EXEC_AUDIT_ENABLED: bool = get_from_env("COMMAND_EXEC_AUDIT_ENABLED", not TEST, type_cast=str_to_bool)
 # Kill-switch for routing JSONField (jsonb) decode through orjson (see posthog/helpers/orjson_jsonfield.py).
 # Process-wide once applied in ready(), so keep it disable-able via env without a code revert.
