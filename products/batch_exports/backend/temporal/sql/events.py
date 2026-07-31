@@ -1,10 +1,4 @@
-"""SQL for the events batch export model.
-
-Each ``SELECT_FROM_*`` is followed by the ``EXPORT_TO_S3_FROM_*`` reading the same source
-table. The two are meant to be the same query apart from the ``INSERT INTO FUNCTION``
-wrapper, so keeping them adjacent is what makes a divergence visible. ``EVENT_COUNT_BY_INTERVAL``
-is the exception: it has no twin, and is read by the monitoring workflow rather than an export.
-"""
+"""SQL for the events batch export model."""
 
 from string import Template
 

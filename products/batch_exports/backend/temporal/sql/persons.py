@@ -1,9 +1,4 @@
-"""SQL for the persons batch export model.
-
-Each ``SELECT_FROM_*`` is followed by the ``EXPORT_TO_S3_FROM_*`` reading the same source
-table. The two are meant to be the same query apart from the ``INSERT INTO FUNCTION``
-wrapper, so keeping them adjacent is what makes a divergence visible.
-"""
+"""SQL for the persons batch export model."""
 
 from string import Template
 

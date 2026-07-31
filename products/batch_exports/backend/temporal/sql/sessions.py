@@ -1,10 +1,4 @@
-"""SQL for the sessions batch export model.
-
-Unlike the events and persons modules, this is a HogQL ``ast.SelectQuery`` rather than a
-``string.Template``, because callers clone and extend it (see ``SessionsRecordBatchModel``).
-There is deliberately no ``EXPORT_TO_S3_FROM_SESSIONS`` twin: sessions reach S3 through the
-generic ``RecordBatchModel.as_insert_into_s3_query_with_parameters``.
-"""
+"""SQL for the sessions batch export model."""
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr

@@ -1,5 +1,3 @@
-"""SQL shared across all batch export models."""
-
 from posthog.hogql.constants import HogQLQuerySettings
 
 from posthog.credentials import AWSKeyPair
