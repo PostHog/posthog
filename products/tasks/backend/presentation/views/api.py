@@ -2392,7 +2392,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         is_read = self.action in ("list", "retrieve")
         bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
-            task_id, self.team_id, getattr(self.request.user, "id", None), bypass_visibility=bypass_visibility
+            task_id,
+            self.team_id,
+            getattr(self.request.user, "id", None),
+            bypass_visibility=bypass_visibility,
+            for_control=not is_read,
         ):
             raise NotFound("Task not found")
         return task_id

@@ -8408,7 +8408,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         return self._post_chart_to_run(scopes, body, task=task, run_id=str(run.id))
 
-    def _post_chart_to_run(self, scopes, body, *, task, run_id):
+    def _auth_headers(self, scopes):
         api_key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -8417,12 +8417,27 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
             scopes=scopes,
         )
         self.client.force_authenticate(None)
+        return {"authorization": f"Bearer {api_key_value}"}
+
+    def _post_chart_to_run(self, scopes, body, *, task, run_id):
         return self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run_id}/living_artifacts/chart/",
             body,
             format="json",
-            headers={"authorization": f"Bearer {api_key_value}"},
+            headers=self._auth_headers(scopes),
         )
+
+    def _teammates_experiments_run(self):
+        # Experiments tasks are team-readable but stay creator-driven, so a teammate may read
+        # this run's artifacts and must not be able to mutate them.
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.create_organization_user("experiment-ender"),
+            title="Clean up feature flag my-experiment-flag",
+            description="Opened on experiment end",
+            origin_product=Task.OriginProduct.EXPERIMENTS,
+        )
+        return task, TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
     def _post_chart_with_session(self, body):
         # Session auth skips scope enforcement, so the query-access check is the only gate here.
@@ -8604,6 +8619,26 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         response = self._post_chart_with_session({"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_render.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_charting_a_readable_but_uncontrollable_run_returns_404(self, mock_render):
+        task, run = self._teammates_experiments_run()
+        response = self._post_chart_to_run(
+            ["task:write", "query:read"],
+            {"name": "Chart", "query": self.CHART_QUERY},
+            task=task,
+            run_id=str(run.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_render.assert_not_called()
+
+    def test_listing_artifacts_on_a_readable_run_still_allowed(self):
+        task, run = self._teammates_experiments_run()
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/",
+            headers=self._auth_headers(["task:read"]),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
