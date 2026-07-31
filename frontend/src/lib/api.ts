@@ -397,6 +397,13 @@ export async function getJSONOrNull(response: Response): Promise<any> {
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+    // 204/205 and a null body carry no content to read at all, so a read failure here isn't a
+    // truncated/garbled body — it's an interrupted read (tab close, navigation, engine-specific
+    // cancellation errors that don't set error.name === 'AbortError', e.g. Safari's
+    // "TypeError: Load failed") of a response that was always going to resolve to null.
+    if (response.status === 204 || response.status === 205 || response.body === null) {
+        return null
+    }
     let text: string
     try {
         text = await response.text()
