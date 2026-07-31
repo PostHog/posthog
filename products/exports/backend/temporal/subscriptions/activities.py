@@ -381,6 +381,15 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
 @temporalio.activity.defn
 async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    return await _deliver_subscription(inputs)
+
+
+@temporalio.activity.defn(name="deliver-subscription-v2")
+async def deliver_subscription_v2(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    return await _deliver_subscription(inputs)
+
+
+async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
     recipient_results: list[RecipientResult] = []
 
     subscription = await database_sync_to_async(

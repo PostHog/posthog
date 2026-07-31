@@ -88,7 +88,8 @@ def send_email_subscription_report(
         else:
             inviter_name = (inviter.first_name if inviter else None) or "Someone"
             subject = f"{inviter_name} subscribed you to a PostHog {resource_info.kind}"
-        campaign_key = f"{resource_info.kind.lower()}_subscription_new_{uuid.uuid4()}"
+        invite_delivery_key = str(delivery_id) if delivery_id is not None else str(uuid.uuid4())
+        campaign_key = f"{resource_info.kind.lower()}_subscription_new_{subscription.pk}_{invite_delivery_key}"
 
     message = EmailMessage(
         campaign_key=campaign_key,

@@ -5,6 +5,7 @@ from slack_sdk.errors import SlackApiError
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
@@ -127,6 +128,16 @@ async def deliver_email(
     )
 
     if last_error is not None and success_count == 0:
+        if isinstance(last_error, EmailDeliveryError):
+            details = [
+                {
+                    "recipient": result.recipient,
+                    "status": result.status,
+                    **({"error": result.error} if result.error else {}),
+                }
+                for result in recipient_results
+            ]
+            raise ApplicationError(str(last_error), {"recipient_results": details}, non_retryable=True) from last_error
         raise last_error
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 

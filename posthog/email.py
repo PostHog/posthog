@@ -320,7 +320,11 @@ def _send_via_smtp(
                 )
                 email_message.attach_alternative(html_body, "text/html")
 
-                connection.send_messages([email_message])
+                accepted_count = connection.send_messages([email_message])
+                if accepted_count != 1:
+                    logger.warning("email_send_smtp_not_accepted", recipient=dest["raw_email"])
+                    EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+                    continue
 
                 record.sent_at = timezone.now()
                 record.save()

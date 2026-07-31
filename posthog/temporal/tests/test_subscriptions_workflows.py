@@ -22,6 +22,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.hogql.errors import QueryError
 
+from posthog.email import EmailDeliveryError
 from posthog.errors import CHQueryErrorS3Error
 from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import set_instance_setting
@@ -41,6 +42,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     create_delivery_record,
     create_export_assets,
     deliver_subscription,
+    deliver_subscription_v2,
     fetch_due_subscriptions_activity,
     update_delivery_record,
     validate_subscription_for_delivery,
@@ -53,6 +55,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.delivery_common import deliver_email
 from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
@@ -101,6 +104,25 @@ async def test_subscription_workflows_accept_legacy_previous_target_payload() ->
     assert update_inputs.previous_target_value == "old@example.com"
 
 
+async def test_email_delivery_error_is_non_retryable(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def fail_send(_email: str) -> None:
+        raise EmailDeliveryError("provider rejected delivery")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(ApplicationError) as error:
+            await deliver_email(subscription, inputs, [], fail_send)
+
+    assert error.value.non_retryable is True
+    assert error.value.details[0]["recipient_results"][0]["status"] == "failed"
+
+
 SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
@@ -110,6 +132,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
+        deliver_subscription_v2,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
@@ -124,6 +147,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
+        deliver_subscription_v2,
         generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,

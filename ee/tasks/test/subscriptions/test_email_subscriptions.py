@@ -185,6 +185,22 @@ class TestEmailSubscriptionsTasks(APIBaseTest):
         assert str(first_delivery_id) in mocked_email_messages[0].campaign_key
         assert str(second_delivery_id) in mocked_email_messages[2].campaign_key
 
+    def test_invite_retries_reuse_delivery_campaign(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_ee_email_messages(MockEmailMessage)
+        delivery_id = uuid.uuid4()
+
+        for _ in range(2):
+            send_email_subscription_report(
+                "test1@posthog.com",
+                self.subscription,
+                [self.asset],
+                invite_message="Welcome",
+                delivery_id=delivery_id,
+            )
+
+        assert mocked_email_messages[0].campaign_key == mocked_email_messages[1].campaign_key
+        assert str(delivery_id) in mocked_email_messages[0].campaign_key
+
 
 @freeze_time("2022-02-02T08:55:00.000Z")
 class TestEmailSubscriptionDeliveryDetection(APIBaseTest):
@@ -215,3 +231,8 @@ class TestEmailSubscriptionDeliveryDetection(APIBaseTest):
         assert MessagingRecord.objects.filter(
             email_hash__in=get_email_hashes("ok@posthog.com"), sent_at__isnull=False
         ).exists()
+
+    def test_raises_when_smtp_backend_accepts_no_messages(self) -> None:
+        with patch("django.core.mail.backends.locmem.EmailBackend.send_messages", return_value=0):
+            with self.assertRaises(EmailDeliveryError):
+                send_email_subscription_report("zero@posthog.com", self.subscription, [self.asset], send_async=False)
