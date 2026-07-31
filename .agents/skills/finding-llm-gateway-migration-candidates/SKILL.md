@@ -24,6 +24,18 @@ Trace each result to the production call site. Exclude tests, development-only t
 
 Search open and recently merged PRs across involved repositories before proposing work. A migration may already be underway even when the default branch still uses Python.
 
+## Prove the production path
+
+Before classifying a caller, follow it through every runtime boundary:
+
+1. Find the API, task, workflow, schedule, or command that invokes it.
+2. For Temporal, map the workflow and activity to the exact task queue, then map that queue to its deployed worker.
+3. Inspect every environment overlay that runs the caller. Do not borrow configuration from another worker in the same product.
+4. Resolve the configured URL by host and path. Variable names are not proof: an `AI_GATEWAY_URL` can still contain a Python product-slug URL.
+5. Confirm the current call can succeed. A broad exception handler with a deterministic fallback can hide missing credentials or a route that never runs.
+
+A secret reference proves that a credential is injected. It does not prove which team owns it, whether the wallet is funded, or whether its scope is correct. Keep the candidate at 🔎 until those properties are verified from an authoritative source, unless the same credential is already proven on a comparable Go workload.
+
 ## Inventory each candidate
 
 Record only the contracts that affect the migration decision:
@@ -31,12 +43,16 @@ Record only the contracts that affect the migration decision:
 - user-facing use case and production entry point
 - credential source and trusted authorization policy
 - spend owner, budget enforcement, current Python billing behavior, and the team wallet that should own Go spend
-- API shape, model, provider, streaming, tools, and structured output
+- API shape and model as one pair, provider, streaming, tools, and structured output
 - distinct ID, trace, product, team, and custom attribution
 - retry, timeout, fallback, and error behavior
 - deployment and egress changes needed to activate and roll back the route
 
 Do not infer requirements from a product name. Read the call and its configuration.
+
+Check model and API shape together. Python can expose an Anthropic model through OpenAI Chat Completions, while Go's native routes do not generally cross-translate shapes. A migration may need both a gateway change and an SDK-shape change.
+
+Separate billing identity from event attribution. Go debits the credential's team. A caller-supplied `team_id` or `ai_product` property can preserve reporting context but cannot select the wallet.
 
 ## Classify readiness
 
@@ -50,6 +66,8 @@ Match the inventory to the parity record and current Go implementation:
 Name the exact evidence for every status. An existing Python helper is migration effort, not a blocker. An `ai_product` property is telemetry, not trusted identity or billing policy.
 
 Python's unbilled flag is not a blocker when an internal workload should debit a PostHog-owned team wallet for spend attribution. Verify that the Go credential resolves to that team. Treat billing as blocked only when migration would charge a customer incorrectly, lose required customer budget policy, or violate a requirement to debit no wallet.
+
+Use ✅ only when the production entry point, worker or process, target credential, model and API pair, attribution conversion, and rollback path are all supported by evidence. Use 🔎 when any of those facts depends on an unverified secret, runtime state, or external configuration.
 
 ## Rank the shortlist
 
@@ -68,9 +86,9 @@ Lower the rank for broad shared-process switches, unverified billing changes, cr
 
 Return a small decision-oriented table with:
 
-| Candidate | Readiness | Why | Required work | Evidence |
-| --------- | --------- | --- | ------------- | -------- |
+| Candidate | Readiness | Why | Required work | Evidence gaps |
+| --------- | --------- | --- | ------------- | ------------- |
 
-List the strongest ready candidate first. For blocked callers, state the exact missing Go contract and where it was verified. For in-progress work, link the existing PR instead of proposing duplicate work.
+List the strongest ready candidate first. Name the exact production process and deployment for each candidate. For blocked callers, state the missing Go contract and where it was verified. For in-progress work, link the existing PR instead of proposing duplicate work. For 🔎 candidates, state the one check that would promote or reject them.
 
 Do not modify callers while running this skill. Once a candidate is selected, run `/migrating-llm-gateway-callers` for that caller.
