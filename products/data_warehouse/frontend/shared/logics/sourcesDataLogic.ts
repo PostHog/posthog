@@ -153,6 +153,11 @@ export const sourcesDataLogic = kea<sourcesDataLogicType>([
                             error?.name === 'AbortError' ||
                             (error instanceof ApiError && error.status === undefined)
                         if (!isTransient) {
+                            // Clear this call's controller before rethrowing — otherwise
+                            // loadSourcesFailure's `cache.abortController !== null` check reads it
+                            // as "a newer load superseded this one" and leaves the loading state
+                            // stuck true forever.
+                            cache.abortController = null
                             throw error
                         }
                         // Bail out if a newer loadSources has superseded this one so we don't

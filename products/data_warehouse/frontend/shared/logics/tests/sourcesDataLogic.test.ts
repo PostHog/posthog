@@ -107,4 +107,21 @@ describe('sourcesDataLogic', () => {
                 dataWarehouseSourcesLoading: false,
             })
     })
+
+    // Regression test: a genuine 500 used to leave `dataWarehouseSourcesLoading` stuck at `true`
+    // forever, because the catch block rethrew without clearing `cache.abortController`, and the
+    // `loadSourcesFailure` reducer reads a non-null controller as "a newer load superseded this one".
+    it('stops the loading spinner on a non-transient server error', async () => {
+        jest.spyOn(api.externalDataSources, 'list').mockRejectedValue(new ApiError('server error', 500))
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSources()
+        })
+            .toDispatchActions(['loadSources', 'loadSourcesFailure'])
+            .toMatchValues({
+                dataWarehouseSourcesLoading: false,
+            })
+    })
 })

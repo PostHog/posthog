@@ -113,7 +113,10 @@ export function NewSourceScene(): JSX.Element {
 // access). Without this the scene keeps rendering a bare skeleton indefinitely, which reads
 // as a permanently stuck loading state.
 export function AvailableSourcesError(): JSX.Element {
+    const { availableSourcesError } = useValues(availableSourcesLogic)
     const { load } = useActions(availableSourcesLogic)
+
+    const isForbidden = availableSourcesError === 'forbidden'
 
     return (
         <LemonBanner
@@ -127,8 +130,9 @@ export function AvailableSourcesError(): JSX.Element {
         >
             <p className="font-semibold mb-1">Couldn't load the list of available sources</p>
             <p className="m-0">
-                This can happen if the request timed out or you don't have permission to manage data sources in this
-                project. Try again, or ask an organization admin to check your access.
+                {isForbidden
+                    ? "You don't have permission to manage data sources in this project. Ask an organization admin for access."
+                    : 'Something went wrong loading this. Try again, or contact support if this keeps happening.'}
             </p>
         </LemonBanner>
     )
