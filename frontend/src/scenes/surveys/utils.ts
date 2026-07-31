@@ -988,12 +988,32 @@ export function buildSurveyTimestampFilter(
     AND timestamp <= '${toDate}'`
 }
 
+const MAX_EXPRESSION_COMMENT_LENGTH = 120
+
+/**
+ * Make arbitrary question text safe to splice into a trailing `-- <comment>` on a HogQL expression.
+ *
+ * A `--` comment runs to the end of the line, so a line break in the question text would put the
+ * remainder of the question back into the query as SQL. `--` and block-comment markers are dropped
+ * too: the data table splits the expression on `--` to recover the column label.
+ */
+function sanitizeExpressionComment(text: string): string {
+    return text
+        .replace(/\s+/g, ' ')
+        .replace(/--+|\/\*|\*\//g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, MAX_EXPRESSION_COMMENT_LENGTH)
+        .trim()
+}
+
 export function getExpressionCommentForQuestion(
     q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion,
     questionIndex: number
 ): string {
-    if (q.question.trim().length > 0) {
-        return q.question
+    const sanitized = sanitizeExpressionComment(q.question)
+    if (sanitized.length > 0) {
+        return sanitized
     }
     return `Question ${questionIndex + 1}`
 }

@@ -26,6 +26,7 @@ import {
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
     doesSurveyRepeatOnEveryEvent,
+    getExpressionCommentForQuestion,
     getSurveyNotificationFilters,
     getRecurringSurveyScheduleInfo,
     getResolvedSurveyDateRange,
@@ -1572,5 +1573,30 @@ describe('getRecurringSurveyScheduleInfo', () => {
         ],
     ])('returns null for %s', (_name, survey) => {
         expect(getRecurringSurveyScheduleInfo(survey)).toBeNull()
+    })
+})
+
+describe('getExpressionCommentForQuestion', () => {
+    const question = (text: string): any => ({ type: SurveyQuestionType.Open, question: text })
+
+    it.each([
+        ['collapses newlines', 'Hola\nCuéntanos algo', 'Hola Cuéntanos algo'],
+        ['collapses carriage returns', 'Hola\r\nCuéntanos', 'Hola Cuéntanos'],
+        ['strips comment markers', 'Rate us -- honestly /* please */', 'Rate us honestly please'],
+        ['keeps accented single-line text intact', '¿Cuéntanos qué opinas?', '¿Cuéntanos qué opinas?'],
+    ])('%s', (_name, input, expected) => {
+        expect(getExpressionCommentForQuestion(question(input), 0)).toBe(expected)
+    })
+
+    it('caps the length so a long question cannot bloat the query', () => {
+        expect(getExpressionCommentForQuestion(question('a'.repeat(500)), 0)).toBe('a'.repeat(120))
+    })
+
+    it.each([
+        ['empty question', ''],
+        ['whitespace-only question', '   \n  '],
+        ['question that is only comment markers', '-- /*'],
+    ])('falls back to a positional label for %s', (_name, input) => {
+        expect(getExpressionCommentForQuestion(question(input), 2)).toBe('Question 3')
     })
 })
