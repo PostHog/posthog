@@ -1,3 +1,5 @@
+import './PaperDesk.scss'
+
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
