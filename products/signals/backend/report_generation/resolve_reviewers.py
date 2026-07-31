@@ -283,10 +283,10 @@ class _AreaContributor:
     last_commit_sha: str
     last_commit_url: str
     area: str  # the area of the evidence (freshest) commit, for evidence wording
-    # Whether *any* area this contributor was drawn from is focused enough to imply ownership.
+    # True if *any* area this contributor was drawn from is focused enough to count as owned.
     # Not tied to the evidence area: a crowded area still supplies recency, it just proposes
     # nobody, and it must not cancel a claim earned in a focused one.
-    implies_ownership: bool
+    is_likely_owner_of_area: bool
 
 
 def _relevant_area_activity(
@@ -320,10 +320,10 @@ def _relevant_area_activity(
         if level is None or level in used_levels:
             continue
         used_levels.add(level)
-        implies_ownership = len(activity_by_area[level]) <= MAX_CONTRIBUTORS_FOR_OWNERSHIP
+        is_likely_owner_of_area = len(activity_by_area[level]) <= MAX_CONTRIBUTORS_FOR_OWNERSHIP
         for contributor in activity_by_area[level]:
             existing = merged.get(contributor.login)
-            merged[contributor.login] = _merge_contributor(existing, contributor, level, now, implies_ownership)
+            merged[contributor.login] = _merge_contributor(existing, contributor, level, now, is_likely_owner_of_area)
     return merged
 
 
@@ -342,7 +342,7 @@ def _merge_contributor(
     incoming: ContributorActivity,
     area: str,
     now: datetime,
-    implies_ownership: bool,
+    is_likely_owner_of_area: bool,
 ) -> _AreaContributor:
     days_since = max(0.0, (now - incoming.last_commit_at).total_seconds() / 86400)
     if existing is None:
@@ -353,7 +353,7 @@ def _merge_contributor(
             last_commit_sha=incoming.last_commit_sha,
             last_commit_url=incoming.last_commit_url,
             area=area,
-            implies_ownership=implies_ownership,
+            is_likely_owner_of_area=is_likely_owner_of_area,
         )
     # Evidence follows the freshest commit, so sha/url/area always agree with
     # days_since_last_commit. Ownership does not: it accumulates, so a fresher commit in a
@@ -366,7 +366,7 @@ def _merge_contributor(
         last_commit_sha=incoming.last_commit_sha if keep_incoming_evidence else existing.last_commit_sha,
         last_commit_url=incoming.last_commit_url if keep_incoming_evidence else existing.last_commit_url,
         area=area if keep_incoming_evidence else existing.area,
-        implies_ownership=existing.implies_ownership or implies_ownership,
+        is_likely_owner_of_area=existing.is_likely_owner_of_area or is_likely_owner_of_area,
     )
 
 
@@ -425,7 +425,7 @@ def _score_candidates(
 
     max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
     for login, activity in activity_by_login.items():
-        if login in scores or not activity.implies_ownership:
+        if login in scores or not activity.is_likely_owner_of_area:
             continue
         saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS) / ACTIVITY_BONUS_SATURATION_COMMITS
         base = STALE_BLAME_MULTIPLIER + (ACTIVITY_ONLY_SCORE_CAP - STALE_BLAME_MULTIPLIER) * saturation

@@ -137,7 +137,7 @@ def _area_contributor(
     *,
     days_since_last_commit: float,
     commit_count: int = 12,
-    implies_ownership: bool = True,
+    is_likely_owner_of_area: bool = True,
 ) -> _AreaContributor:
     return _AreaContributor(
         name=None,
@@ -146,7 +146,7 @@ def _area_contributor(
         last_commit_sha="a" * 7,
         last_commit_url="https://github.com/acme/app/commit/aaaaaaa",
         area="products/signals",
-        implies_ownership=implies_ownership,
+        is_likely_owner_of_area=is_likely_owner_of_area,
     )
 
 
@@ -202,8 +202,10 @@ class TestRecencyScoring:
         weights = Counter({"old-timer": 10})
         # The blame author is past the window, so only the crowded area keeps the stranger out.
         activity = {
-            "old-timer": _area_contributor(days_since_last_commit=ACTIVITY_WINDOW_DAYS + 5, implies_ownership=False),
-            "prolific-stranger": _area_contributor(days_since_last_commit=1, implies_ownership=False),
+            "old-timer": _area_contributor(
+                days_since_last_commit=ACTIVITY_WINDOW_DAYS + 5, is_likely_owner_of_area=False
+            ),
+            "prolific-stranger": _area_contributor(days_since_last_commit=1, is_likely_owner_of_area=False),
         }
 
         scores = _score_candidates(weights, activity)
@@ -264,17 +266,17 @@ class TestAreaWalkUp:
         assert set(merged) == {"repo-regular"}
 
     @pytest.mark.parametrize(
-        ("contributor_count", "implies_ownership"),
+        ("contributor_count", "is_likely_owner_of_area"),
         [(MAX_CONTRIBUTORS_FOR_OWNERSHIP, True), (MAX_CONTRIBUTORS_FOR_OWNERSHIP + 1, False)],
     )
-    def test_ownership_needs_a_focused_area(self, team, contributor_count, implies_ownership):
+    def test_ownership_needs_a_focused_area(self, team, contributor_count, is_likely_owner_of_area):
         _seed_area(team, "products/tasks", [(f"dev-{i}", 3, 0) for i in range(contributor_count)])
 
         with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
             merged = _relevant_area_activity(team.id, "acme/app", ["products/tasks/management/commands/demo.py"])
 
         assert len(merged) == contributor_count
-        assert all(contributor.implies_ownership is implies_ownership for contributor in merged.values())
+        assert all(contributor.is_likely_owner_of_area is is_likely_owner_of_area for contributor in merged.values())
 
     def test_fresher_crowded_commit_does_not_erase_focused_area_ownership(self, team):
         _seed_area(team, "products/signals", [("alice", 4, 10)])
@@ -293,8 +295,8 @@ class TestAreaWalkUp:
         assert merged["alice"].area == "*"
         assert merged["alice"].days_since_last_commit == pytest.approx(1, abs=0.01)
         # ...but the claim she earned in products/signals survives it.
-        assert merged["alice"].implies_ownership
-        assert not merged["dev-0"].implies_ownership
+        assert merged["alice"].is_likely_owner_of_area
+        assert not merged["dev-0"].is_likely_owner_of_area
 
 
 @pytest.mark.django_db
