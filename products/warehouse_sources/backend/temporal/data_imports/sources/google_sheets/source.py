@@ -143,6 +143,25 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         try:
             client.open_by_url(config.spreadsheet_url)
             return True, None
+        except gspread.exceptions.NoValidUrlKeyFound:
+            # gspread raises this when the URL doesn't contain a spreadsheet key at all — the most
+            # common case is pasting a Google Drive folder link (`/drive/folders/...`), since a
+            # Google Sheets source connects to exactly one spreadsheet, not a folder of them.
+            # `str(NoValidUrlKeyFound())` is empty, so without this branch it falls into the
+            # catch-all below and surfaces as a bare "Invalid credentials".
+            if "/folders/" in config.spreadsheet_url:
+                return (
+                    False,
+                    "This looks like a Google Drive folder link, not a spreadsheet link. A Google Sheets "
+                    "source connects to a single spreadsheet — every tab in it becomes its own table. Open "
+                    "the spreadsheet you want to sync and copy its URL instead. To sync another spreadsheet, "
+                    "add a second Google Sheets source with that spreadsheet's URL.",
+                )
+            return (
+                False,
+                "This doesn't look like a valid Google Sheets URL. Copy the link from your browser's address "
+                "bar while viewing the spreadsheet in Google Sheets.",
+            )
         except gspread.SpreadsheetNotFound:
             return False, "Spreadsheet not found at URL provided"
         except PermissionError:
@@ -195,7 +214,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             keywords=["gsheet", "gsheets", "spreadsheet", "google sheet"],
             label="Google Sheets",
-            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets). The first row of each sheet must contain unique column headers, since PostHog reads it as the column names when syncing.",
+            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets). The first row of each sheet must contain unique column headers, since PostHog reads it as the column names when syncing. This source connects to a single spreadsheet — each tab in it becomes its own table. To sync a second spreadsheet, add another Google Sheets source.",
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/Google_Sheets.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-sheets",

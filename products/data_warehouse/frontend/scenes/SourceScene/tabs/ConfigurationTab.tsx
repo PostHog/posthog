@@ -99,7 +99,11 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                         <div className="flex flex-col gap-2">
                             <LemonField
                                 name="auto_sync_new_schemas"
-                                help="New tables found on this source will start syncing automatically, using recommended sync settings."
+                                help={
+                                    source.source_type === 'GoogleSheets'
+                                        ? 'New tabs found in this spreadsheet will start syncing automatically as tables, using recommended sync settings.'
+                                        : 'New tables found on this source will start syncing automatically, using recommended sync settings.'
+                                }
                             >
                                 {({ value, onChange }) => (
                                     <LemonSwitch

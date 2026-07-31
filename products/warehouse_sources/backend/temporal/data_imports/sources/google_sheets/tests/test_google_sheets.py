@@ -678,6 +678,34 @@ def test_validate_credentials_maps_google_auth_error(auth_error, expect_retry_hi
 
 
 @pytest.mark.parametrize(
+    "spreadsheet_url,expected_fragment",
+    [
+        # The reported case: a Drive folder link has no spreadsheet key at all, so gspread raises
+        # `NoValidUrlKeyFound` — whose `str()` is empty — before ever making a request.
+        (
+            "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz",
+            "single spreadsheet",
+        ),
+        # Any other URL with no extractable key falls back to generic, still-actionable copy.
+        ("not a url at all", "doesn't look like a valid Google Sheets URL"),
+    ],
+)
+def test_validate_credentials_maps_no_valid_url_key_found(spreadsheet_url, expected_fragment):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        mock_client.return_value.open_by_url.side_effect = gspread.exceptions.NoValidUrlKeyFound()
+        config = GoogleSheetsSourceConfig(spreadsheet_url=spreadsheet_url)
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    assert expected_fragment in (error_message or "")
+    # The bare "Invalid credentials" fallback the caller uses when validate_credentials returns a
+    # falsy message must never be reached for this error.
+    assert error_message
+
+
+@pytest.mark.parametrize(
     "pinned_version,expected_version",
     [
         # No pin resolves to the source default — v4, Google's current stable Sheets REST API.
