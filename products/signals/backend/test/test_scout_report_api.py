@@ -704,6 +704,54 @@ class TestScoutReportAPI(APIBaseTest):
         signups_chart, churn_chart = chart("signups-drop"), chart("churn-spike")
         assert forward([signups_chart, churn_chart]) != forward([churn_chart, signups_chart])
 
+    @parameterized.expand(
+        [
+            ("omitted", {}, 1, None),
+            ("null", {"charts": None}, 1, None),
+            ("empty_list", {"charts": []}, 0, 0),
+        ]
+    )
+    def test_edit_charts_distinguishes_untouched_from_cleared(
+        self, _name: str, chart_field: dict, expected_stored: int, expected_charts_set: int | None
+    ) -> None:
+        # A scout that no longer stands behind a chart has to be able to take it down, and the only
+        # way it can say so is an empty list. Treating that as "didn't mention charts" leaves the
+        # stale chart on the report with no way to retract it short of replacing it with a decoy.
+        run = _make_run(self.team)
+        charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
+            ).json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "append_note": "checked", **chart_field},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["charts_set"] == expected_charts_set
+        assert len(SignalReport.objects.get(id=created["report_id"]).charts) == expected_stored
+
+    def test_clearing_charts_is_a_valid_sole_edit(self) -> None:
+        # `charts: []` is the whole instruction on a retraction, so the "needs at least one input"
+        # guard has to count it as an input — checking it for falsiness rejects the retraction as an
+        # empty edit and leaves the chart up.
+        run = _make_run(self.team)
+        charts = [{"chart_id": "signups-drop", "title": "Daily signups", "query": {"kind": "InsightVizNode"}}]
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data={**self._payload(), "charts": charts}, format="json"
+            ).json()
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "charts": []},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SignalReport.objects.get(id=created["report_id"]).charts == []
+
     def test_chart_counts_ride_the_lifecycle_events(self) -> None:
         # `charts_set` / `chart_count` are what a dashboard or CDP destination reads to tell a
         # chart-bearing report from a plain one; without them both event streams look identical.

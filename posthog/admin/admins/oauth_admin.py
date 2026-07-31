@@ -5,7 +5,7 @@ import hashlib
 from urllib.parse import urlencode
 
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.admin import helpers
 from django.template.response import TemplateResponse
 from django.utils.html import format_html
@@ -14,15 +14,45 @@ from oauth2_provider.generators import generate_client_id, generate_client_secre
 from oauth2_provider.models import AbstractApplication
 
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
+from posthog.models.oauth_provisioning import ProvisioningConfig, ProvisioningRateLimits
+
+# The provisioning config is one JSONB column, but an operator should still get the checkboxes
+# they had when it was a column each: a raw JSON textarea turns a mistyped capability key into
+# something that silently reads back as "not granted" while looking granted on screen.
+# Derived from the pydantic schema so a capability added there shows up here automatically.
+PROVISIONING_FIELD_PREFIX = "provisioning_"
+PROVISIONING_RATE_LIMIT_PREFIX = "provisioning_rate_limit_"
+
+
+def _provisioning_form_fields() -> dict[str, forms.Field]:
+    """One form field per capability, plus one per rate-limit override."""
+    fields: dict[str, forms.Field] = {}
+    for name, info in ProvisioningConfig.model_fields.items():
+        if name in ("rate_limits", "rate_limit_source"):
+            continue
+        fields[f"{PROVISIONING_FIELD_PREFIX}{name}"] = forms.BooleanField(
+            required=False, label=name.replace("_", " "), help_text=info.description or ""
+        )
+    for name in ProvisioningRateLimits.model_fields:
+        fields[f"{PROVISIONING_RATE_LIMIT_PREFIX}{name}"] = forms.IntegerField(
+            required=False, min_value=0, label=f"rate limit {name.replace('_', ' ')} (per hour)"
+        )
+    return fields
+
+
+PROVISIONING_FORM_FIELD_NAMES = tuple(_provisioning_form_fields())
 
 
 class OAuthApplicationForm(forms.ModelForm):
     class Meta:
         model = OAuthApplication
-        fields = "__all__"
+        # The JSONB column is edited through the generated fields below, never as raw JSON.
+        exclude = ("_provisioning_config",)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self._load_provisioning_initial()
 
         # Set algorithm constraints
         if "algorithm" in self.fields:
@@ -35,11 +65,6 @@ class OAuthApplicationForm(forms.ModelForm):
             self.fields["authorization_grant_type"].initial = AbstractApplication.GRANT_AUTHORIZATION_CODE
             self.fields["authorization_grant_type"].disabled = True
             self.fields["authorization_grant_type"].help_text = "Only authorization code grant type is supported"
-
-        if "provisioning_signing_secret" in self.fields:
-            self.fields[
-                "provisioning_signing_secret"
-            ].help_text = "Only used for HMAC provisioning partners. Leave blank for PKCE or bearer clients."
 
         # For new applications, set defaults
         if not self.instance.pk:
@@ -55,6 +80,78 @@ class OAuthApplicationForm(forms.ModelForm):
             # Set client type default
             if "client_type" in self.fields:
                 self.fields["client_type"].initial = AbstractApplication.CLIENT_CONFIDENTIAL
+
+    def _load_provisioning_initial(self) -> None:
+        config = self.instance.provisioning if self.instance.pk else ProvisioningConfig()
+        for name in ProvisioningConfig.model_fields:
+            if name in ("rate_limits", "rate_limit_source"):
+                continue
+            self.fields[f"{PROVISIONING_FIELD_PREFIX}{name}"].initial = getattr(config, name)
+        for name in ProvisioningRateLimits.model_fields:
+            self.fields[f"{PROVISIONING_RATE_LIMIT_PREFIX}{name}"].initial = getattr(config.rate_limits, name)
+
+    def save(self, commit: bool = True):
+        instance = super().save(commit=False)
+
+        previous = instance.provisioning
+        capabilities = {
+            name: self.cleaned_data[f"{PROVISIONING_FIELD_PREFIX}{name}"]
+            for name in ProvisioningConfig.model_fields
+            if name not in ("rate_limits", "rate_limit_source")
+        }
+        rate_limits = ProvisioningRateLimits(
+            **{
+                name: self.cleaned_data[f"{PROVISIONING_RATE_LIMIT_PREFIX}{name}"]
+                for name in ProvisioningRateLimits.model_fields
+            }
+        )
+        # An operator typing a limit here outranks the verified/unverified defaults, so record
+        # that. Without it the next CIMD metadata refresh re-tiers the app and overwrites them.
+        # Keyed on the field actually changing in this form rather than on the stored value, so
+        # saving an unrelated field doesn't pin a limit a CIMD refresh set since the form loaded.
+        source = previous.rate_limit_source
+        if f"{PROVISIONING_RATE_LIMIT_PREFIX}account_requests" in self.changed_data:
+            source = "admin"
+
+        instance.provisioning = ProvisioningConfig(**capabilities, rate_limits=rate_limits, rate_limit_source=source)
+
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
+
+# Declared on the class rather than added per instance, so admin's fieldset validation and
+# modelform_factory can see them. Fields added in __init__ exist too late for either.
+for _field_name, _form_field in _provisioning_form_fields().items():
+    OAuthApplicationForm.declared_fields[_field_name] = _form_field
+    OAuthApplicationForm.base_fields[_field_name] = _form_field
+
+
+class ProvisioningCapabilityFilter(admin.SimpleListFilter):
+    """Filter partners by a granted capability.
+
+    The capabilities live inside a JSONB column, so the per-column checkbox filters the admin
+    used to offer are gone. One filter over every capability replaces them, and it stays in
+    step with the schema rather than needing an entry added per capability.
+    """
+
+    title = "provisioning capability"
+    parameter_name = "provisioning_capability"
+
+    def lookups(self, request, model_admin):
+        return [
+            (name, name.replace("_", " "))
+            for name in ProvisioningConfig.model_fields
+            if name not in ("rate_limits", "rate_limit_source")
+        ]
+
+    def queryset(self, request, queryset):
+        capability = self.value()
+        if not capability or capability not in ProvisioningConfig.model_fields:
+            return queryset
+        # nosemgrep: orm-field-injection -- capability is allowlisted above, and the JSONField prefix keeps any __ as a JSON key lookup
+        return queryset.filter(**{f"_provisioning_config__{capability}": True})
 
 
 # Registered manually in `posthog/admin/__init__.py::register_all_admin()`
@@ -80,14 +177,42 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "is_cimd_client",
         "is_first_party",
         "auth_brand",
-        "provisioning_active",
-        "provisioning_auth_method",
-        "provisioning_partner_type",
+        "is_provisioning_partner",
+        ProvisioningCapabilityFilter,
     )
     search_fields = ("name", "client_id", "cimd_metadata_url", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
-    actions = ("revoke_all_sessions",)
+    actions = ("revoke_all_sessions", "regenerate_client_secret")
+
+    @admin.action(description="Generate a new client secret")
+    def regenerate_client_secret(self, request, queryset):
+        # client_secret is only editable on the add form (it is hashed on save and can never be
+        # read back), so this is the only way to give an existing app a secret or rotate one.
+        for application in queryset:
+            # Gated on the auth method rather than the client type: a private_key_jwt client is
+            # confidential too, but authenticates by signed assertion, so a secret minted for it
+            # would never be checked and would look like working credentials to an operator.
+            if not application.uses_client_secret_auth:
+                self.message_user(
+                    request,
+                    f"{application.name}: skipped, its token_endpoint_auth_method is "
+                    f"'{application.token_endpoint_auth_method.value}', which uses no client secret.",
+                    level=messages.ERROR,
+                )
+                continue
+
+            plaintext_secret = generate_client_secret()
+            application.client_secret = plaintext_secret
+            # ClientSecretField.pre_save hashes it, so plaintext_secret is the only copy that
+            # will ever exist.
+            application.save(update_fields=["client_secret"])
+            self.message_user(
+                request,
+                f"{application.name} ({application.client_id}) new client secret, save it now, "
+                f"it cannot be shown again: {plaintext_secret}",
+                level=messages.WARNING,
+            )
 
     @admin.action(description="Revoke all sessions (force re-auth under current scopes)")
     def revoke_all_sessions(self, request, queryset):
@@ -138,40 +263,46 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 # Model validation also rejects optional_scopes on CIMD apps: a split would
                 # let the partner grow the locked required set via metadata refresh.
                 readonly.append("optional_scopes")
+                # Also re-derived from the metadata document on each refresh.
+                readonly.append("jwks_uri")
             return tuple(readonly)
         else:
             return ("id", "is_dcr_client", "is_cimd_client")
 
     def get_fieldsets(self, request, obj=None):
         if obj:
-            provisioning_fields = [
-                "provisioning_auth_method",
-                "provisioning_partner_type",
-                "provisioning_active",
-                "provisioning_skip_existing_user_consent",
-                "provisioning_can_issue_deep_links",
-                "provisioning_issues_personal_api_key",
-                "provisioning_can_create_accounts",
-                "provisioning_can_provision_resources",
-                "provisioning_rate_limit_account_requests",
-                "provisioning_rate_limit_token_exchanges",
-                "provisioning_rate_limit_resource_creates",
-            ]
-            if obj.provisioning_auth_method == "hmac":
-                provisioning_fields.append("provisioning_signing_secret")
+            provisioning_fields = ["is_provisioning_partner", *PROVISIONING_FORM_FIELD_NAMES]
 
             return (
                 (None, {"fields": ("id", "name", "client_id", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes", "optional_scopes")},
+                    {
+                        "fields": (
+                            "authorization_grant_type",
+                            "jwks_uri",
+                            "redirect_uris",
+                            "algorithm",
+                            "scopes",
+                            "optional_scopes",
+                        )
+                    },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
                 (
                     "Provisioning",
                     {
-                        "description": "Provisioning settings for agentic partners. HMAC signing secret is only used for HMAC clients.",
+                        "description": (
+                            "Provisioning settings for partners. Every capability is off unless you "
+                            "grant it here, including for a partner that registered itself. How a partner "
+                            "authenticates follows from the fields above: a confidential client with a "
+                            "jwks_uri signs an assertion with its own key (preferred), a confidential client "
+                            "without one presents a client secret, and a public client is identified by "
+                            "client_id and relies on PKCE. The GitHub grant endpoints additionally require a "
+                            "confidential client. Use the 'Generate a new client secret' action to issue a "
+                            "secret. Leave a rate limit blank to use the endpoint's default."
+                        ),
                         "fields": tuple(provisioning_fields),
                     },
                 ),
@@ -188,7 +319,16 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 (None, {"fields": ("name", "client_id", "client_secret", "client_type", "auth_brand", "logo_uri")}),
                 (
                     "Authorization",
-                    {"fields": ("authorization_grant_type", "redirect_uris", "algorithm", "scopes", "optional_scopes")},
+                    {
+                        "fields": (
+                            "authorization_grant_type",
+                            "jwks_uri",
+                            "redirect_uris",
+                            "algorithm",
+                            "scopes",
+                            "optional_scopes",
+                        )
+                    },
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
                 ("Status", {"fields": ("is_verified", "is_first_party")}),

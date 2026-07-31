@@ -7,13 +7,30 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `EventsNode` - EventsNode
+ * * `ActionsNode` - ActionsNode
+ * * `DataWarehouseNode` - DataWarehouseNode
+ */
+export type ConversionGoalKindEnumApi = (typeof ConversionGoalKindEnumApi)[keyof typeof ConversionGoalKindEnumApi]
+
+export const ConversionGoalKindEnumApi = {
+    EventsNode: 'EventsNode',
+    ActionsNode: 'ActionsNode',
+    DataWarehouseNode: 'DataWarehouseNode',
+} as const
+
 export interface ConversionGoalSummaryApi {
     /** Unique id of the goal (event name, action id, or DW goal id) */
     id: string
     /** Display name of the conversion goal */
     name: string
-    /** Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table) */
-    kind: string
+    /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+     *
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode */
+    kind: ConversionGoalKindEnumApi
     /** Human-readable target the goal matches (event/action name or table) */
     target_label: string
     /** Count of matching conversion events in the last 30 days */
@@ -77,6 +94,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -1099,8 +1120,12 @@ export interface GoalExplanationApi {
     goal_id: string
     /** Display name of the conversion goal */
     goal_name: string
-    /** EventsNode/ActionsNode/DataWarehouseNode */
-    kind: string
+    /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+     *
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode */
+    kind: ConversionGoalKindEnumApi
     /** The period the breakdown was computed over */
     period: GoalExplanationPeriodApi
     /** Total matching conversion events in the period */
@@ -1288,6 +1313,30 @@ export const UtmIssueSeverityEnumApi = {
     Warning: 'warning',
 } as const
 
+/**
+ * * `not_linked` - not_linked
+ * * `name_collision` - name_collision
+ * * `no_tagged_events` - no_tagged_events
+ * * `unknown_source` - unknown_source
+ * * `missing_source` - missing_source
+ */
+export type UtmIssueKindEnumApi = (typeof UtmIssueKindEnumApi)[keyof typeof UtmIssueKindEnumApi]
+
+export const UtmIssueKindEnumApi = {
+    NotLinked: 'not_linked',
+    NameCollision: 'name_collision',
+    NoTaggedEvents: 'no_tagged_events',
+    UnknownSource: 'unknown_source',
+    MissingSource: 'missing_source',
+} as const
+
+export interface UtmAlternativeSourceApi {
+    /** A utm_source value found on this campaign's pageviews */
+    utm_source: string
+    /** Number of pageview events with this utm_source */
+    event_count: number
+}
+
 export interface UtmIssueApi {
     /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
     field: string
@@ -1296,8 +1345,22 @@ export interface UtmIssueApi {
      * * `error` - error
      * * `warning` - warning */
     severity: UtmIssueSeverityEnumApi
-    /** Human-readable description of the issue */
+    /** Which kind of UTM problem this campaign has
+     *
+     * * `not_linked` - not_linked
+     * * `name_collision` - name_collision
+     * * `no_tagged_events` - no_tagged_events
+     * * `unknown_source` - unknown_source
+     * * `missing_source` - missing_source */
+    kind: UtmIssueKindEnumApi
+    /** Human-readable headline; the frontend composes richer text from the fields below */
     message: string
+    /** utm_source values actually found on this campaign's pageviews, ordered by event count */
+    alternative_sources: UtmAlternativeSourceApi[]
+    /** Other integrations whose campaigns share this campaign's name (name_collision only) */
+    shared_with_integrations: string[]
+    /** Pageviews that matched this campaign but carried no utm_source, on any issue kind */
+    missing_source_count: number
 }
 
 export interface CampaignAuditResultApi {
