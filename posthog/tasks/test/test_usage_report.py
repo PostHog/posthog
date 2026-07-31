@@ -6040,6 +6040,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 properties={
                     "$ai_gateway_verified": True,
                     "$ai_gateway_relay": True,
+                    "$ai_gateway_request_id": f"relay-request-{index}",
                     "$ai_trace_id": trace_id,
                     "$ai_span_id": f"span-{index}",
                 },
@@ -6053,6 +6054,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 properties={
                     "$ai_gateway_verified": True,
                     "$ai_gateway_relay": True,
+                    "$ai_gateway_request_id": "relay-request-0",
                     "$ai_trace_id": trace_id,
                     "$ai_span_id": "span-0",
                 },
@@ -6065,6 +6067,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             properties={
                 "$ai_gateway_verified": True,
                 "$ai_gateway_relay": True,
+                "$ai_gateway_request_id": "unsponsored-relay-request",
                 "$ai_trace_id": "unsponsored-trace",
                 "$ai_span_id": "unsponsored-span",
             },
