@@ -125,39 +125,6 @@ def has_reviewable_repo_config(team_id: int) -> bool:
     )
 
 
-def queue_inbox_pr_review(
-    *,
-    team_id: int,
-    pr_url: str,
-    repository: str,
-    acting_user_id: int,
-    signal_report_id: str,
-    task_run_id: str,
-) -> None:
-    """Queue the first hosted Stamphog review of a self-driving inbox PR, without waiting for it.
-
-    Called by review_hog's inbox trigger, which has already found an assigned reviewer with the
-    ``stamphog_review_inbox_prs`` toggle on. ``repository`` is the linked task's own repo, and the
-    PR must be in it, because the task-to-PR link this rides on (``TaskRun.output.pr_url``) is
-    writable through the task-run API. A Celery task does the rest: resolve a synced and enabled
-    repo config (no-op without one), fetch the PR, re-check that the App machine user authored it,
-    create the run with inbox provenance, start the workflow. That keeps GitHub and the product DB
-    off the caller's save path.
-    """
-    # Imported here because the task module pulls in the GitHub and temporal clients, and this
-    # facade stays light for review_hog's serializer, which imports has_reviewable_repo_config.
-    from products.stamphog.backend.tasks.tasks import process_inbox_pr_review  # noqa: PLC0415
-
-    process_inbox_pr_review.delay(
-        team_id=team_id,
-        pr_url=pr_url,
-        repository=repository,
-        acting_user_id=acting_user_id,
-        signal_report_id=signal_report_id,
-        task_run_id=task_run_id,
-    )
-
-
 def get_review_run(team_id: int, review_run_id: str) -> contracts.ReviewRunDTO | None:
     obj = (
         ReviewRun.objects.for_team(team_id).filter(id=review_run_id).select_related("pull_request__repo_config").first()
