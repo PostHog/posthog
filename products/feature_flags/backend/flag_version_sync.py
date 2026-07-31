@@ -80,7 +80,11 @@ def capture_cohort_definition_before_save(
     fields = COHORT_DEFINITION_FIELDS if update_fields is None else COHORT_DEFINITION_FIELDS.intersection(update_fields)
     if not fields:
         return
-    setattr(instance, _DEFINITION_BEFORE_SAVE_ATTR, Cohort.objects.filter(pk=instance.pk).values(*fields).first())
+    # sorted(): a frozenset's iteration order varies per process, and the resulting
+    # column order lands in postgres query snapshots.
+    setattr(
+        instance, _DEFINITION_BEFORE_SAVE_ATTR, Cohort.objects.filter(pk=instance.pk).values(*sorted(fields)).first()
+    )
 
 
 @receiver(post_save, sender=Cohort)
@@ -135,7 +139,7 @@ def capture_flag_definition_before_save(
     setattr(
         instance,
         _FLAG_DEFINITION_BEFORE_SAVE_ATTR,
-        FeatureFlag.objects_including_soft_deleted.filter(pk=instance.pk).values(*fields).first(),
+        FeatureFlag.objects_including_soft_deleted.filter(pk=instance.pk).values(*sorted(fields)).first(),
     )
 
 
