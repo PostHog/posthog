@@ -26,7 +26,7 @@ on:
 
 concurrency:
     group: desktop-storybook-${{ github.head_ref || github.ref }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
