@@ -25,6 +25,7 @@
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{fmt, mem};
 
 use common_kafka::config::KafkaConfig;
 use common_kafka::transaction::TransactionalProducer;
@@ -34,6 +35,9 @@ use prost::Message as ProtoMessage;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{FutureRecord, Producer};
 use tokio::sync::{oneshot, Mutex, Notify};
+use tokio::task::spawn_blocking;
+use tokio::time::sleep;
+use tracing::{error, warn};
 
 use personhog_proto::personhog::types::v1::Person;
 
@@ -58,8 +62,8 @@ pub enum FencedProduceError {
     Failed(String),
 }
 
-impl std::fmt::Display for FencedProduceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for FencedProduceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             FencedProduceError::NotAcquired => write!(f, "partition fence not acquired"),
             FencedProduceError::Fenced => {
@@ -141,15 +145,15 @@ impl FencedChangelogProducers {
         let tid = transactional_id(&self.topic, partition);
         let timeout = self.init_timeout;
         let start = Instant::now();
-        let producer = tokio::task::spawn_blocking(move || {
-            TransactionalProducer::from_config(&kafka, &tid, timeout)
-        })
-        .await
-        .map_err(|e| format!("fence init join: {e}"))?
-        .map_err(|e| {
-            counter!("personhog_leader_fence_init_total", "outcome" => "error").increment(1);
-            format!("fence init: {e}")
-        })?;
+        let producer =
+            spawn_blocking(move || TransactionalProducer::from_config(&kafka, &tid, timeout))
+                .await
+                .map_err(|e| format!("fence init join: {e}"))?
+                .map_err(|e| {
+                    counter!("personhog_leader_fence_init_total", "outcome" => "error")
+                        .increment(1);
+                    format!("fence init: {e}")
+                })?;
         counter!("personhog_leader_fence_init_total", "outcome" => "ok").increment(1);
         histogram!("personhog_leader_fence_init_ms").record(start.elapsed().as_secs_f64() * 1000.0);
         self.partitions.insert(
@@ -250,16 +254,16 @@ impl FencedChangelogProducers {
                     Ok(offset)
                 }
                 Ok(Err((e, _))) => {
-                    tracing::error!(partition, error = %e, "fenced send delivery failed");
+                    error!(partition, error = %e, "fenced send delivery failed");
                     Err(Some(e))
                 }
                 Err(_cancelled) => {
-                    tracing::error!(partition, "fenced send cancelled");
+                    error!(partition, "fenced send cancelled");
                     Err(None)
                 }
             },
             Err((e, _)) => {
-                tracing::error!(partition, error = %e, "fenced send enqueue failed");
+                error!(partition, error = %e, "fenced send enqueue failed");
                 Err(Some(e))
             }
         };
@@ -321,7 +325,7 @@ impl FencedChangelogProducers {
     ) -> FencedProduceError {
         if is_fenced(&e) || producer_fenced(fence.producer.inner()) {
             counter!("personhog_leader_produce_fenced_total").increment(1);
-            tracing::error!(
+            error!(
                 partition,
                 error = %e,
                 "changelog producer fenced by a newer owner — this pod's claim is stale"
@@ -370,7 +374,7 @@ async fn commit_window_after(
     topic: String,
     partition: u32,
 ) {
-    tokio::time::sleep(window).await;
+    sleep(window).await;
 
     // Stop admitting joiners, then wait for outstanding sends. The
     // committing flag holds until the commit finishes so no writer can
@@ -397,7 +401,7 @@ async fn commit_window_after(
 
     let (waiters, poisoned) = {
         let mut gate = fence.gate.lock().await;
-        (std::mem::take(&mut gate.waiters), gate.poisoned)
+        (mem::take(&mut gate.waiters), gate.poisoned)
     };
     histogram!("personhog_leader_fence_window_writes").record(waiters.len() as f64);
 
@@ -406,13 +410,13 @@ async fn commit_window_after(
     let producer = fence.producer.inner().clone();
     let timeout = fence.commit_timeout;
     let commit_start = Instant::now();
-    let result = tokio::task::spawn_blocking(move || {
+    let result = spawn_blocking(move || {
         if poisoned {
             // The abort's own failure is secondary — the window already
             // failed; a producer that cannot abort surfaces on the next
             // begin.
             if let Err(e) = producer.abort_transaction(timeout) {
-                tracing::warn!(error = %e, "abort of a poisoned window failed");
+                warn!(error = %e, "abort of a poisoned window failed");
             }
             Err((
                 KafkaError::Canceled,
@@ -436,7 +440,7 @@ async fn commit_window_after(
             counter!("personhog_leader_fence_aborts_total").increment(1);
             if is_fenced(&e) || producer_fenced(fence.producer.inner()) {
                 counter!("personhog_leader_produce_fenced_total").increment(1);
-                tracing::error!(
+                error!(
                     partition,
                     topic,
                     error = %e,
@@ -444,7 +448,7 @@ async fn commit_window_after(
                 );
                 Err(FencedProduceError::Fenced)
             } else {
-                tracing::error!(partition, topic, error = %e, context, "changelog window failed");
+                error!(partition, topic, error = %e, context, "changelog window failed");
                 Err(FencedProduceError::Failed(format!("{context}: {e}")))
             }
         }

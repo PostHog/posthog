@@ -6,10 +6,12 @@
 
 mod common;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use personhog_leader::fencing::{FencedChangelogProducers, FencedProduceError};
 use personhog_proto::personhog::types::v1::Person;
+use tokio::time::sleep;
 
 use common::{test_kafka_config, KAFKA_BOOTSTRAP};
 
@@ -69,15 +71,15 @@ async fn second_acquisition_fences_the_first_producer() {
 #[tokio::test]
 async fn concurrent_writes_share_a_window() {
     let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
-    let producers = std::sync::Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic));
     producers.acquire(0).await.expect("acquire");
 
     let a = {
-        let p = std::sync::Arc::clone(&producers);
+        let p = Arc::clone(&producers);
         tokio::spawn(async move { p.produce(0, &test_person(1)).await })
     };
     let b = {
-        let p = std::sync::Arc::clone(&producers);
+        let p = Arc::clone(&producers);
         tokio::spawn(async move { p.produce(0, &test_person(2)).await })
     };
     let (a, b) = (a.await.unwrap().unwrap(), b.await.unwrap().unwrap());
@@ -92,14 +94,14 @@ async fn concurrent_writes_share_a_window() {
 #[tokio::test]
 async fn sustained_writes_across_window_boundaries() {
     let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
-    let producers = std::sync::Arc::new(fenced_producers(&topic));
+    let producers = Arc::new(fenced_producers(&topic));
     producers.acquire(0).await.expect("acquire");
 
     let writes: Vec<_> = (0..200i64)
         .map(|k| {
-            let p = std::sync::Arc::clone(&producers);
+            let p = Arc::clone(&producers);
             tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(((k * 7) % 97) as u64)).await;
+                sleep(Duration::from_millis(((k * 7) % 97) as u64)).await;
                 p.produce(0, &test_person(k)).await
             })
         })

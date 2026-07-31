@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use personhog_coordination::error::Result;
+use personhog_coordination::error::{Error, Result};
 use personhog_coordination::pod::HandoffHandler;
 use tracing::info;
 
@@ -105,7 +105,7 @@ impl HandoffHandler for LeaderHandoffHandler {
             fenced
                 .acquire(partition)
                 .await
-                .map_err(personhog_coordination::error::Error::invalid_state)?;
+                .map_err(Error::invalid_state)?;
             info!(partition, "changelog fence acquired");
         }
         warm_from_kafka(
@@ -150,7 +150,7 @@ impl HandoffHandler for LeaderHandoffHandler {
             fenced
                 .acquire(partition)
                 .await
-                .map_err(personhog_coordination::error::Error::invalid_state)?;
+                .map_err(Error::invalid_state)?;
             info!(partition, "changelog fence re-acquired on resume");
         }
         self.inflight.unfence(partition);
