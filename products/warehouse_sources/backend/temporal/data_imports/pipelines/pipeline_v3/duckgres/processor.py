@@ -18,10 +18,14 @@ import structlog
 from prometheus_client import Histogram
 from psycopg import sql
 
-from posthog.ducklake.common import duckgres_data_imports_schema, get_duckgres_config_for_org
-from posthog.ducklake.storage import setup_duckgres_session
 from posthog.models import Team
 
+from products.managed_warehouse.backend.facade.api import (
+    duckgres_data_imports_schema,
+    duckgres_data_imports_table_name,
+    get_duckgres_config_for_org,
+    setup_duckgres_session,
+)
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
@@ -601,14 +605,7 @@ def _duckgres_schema_name(team_id: int) -> str:
 
 
 def _duckgres_table_name(schema: ExternalDataSchema) -> str:
-    source_type = schema.source.source_type
-    normalized_name = schema.normalized_name
-    raw_name = (
-        f"{source_type}_{schema.source.prefix}_{normalized_name}"
-        if schema.source.prefix
-        else f"{source_type}_{normalized_name}"
-    )
-    return NamingConvention.normalize_identifier(raw_name, max_length=63)
+    return duckgres_data_imports_table_name(schema)
 
 
 def _should_replace_table(batch: PendingBatch) -> bool:
