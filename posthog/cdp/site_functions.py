@@ -2,7 +2,7 @@ import json
 
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 
-from posthog.cdp.filters import hog_function_filters_to_expr
+from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.validation import transpile_template_code
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -56,7 +56,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
     response += f"const source = {transpile(hog_function.hog, 'site')}();"
 
     # Convert the global filters to code
-    filters_expr = hog_function_filters_to_expr(hog_function.filters or {}, hog_function.team, {})
+    filters_expr = compile_filters_expr(hog_function.filters or {}, hog_function.team, {})
     filters_code = compiler.visit(filters_expr)
 
     # Convert the mappings to code
@@ -69,7 +69,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
         mapping_inputs = mapping.get("inputs", {})
         mapping_inputs_schema = mapping.get("inputs_schema", [])
-        mapping_filters_expr = hog_function_filters_to_expr(mapping.get("filters", {}) or {}, hog_function.team, {})
+        mapping_filters_expr = compile_filters_expr(mapping.get("filters", {}) or {}, hog_function.team, {})
         mapping_filters_code = compiler.visit(mapping_filters_expr)
 
         mapping_code += f"if ({mapping_filters_code}) {{"
