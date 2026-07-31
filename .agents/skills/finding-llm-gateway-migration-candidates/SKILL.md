@@ -34,7 +34,7 @@ Before classifying a caller, follow it through every runtime boundary:
 4. Resolve the configured URL by host and path. Variable names are not proof: an `AI_GATEWAY_URL` can still contain a Python product-slug URL.
 5. Confirm the current call can succeed. A broad exception handler with a deterministic fallback can hide missing credentials or a route that never runs.
 
-A secret reference proves that a credential is injected. It does not prove which team owns it, whether the wallet is funded, or whether its scope is correct. Keep the candidate at 🔎 until those properties are verified from an authoritative source, unless the same credential is already proven on a comparable Go workload.
+A missing `phs_` credential is deployment work, not a parity blocker. Once the intended paying team is known, create a project secret with `llm_gateway:read` in the PostHog dashboard and fund or configure that team wallet as part of the migration. A secret reference proves only that a credential is injected; verify ownership, scope, and funding during implementation or rollout.
 
 ## Inventory each candidate
 
@@ -67,7 +67,7 @@ Name the exact evidence for every status. An existing Python helper is migration
 
 Python's unbilled flag is not a blocker when an internal workload should debit a PostHog-owned team wallet for spend attribution. Verify that the Go credential resolves to that team. Treat billing as blocked only when migration would charge a customer incorrectly, lose required customer budget policy, or violate a requirement to debit no wallet.
 
-Use ✅ only when the production entry point, worker or process, target credential, model and API pair, attribution conversion, and rollback path are all supported by evidence. Use 🔎 when any of those facts depends on an unverified secret, runtime state, or external configuration.
+Use ✅ when the production entry point, worker or process, intended paying team, model and API pair, attribution conversion, and rollback path are supported by evidence. The token itself may still need to be created and wired. Use 🔎 when the spend owner, required policy, runtime behavior, or another migration contract is unknown.
 
 ## Rank the shortlist
 
