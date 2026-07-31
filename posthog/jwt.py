@@ -13,6 +13,7 @@ JWT_ALGORITHM = "HS256"
 
 class PosthogJwtAudience(Enum):
     UNSUBSCRIBE = "posthog:unsubscribe"
+    NOTIFICATION_UNSUBSCRIBE = "posthog:notification_unsubscribe"
     EXPORTED_ASSET = "posthog:exported_asset"
     IMPERSONATED_USER = "posthog:impersonted_user"
     EXPORT_RENDERER = "posthog:export_renderer"

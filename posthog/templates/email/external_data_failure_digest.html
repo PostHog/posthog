@@ -1,13 +1,14 @@
 {% extends "email/base.html" %}
 {% load posthog_assets %}
 
-{% block preheader %}Data warehouse sync failures in {{ team.name }}{% endblock %}
+{% block preheader %}Data warehouse sync failures in {{ organization.name }} / {{ team.name }}{% endblock %}
 
 {% block heading %}Data warehouse sync failures{% endblock %}
 
 {% block section %}
 <p style="color: #374151;">
-    Some data warehouse syncs are failing in project <strong>{{ team.name }}</strong>.
+    Some data warehouse syncs are failing in project <strong>{{ team.name }}</strong>, in the
+    <strong>{{ organization.name }}</strong> organization.
     {% if has_paused %}
     Syncs marked <strong>paused</strong> hit an error we can't retry (for example invalid credentials or an
     unreachable host) &mdash; each sync's error message says how to fix it and get syncing again. Other syncs
@@ -68,10 +69,15 @@
 {% endblock %}
 
 {% block footer %}
+You're getting this because you're a member of the <strong>{{ organization.name }}</strong> organization,
+which has access to the <strong>{{ team.name }}</strong> project.<br /><br />
+
 Need help?
 <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
 or
 <a href="https://posthog.com/docs/cdp/sources?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.<br /><br />
 
 <a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+&mdash;
+or if this isn't your account, <a href="{{ unsubscribe_url }}">unsubscribe without signing in</a>.
 {% endblock %}

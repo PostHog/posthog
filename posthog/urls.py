@@ -475,6 +475,7 @@ urlpatterns = [
     *ee_urlpatterns,
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
+    path("api/notification_unsubscribe", unsubscribe.notification_unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path(
         "api/legal_documents/pandadoc",

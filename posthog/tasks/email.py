@@ -23,6 +23,7 @@ from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
+from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -730,6 +731,31 @@ EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER = Counter(
     "Failing schemas dropped from delivered digest emails beyond the per-email cap.",
 )
 
+# One-click unsubscribe links don't expire quickly — a recipient may not open a digest
+# email for weeks, and an expired link would just dead-end them at another support ticket.
+NOTIFICATION_UNSUBSCRIBE_TOKEN_EXP_DAYS = 180
+
+
+def get_notification_unsubscribe_token(user_id: int, notification_setting: NotificationSettingType) -> str:
+    """Signed, no-login-required link that flips a single notification toggle off for `user_id` —
+    the same toggle the recipient would otherwise have to sign in to /settings/user-notifications to find."""
+    return encode_jwt(
+        {"user_id": user_id, "notification_setting": notification_setting},
+        expiry_delta=datetime.timedelta(days=NOTIFICATION_UNSUBSCRIBE_TOKEN_EXP_DAYS),
+        audience=PosthogJwtAudience.NOTIFICATION_UNSUBSCRIBE,
+    )
+
+
+def unsubscribe_from_notification_using_token(token: str) -> User:
+    info = decode_jwt(token, audience=PosthogJwtAudience.NOTIFICATION_UNSUBSCRIBE)
+    user = User.objects.get(pk=info["user_id"])
+    user.partial_notification_settings = {
+        **(user.partial_notification_settings or {}),
+        info["notification_setting"]: False,
+    }
+    user.save(update_fields=["partial_notification_settings"])
+    return user
+
 
 def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0) -> bool:
     """Email a per-team digest of failing external data source syncs.
@@ -758,7 +784,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
         return False
 
     try:
-        team = Team.objects.get(id=team_id)
+        team = Team.objects.select_related("organization").get(id=team_id)
     except Team.DoesNotExist:
         EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="team_missing").inc()
         logger.warning("Team %d not found for external data failure digest", team_id)
@@ -793,29 +819,36 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 
     paused_count = sum(1 for schema in schemas if schema["paused"])
     subject = (
-        f"[Alert] Data warehouse syncs paused in project '{team.name}'"
+        f"[Alert] Data warehouse syncs paused in project '{team.name}' ({team.organization.name})"
         if paused_count == len(schemas) and omitted_count == 0
-        else f"[Alert] Data warehouse syncs failing in project '{team.name}'"
+        else f"[Alert] Data warehouse syncs failing in project '{team.name}' ({team.organization.name})"
     )
 
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=subject,
-        template_name="external_data_failure_digest",
-        template_context={
-            "team": team,
-            "schemas": schemas,
-            "has_paused": paused_count > 0,
-            "omitted_count": omitted_count,
-            "sources_url": f"{settings.SITE_URL}/project/{team.id}/data-management/sources",
-        },
-    )
+    # One EmailMessage per recipient (not one shared message with everyone in `to`) so each
+    # copy carries its own unsubscribe link — the org name alone doesn't let a recipient who
+    # doesn't recognize the project opt out without first logging into that account.
     for membership in memberships_to_email:
-        message.add_user_recipient(membership.user)
-    # _send_email swallows provider failures without retrying, so only
-    # MessagingRecord.sent_at proves delivery — stamping on enqueue would
-    # permanently silence paused schemas whenever a send failed.
-    message.send(send_async=False)
+        user = membership.user
+        unsubscribe_token = get_notification_unsubscribe_token(user.id, NotificationSetting.PLUGIN_DISABLED.value)
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=subject,
+            template_name="external_data_failure_digest",
+            template_context={
+                "team": team,
+                "organization": team.organization,
+                "schemas": schemas,
+                "has_paused": paused_count > 0,
+                "omitted_count": omitted_count,
+                "sources_url": f"{settings.SITE_URL}/project/{team.id}/data-management/sources",
+                "unsubscribe_url": f"{settings.SITE_URL}/api/notification_unsubscribe?token={unsubscribe_token}",
+            },
+        )
+        message.add_user_recipient(user)
+        # _send_email swallows provider failures without retrying, so only
+        # MessagingRecord.sent_at proves delivery — stamping on enqueue would
+        # permanently silence paused schemas whenever a send failed.
+        message.send(send_async=False)
     delivered = MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists()
     if delivered:
         EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="delivered").inc()

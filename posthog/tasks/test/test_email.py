@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 from typing import cast
 
@@ -44,6 +45,7 @@ from posthog.tasks.email import (
     send_provisioning_welcome,
     send_wizard_pr_ready_email,
     should_send_pipeline_error_notification,
+    unsubscribe_from_notification_using_token,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
@@ -733,6 +735,41 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         assert "failing" in MockEmailMessage.call_args.kwargs["subject"]
 
+    def test_send_external_data_failure_digest_identifies_org_and_can_be_unsubscribed(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # Regression: a recipient who doesn't recognize the project name had no way to tell
+        # whose account this was, or to opt out without signing in.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        send_external_data_failure_digest(
+            self.team.pk,
+            [
+                {
+                    "schema_name": "Charge",
+                    "source_type": "Stripe",
+                    "source_id": "abc",
+                    "source_prefix": "",
+                    "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                    "error": "boom",
+                    "paused": False,
+                    "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                }
+            ],
+        )
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert self.organization.name in message.subject
+        assert self.organization.name in message.html_body
+
+        token_match = re.search(r"notification_unsubscribe\?token=([\w.\-]+)", message.html_body)
+        assert token_match is not None
+
+        unsubscribe_from_notification_using_token(token_match.group(1))
+        self.user.refresh_from_db()
+        assert self.user.notification_settings["plugin_disabled"] is False
+
     def test_send_external_data_failure_digest_day_rolls_over_at_boundary_hour(
         self, MockEmailMessage: MagicMock
     ) -> None:
@@ -881,7 +918,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         with freeze_time("2024-05-16 10:00:00"):
             send_external_data_failure_digest(self.team.pk, items)
-        assert len(mocked_email_messages[1].to) == 2
+        # A new digest day sends one personalized message per recipient (each with its own
+        # unsubscribe link), rather than one message shared across the team's admins.
+        new_messages = mocked_email_messages[1:]
+        assert len(new_messages) == 2
+        assert {message.to[0]["raw_email"] for message in new_messages} == {self.user.email, user2.email}
 
     def test_should_send_pipeline_error_notification(self, MockEmailMessage: MagicMock) -> None:
         # Default threshold is 1% (0.01) - notify when failure rate exceeds that

@@ -18,6 +18,22 @@ logger = structlog.get_logger(__name__)
 # notified — the email communicates them in aggregate via the "+N more" line.
 MAX_SCHEMAS_PER_DIGEST_EMAIL = 30
 
+# `latest_error` can hold internal scheduler wording (Temporal activity/heartbeat timeouts)
+# that means nothing to a customer and gives no next step. Rewrite the recognizable ones;
+# anything else (the source's own error message) passes through unchanged.
+_INTERNAL_ERROR_REWRITES: list[tuple[str, str]] = [
+    ("heartbeat timeout", "The sync stopped responding and was automatically retried."),
+    ("activity task timed out", "The sync took too long to finish and was automatically retried."),
+]
+
+
+def _customer_facing_error(raw_error: str) -> str:
+    lowered = raw_error.lower()
+    for needle, rewritten in _INTERNAL_ERROR_REWRITES:
+        if needle in lowered:
+            return rewritten
+    return raw_error
+
 
 def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=26)) -> list[int]:
     """Teams with still-failing schemas that have an un-communicated recent failure.
@@ -115,7 +131,7 @@ def notify_external_data_sync_failures(team_id: int) -> None:
                     "source_url": source_url,
                     # The template truncates for display (truncatechars), and the rendered
                     # HTML is what crosses the Celery boundary — no need to cap here.
-                    "error": schema.latest_error or "Unknown error",
+                    "error": _customer_facing_error(schema.latest_error or "Unknown error"),
                     "paused": schema.sync_halted,
                     "url": f"{source_url}?schema={quote(schema.name)}",
                 }

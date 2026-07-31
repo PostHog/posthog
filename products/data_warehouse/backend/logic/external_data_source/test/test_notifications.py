@@ -111,6 +111,34 @@ class TestNotifyExternalDataSyncFailures:
         assert f"?schema={quote(name)}" in items[0]["url"]
 
     @pytest.mark.parametrize(
+        "raw_error,expected_error",
+        [
+            # Internal Temporal wording rewritten into something a customer can act on...
+            (
+                "Activity Heartbeat timeout after 3 attempts",
+                "The sync stopped responding and was automatically retried.",
+            ),
+            # ...but the source's own error message passes through unchanged.
+            ("Invalid API key", "Invalid API key"),
+        ],
+    )
+    def test_rewrites_internal_scheduler_wording_for_customers(self, raw_error, expected_error):
+        team, source = _create_team_and_source()
+        ExternalDataSchema.objects.create(
+            name="Charge",
+            team=team,
+            source=source,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error=raw_error,
+        )
+
+        with patch(SENDER_PATH) as mock_sender:
+            notify_external_data_sync_failures(team.pk)
+
+        (_, items) = mock_sender.call_args.args
+        assert items[0]["error"] == expected_error
+
+    @pytest.mark.parametrize(
         "status,should_sync,deleted",
         [
             (ExternalDataSchema.Status.COMPLETED, True, False),
