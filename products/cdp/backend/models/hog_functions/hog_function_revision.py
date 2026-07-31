@@ -21,7 +21,7 @@ class HogFunctionRevision(TeamScopedRootMixin, UUIDModel):
     hog_function = models.ForeignKey("cdp.HogFunction", on_delete=models.CASCADE, related_name="revisions")
     version = models.IntegerField(help_text="Function version this snapshot was published as.")
     content = models.JSONField(
-        help_text="Full snapshot of the function's config fields (hog, inputs, filters, mappings, masking) at this version."
+        help_text="Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version."
     )
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False

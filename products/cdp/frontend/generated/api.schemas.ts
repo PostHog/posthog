@@ -719,7 +719,7 @@ export interface HogFunctionRevisionApi {
     readonly version: number
     readonly created_at: string
     readonly created_by: UserBasicApi | null
-    /** Full snapshot of the function's config fields (hog, inputs, filters, mappings, masking) at this version. */
+    /** Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version. */
     readonly content: unknown
 }
 

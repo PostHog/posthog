@@ -1129,14 +1129,17 @@ class HogFunctionViewSet(
             return False
         return bool(self._sent_content_fields())
 
-    def _write_draft(self, instance: HogFunction, locked: HogFunction, serializer: BaseSerializer) -> None:
+    def _write_draft(
+        self, instance: HogFunction, locked: HogFunction, serializer: BaseSerializer, validated_content: dict
+    ) -> None:
         # The draft is always a full config snapshot (live config as the base, staged draft on top,
         # this edit's validated fields last) so publish is a plain copy with no merge logic.
+        # validated_content is passed in because the caller's metadata save clears validated_data.
         sent = self._sent_content_fields()
         draft = {**snapshot_hog_function_content(locked), **(locked.draft or {})}
         for field in sent:
-            if field in serializer.validated_data:
-                draft[field] = serializer.validated_data[field]
+            if field in validated_content:
+                draft[field] = validated_content[field]
 
         recovered = split_content_secrets(draft)
         staged = locked.draft_encrypted_inputs or {}
@@ -1221,22 +1224,30 @@ class HogFunctionViewSet(
         with transaction.atomic():
             try:
                 # nosemgrep: idor-lookup-without-team (ID from already team-scoped instance; locked for the save)
-                before_update = HogFunction.objects.select_for_update().get(pk=instance_id)
+                locked = HogFunction.objects.select_for_update().get(pk=instance_id)
+                # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+                before_update = HogFunction.objects.get(pk=instance_id)
             except HogFunction.DoesNotExist:
+                locked = None
                 before_update = None
 
-            route_to_draft = route_to_draft and before_update is not None
+            route_to_draft = route_to_draft and locked is not None
 
             # Draft edits race against other draft edits, not against the live row (which they don't
             # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
-            guard_timestamp = before_update.updated_at if before_update else None
-            if route_to_draft and before_update and before_update.draft_updated_at:
-                guard_timestamp = before_update.draft_updated_at
+            guard_timestamp = locked.updated_at if locked else None
+            if route_to_draft and locked and locked.draft_updated_at:
+                guard_timestamp = locked.draft_updated_at
             if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
                 raise StaleHogFunctionUpdateError()
             if route_to_draft:
-                assert before_update is not None
-                self._write_draft(serializer.instance, before_update, serializer)
+                assert locked is not None
+                # Preserved before the metadata save clears validated_data below.
+                validated_content = {
+                    field: serializer.validated_data[field]
+                    for field in DRAFT_CONTENT_FIELDS
+                    if field in serializer.validated_data
+                }
                 # Metadata in the same payload still applies live. Config (and the bytecode compiled
                 # from it) must not leak onto the live row — it belongs to the draft now.
                 remaining = {
@@ -1246,15 +1257,23 @@ class HogFunctionViewSet(
                     and key not in _DERIVED_CONTENT_FIELDS
                     and key not in _INJECTED_UPDATE_FIELDS
                 }
+                # The save target is the locked row, never the request-start instance: a
+                # ModelSerializer save writes every column, so saving the object fetched before
+                # validation would write its stale config back over anything a concurrent live edit
+                # committed in between. Metadata saves first — the full save would otherwise clobber
+                # the draft columns _write_draft is about to fill with the locked row's pre-draft
+                # values.
+                serializer.instance = locked
                 if remaining:
                     serializer.validated_data.clear()
                     serializer.validated_data.update({**remaining, "team": self.team})
                     serializer.save()
+                self._write_draft(locked, locked, serializer, validated_content)
             else:
-                before_content = snapshot_hog_function_content(before_update) if before_update else None
+                before_content = snapshot_hog_function_content(locked) if locked else None
                 serializer.save()
-                if before_update is not None and before_content is not None and revisions_enabled:
-                    self._record_revision(serializer.instance, before_update, before_content)
+                if locked is not None and before_content is not None and revisions_enabled:
+                    self._record_revision(serializer.instance, locked, before_content)
 
         log_activity_from_viewset(
             self,

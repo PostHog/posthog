@@ -53,7 +53,7 @@ class Migration(migrations.Migration):
                 (
                     "content",
                     models.JSONField(
-                        help_text="Full snapshot of the function's config fields (hog, inputs, filters, mappings, masking) at this version."
+                        help_text="Full snapshot of the function's config fields (hog, inputs_schema, inputs, filters, mappings, masking) at this version."
                     ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
