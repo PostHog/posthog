@@ -18,18 +18,11 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                             See the complete
                             [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-langchain) and
                             [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-langchain)
-                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
-                            the [Node.js
-                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-langchain)
-                            and [Python
-                            wrapper](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-langchain)
-                            examples.
+                            examples on GitHub.
                         </Markdown>
                     </CalloutBox>
 
-                    <Markdown>
-                        Install the OpenTelemetry SDK, the LangChain instrumentation, and LangChain with OpenAI.
-                    </Markdown>
+                    <Markdown>Install the PostHog SDK and LangChain with OpenAI.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -37,14 +30,14 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install langchain langchain-core langchain-openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-langchain
+                                    pip install posthog langchain langchain-core langchain-openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install langchain @langchain/core @langchain/openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-langchain
+                                    npm install posthog-node @posthog/ai langchain @langchain/core @langchain/openai zod
                                 `,
                             },
                         ]}
@@ -53,13 +46,12 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             ),
         },
         {
-            title: 'Set up OpenTelemetry tracing',
+            title: 'Configure PostHog',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Configure OpenTelemetry to auto-instrument LangChain calls and export traces to PostHog. PostHog
-                        converts `gen_ai.*` spans into `$ai_generation` events automatically.
+                        Create a PostHog client once, then build a callback handler for each request or conversation.
                     </Markdown>
 
                     <CodeBlock
@@ -68,58 +60,50 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from opentelemetry import trace
-                                    from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from posthog.ai.otel import PostHogSpanProcessor
-                                    from opentelemetry.instrumentation.langchain import LangchainInstrumentor
+                                    from posthog import Posthog
+                                    from posthog.ai.langchain import CallbackHandler
 
-                                    resource = Resource(attributes={
-                                        SERVICE_NAME: "my-app",
-                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
-                                        "foo": "bar", # custom properties are passed through
-                                    })
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(
-                                        PostHogSpanProcessor(
-                                            api_key="<ph_project_token>",
-                                            host="<ph_client_api_host>",
+                                    def create_handler(user_id: str, session_id: str) -> CallbackHandler:
+                                        return CallbackHandler(
+                                            client=posthog,
+                                            distinct_id=user_id,
+                                            properties={"$ai_session_id": session_id},
                                         )
-                                    )
-                                    trace.set_tracer_provider(provider)
-
-                                    LangchainInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK } from '@opentelemetry/sdk-node'
-                                    import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
-                                    import { LangChainInstrumentation } from '@traceloop/instrumentation-langchain'
+                                    import { PostHog } from 'posthog-node'
+                                    import { LangChainCallbackHandler } from '@posthog/ai/langchain'
 
-                                    const sdk = new NodeSDK({
-                                      resource: resourceFromAttributes({
-                                        'service.name': 'my-app',
-                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
-                                        foo: 'bar', // custom properties are passed through
-                                      }),
-                                      spanProcessors: [
-                                        new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
-                                          host: '<ph_client_api_host>',
-                                        }),
-                                      ],
-                                      instrumentations: [new LangChainInstrumentation()],
-                                    })
-                                    sdk.start()
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    function createHandler(userId: string, sessionId: string): LangChainCallbackHandler {
+                                      return new LangChainCallbackHandler({
+                                        client: posthog,
+                                        distinctId: userId,
+                                        properties: { $ai_session_id: sessionId },
+                                      })
+                                    }
                                 `,
                             },
                         ]}
                     />
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Build a new handler for every request">
+                        <Markdown>
+                            {dedent`
+                                A \`CallbackHandler\` holds no state of its own, so \`distinct_id\` and \`$ai_session_id\`
+                                are fixed when you construct it. Build one per request or conversation, as
+                                \`create_handler\`/\`createHandler\` does above. Construct a single handler once at
+                                module scope instead, and every user's conversation collapses into the same session.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },
@@ -129,8 +113,8 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Use LangChain as normal. The OpenTelemetry instrumentation automatically captures
-                        `$ai_generation` events for each LLM call — no callback handlers needed.
+                        Attach the handler through `config` when you invoke your chain. PostHog captures an
+                        `$ai_generation` event for each LLM call and an `$ai_span` event for each tool call.
                     </Markdown>
 
                     <CodeBlock
@@ -140,19 +124,36 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 file: 'Python',
                                 code: dedent`
                                     from langchain_openai import ChatOpenAI
-                                    from langchain_core.prompts import ChatPromptTemplate
+                                    from langchain_core.tools import tool
+                                    from langchain_core.runnables import RunnableLambda
 
-                                    prompt = ChatPromptTemplate.from_messages([
-                                        ("system", "You are a helpful assistant."),
-                                        ("user", "{input}")
-                                    ])
+                                    @tool
+                                    def get_weather(city: str) -> str:
+                                        """Get the weather for a given city."""
+                                        return f"It's always sunny in {city}!"
 
-                                    model = ChatOpenAI(openai_api_key="your_openai_api_key")
-                                    chain = prompt | model
+                                    model = ChatOpenAI(openai_api_key="your_openai_api_key").bind_tools([get_weather])
 
-                                    response = chain.invoke({"input": "Tell me a joke about programming"})
+                                    def run_turn(user_input: str) -> str:
+                                        # Wrapping the whole turn in one RunnableLambda gives the tool call a
+                                        # parent run. Without a parent, the handler logs it as its own
+                                        # $ai_trace instead of an $ai_span.
+                                        response = model.invoke(user_input)
 
-                                    print(response.content)
+                                        for tool_call in response.tool_calls:
+                                            print(get_weather.invoke(tool_call))
+
+                                        return response.content
+
+                                    agent_turn = RunnableLambda(run_turn)
+
+                                    handler = create_handler(user_id="user_123", session_id="conversation-abc")
+                                    result = agent_turn.invoke(
+                                        "What's the weather in Paris?",
+                                        config={"callbacks": [handler]},
+                                    )
+
+                                    print(result)
                                 `,
                             },
                             {
@@ -160,28 +161,73 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 file: 'Node',
                                 code: dedent`
                                     import { ChatOpenAI } from '@langchain/openai'
-                                    import { ChatPromptTemplate } from '@langchain/core/prompts'
+                                    import { tool } from '@langchain/core/tools'
+                                    import { RunnableLambda } from '@langchain/core/runnables'
+                                    import { z } from 'zod'
 
-                                    const prompt = ChatPromptTemplate.fromMessages([
-                                      ["system", "You are a helpful assistant."],
-                                      ["user", "{input}"]
-                                    ])
+                                    const getWeather = tool(
+                                      (input) => \`It's always sunny in \${input.city}!\`,
+                                      {
+                                        name: 'get_weather',
+                                        description: 'Get the weather for a given city',
+                                        schema: z.object({
+                                          city: z.string().describe('The city to get the weather for'),
+                                        }),
+                                      }
+                                    )
 
-                                    const model = new ChatOpenAI({ apiKey: "your_openai_api_key" })
-                                    const chain = prompt.pipe(model)
+                                    const model = new ChatOpenAI({ apiKey: 'your_openai_api_key' }).bindTools([getWeather])
 
-                                    const response = await chain.invoke({ input: "Tell me a joke about programming" })
+                                    const agentTurn = RunnableLambda.from(async (userInput: string, config) => {
+                                      // Wrapping the whole turn in one RunnableLambda gives the tool call a
+                                      // parent run, and passing config into every nested call keeps it there —
+                                      // LangChain.js doesn't propagate callbacks implicitly the way Python does.
+                                      const response = await model.invoke(userInput, config)
 
-                                    console.log(response.content)
+                                      for (const toolCall of response.tool_calls ?? []) {
+                                        console.log(await getWeather.invoke(toolCall, config))
+                                      }
+
+                                      return response.content
+                                    })
+
+                                    const handler = createHandler('user_123', 'conversation-abc')
+                                    const result = await agentTurn.invoke("What's the weather in Paris?", {
+                                      callbacks: [handler],
+                                    })
+
+                                    console.log(result)
                                 `,
                             },
                         ]}
                     />
 
+                    <CalloutBox type="caution" icon="IconWarning" title="Config propagation and tool spans">
+                        <Markdown>
+                            {dedent`
+                                **In Node, pass \`config\` into every nested call.** Python threads the active
+                                callbacks through contextvars automatically, so nested \`.invoke()\` calls pick them up
+                                on their own. LangChain.js doesn't — skip \`config\` on a nested call and that call runs
+                                with no callbacks at all. Nothing errors, so you're left with a single root trace and
+                                no generations or spans, silently.
+
+                                **Tool calls need a parent run.** The handler decides whether a call is a trace or a
+                                span based on whether it has a parent run. A tool invoked with no enclosing chain
+                                becomes its own root, producing a second, disconnected \`$ai_trace\` instead of an
+                                \`$ai_span\`.
+                                Wrapping the turn in one \`RunnableLambda\`, as above, fixes it in both Python and
+                                Node. This only comes up when you hand-roll a loop like this one — a prebuilt agent,
+                                like LangGraph's
+                                [\`create_react_agent\`](https://posthog.com/docs/ai-observability/installation/langgraph),
+                                already runs as a single root.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
+
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, omit `distinct_id`/`distinctId`
+                            when constructing the handler. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -193,7 +239,12 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     {NotableGenerationProperties && <NotableGenerationProperties />}
 
                     <Markdown>
-                        It also automatically creates a trace hierarchy based on how LangChain components are nested.
+                        {dedent`
+                            The handler also builds a trace hierarchy automatically based on how your chain is
+                            nested. Pass the same \`$ai_session_id\` to every handler you construct for a conversation
+                            to group its calls into one session, and \`trace_id\`/\`traceId\` to control the top-level
+                            trace ID instead of letting PostHog generate one.
+                        `}
                     </Markdown>
                 </>
             ),
