@@ -294,6 +294,12 @@ export function FinishExperimentModal(): JSX.Element {
                             loading={endExperimentLoading}
                             disabledReason={
                                 (!experiment.conclusion && 'Select a conclusion') ||
+                                // Until the target loads we don't know whether a pick is needed, and
+                                // ending now would silently skip the requested cleanup PR.
+                                (cleanupPrAvailable &&
+                                    openCleanupPr &&
+                                    !cleanupTarget &&
+                                    'Checking which repository the cleanup PR would target') ||
                                 (cleanupPrAvailable &&
                                     openCleanupPr &&
                                     cleanupNeedsRepositoryPick &&
