@@ -1374,8 +1374,8 @@ class TestNullSafeMergePredicate:
 
 
 class TestDeltaliteWritePath:
-    """Phase 2: deltalite performs the real incremental merge, gated by env + per-schema flag, with a
-    hard fallback to the delta-rs MERGE so a deltalite failure can never fail a sync."""
+    """Phase 2: deltalite performs the real incremental merge, gated solely by a per-schema flag, with
+    a hard fallback to the delta-rs MERGE so a deltalite failure can never fail a sync."""
 
     _FLAG = (
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.core."
@@ -1395,14 +1395,22 @@ class TestDeltaliteWritePath:
         )
 
     @pytest.mark.asyncio
-    async def test_skips_when_env_switch_off(self):
-        # The env switch is the cheap master gate: off => no flag eval, no import, immediate fallback.
-        with override_settings(DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED=False):
-            assert await self._call(self._helper()) is False
+    async def test_skips_without_primary_keys(self):
+        # No primary keys => nothing to key an upsert on; fall back without even evaluating the flag.
+        with patch(self._FLAG) as flag:
+            wrote = await self._helper()._write_via_deltalite(
+                existing_delta_table=MagicMock(),
+                data=pa.table({"id": pa.array([1], pa.int64())}),
+                normalized_primary_keys=[],
+                use_partitioning=False,
+                commit_metadata=None,
+            )
+        assert wrote is False
+        flag.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_falls_back_when_flag_disabled(self):
-        with override_settings(DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED=True), patch(self._FLAG, return_value=False):
+        with patch(self._FLAG, return_value=False):
             assert await self._call(self._helper()) is False
 
     @pytest.mark.asyncio
@@ -1415,7 +1423,6 @@ class TestDeltaliteWritePath:
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         with (
-            override_settings(DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED=True),
             patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
@@ -1443,7 +1450,6 @@ class TestDeltaliteWritePath:
         fake_deltalite = MagicMock()
         fake_deltalite.DeltaLiteTable.open.return_value = fake_table
         with (
-            override_settings(DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED=True),
             patch(self._FLAG, return_value=True),
             patch.dict("sys.modules", {"deltalite": fake_deltalite}),
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),

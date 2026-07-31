@@ -596,12 +596,13 @@ class DeltaTableHelper:
         """Phase 2: perform the incremental merge via deltalite instead of the delta-rs MERGE.
 
         Returns True if deltalite committed the write (caller then skips the delta-rs MERGE), or False
-        to fall back to the MERGE. Falls back on *anything* — env/flag off, import failure, deltalite
-        error / commit conflict / refusal — so switching a schema to deltalite can only change which
-        engine writes, never whether the sync succeeds; the worst case is today's behaviour. Gated by
-        the master env switch (cheap, checked first) then a per-schema feature flag.
+        to fall back to the MERGE. Falls back on *anything* — flag off, import failure, deltalite error /
+        commit conflict / refusal — so switching a schema to deltalite can only change which engine
+        writes, never whether the sync succeeds; the worst case is today's behaviour. Controlled solely
+        by the per-schema ``data-warehouse-deltalite-write`` feature flag (no env switch), so it can be
+        ramped / killed entirely from the flag UI without a deploy.
         """
-        if not settings.DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED or not normalized_primary_keys:
+        if not normalized_primary_keys:
             return False
         # Lazy imports: keep the heavy pipeline_v3 metrics chain (and deltalite_shadow) off this core
         # module's import path, which would otherwise risk a circular import.

@@ -132,9 +132,9 @@ def is_deltalite_shadow_enabled(team_id: int, schema_id: str, source_type: str |
 def is_deltalite_write_enabled(team_id: int, schema_id: str, source_type: str | None = None) -> bool:
     """Per-schema flag for deltalite performing the REAL incremental merge (phase 2).
 
-    Also gated behind the ``DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED`` env switch at the call site, and a
-    deltalite failure falls back to the delta-rs MERGE — so this can only change *which engine* writes,
-    never *whether* the sync succeeds.
+    This flag is the *only* control (no env switch), so the write path can be ramped or killed from the
+    flag UI without a deploy. A deltalite failure falls back to the delta-rs MERGE, so this can only
+    change *which engine* writes, never *whether* the sync succeeds.
     """
     return _is_deltalite_flag_enabled(team_id, schema_id, WAREHOUSE_DELTALITE_WRITE_FLAG, source_type)
 
