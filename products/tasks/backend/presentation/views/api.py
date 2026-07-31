@@ -5,6 +5,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from time import perf_counter
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
@@ -33,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.event_usage import groups
 from posthog.models import User
 from posthog.permissions import (
     APIScopePermission,
@@ -2479,15 +2481,34 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     )
     def chart(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
+        run_id = self._run_id()
         # Refuse unknown runs before the expensive render, like every sibling action does.
-        if not tasks_facade.task_run_exists(self._run_id(), task_id, self.team_id):
+        if not tasks_facade.task_run_exists(run_id, task_id, self.team_id):
             raise NotFound()
         name = request.validated_data["name"]
         query = request.validated_data.get("query")
+        started = perf_counter()
+
+        def capture_render(*, failure_reason: str | None = None, export_asset_id: int | None = None) -> None:
+            posthoganalytics.capture(
+                distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),
+                event="task_chart_render_failed" if failure_reason else "task_chart_render_succeeded",
+                properties={
+                    "task_id": task_id,
+                    "run_id": run_id,
+                    "source": "query" if query is not None else "insight",
+                    "duration_ms": round((perf_counter() - started) * 1000, 2),
+                    "failure_reason": failure_reason,
+                    "export_asset_id": export_asset_id,
+                },
+                groups=groups(self.organization, self.team),
+            )
+
         if query is not None:
             # Only InsightVizNode renders a chart deterministically; QuerySchemaRoot
             # also admits kinds that render as table dumps or nothing.
             if not isinstance(query, dict) or query.get("kind") != "InsightVizNode":
+                capture_render(failure_reason="unsupported_query")
                 return Response(
                     TaskRunErrorResponseSerializer(
                         {
@@ -2503,6 +2524,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 query = upgrade(query)
                 QuerySchemaRoot.model_validate(query)
             except (pydantic.ValidationError, TypeError, KeyError, ValueError):
+                capture_render(failure_reason="invalid_query")
                 return Response(
                     TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,
                     status=status.HTTP_400_BAD_REQUEST,
@@ -2522,11 +2544,13 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 insight_id=request.validated_data.get("insight_id"),
             )
         except ValueError as e:
+            capture_render(failure_reason="invalid_request")
             return Response(TaskRunErrorResponseSerializer({"error": str(e)}).data, status=status.HTTP_400_BAD_REQUEST)
         if png is None:
             # asset.exception is a raw str(e) and the agent relays this field into Slack, so keep
             # the pipeline internals in the log.
             logger.warning("Chart render failed for asset %s on team %s: %s", asset.id, self.team_id, asset.exception)
+            capture_render(failure_reason="render_failed", export_asset_id=asset.id)
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Chart render failed"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2541,7 +2565,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if url:
             chart_metadata["posthog_url"] = url
         artifact, error = tasks_facade.create_task_run_living_artifact(
-            self._run_id(),
+            run_id,
             task_id,
             self.team_id,
             artifact={
@@ -2560,7 +2584,9 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             # The render already persisted the export; without this it would sit
             # orphaned until its own six-month expiry instead of being cleaned up now.
             asset.delete()
+            capture_render(failure_reason="artifact_create_failed")
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        capture_render(export_asset_id=asset.id)
         serializer = TaskRunLivingArtifactChartResponseSerializer(
             {"artifact": artifact, "export_asset_id": asset.id, "url": url}
         )
