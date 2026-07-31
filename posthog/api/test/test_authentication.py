@@ -469,6 +469,18 @@ class TestDevLoginAPI(APIBaseTest):
         response = self.client.get("/api/login/dev?search=mira")
         self.assertEqual([user["email"] for user in response.json()["users"]], ["growth-test-1@posthog.com"])
 
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_list_offset_pages_without_repeating_users(self):
+        for index in range(3):
+            User.objects.create_and_join(self.organization, f"paged-{index}@posthog.com", None)
+
+        first_page = self.client.get("/api/login/dev").json()
+        second_page = self.client.get("/api/login/dev?offset=2").json()
+
+        self.assertEqual(second_page["total_count"], first_page["total_count"])
+        emails = [user["email"] for user in first_page["users"]]
+        self.assertEqual([user["email"] for user in second_page["users"]], emails[2:])
+
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
         response = self.client.get("/api/login/dev")

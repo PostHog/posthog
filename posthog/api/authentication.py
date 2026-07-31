@@ -458,9 +458,9 @@ DEV_LOGIN_KNOWN_EMAIL_LABELS = {
     "test@posthog.com": "Default test user",
 }
 
-# Some dev instances (growth testing especially) accumulate hundreds of accounts. The panel
-# pages through them with search rather than shipping the whole table on every login page view.
-DEV_LOGIN_USER_LIMIT = 100
+# Some dev instances (growth testing especially) accumulate hundreds of accounts, so the panel
+# pages as you scroll rather than shipping the whole table on every login page view.
+DEV_LOGIN_PAGE_SIZE = 50
 
 # Name pools for dev-login fresh account creation, so test accounts are easy to
 # tell apart in the login tools list.
@@ -599,7 +599,7 @@ class DevLoginUserListSerializer(serializers.Serializer):
         many=True, read_only=True, help_text="Matching users, most recently logged in first."
     )
     total_count = serializers.IntegerField(
-        read_only=True, help_text="How many users match the search in total, before the response is capped."
+        read_only=True, help_text="How many users match the search in total, across all pages."
     )
 
 
@@ -620,7 +620,12 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
                 name="search",
                 type=str,
                 description="Case-insensitive filter on email, first name and last name.",
-            )
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=int,
+                description=f"How many users to skip. Pages are {DEV_LOGIN_PAGE_SIZE} users long.",
+            ),
         ],
         responses={200: DevLoginUserListSerializer},
     )
@@ -635,12 +640,18 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
                 Q(email__icontains=search) | Q(first_name__icontains=search) | Q(last_name__icontains=search)
             )
 
+        try:
+            offset = max(0, int(request.GET.get("offset", 0)))
+        except ValueError:
+            offset = 0
+
         # Recency beats alphabetical once an instance has more accounts than fit on screen — the
-        # handful you actually switch between float to the top on their own.
+        # handful you actually switch between float to the top on their own. Email breaks ties so
+        # that paging can't repeat or skip a user.
         users = list(
             queryset.order_by(F("last_login").desc(nulls_last=True), "email").values(
                 "email", "first_name", "is_staff", "last_login"
-            )[:DEV_LOGIN_USER_LIMIT]
+            )[offset : offset + DEV_LOGIN_PAGE_SIZE]
         )
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])

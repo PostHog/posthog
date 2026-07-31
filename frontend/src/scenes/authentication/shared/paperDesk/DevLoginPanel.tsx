@@ -19,6 +19,9 @@ import { DevUser, devLoginLogic } from '../devLoginLogic'
 // Below this many accounts the list fits on screen, so a search field would be noise.
 const DEV_USERS_SEARCHABLE_FROM = 8
 
+// How close to the bottom of the list to get before pulling the next page, in pixels.
+const LOAD_MORE_SCROLL_MARGIN = 120
+
 /** Floating dev-only panel (top-right) combining dev-login shortcuts and OAuth prod-data login. */
 export function DevLoginPanel(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -27,10 +30,11 @@ export function DevLoginPanel(): JSX.Element | null {
         devUsersLoading,
         devUsersSearch,
         devUsersTotalCount,
+        devUsersHaveMore,
         devLoginPanelOpen,
         createFreshAccountLoading,
     } = useValues(devLoginLogic)
-    const { devLogin, loadDevUsers, createFreshAccount, setDevUsersSearch, setDevLoginPanelOpen } =
+    const { devLogin, loadDevUsers, loadMoreDevUsers, createFreshAccount, setDevUsersSearch, setDevLoginPanelOpen } =
         useActions(devLoginLogic)
     const { loginInProgress } = useValues(oauthLogic)
     const { beginLogin } = useActions(oauthLogic)
@@ -59,7 +63,16 @@ export function DevLoginPanel(): JSX.Element | null {
     }
 
     const showSearch = allowDevLogin && (devUsersTotalCount >= DEV_USERS_SEARCHABLE_FROM || !!devUsersSearch)
-    const hiddenCount = devUsersTotalCount - devUsers.length
+
+    function onListScroll(event: React.UIEvent<HTMLDivElement>): void {
+        if (!devUsersHaveMore || devUsersLoading) {
+            return
+        }
+        const { scrollTop, scrollHeight, clientHeight } = event.currentTarget
+        if (scrollHeight - scrollTop - clientHeight < LOAD_MORE_SCROLL_MARGIN) {
+            loadMoreDevUsers(null)
+        }
+    }
 
     return (
         <div className="fixed top-4 right-4 z-50 flex flex-col w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] bg-white border border-[#e0e1d9] rounded-lg shadow-[0_20px_44px_-26px_rgb(40_38_30/35%),0_3px_0_#e0e1d9]">
@@ -87,7 +100,7 @@ export function DevLoginPanel(): JSX.Element | null {
                             />
                         </div>
                     )}
-                    <div className="flex-1 min-h-0 max-h-[45vh] overflow-y-auto p-1.5">
+                    <div className="flex-1 min-h-0 max-h-[45vh] overflow-y-auto p-1.5" onScroll={onListScroll}>
                         {devUsersLoading && devUsers.length === 0 ? (
                             <div className="flex justify-center py-4">
                                 <Spinner />
@@ -96,17 +109,21 @@ export function DevLoginPanel(): JSX.Element | null {
                             <p className="text-xs text-muted text-center px-2 py-4 m-0">
                                 {devUsersSearch
                                     ? 'No accounts match that search. Try a different email or name.'
-                                    : 'No accounts yet. Create a fresh one below.'}
+                                    : 'No accounts yet. Create a fresh demo account below.'}
                             </p>
                         ) : (
-                            devUsers.map((user) => <DevUserButton key={user.email} user={user} onClick={devLogin} />)
+                            <>
+                                {devUsers.map((user) => (
+                                    <DevUserButton key={user.email} user={user} onClick={devLogin} />
+                                ))}
+                                {devUsersHaveMore && (
+                                    <div className="flex justify-center py-2">
+                                        <Spinner />
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
-                    {hiddenCount > 0 && (
-                        <p className="px-3 pb-2 text-xs text-muted m-0">
-                            {hiddenCount} more not shown. Search to find them.
-                        </p>
-                    )}
                 </>
             )}
             <div className="flex flex-col gap-2 px-3 py-2.5 border-t border-[#e0e1d9]">
@@ -121,9 +138,9 @@ export function DevLoginPanel(): JSX.Element | null {
                         disabledReason={createFreshAccountLoading ? 'Creating account' : undefined}
                         onClick={createFreshAccount}
                         data-attr="dev-create-fresh-account"
-                        tooltip="Creates a random account and organization with the password 12345678, then opens onboarding."
+                        tooltip="Creates a throwaway account and organization with a random name and the password 12345678, then opens onboarding."
                     >
-                        Create fresh account
+                        Create fresh demo account
                     </LemonButton>
                 )}
                 <div>
