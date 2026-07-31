@@ -141,6 +141,9 @@ tools:
     saved-destroy:
         operation: saved_destroy
         enabled: false
+    saved-preflight-create:
+        operation: saved_preflight_create
+        enabled: false
     saved-prewarm-create:
         operation: saved_prewarm_create
         enabled: false
