@@ -555,6 +555,8 @@ class EmitTraceEvaluationEventInputs:
     session_id: str | None
     result: EvaluationActivityResult
     start_time: datetime
+    target: str = "trace"
+    ai_session_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -562,6 +564,7 @@ class EmitTraceEvaluationEventInputs:
             "team_id": self.team_id,
             "evaluation_id": self.evaluation.get("id"),
             "trace_id": self.trace_id,
+            "target": self.target,
         }
 
 
@@ -579,15 +582,28 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
         # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
         # linkage copied in the generation path) intentionally does not apply here.
         properties = build_evaluation_event_properties(inputs.evaluation, inputs.result, inputs.start_time)
-        properties.update(
-            {
-                "$ai_target_id": inputs.trace_id,
-                "$ai_target_type": "trace_id",
-                # The eval event carries the trace id itself so it shows up inside the trace view.
-                "$ai_trace_id": inputs.trace_id,
-                "$session_id": inputs.session_id,
-            }
-        )
+        if inputs.target == "session" and inputs.ai_session_id:
+            properties.update(
+                {
+                    "$ai_target_id": inputs.ai_session_id,
+                    "$ai_target_type": "session_id",
+                    # Makes the verdict session-scoped so the session view can read it. No
+                    # $ai_trace_id: the verdict belongs to the session, not to any one trace, and
+                    # inventing a trace id would make it render as that trace's verdict.
+                    "$ai_session_id": inputs.ai_session_id,
+                    "$session_id": inputs.session_id,
+                }
+            )
+        else:
+            properties.update(
+                {
+                    "$ai_target_id": inputs.trace_id,
+                    "$ai_target_type": "trace_id",
+                    # The eval event carries the trace id itself so it shows up inside the trace view.
+                    "$ai_trace_id": inputs.trace_id,
+                    "$session_id": inputs.session_id,
+                }
+            )
 
         capture_result = capture_internal(
             token=team.api_token,
