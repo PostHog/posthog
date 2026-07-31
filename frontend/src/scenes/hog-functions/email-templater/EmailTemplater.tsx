@@ -798,11 +798,12 @@ function EmailTemplaterModal(): JSX.Element {
         useValues(emailTemplaterLogic)
     const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate, setIsSaveTemplateModalOpen } =
         useActions(emailTemplaterLogic)
-    const [fieldsHidden, setFieldsHidden] = useState(false)
+    // Fields start collapsed: in embedded contexts they duplicate the surrounding form.
+    const [fieldsHidden, setFieldsHidden] = useState(true)
 
     useEffect(() => {
         if (!isModalOpen) {
-            setFieldsHidden(false)
+            setFieldsHidden(true)
         }
     }, [isModalOpen])
 
@@ -824,7 +825,8 @@ function EmailTemplaterModal(): JSX.Element {
                         size="small"
                         icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
                         onClick={() => setFieldsHidden(!fieldsHidden)}
-                        className="absolute -top-1 right-10 z-10"
+                        // Aligned with the modal's close button (top-3 right-4), sitting just left of it
+                        className="absolute top-3 right-14 z-10"
                     >
                         {fieldsHidden ? 'Show fields' : 'Hide fields'}
                     </LemonButton>
