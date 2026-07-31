@@ -62,6 +62,7 @@ import type {
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
+    ViewLinkValidationResponseApi,
     WarehouseColumnAnnotationApi,
     WarehouseColumnAnnotationsListParams,
     WarehouseColumnStatisticsApi,
@@ -2289,8 +2290,8 @@ export const warehouseViewLinkValidateCreate = async (
     projectId: string,
     viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseViewLinkValidateCreateUrl(projectId), {
+): Promise<ViewLinkValidationResponseApi> => {
+    return apiMutator<ViewLinkValidationResponseApi>(getWarehouseViewLinkValidateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2437,8 +2438,8 @@ export const warehouseViewLinksValidateCreate = async (
     projectId: string,
     viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseViewLinksValidateCreateUrl(projectId), {
+): Promise<ViewLinkValidationResponseApi> => {
+    return apiMutator<ViewLinkValidationResponseApi>(getWarehouseViewLinksValidateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

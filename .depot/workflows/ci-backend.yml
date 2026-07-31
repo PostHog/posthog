@@ -821,8 +821,9 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure \
                     </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
-            # Shadow trial: canonical threads a setup-action app token into
-            # pnpm-install; mint stripped here (secret not available on Depot).
+            # Shadow trial: canonical threads a setup-action app token into both
+            # pnpm-install and setup-python; mint stripped here (secret not
+            # available on Depot), so setup-python keeps the bot PAT.
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:

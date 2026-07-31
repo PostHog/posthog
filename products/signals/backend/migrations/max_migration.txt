@@ -1,1 +1,1 @@
-0078_backfill_scout_status
+0083_signalscoutconfig_auto_pause_exempt

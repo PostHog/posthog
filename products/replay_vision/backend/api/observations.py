@@ -5,7 +5,7 @@ from typing import Any, cast, get_args
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
@@ -14,7 +14,13 @@ from django.http.response import HttpResponseBase
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -30,6 +36,7 @@ from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 from posthog.utils import relative_date_parse
 
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
@@ -37,10 +44,12 @@ from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
     check_team_in_flight_capacity,
+    claim_apply_scanner_slot,
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
@@ -865,7 +874,16 @@ class ReplayObservationViewSet(
             locked.save(update_fields=["created_task_id"])
         return Response({"task_id": task_id}, status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=None, responses={202: RetryResponseSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            202: RetryResponseSerializer,
+            409: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The previous run is still finishing."
+            ),
+            503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The retry couldn't be started."),
+        },
+    )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def retry(self, request: Request, **kwargs: Any) -> Response:
         """Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
@@ -874,6 +892,9 @@ class ReplayObservationViewSet(
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
         # Retry writes to the scanner; the session route's get_object only object-checks the observation row.
         self.check_object_permissions(self.request, scanner)
+        session_id = observation.session_id
+        original_pk = observation.pk
+        original_created_at = observation.created_at
         # Ineligible is retryable because some gates are timing artifacts: the recording or its snapshots can
         # finish ingesting after the scan ran (see IneligibleSessionKind.NO_SNAPSHOTS). Without this, the
         # UNIQUE(scanner, session_id) row would lock the session out of that scanner forever.
@@ -886,30 +907,63 @@ class ReplayObservationViewSet(
                 "AI data processing is turned off for this organization, so the scan can't run. "
                 "An organization admin can turn it on in organization settings."
             )
+        # Advisory, and deliberately outside the lock below: the atomic claim is the authoritative gate,
+        # and these two read enough to be worth keeping off a held row lock.
         check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
         check_team_in_flight_capacity(self.team.id)
-        session_id = observation.session_id
-        # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
-        original_pk = observation.pk
-        original_created_at = observation.created_at
-        observation.delete()
+        # Locked so two concurrent retries can't both pass the status check and both delete the row.
+        with transaction.atomic():
+            locked = ReplayObservation.objects.select_for_update().get(pk=original_pk, team_id=self.team_id)
+            if locked.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+                raise ValidationError("Only failed or ineligible observations can be retried.")
+            # Captured before the delete cascades it away: a run that never starts has to put the team's
+            # rating back with the row, not just the row.
+            original_label = ReplayObservationLabel.objects.filter(
+                observation_id=original_pk, team_id=locked.team_id
+            ).first()
+            label_created_at = original_label.created_at if original_label else None
+            label_updated_at = original_label.updated_at if original_label else None
+            # Claimed before the delete so a capped retry never touches the row, and so never cascades
+            # away the observation's shared label for a request that changes nothing.
+            workflow_id, claimed = claim_apply_scanner_slot(scanner, session_id)
+            if not claimed:
+                raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
+            try:
+                # Free the UNIQUE(scanner, session_id) slot; the ledger is immutable, so the failed attempt
+                # stays counted.
+                locked.delete()
+            except Exception:
+                release_enqueue_claim(
+                    team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id, immediately=True
+                )
+                raise
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner,
             session_id,
             triggered_by_user_id=cast(User, request.user).id,
             trigger=ObservationTrigger.RETRY,
+            slot_already_claimed=True,
         )
         if outcome is not WorkflowStartOutcome.STARTED:
-            # The replacement run never started, so restore the original row (its shared label, if any, is lost
-            # to the cascade) instead of leaving the recording looking unscanned.
-            observation.pk = original_pk
-            observation.save(force_insert=True)
-            ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
-                created_at=original_created_at
-            )
-        if outcome is WorkflowStartOutcome.CAPPED:
-            # The pre-check above passed on a snapshot; the atomic claim is the authoritative gate.
-            raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
+            # The replacement run never started, so restore the original row and its rating instead of leaving
+            # the recording looking unscanned and the team's feedback gone.
+            try:
+                with transaction.atomic():
+                    observation.pk = original_pk
+                    observation.save(force_insert=True)
+                    ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
+                        created_at=original_created_at
+                    )
+                    if original_label is not None:
+                        original_label.save(force_insert=True)
+                        # auto_now_add/auto_now stamp the insert with now; the rating happened earlier.
+                        ReplayObservationLabel.objects.filter(pk=original_label.pk, team_id=observation.team_id).update(
+                            created_at=label_created_at, updated_at=label_updated_at
+                        )
+            except IntegrityError:
+                # A run we couldn't start is already persisting its own row for this (scanner, session);
+                # the recording isn't stranded, so report it as still finishing rather than 500ing.
+                outcome = WorkflowStartOutcome.ALREADY_RUNNING
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
             # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
             return Response(
@@ -959,17 +1013,24 @@ class ReplayObservationViewSet(
             return Response(status=204)
         input_serializer = ReplayObservationLabelSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
-        # team_id in the lookup keeps the query team-scoped.
-        label, _ = ReplayObservationLabel.objects.update_or_create(
-            observation=observation,
-            team_id=observation.team_id,
-            defaults={
-                "is_correct": input_serializer.validated_data["is_correct"],
-                "feedback": input_serializer.validated_data.get("feedback", ""),
-                "created_by": user,
-            },
-        )
-        # The core quality/calibration signal: thumbs up/down on whether the scanner got the session right.
+        # Lock the parent row so two concurrent first-time ratings serialize: unlocked, both see no label,
+        # both insert, and the loser hits the OneToOne constraint as a 500.
+        with transaction.atomic():
+            # `only("pk")`: the lock is the point, and the full row drags its JSONB columns along.
+            ReplayObservation.objects.select_for_update().only("pk").filter(
+                pk=observation.pk, team_id=observation.team_id
+            ).first()
+            # team_id in the lookup keeps the query team-scoped.
+            label, _ = ReplayObservationLabel.objects.update_or_create(
+                observation=observation,
+                team_id=observation.team_id,
+                defaults={
+                    "is_correct": input_serializer.validated_data["is_correct"],
+                    "feedback": input_serializer.validated_data.get("feedback", ""),
+                    "created_by": user,
+                },
+            )
+        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
         report_user_action(
             user,
             "replay_vision_observation_rated",

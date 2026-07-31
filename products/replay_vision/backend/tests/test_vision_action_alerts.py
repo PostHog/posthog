@@ -166,6 +166,10 @@ class TestVisionActionAlerts(BaseTest):
         self.assertIn("below the threshold of 1", recovery_run.synthesized_markdown)
         self.assertIn("had been firing since", recovery_run.synthesized_markdown)
         self.assertTrue(recovery_run.output["recovered"])
+        # A lost attempt after the recovery message committed re-enters the idempotency guard. Reporting
+        # FIRED there would deliver the alert notification that recovering exists to suppress.
+        replayed = _evaluate(EvaluateAlertInputs(run_id=recovery_run.id, team_id=self.team.id))
+        self.assertEqual(replayed.status, AlertStatus.RECOVERED)
         self._record(recovery_run, VisionActionRunStatus.COMPLETED)
 
         # A fresh match after recovery is a new incident — it must fire, not report still_breached.

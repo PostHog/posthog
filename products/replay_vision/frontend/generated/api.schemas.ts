@@ -385,6 +385,14 @@ export interface RunActionResponseApi {
 }
 
 /**
+ * The shape every Replay Vision error response uses, so generated clients read one key.
+ */
+export interface ReplayVisionErrorApi {
+    /** Human-readable explanation of why the request was refused. */
+    detail: string
+}
+
+/**
  * * `running` - Running
  * * `completed` - Completed
  * * `failed` - Failed
