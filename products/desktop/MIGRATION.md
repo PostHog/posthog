@@ -15,6 +15,7 @@ be treated as a bug in the sync.
 2. Replace the `products/desktop/` tree with `git archive <sha> | tar -x -C products/desktop/`, then delete
    `products/desktop/.github` (workflows live at the monorepo root, transformed per the rules below).
    `products/desktop/MIGRATION.md` (this file) is monorepo-only: restore it and update the pinned SHA.
+   Restore `products/desktop/product.yaml` too (see the drift list below).
 3. Re-derive each `.github/workflows/desktop-*.yml` from its source workflow (mapping table
    below) by applying the transform rules. If a source workflow changed, re-apply the rules
    to the new version rather than hand-merging the diff.
@@ -31,6 +32,12 @@ The tree is a verbatim copy of the source at the pinned SHA except:
 - `.github/` is not imported (see workflow mapping below).
 - `MIGRATION.md` (this file) and `docs/plan.md` (the migration plan) exist only in the
   monorepo; restore both on a resync.
+- `product.yaml` is monorepo-only and must be restored on a resync. It declares
+  `owners: [team-posthog-code]` for the distributed ownership resolver, which drives
+  reviewer auto-assignment, `team/` labels and Slack routing to `#team-desktop`. Losing it
+  silently makes the whole tree resolve as unowned. It is not a merge gate (that is the
+  `.github/CODEOWNERS` entry) and `hogli product:lint` does not pick the directory up, so
+  it carries no product-scaffold obligations.
 - Monorepo symlink convention (enforced by CI): every AGENTS.md needs a sibling CLAUDE.md
   symlink, and CLAUDE.md files must BE symlinks. Applied:
   `packages/ui/src/features/inbox/CLAUDE.md` renamed to `AGENTS.md` plus a symlink, and
