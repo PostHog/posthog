@@ -1241,8 +1241,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         message: 'You have unsaved changes. Are you sure you want to leave?',
         onConfirm: () => {
-            // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
-            // recomputes to false and the prompt does not re-fire on the next navigation.
+            // Re-sync guard-feeding state so hasPendingWork recomputes to false and the prompt
+            // does not re-fire on the next navigation: reset ticket metadata to the server copy
+            // and discard the unsent draft the user just agreed to leave behind.
+            if (values.draftContent !== null) {
+                actions.setDraftContent(null)
+            }
             if (values.ticket) {
                 actions.setTicket(values.ticket)
             }
