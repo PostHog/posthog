@@ -37,13 +37,15 @@ describe('onboardingProviderRegistry', () => {
         expect(provider!.completeRedirectUrl?.()).toBe('/metrics')
     })
 
-    // Metrics ingests over OTLP like Logs does, so picking both must not ask the user
-    // to install OpenTelemetry twice.
-    it('shares one OpenTelemetry install step between metrics and logs', () => {
+    // Metrics and Logs both arrive over OTel, but their install experiences differ:
+    // Metrics is OTLP/scrape-agent only, while Logs offers Node.js, Python, Go, Java,
+    // and mobile SDK flows. Sharing a dedupKey would collapse the two and drop the
+    // loser's instruction map, so Metrics must NOT carry the OpenTelemetry dedupKey.
+    it('does not share the OpenTelemetry dedup key with logs', () => {
         const metricsStep = onboardingProviderRegistry[ProductKey.METRICS]!.steps(context(ProductKey.METRICS))[0]
         const logsStep = onboardingProviderRegistry[ProductKey.LOGS]!.steps(context(ProductKey.LOGS))[0]
 
-        expect(metricsStep.dedupKey).toBe(INSTALL_DEDUP_KEYS.OPENTELEMETRY)
-        expect(logsStep.dedupKey).toBe(metricsStep.dedupKey)
+        expect(logsStep.dedupKey).toBe(INSTALL_DEDUP_KEYS.OPENTELEMETRY)
+        expect(metricsStep.dedupKey).toBeUndefined()
     })
 })

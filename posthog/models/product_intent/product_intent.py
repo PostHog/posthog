@@ -229,8 +229,15 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return contexts.get("mcp_analytics_viewed", 0) >= 1
 
     def has_activated_metrics(self) -> bool:
-        # Metrics reached the team and the user has since charted or queried them.
-        # Ingestion on its own is a connected pipeline, not an activated product.
+        # The user has charted or queried metrics. Charting/querying is only possible
+        # once metrics have reached the team (a metric name has to exist to pick), so an
+        # engagement signal is itself proof of ingestion — and ingestion on its own is a
+        # connected pipeline, not an activated product.
+        #
+        # We deliberately do NOT gate on `metrics_first_ingested`: that context fires only
+        # when the frontend observes a no-metrics -> has-metrics flip in-session, so a team
+        # that already had metrics before its first check never records it and could never
+        # activate on later query intents.
         intent = ProductIntent.objects.filter(
             team=self.team,
             product_type="metrics",
@@ -240,9 +247,6 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             return False
 
         contexts = intent.contexts or {}
-        if contexts.get("metrics_first_ingested", 0) < 1:
-            return False
-
         return contexts.get("metrics_viewer_query_run", 0) >= 1 or contexts.get("metrics_sql_query_run", 0) >= 1
 
     def has_activated_workflows(self) -> bool:

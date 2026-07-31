@@ -1,6 +1,6 @@
 import { MetricsSDKInstructions } from 'scenes/onboarding/legacy/sdks/metrics/MetricsSDKInstructions'
 import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -13,8 +13,11 @@ export const metricsOnboarding: ProductOnboardingProvider = {
             productKey: ProductKey.METRICS,
             stepKey: OnboardingStepKey.INSTALL,
             role: ctx.role,
-            // Same OTel install as Logs, so picking both products asks once.
-            dedupKey: INSTALL_DEDUP_KEYS.OPENTELEMETRY,
+            // No dedupKey with Logs: both send over OTel, but the install steps are not
+            // functionally identical. Metrics is OTLP/scrape-agent only; Logs offers 10
+            // SDK-specific flows (Node.js, Python, Go, Java, mobile) plus its own OTel
+            // config. Sharing a key would collapse the two and drop the loser's
+            // instruction map depending on which product is primary.
             render: () => <OnboardingInstallStep sdkInstructionMap={MetricsSDKInstructions} hideInstallationCheck />,
         },
     ],
