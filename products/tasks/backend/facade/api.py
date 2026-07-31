@@ -503,6 +503,20 @@ def find_signal_implementation_run(
     matches: success flips the run to COMPLETED right after it opens the PR, so excluding it
     would end re-reviews the moment the implementation finishes.
     """
+    # TODO(security): the run->PR link is only as strong as the branch NAME, and the name is not a
+    # secret. state.self_driving_head_branch is unforgeable, but the name it holds is readable by any
+    # team member (auto_start writes it into the task description, and TaskRunDetailSerializer exposes
+    # `state`) and low-entropy. A run that finishes WITHOUT opening a PR keeps its stamp yet leaves its
+    # branch unclaimed, so a member can read the name, have their own task's agent push an App-authored
+    # repo-native PR from that exact branch, then set_output the original run's pr_url to fire the
+    # carve-out: the head ref genuinely belongs to this run, so an approve-first review lands on a PR
+    # whose contents they chose. The real fix is to bind on the head SHA the sandbox actually pushed
+    # (recorded server-side into protected state) rather than the branch name, because a run that never
+    # pushed has no SHA to bind, which removes the unclaimed-branch surface entirely; re-reviews then
+    # pin to the PR identity once the first attested SHA establishes it. It is a heavy change (sandbox
+    # has to report the pushed SHA back, and the re-review path needs the PR-identity pin), so it is
+    # deferred. The exposure is intra-tenant and gated behind an opt-in toggle that defaults off, which
+    # makes it an accepted residual for the current internal rollout; close it before any external one.
     if not head_branch:
         return None
     run = (
