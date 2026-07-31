@@ -292,13 +292,13 @@ describe('EmailTrackingService', () => {
                 parentRunId?: string
                 workflowVersion?: number
             }): Promise<supertest.Response> => {
-                const trackingCode = signer.generate({
-                    functionId,
-                    id: invocationId,
-                    teamId: team.id,
-                    parentRunId,
-                    workflowVersion,
-                })
+                // Third arg opts into the versioned payload, which `generate` won't emit by default
+                // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
+                const trackingCode = signer.generate(
+                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion },
+                    false,
+                    workflowVersion !== undefined
+                )
                 const sesRecord = {
                     eventType: 'Bounce',
                     mail: {

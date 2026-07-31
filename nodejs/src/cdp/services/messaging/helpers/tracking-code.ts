@@ -94,6 +94,16 @@ export type ParsedTrackingCode = {
 // layout and no version. It can't collide with a real payload because segment 0 is a UUID.
 const VERSIONED_PAYLOAD_MARKER = 'v2'
 
+// Phase one of a two-phase rollout: `parse` understands the marker, `generate` does not yet emit it.
+// The layouts are only compatible in one direction — a marked code read by a pod still running the
+// old parser shifts every field (functionId becomes the literal marker), the flow lookup misses, and
+// the engagement metric is dropped. Emitting before the fleet can parse would lose metrics for the
+// length of the rolling deploy.
+//
+// Phase two flips this to `true` in a follow-up, once this parser is everywhere. Until then no
+// engagement metric carries a version, and they land in the version-agnostic series alone.
+const EMIT_VERSIONED_PAYLOAD = false
+
 // Generates, signs, verifies and renders email tracking codes. Signing keys and the public
 // tracking URL are read once in the constructor so callers can be injected with a configured
 // instance (see cdp-services.ts) instead of reaching into global config — and tests can pass
@@ -189,7 +199,7 @@ export class EmailTrackingCodeSigner {
     // Full tracking code, HMAC-signed when a signing key is configured. Rides in the custom MIME
     // header and the pixel/link URLs — carriers with no length cap — and the signature lets the
     // public tracking endpoint reject forged `ph_id` values.
-    generate(invocation: TrackingInvocation, isTest = false): string {
+    generate(invocation: TrackingInvocation, isTest = false, emitVersionedPayload = EMIT_VERSIONED_PAYLOAD): string {
         const actionId = invocation.state?.actionId ?? ''
         const parentRunId = invocation.parentRunId ?? ''
         const distinctId = invocation.distinctId ?? ''
@@ -197,8 +207,18 @@ export class EmailTrackingCodeSigner {
         // isTest marks sends from the editor's "Run test" so the SES webhook can skip recording their
         // metrics — keeping test traffic out of the production Metrics tab. distinctId is appended last
         // because it may contain colons; it attributes engagement events.
+        const fields = [
+            invocation.functionId,
+            invocation.id,
+            invocation.teamId,
+            actionId,
+            parentRunId,
+            isTest ? '1' : '',
+        ]
         const payload = toBase64UrlSafe(
-            `${VERSIONED_PAYLOAD_MARKER}:${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${isTest ? '1' : ''}:${workflowVersion}:${distinctId}`
+            emitVersionedPayload
+                ? [VERSIONED_PAYLOAD_MARKER, ...fields, workflowVersion, distinctId].join(':')
+                : [...fields, distinctId].join(':')
         )
         if (this.signingKeys.length === 0) {
             // Fail closed (#62624): a deployment with no signing key must never mint unsigned tracking

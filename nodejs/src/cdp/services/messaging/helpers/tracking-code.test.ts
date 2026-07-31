@@ -201,14 +201,18 @@ describe('email tracking code', () => {
                 // containing colons is where an off-by-one in the split would surface — either the
                 // version leaks into distinctId or distinctId loses its leading segment.
                 name: 'roundtrips the workflow version alongside a colon-bearing distinctId',
-                encoded: signer.generate({
-                    functionId: 'fn-1',
-                    id: 'inv-2',
-                    teamId: 3,
-                    state: { actionId: 'act-5' },
-                    distinctId: 'urn:user:42',
-                    workflowVersion: 3,
-                }),
+                encoded: signer.generate(
+                    {
+                        functionId: 'fn-1',
+                        id: 'inv-2',
+                        teamId: 3,
+                        state: { actionId: 'act-5' },
+                        distinctId: 'urn:user:42',
+                        workflowVersion: 3,
+                    },
+                    false,
+                    true
+                ),
                 expected: {
                     functionId: 'fn-1',
                     invocationId: 'inv-2',
@@ -246,6 +250,24 @@ describe('email tracking code', () => {
             },
         ])('$name', ({ encoded, expected }) => {
             expect(signer.parse(encoded)).toEqual(expected)
+        })
+    })
+
+    describe('versioned payload rollout', () => {
+        it('does not emit the marker by default, so pods on the old parser still read new codes', () => {
+            // Phase one ships the marker-aware parser only. Emitting the marker before the fleet can
+            // parse it shifts every field for an old pod — functionId becomes the literal marker, the
+            // flow lookup misses, and the engagement metric is dropped for the whole rolling deploy.
+            const decoded = Buffer.from(
+                signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }).split('.')[0],
+                'base64'
+            ).toString('utf8')
+
+            expect(decoded.startsWith('fn-1:')).toBe(true)
+            expect(
+                signer.parse(signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }))
+                    ?.workflowVersion
+            ).toBeUndefined()
         })
     })
 
