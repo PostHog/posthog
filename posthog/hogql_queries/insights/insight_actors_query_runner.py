@@ -12,6 +12,7 @@ from posthog.schema import (
     HogQLQueryResponse,
     InsightActorsQuery,
     LifecycleQuery,
+    PathsV2ActorsQuery,
     StickinessActorsQuery,
     StickinessQuery,
     TrendsQuery,
@@ -35,6 +36,7 @@ from posthog.types import InsightActorsQueryNode
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
+from products.product_analytics.backend.hogql_queries.paths_v2.paths_v2_query_runner import PathsV2QueryRunner
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 
 
@@ -102,6 +104,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         elif isinstance(self.source_runner, PathsQueryRunner):
             paths_runner = cast(PathsQueryRunner, self.source_runner)
             return paths_runner.to_actors_query()
+        elif isinstance(self.source_runner, PathsV2QueryRunner):
+            paths_v2_runner = cast(PathsV2QueryRunner, self.source_runner)
+            paths_v2_actors_query = cast(PathsV2ActorsQuery, self.query)
+            return paths_v2_runner.to_actors_query(paths_v2_actors_query.element)
         elif isinstance(self.source_runner, StickinessQueryRunner):
             stickiness_runner = cast(StickinessQueryRunner, self.source_runner)
             stickiness_actors_query = cast(StickinessActorsQuery, self.query)

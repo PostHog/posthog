@@ -612,6 +612,7 @@ def get_query_runner(
         "FunnelCorrelationActorsQuery",
         "ExperimentActorsQuery",
         "StickinessActorsQuery",
+        "PathsV2ActorsQuery",
     ):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
