@@ -1,7 +1,8 @@
-from django.db import models
+from django.db import DatabaseError, models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
 
@@ -62,20 +63,27 @@ def create_default_clustering_jobs_for_new_team(sender, instance: Team, created:
     - ``ignore_conflicts=True`` against the ``(team, name)`` unique constraint makes the
       signal idempotent and covers the race with backfill migrations during deploy.
     - Runs only when ``created=True``, so it fires once per team lifetime.
+    - This is best-effort: a team missing its defaults is already handled by the
+      backfill migrations (``0019_rename_default_clustering_jobs``,
+      ``0030_create_default_evaluation_clustering_jobs``) and by the viewset, so a
+      failure here must not abort team creation for an unrelated product.
     """
     if not created:
         return
 
-    ClusteringJob.objects.bulk_create(
-        [
-            ClusteringJob(
-                team=instance,
-                name=name,
-                analysis_level=level,
-                event_filters=[],
-                enabled=True,
-            )
-            for name, level in DEFAULT_LEVEL_SPECS
-        ],
-        ignore_conflicts=True,
-    )
+    try:
+        ClusteringJob.objects.bulk_create(
+            [
+                ClusteringJob(
+                    team=instance,
+                    name=name,
+                    analysis_level=level,
+                    event_filters=[],
+                    enabled=True,
+                )
+                for name, level in DEFAULT_LEVEL_SPECS
+            ],
+            ignore_conflicts=True,
+        )
+    except DatabaseError as e:
+        capture_exception(e)

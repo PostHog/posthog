@@ -304,6 +304,25 @@ class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):
 
         assert ClusteringJob.objects.filter(team=team).count() == baseline
 
+    def test_team_create_survives_database_error_during_seeding(self):
+        from django.db import DatabaseError
+
+        from posthog.models import Organization, Project, Team
+
+        org = Organization.objects.create(name="db-error-signal-test")
+
+        with patch(
+            "products.ai_observability.backend.models.clustering_job.ClusteringJob.objects.bulk_create",
+            side_effect=DatabaseError("relation llm_analytics_clusteringjob does not exist"),
+        ):
+            with patch("products.ai_observability.backend.models.clustering_job.capture_exception") as mock_capture:
+                project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=org)
+                team = Team.objects.create(id=project.id, project=project, organization=org)
+
+        assert team.pk is not None
+        mock_capture.assert_called_once()
+        assert ClusteringJob.objects.filter(team=team).count() == 0
+
 
 class TestClusteringRunWithJobId(APIBaseTest):
     """Tests for clustering_job_id param on the manual clustering run endpoint."""
