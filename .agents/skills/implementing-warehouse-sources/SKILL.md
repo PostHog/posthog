@@ -54,8 +54,8 @@ Most REST sources should be built on the shared `rest_source` framework
 
 - **Tracked, retrying transport** — `RESTClient` defaults to `make_tracked_session()` and retries
   `429` + transient `5xx` honoring `Retry-After`. No `tenacity`, no `RetryableError`, no fetch loop.
-- **Paginators** (`rest_source/paginators.py`, chosen by string/dict in the config, not hand-written):
-  `single_page`, `header_link`, `json_response` (next-URL in body), `cursor`, `offset`, `page_number`.
+- **Paginators** (`rest_source/paginators.py`, selected by string/dict in the config rather than written from
+  scratch): `single_page`, `header_link`, `json_response` (next-URL in body), `cursor`, `offset`, `page_number`.
 - **Auth** (`rest_source/auth.py`): `bearer`, `api_key` (header/query/cookie), `http_basic`, `oauth2`
   (customer-owned client-credentials/refresh). Each redacts its own secrets — no `_get_headers` builder.
 - **Incremental params, `data_selector`, response actions, resume** (`resume_hook` /
@@ -63,6 +63,14 @@ Most REST sources should be built on the shared `rest_source` framework
 
 `chargebee/` is the canonical example (declarative endpoints + framework auth + resume). `zendesk/`
 shows multi-endpoint + `data_selector`; `attio/` shows cursor pagination.
+
+**When a source-local paginator subclass is justified**: only when the vendor's end-of-results protocol can't be
+expressed by any of the declarative types — not to tweak parameter names or page sizes, which the config already
+covers. Subclass the closest shared paginator and override the smallest hook, keep it in the source's own module,
+and cover the termination behavior with a test. `paddle/` is the example: Paddle populates `meta.pagination.next`
+on the final page too, so `PaddlePaginator` extends `JSONResponsePaginator` to stop on
+`meta.pagination.has_more == false` and falls back to the base link-following when that field is missing.
+Everything else about the source stays declarative.
 
 **When hand-rolling is justified** (read `klaviyo/` then): the API needs query strings the framework
 can't produce (literal brackets/operators, e.g. `filter=greater-than(...)`, `page[size]`);
@@ -301,7 +309,7 @@ Two cases:
 
   ```python
   class MySource(SimpleSource[MySourceConfig]):
-      supported_versions = ("v3",)          # opaque vendor labels — never parsed or ordered
+      supported_versions = ("v3",)          # opaque vendor labels, never parsed; ordered oldest→newest
       default_version = "v3"                 # stamped onto newly created sources; must be in supported_versions
       api_docs_url = "https://vendor.example/docs/api"   # API reference or changelog page (https, not the marketing site)
   ```
@@ -331,7 +339,8 @@ Two cases:
 
 Rules:
 
-- `default_version` must equal the single entry in `supported_versions`, and `api_docs_url` must be `https://`.
+- `supported_versions` is ordered oldest→newest, and `default_version` must be its last entry — for a new source that
+  means the single entry. `api_docs_url` must be `https://`. `test_source_versions.py` enforces all of this.
 - Use the vendor's exact version string; never invent one.
 - **Never ship a new source on a version the vendor has already deprecated or given a sunset date.** A brand-new
   source with a `deprecated_versions` entry covering its only version is a bug — it means the source was written
