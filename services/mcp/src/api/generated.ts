@@ -45818,7 +45818,7 @@ export namespace Schemas {
       readonly temporal_workflow_id: string;
       /** Dedupes activity retries for the same logical run. */
       readonly idempotency_key: string;
-      /** Why the run started (e.g. scheduled, manual, target_change). */
+      /** Why the run started (e.g. scheduled, manual, subscription update). */
       readonly trigger_type: string;
       /**
          * Planned send time when applicable.
