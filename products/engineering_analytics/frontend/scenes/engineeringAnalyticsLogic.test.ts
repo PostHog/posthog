@@ -198,6 +198,7 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         granularity: 'day',
         buckets: [{ bucket_start: '2026-05-30T00:00:00Z', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
+        workflow_path: '.github/workflows/ci.yml',
         run_count: 100,
         successful_run_count: 90,
         conclusive_run_count: 94,

@@ -86,6 +86,7 @@ function healthItem(
     return {
         repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
         workflow_name: workflowName,
+        workflow_path: '.github/workflows/ci.yml',
         run_count: 320,
         successful_run_count: Math.round(320 * successRate),
         conclusive_run_count: 320,
