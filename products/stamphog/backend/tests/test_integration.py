@@ -1505,6 +1505,7 @@ def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_
         process_inbox_pr_review(
             team_id=team.id,
             pr_url=f"https://github.com/{REPO}/pull/120",
+            repository=REPO,
             acting_user_id=777,
             signal_report_id="rep-1",
             task_run_id="run-1",

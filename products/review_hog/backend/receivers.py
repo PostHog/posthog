@@ -135,10 +135,9 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         if pr_url is not None and stamphog_user_id is not None and repository is not None:
             # The PR leg only: stamphog's verdict is a GitHub review, so a bare pushed branch
             # gives it nothing to post to. The facade queues a Celery task, so the only work on
-            # this save path is the broker publish. The task's own repository rides along so the
-            # queued review can refuse a PR that isn't in it — `output.pr_url` is writable through
-            # the task-run API, and without the pin a run in one repo could aim an approve-first
-            # review at a PR in another (the webhook leg already scopes its lookup by repository).
+            # this save path is the broker publish. The task's repository rides along because
+            # `output.pr_url` is writable through the task-run API, so the queued review can pin
+            # the PR to where the task actually runs.
             stamphog_pr_url, stamphog_repository = pr_url, repository
             transaction.on_commit(
                 lambda: _start_stamphog_review(

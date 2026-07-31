@@ -189,10 +189,10 @@ def _inbox_rereview_carve_out(
     toggle is their real gate. This resolves whether THIS delivery is such a re-review:
     positive identification only (repo-native branch — never a fork; a synced+enabled config;
     a tasks-facade match for this exact repo, scoped to the config's team, carrying a signal
-    report on a non-internal task; the acting reviewer currently opted in). Anything
-    unidentified resolves empty and the caller keeps today's behavior byte-for-byte —
-    dependabot/renovate/posthog-bot and non-inbox PostHog Code PRs stay refused. An identified
-    PR whose acting reviewer is not opted in resolves ``opted_out``.
+    report on a live task at ``ai_stage="implementation"``; an assigned reviewer currently opted
+    in). Anything unidentified resolves empty and the caller keeps today's behavior byte-for-byte
+    — dependabot/renovate/posthog-bot and foreign Apps stay refused. An identified PR none of
+    whose assigned reviewers is opted in resolves ``opted_out``.
 
     Scope is deliberately later deliveries only (synchronize / reopen / base retarget): the
     initial review is the receiver leg's job (``process_inbox_pr_review``), and a
@@ -1155,15 +1155,15 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_inbox_pr_review(
-    team_id: int, pr_url: str, acting_user_id: int, signal_report_id: str, task_run_id: str
+    team_id: int, pr_url: str, repository: str, acting_user_id: int, signal_report_id: str, task_run_id: str
 ) -> None:
     """Run the initial hosted review of a self-driving inbox PR — the receiver leg's durable hand-off.
 
-    Fired via the ``queue_inbox_pr_review`` facade after review_hog's TaskRun receiver resolved the
-    acting reviewer and confirmed their ``stamphog_review_inbox_prs`` toggle. This leg exists because
-    the PR is a bot-authored draft by construction — the webhook path pre-filters both — and the
-    verdict must land while the PR is still a draft so it's available at Inbox triage time. Later
-    deliveries (synchronize / reopen / base retarget) re-review through the webhook carve-out.
+    Fired via the ``queue_inbox_pr_review`` facade after review_hog's TaskRun receiver resolved an
+    assigned reviewer with the ``stamphog_review_inbox_prs`` toggle on. This leg exists because the
+    PR is a bot-authored draft by construction — the webhook path pre-filters both — and the verdict
+    must land while the PR is still a draft so it's available at Inbox triage time. Later deliveries
+    (synchronize / reopen / base retarget) re-review through the webhook carve-out.
 
     There is no webhook payload here, so the PR is fetched from GitHub; the rest mirrors
     ``process_pull_request_event``'s sequence (upsert → supersede → create → start on commit) with
@@ -1173,12 +1173,25 @@ def process_inbox_pr_review(
     head: a live-or-delivered run at that head is a no-op (restarting a stranded QUEUED run's
     workflow), while a refire after a head the webhook leg never delivered — a lost synchronize —
     still reviews the new commits.
+
+    ``repository`` is the linked task's own repo and the PR must be in it: the task->PR link that
+    routes us here (``TaskRun.output.pr_url``) is writable through the task-run API, so without the
+    pin a run in one repo could aim an approve-first review at a PR in another. The webhook leg
+    scopes its own task lookup by repository, so this keeps the two legs symmetric.
     """
     parsed = _parse_pr_url(pr_url)
     if parsed is None:
         logger.warning("stamphog_inbox_pr_unparseable_url", team_id=team_id)
         return
-    repository, pr_number = parsed
+    pr_repository, pr_number = parsed
+    if pr_repository.strip().lower() != repository.strip().lower():
+        logger.warning(
+            "stamphog_inbox_pr_repository_mismatch",
+            team_id=team_id,
+            task_repository=repository,
+            pr_repository=pr_repository,
+        )
+        return
 
     # Writer-pinned like every read that gates run creation (reader-lag invariant); iexact because
     # tasks stores repository slugs lowercased while configs keep GitHub's casing.

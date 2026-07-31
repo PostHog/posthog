@@ -22,7 +22,9 @@ from products.tasks.backend.models import Task, TaskRun
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 # `_start_stamphog_review` imports the facade at call time, so the facade module is the patch target.
 _STAMPHOG_QUEUE = "products.stamphog.backend.facade.api.queue_inbox_pr_review"
-_PR_URL = "https://github.com/posthog/posthog/pull/9"
+# GitHub's own casing, as a real `output.pr_url` carries it. The task row lowercases its slug, so
+# this is what lets an assertion tell the task's repository apart from the PR URL's own claim.
+_PR_URL = "https://github.com/PostHog/posthog/pull/9"
 _HEAD_BRANCH = "posthog-code/fix-the-thing"
 
 
@@ -359,12 +361,36 @@ class TestInboxTrigger(BaseTest):
             mock_queue.assert_called_once_with(
                 team_id=self.team.id,
                 pr_url=_PR_URL,
+                # The TASK's repository (lowercased on save), never the PR URL's own, because
+                # `output.pr_url` is caller-writable and the review pins to where the task runs.
+                repository="posthog/posthog",
                 acting_user_id=self.alice.id,
                 signal_report_id=str(self.signal_report.id),
                 task_run_id=str(run.id),
             )
         else:
             mock_queue.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_stamphog_fires_on_any_assigned_reviewer_opting_in(self, mock_start, mock_queue) -> None:
+        # Stamphog reads no per-user options, so its gate is ANY assigned reviewer's opt-in;
+        # narrowing it to the canonical reviewer (which the ReviewHog leg does need, for that
+        # user's perspectives and threshold) would silently drop every review the other assignees
+        # asked for. ReviewHog's leg must not widen with it — here its canonical reviewer opted
+        # into neither, so only stamphog runs.
+        self._mock_start = mock_start
+        bob = self._org_member("bob@posthog.com", github_login="bob")
+        self._suggest_reviewers(["alice", "bob"])
+        self._opt_in(bob, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task()), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+        assert mock_queue.call_args.kwargs["acting_user_id"] == bob.id
+        # Both legs must resolve the same reviewer: a trigger leg firing on bob's opt-in while the
+        # webhook resolver only ever considered alice would retract the approval as opted-out on
+        # the next push, with bob still opted in.
+        assert resolve_stamphog_acting_reviewer(self.team.id, str(self.signal_report.id), None) == bob.id
 
     @patch(_STAMPHOG_QUEUE)
     @patch(_START, return_value="wf-1")

@@ -2,7 +2,7 @@
 
 The initial review of a self-driving inbox PR is triggered by review_hog's TaskRun receiver
 calling ``queue_inbox_pr_review`` — so review_hog depends on stamphog, and stamphog importing
-review_hog back (to re-check the acting reviewer's ``stamphog_review_inbox_prs`` toggle on
+review_hog back (to re-check the assigned reviewers' ``stamphog_review_inbox_prs`` toggles on
 later webhook deliveries) would create a dependency cycle. Instead review_hog registers its
 resolver at app-ready time (see its ``AppConfig.ready()``), and the webhook Celery task calls
 through the registered callable. When nothing is registered (review_hog absent from
@@ -17,8 +17,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-# (team_id, signal_report_id, task_created_by_id) -> the acting reviewer's user id when their
-# stamphog inbox toggle is currently on, else None (nobody resolvable, or the toggle is off).
+# (team_id, signal_report_id, task_created_by_id) -> the user id to attribute the re-review to,
+# when ANY of the report's assigned reviewers has the stamphog inbox toggle on; else None (nobody
+# resolvable, or none of them opted in). The trigger leg must gate on the same rule — a resolver
+# narrower than it would retract a standing approval as opted-out with somebody still opted in.
 InboxActingReviewerResolver = Callable[[int, str, int | None], int | None]
 
 _inbox_acting_reviewer_resolver: InboxActingReviewerResolver | None = None

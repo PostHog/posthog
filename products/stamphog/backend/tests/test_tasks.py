@@ -927,6 +927,7 @@ def _run_inbox_task(
     pr: dict[str, Any] | None,
     pr_url: str = f"https://github.com/{REPO}/pull/42",
     app_slug: str = APP_SLUG,
+    repository: str = REPO,
 ):
     """Run process_inbox_pr_review with GitHub and Temporal mocked; returns (mock_execute, mock_client)."""
     with (
@@ -940,6 +941,7 @@ def _run_inbox_task(
         process_inbox_pr_review(
             team_id=team_id,
             pr_url=pr_url,
+            repository=repository,
             acting_user_id=777,
             signal_report_id="report-1",
             task_run_id="run-1",
@@ -993,6 +995,24 @@ def test_inbox_receiver_leg_reviews_the_draft_pr(team, repo_config):
         "acting_user_id": 777,
     }
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_receiver_leg_refuses_a_pr_outside_the_linked_task_repo(team, repo_config):
+    # The task->PR link this leg rides on (output.pr_url) is writable through the task-run API, so a
+    # PR outside the linked task's own repository must be refused before anything is fetched —
+    # otherwise a run in one repo could aim an approve-first review at any App-authored PR in
+    # another repo the team happens to have configured. The webhook leg scopes its task lookup by
+    # repository already; this keeps the two legs symmetric.
+    _sync_repo_config(team.id, repo_config)
+    mock_execute, mock_client = _run_inbox_task(
+        team.id, _inbox_pr(), pr_url="https://github.com/PostHog/some-other-repo/pull/42", repository=REPO
+    )
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0
+    mock_client.assert_not_called()
+    mock_execute.assert_not_called()
 
 
 @pytest.mark.parametrize(

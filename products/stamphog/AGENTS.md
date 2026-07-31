@@ -83,8 +83,9 @@ Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review
 the engine (`review_pr.py::_refuse_bot_author`, mirrored by `review_local.py`), and the
 Action's job gates — with ONE deliberate exception: a PR **positively linked** to a PostHog
 Code self-driving implementation run (a signal-report-carrying TaskRun at
-`ai_stage="implementation"`, matched through the tasks facade), whose acting reviewer opted in via
-ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception narrow:
+`ai_stage="implementation"`, matched through the tasks facade), one of whose assigned reviewers
+opted in via ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception
+narrow:
 
 - Identification is **task linkage plus server-attested PR identity** — both required, neither
   trusted alone. The task link (a signal-report `TaskRun` at `ai_stage="implementation"` matched
@@ -97,9 +98,17 @@ ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exc
   receiver leg (`process_inbox_pr_review`) and the webhook leg (`_inbox_rereview_carve_out`), and
   failing closed when the App slug is unconfigured. This is a \_positive App-identity* match, not the
   general "any bot" rule: `github.py::is_bot_author` must not be weakened, and
-  dependabot/renovate/posthog-bot and non-inbox PostHog Code PRs (wizard/manual tasks) stay refused
-  everywhere — a foreign bot fails the identity match even if a forged `output.pr_url` fakes the
-  task link.
+  dependabot / renovate / posthog-bot / any foreign App fail the identity match even if a forged
+  `output.pr_url` fakes the task link.
+- **Known residual risk, not closed here.** `<GITHUB_APP_SLUG>[bot]` is the core PostHog Code App and
+  opens every PostHog Code PR, so the identity check proves "a PostHog Code PR in this repo", not
+  "the PR this run produced". Anyone with `task:write` on the team's signal-report tasks can rewrite
+  `output.pr_url`, `TaskRun.branch`, `Task.repository`, and `suggested_reviewers`, so they can aim a
+  genuine live run at a different same-App PR and pick whose toggle gates it. Both legs pin the
+  repository, which costs them a second call but does not stop them. They cannot forge the run
+  (`ai_stage` and `signal_report_id` are not PATCHable) and nothing outside the team reaches this.
+  The real fix is a server-attested task->PR link; until then the per-user toggle is the gate, so
+  re-assess before defaulting it on for a whole team.
 - The engine flag (`self_driving_review` in the hosted context JSON →
   `Pipeline(self_driving=...)`) defaults closed and the Action never sets it, so Action
   behavior is unchanged by construction. It relaxes exactly two gates — the bot-author
@@ -109,18 +118,20 @@ ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exc
   provenance (`ReviewRun.output["inbox_review"]`), which only the two linkage-verified
   trigger paths stamp.
 - The initial review is the receiver leg (`process_inbox_pr_review`, entered via the
-  `queue_inbox_pr_review` facade after review_hog checked the toggle); the webhook leg
-  re-reviews only on synchronize / reopen / base retarget, re-checking the toggle through the
+  `queue_inbox_pr_review` facade after review_hog checked the toggles); the webhook leg
+  re-reviews only on synchronize / reopen / base retarget, re-checking them through the
   `facade/inbox_hooks.py` resolver (registered by review_hog at app-ready — a direct import
   of review_hog would be a dependency cycle). No registered resolver means fail-closed: no
-  re-review.
-- Dismissal is never preference-gated. A toggle switched off mid-PR stops new runs, but the
+  re-review. The gate is **any** assigned reviewer's opt-in, and both legs must resolve it
+  identically: if one fired while the other saw "opted out", a push would retract a standing
+  approval with somebody still opted in.
+- Dismissal is never preference-gated. Every toggle switched off mid-PR stops new runs, but the
   skip paths' head-changing retraction still voids the standing approval (the stale-approval
   invariant above is untouched), and every carved-out run still enters the workflow through
   `dismiss_stale_approvals` first.
-- These runs bypass the review-mode and author-write-permission gates: the acting reviewer's
-  toggle is their gate, and the App's machine user is not a collaborator (the permission
-  lookup would always deny). `review_mode` keeps governing human PRs only.
+- These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
+  the gate, and the App's machine user is not a collaborator (the permission lookup would always
+  deny). `review_mode` keeps governing human PRs only.
 
 ## Trust boundaries
 

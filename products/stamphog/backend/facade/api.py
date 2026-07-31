@@ -129,17 +129,20 @@ def queue_inbox_pr_review(
     *,
     team_id: int,
     pr_url: str,
+    repository: str,
     acting_user_id: int,
     signal_report_id: str,
     task_run_id: str,
 ) -> None:
     """Queue the initial hosted Stamphog review of a self-driving inbox PR (fire-and-forget).
 
-    The programmatic entry for review_hog's inbox trigger: the caller has already resolved the
-    acting reviewer and checked their ``stamphog_review_inbox_prs`` toggle. Everything else —
-    resolving a synced+enabled repo config for the PR's repository (silent no-op without one),
-    fetching the PR, creating the run with inbox provenance, starting the workflow — happens in
-    a Celery task so the caller's save path never blocks on GitHub or the product DB.
+    The programmatic entry for review_hog's inbox trigger: the caller has already resolved an
+    assigned reviewer with the ``stamphog_review_inbox_prs`` toggle on. ``repository`` is the
+    linked task's own repo — the PR must be in it, since the task->PR link this rides on
+    (``TaskRun.output.pr_url``) is writable through the task-run API. Everything else — resolving
+    a synced+enabled repo config (silent no-op without one), fetching the PR, re-verifying its
+    App-machine-user authorship, creating the run with inbox provenance, starting the workflow —
+    happens in a Celery task so the caller's save path never blocks on GitHub or the product DB.
     """
     # Deferred: the Celery task module drags the GitHub client and temporal client onto the
     # import path, which must stay off this facade's light import surface (review_hog's API
@@ -149,6 +152,7 @@ def queue_inbox_pr_review(
     process_inbox_pr_review.delay(
         team_id=team_id,
         pr_url=pr_url,
+        repository=repository,
         acting_user_id=acting_user_id,
         signal_report_id=signal_report_id,
         task_run_id=task_run_id,
