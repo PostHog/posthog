@@ -33,6 +33,21 @@ describe('playerSidebarLogic', () => {
         }).toMatchValues({ activeTab: SessionRecordingSidebarTab.NETWORK_WATERFALL })
     })
 
+    it('records a tab from the URL as the pick, even when a host default already matches it', async () => {
+        logic.actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+        router.actions.push('/replay', {
+            sessionRecordingId: 'abc',
+            tab: SessionRecordingSidebarTab.OVERVIEW,
+        })
+        await expectLogic(logic).toMatchValues({ selectedTab: SessionRecordingSidebarTab.OVERVIEW })
+
+        // Only sticks because the URL was taken as a pick. Had it been waved through for already
+        // matching the default, the tab would follow the host away instead of the link.
+        await expectLogic(logic, () => {
+            logic.actions.setDefaultTab(SessionRecordingSidebarTab.INSPECTOR)
+        }).toMatchValues({ activeTab: SessionRecordingSidebarTab.OVERVIEW })
+    })
+
     it('keeps the host default out of the URL', () => {
         logic.actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
         expect(router.values.searchParams).not.toHaveProperty('tab')

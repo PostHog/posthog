@@ -94,7 +94,10 @@ export const playerSidebarLogic = kea<playerSidebarLogicType>([
                   ? (hashParams.tab as SessionRecordingSidebarTab)
                   : null
 
-            if (isShowingRecording && urlTab && urlTab !== values.activeTab) {
+            // Compared against the viewer's pick rather than the active tab: a tab in the URL is an
+            // explicit choice, and checking the active tab would skip recording it whenever a host
+            // default happened to match — the choice would then evaporate once that host went away.
+            if (isShowingRecording && urlTab && urlTab !== values.selectedTab) {
                 actions.setTab(urlTab)
             }
         },
