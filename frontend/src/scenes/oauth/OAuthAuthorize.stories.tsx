@@ -43,8 +43,11 @@ const pushAuthorize = (scope?: string): void => {
     router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
 }
 
-// The redirect handoff states render standalone, outside the consent form.
-const terminalStateParameters = { testOptions: { waitForSelector: '.text-xl' } }
+// The redirect handoff states render standalone, outside the consent form. The redirecting
+// state is a spinner by design, so the loader-disappearance wait can't apply to it.
+const terminalStateParameters = {
+    testOptions: { waitForSelector: '.text-xl', waitForLoadersToDisappear: false },
+}
 
 const meta: Meta = {
     title: 'Scenes-App/OAuth/Authorize',

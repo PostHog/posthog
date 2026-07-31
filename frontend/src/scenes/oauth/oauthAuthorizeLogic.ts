@@ -253,6 +253,9 @@ export interface oauthAuthorizeLogicActions {
     resetOauthAuthorization: (values?: OAuthAuthorizationFormValues) => {
         values?: OAuthAuthorizationFormValues
     }
+    resolveRedirect: (resolution: RedirectResolution) => {
+        resolution: RedirectResolution
+    }
     setAllScopeAccess: (level: ScopeAccessLevel) => {
         level: ScopeAccessLevel
     }
@@ -287,9 +290,6 @@ export interface oauthAuthorizeLogicActions {
     ) => {
         isNative: boolean
         redirectUrl: string
-    }
-    resolveRedirect: (resolution: RedirectResolution) => {
-        resolution: RedirectResolution
     }
     setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => {
         requiredAccessLevel: 'organization' | 'team' | null
