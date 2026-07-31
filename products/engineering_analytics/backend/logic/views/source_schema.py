@@ -30,6 +30,10 @@ PULL_REQUESTS_COLUMNS: dict[str, dict[str, str]] = {
     "updated_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "merged_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "closed_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # The commit the merge produced on the base branch: the key that resolves a default-branch push
+    # run back to the PR that landed it. GitHub also populates it on OPEN PRs, where it is a
+    # throwaway test-merge SHA, so every read of it must gate on the PR being merged.
+    "merge_commit_sha": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "user": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "head": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "base": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
