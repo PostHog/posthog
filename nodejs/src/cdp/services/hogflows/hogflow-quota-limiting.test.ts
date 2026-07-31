@@ -245,7 +245,7 @@ describe('HogFlow Quota Limiting', () => {
                     metric_kind: 'failure',
                     metric_name: 'quota_limited',
                     count: 1,
-                    app_source_version: 4,
+                    app_source_version: { id: expect.any(String), version: 4 },
                 },
                 'hog_flow'
             )

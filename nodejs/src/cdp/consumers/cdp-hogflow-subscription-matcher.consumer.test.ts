@@ -574,7 +574,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     app_source_id: 'flow-1',
                     metric_name: 'conversion',
                     count: 1,
-                    app_source_version: 1,
+                    app_source_version: { id: expect.any(String), version: 1 },
                 }),
                 'hog_flow'
             )

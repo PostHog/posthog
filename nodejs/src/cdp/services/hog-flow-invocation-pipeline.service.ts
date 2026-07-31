@@ -143,7 +143,7 @@ export class HogFlowInvocationPipeline {
                                 metric_kind: 'failure',
                                 metric_name: 'rate_limited',
                                 count: 1,
-                                app_source_version: item.hogFlow.version,
+                                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
                             },
                             'hog_flow'
                         )
@@ -196,7 +196,7 @@ export class HogFlowInvocationPipeline {
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
                             count: 1,
-                            app_source_version: item.hogFlow.version,
+                            app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
                         },
                         'hog_flow'
                     )
@@ -220,7 +220,7 @@ export class HogFlowInvocationPipeline {
                 metric_kind: 'other',
                 metric_name: 'masked',
                 count: 1,
-                app_source_version: item.hogFlow.version,
+                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
             })),
             'hog_flow'
         )
@@ -234,7 +234,7 @@ export class HogFlowInvocationPipeline {
                 metric_kind: 'other',
                 metric_name: 'triggered',
                 count: 1,
-                app_source_version: item.hogFlow.version,
+                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
             })
         })
 

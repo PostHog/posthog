@@ -110,7 +110,12 @@ describe('HogFlowInvocationPipeline', () => {
 
         expect(result).toEqual([inv])
         expect(hogFunctionMonitoringService.queueAppMetrics).toHaveBeenCalledWith(
-            expect.arrayContaining([expect.objectContaining({ metric_name: 'triggered', app_source_version: 5 })]),
+            expect.arrayContaining([
+                expect.objectContaining({
+                    metric_name: 'triggered',
+                    app_source_version: { id: expect.any(String), version: 5 },
+                }),
+            ]),
             'hog_flow'
         )
     })

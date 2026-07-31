@@ -500,7 +500,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         metric_kind: 'other',
                         metric_name: 'conversion',
                         count: 1,
-                        app_source_version: m.flowVersion,
+                        app_source_version: { id: m.functionId, version: m.flowVersion },
                     })
                     // Emit the same billable $workflows_conversion event as the executor's property
                     // path, so event-based conversions also power insights/cohorts. Needs a

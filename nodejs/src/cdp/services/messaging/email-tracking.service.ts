@@ -211,10 +211,11 @@ export class EmailTrackingService {
                 metric_name: metricName,
                 metric_kind: 'email',
                 count: 1,
-                // Comes off the tracking code minted at send time, never from `hogFlow` above —
-                // that's the currently published version, which for an engagement event arriving
-                // after a republish would blame the new version for the old one's sends.
-                app_source_version: workflowVersion,
+                // The version comes off the tracking code minted at send time, never from `hogFlow`
+                // above — that's the currently published version, which for an engagement event
+                // arriving after a republish would blame the new version for the old one's sends.
+                app_source_version:
+                    hogFlow && workflowVersion !== undefined ? { id: hogFlow.id, version: workflowVersion } : undefined,
             },
             hogFlow ? 'hog_flow' : 'hog_function'
         )

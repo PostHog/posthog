@@ -41,13 +41,14 @@ export type MonitoringOutput = AppMetricsOutput | LogEntriesOutput
 // key is its aggregation key, so a new dimension would have to join the ORDER BY and re-key existing
 // parts. Instead, every hog flow metric that knows its workflow version is written twice — once under
 // `hog_flow` (the version-agnostic series everything already reads) and once under this app source with
-// the version appended to the id. Same instance_id/kind/name semantics on both, so a version-scoped
-// read is the existing query with two substituted parameters.
+// the version appended to the flow id. Same instance_id/kind/name semantics on both, so a
+// version-scoped read is the existing query with two substituted parameters.
 export const HOG_FLOW_VERSION_APP_SOURCE = 'hog_flow_version'
 
 // This key format is the contract for anything that reads the versioned series — see
-// "Metrics and version attribution" in products/workflows/CONTRIBUTING.md.
-export const versionedAppSourceId = (appSourceId: string, version: number): string => `${appSourceId}/${version}`
+// "Metrics and version attribution" in products/workflows/CONTRIBUTING.md. Always the flow id, never
+// the run id the version-agnostic series uses for batch runs.
+export const versionedAppSourceId = (flowId: string, version: number): string => `${flowId}/${version}`
 
 // Check if the result is of type CyclotronJobInvocationHogFunction
 export const isHogFunctionResult = (
@@ -118,11 +119,12 @@ export class HogFunctionMonitoringService {
 
         // Guarded on the type rather than truthiness: a flow loaded without its `version` column would
         // otherwise key every mirrored row under a literal `.../undefined`.
-        if (source === 'hog_flow' && typeof metric.app_source_version === 'number') {
+        if (source === 'hog_flow' && typeof metric.app_source_version?.version === 'number') {
             this.appMetricsAggregator.queue({
                 team_id: metric.team_id,
                 app_source: HOG_FLOW_VERSION_APP_SOURCE,
-                app_source_id: versionedAppSourceId(metric.app_source_id, metric.app_source_version),
+                // Deliberately not `metric.app_source_id` — see `app_source_version` on MinimalAppMetric.
+                app_source_id: versionedAppSourceId(metric.app_source_version.id, metric.app_source_version.version),
                 instance_id: metric.instance_id,
                 metric_kind: metric.metric_kind,
                 metric_name: metric.metric_name,
@@ -159,7 +161,9 @@ export class HogFunctionMonitoringService {
             // (executor, action handlers, billing). The workflow is re-read from the manager on every
             // dequeue, so this is the version that actually executed the step — a run started on v2
             // that reaches its email step after v3 is published attributes that step to v3.
-            const appSourceVersion = isHogFlowResult(result) ? result.invocation.hogFlow.version : undefined
+            const appSourceVersion = isHogFlowResult(result)
+                ? { id: result.invocation.hogFlow.id, version: result.invocation.hogFlow.version }
+                : undefined
 
             this.queueLogs(
                 result.logs.map((logEntry) => ({

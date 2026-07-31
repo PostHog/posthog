@@ -254,11 +254,15 @@ export type MinimalAppMetric = {
         | 'exited_workflow_changed'
         | 'redirected_workflow_changed'
     count: number
-    // Version of the config that produced this metric — for hog flows, the `version` of the HogFlow row
-    // that actually executed the step. Not a column on `app_metrics2`: the monitoring service consumes it
-    // to key a mirrored row under the `hog_flow_version` app source, and never forwards it to Kafka.
-    // Absent (or non-numeric) means this metric only lands in the version-agnostic series.
-    app_source_version?: number
+    // Key parts for the mirrored version-scoped row: the flow and the `version` of the HogFlow row that
+    // actually executed the step. Not columns on `app_metrics2` — the monitoring service consumes these
+    // to key a row under the `hog_flow_version` app source, and never forwards them to Kafka. Absent
+    // means this metric only lands in the version-agnostic series.
+    //
+    // `id` is carried rather than reusing `app_source_id` because that field is substituted with
+    // `parentRunId` for batch-triggered runs, so per-run views group by the run. A per-version rollup
+    // has to key on the flow itself, or a broadcast's metrics never aggregate across its runs.
+    app_source_version?: { id: string; version: number }
 }
 
 export type AppMetricType = MinimalAppMetric & {

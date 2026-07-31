@@ -312,9 +312,13 @@ Every hog flow metric is written **twice**:
 `instance_id`, `metric_kind` and `metric_name` mean the same thing in both series, so a version-scoped read is the version-agnostic query with `app_source` and `app_source_id` swapped.
 `app_metrics2` can't hold the version in a column of its own — it's an AggregatingMergeTree whose sort key is its aggregation key, so a new dimension would have to join the ORDER BY and re-key existing parts.
 
+The versioned series is always keyed by the **flow**, even where the version-agnostic series is not.
+Batch and broadcast runs put the run id in `app_source_id` so per-run views group by the run, but a per-version rollup has to key on the flow itself — otherwise every run of a broadcast mints a fresh key and its versions never aggregate.
+So `hog_flow` reads stay exactly as they are, and `hog_flow_version` is always `<flow id>/<version>`.
+
 Nothing reads the versioned series yet.
 `/metrics` and `/metrics/totals` always return the version-agnostic one, and adding a filter to them is the natural next step.
-Until then, query it directly:
+Until then, query it directly in HogQL, where the table is exposed as `app_metrics` (it maps to `app_metrics2`; the undecorated `app_metrics2` name is a different, deprecated table in raw ClickHouse):
 
 ```sql
 SELECT metric_name, sum(count)

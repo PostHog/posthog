@@ -2094,7 +2094,10 @@ describe('Hogflow Executor', () => {
             // need the version stamped here or a trigger change that filters everyone out is invisible
             // in the per-version series.
             expect(result.metrics).toEqual([
-                expect.objectContaining({ metric_name: 'filtered', app_source_version: hogFlow.version }),
+                expect.objectContaining({
+                    metric_name: 'filtered',
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                }),
             ])
         })
 

@@ -45,7 +45,7 @@ describe('HogFunctionMonitoringService', () => {
     }
 
     it('mirrors a versioned hog flow metric under hog_flow_version, keyed by version', async () => {
-        service.queueAppMetric(metric({ app_source_version: 3 }), 'hog_flow')
+        service.queueAppMetric(metric({ app_source_version: { id: 'flow-1', version: 3 } }), 'hog_flow')
 
         const rows = await flushedRows()
         expect(rows).toEqual([
@@ -63,7 +63,17 @@ describe('HogFunctionMonitoringService', () => {
     const unmirroredCases: { name: string; source: MetricLogSource; overrides: Partial<MinimalAppMetric> }[] = [
         { name: 'no version', source: 'hog_flow', overrides: {} },
         { name: 'an undefined version', source: 'hog_flow', overrides: { app_source_version: undefined } },
-        { name: 'a versioned hog function', source: 'hog_function', overrides: { app_source_version: 3 } },
+        {
+            // A flow loaded without its `version` column: the id is there but the version isn't.
+            name: 'a version-less flow',
+            source: 'hog_flow',
+            overrides: { app_source_version: { id: 'flow-1', version: undefined as unknown as number } },
+        },
+        {
+            name: 'a versioned hog function',
+            source: 'hog_function',
+            overrides: { app_source_version: { id: 'flow-1', version: 3 } },
+        },
     ]
 
     it.each(unmirroredCases)('writes only the version-agnostic row for $name', async ({ source, overrides }) => {
@@ -75,8 +85,8 @@ describe('HogFunctionMonitoringService', () => {
     })
 
     it('keeps versions apart when the same metric is counted on either side of a publish', async () => {
-        service.queueAppMetric(metric({ app_source_version: 2, count: 5 }), 'hog_flow')
-        service.queueAppMetric(metric({ app_source_version: 3, count: 2 }), 'hog_flow')
+        service.queueAppMetric(metric({ app_source_version: { id: 'flow-1', version: 2 }, count: 5 }), 'hog_flow')
+        service.queueAppMetric(metric({ app_source_version: { id: 'flow-1', version: 3 }, count: 2 }), 'hog_flow')
 
         const rows = await flushedRows()
         const byId = Object.fromEntries(rows.map((row) => [`${row.app_source}:${row.app_source_id}`, row.count]))
@@ -86,5 +96,23 @@ describe('HogFunctionMonitoringService', () => {
             'hog_flow_version:flow-1/2': 5,
             'hog_flow_version:flow-1/3': 2,
         })
+    })
+    it('keys the versioned row by the flow, not the batch run its metrics are grouped under', async () => {
+        // Batch-triggered runs put the run id in `app_source_id` so per-run views group correctly.
+        // Keying the mirror off that would mint a fresh id every run, so a broadcast's versions would
+        // never aggregate across its runs and the documented `<flow id>/<version>` read would miss them.
+        service.queueAppMetric(
+            metric({ app_source_id: 'batch-run-1', app_source_version: { id: 'flow-1', version: 3 } }),
+            'hog_flow'
+        )
+        service.queueAppMetric(
+            metric({ app_source_id: 'batch-run-2', app_source_version: { id: 'flow-1', version: 3 } }),
+            'hog_flow'
+        )
+
+        const rows = await flushedRows()
+        expect(rows.filter((row) => row.app_source === 'hog_flow_version')).toEqual([
+            expect.objectContaining({ app_source_id: 'flow-1/3', count: 2 }),
+        ])
     })
 })

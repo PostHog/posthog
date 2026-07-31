@@ -184,7 +184,12 @@ export class HogFlowExecutorService {
             // pipeline rather than riding an invocation result, so the workflow version is stamped here
             // — otherwise `filtered` would be missing from the per-version series, and a trigger change
             // that filters everyone out would look identical to no traffic at all.
-            metrics.push(...filterResults.metrics.map((metric) => ({ ...metric, app_source_version: hogFlow.version })))
+            metrics.push(
+                ...filterResults.metrics.map((metric) => ({
+                    ...metric,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                }))
+            )
             logs.push(...filterResults.logs)
 
             if (!filterResults.match) {

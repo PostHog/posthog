@@ -81,7 +81,7 @@ export async function shouldBlockHogFlowDueToQuota(
                 metric_kind: 'failure',
                 metric_name: 'quota_limited',
                 count: 1,
-                app_source_version: item.hogFlow.version,
+                app_source_version: { id: item.hogFlow.id, version: item.hogFlow.version },
             },
             'hog_flow'
         )
