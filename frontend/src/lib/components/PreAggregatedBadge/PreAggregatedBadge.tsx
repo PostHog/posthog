@@ -39,7 +39,7 @@ function PrecomputedTooltip({ onDisable }: { onDisable?: () => void }): JSX.Elem
     return (
         <div className="flex flex-col gap-1 max-w-xs">
             <span>Loaded from a pre-computed state instead of running a live query against all events.</span>
-            <span>It should be very close to live data, but isn't guaranteed to be exact.</span>
+            <span>It refreshes periodically and can lag behind live data by up to a few hours.</span>
             <span>
                 <Link to={QUERY_ENGINE_DOCS_URL}>Learn more</Link>
                 {onDisable && (
