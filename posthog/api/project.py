@@ -76,6 +76,7 @@ from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
+from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -120,7 +121,7 @@ from ee.api.rbac.access_control import AccessControlViewSetMixin
 
 logger = structlog.get_logger(__name__)
 
-MAX_ALLOWED_PROJECTS_PER_ORG = 1500
+MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
 
 # --- Backward-compatibility logic for the /api/projects/ surface ---
@@ -148,7 +149,6 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
     user_access_control = context.get("user_access_control")
     old_config = {
         "events": [event.model_dump() for event in (team.revenue_analytics_config.events or [])],
-        "goals": [goal.model_dump() for goal in (team.revenue_analytics_config.goals or [])],
         "filter_test_accounts": team.revenue_analytics_config.filter_test_accounts,
     }
 
@@ -165,7 +165,6 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
 
     new_config = {
         "events": validated_data.get("events", []),
-        "goals": validated_data.get("goals", []),
         "filter_test_accounts": validated_data.get("filter_test_accounts", False),
     }
 
@@ -1199,25 +1198,43 @@ class ProjectBackwardCompatSerializer(
             validated_data, team.conversations_enabled, team.conversations_settings
         )
 
-        should_team_be_saved_too = False
+        # Persist only the fields this request changes. A full-row save() writes back every
+        # column from this request's snapshot of the team, so two concurrent PATCHes clobber
+        # each other — e.g. an `onboarding_tasks` PATCH racing the onboarding-completion PATCH
+        # erased `has_completed_onboarding_for` and reverted `completed_snippet_onboarding`,
+        # bouncing freshly onboarded users back into onboarding.
+        updated_team_fields = []
+        updated_project_fields = []
         for attr, value in validated_data.items():
             if attr not in self.Meta.team_passthrough_fields:
                 # This attr is a Project field
                 setattr(instance, attr, value)
+                updated_project_fields.append(attr)
             else:
                 # This attr is actually on the Project's passthrough Team
-                should_team_be_saved_too = True
                 setattr(team, attr, value)
+                updated_team_fields.append(attr)
 
         if "name" in validated_data:
             # Keep Team.name mirroring Project.name: surfaces like the organization's teams
             # list and the app context still read the name off the Team row
-            should_team_be_saved_too = True
             team.name = validated_data["name"]
+            updated_team_fields.append("name")
 
-        instance.save()
-        if should_team_be_saved_too:
-            team.save()
+        if updated_project_fields:
+            instance.save(update_fields=updated_project_fields)
+        if updated_team_fields:
+            # auto_now fields only refresh when included in update_fields
+            team.save(update_fields=[*updated_team_fields, "updated_at"])
+        # Snapshot before the cache refresh below so the audit diff only reflects this
+        # request's writes, not fields a concurrent request changed.
+        team_after_update = team.__dict__.copy()
+        if updated_team_fields:
+            # The in-memory team may hold stale values for fields a concurrent request
+            # changed, and the post-save receiver has already cached that snapshot. Reload
+            # and re-cache so the team cache reflects the merged row.
+            team.refresh_from_db()
+            set_team_in_cache(team.api_token, team)
 
         if "proactive_tasks_enabled" in validated_data:
             if validated_data["proactive_tasks_enabled"]:
@@ -1234,7 +1251,6 @@ class ProjectBackwardCompatSerializer(
                     source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
                 ).delete()
 
-        team_after_update = team.__dict__.copy()
         project_after_update = instance.__dict__.copy()
         team_changes = dict_changes_between("Team", team_before_update, team_after_update, use_field_exclusions=True)
         project_changes = dict_changes_between(
@@ -1379,9 +1395,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 if request_fields and request_fields.issubset(downgradable_fields):
                     return ["project:read"]
 
-        # Team-level config actions that any member should be able to edit via the UI.
-        # Only downgrade for session auth to preserve read-only API key semantics.
-        if self.action in ("default_release_conditions", "default_evaluation_contexts"):
+        # Team-level config actions members can read via the UI. Only downgrade for session auth to
+        # preserve read-only API key semantics; writes are still gated to admins by the action's
+        # TeamMemberStrictManagementPermission.
+        if self.action in ("default_evaluation_contexts",):
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 return ["project:read"]
@@ -1636,11 +1653,12 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["GET", "PUT"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="default_release_conditions",
     )
     def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default release conditions for new feature flags in this project."""
+        """Manage default release conditions for new feature flags in this project. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
         return team_default_release_conditions_view(self.get_object().passthrough_team, request)
 
     @action(
@@ -1656,10 +1674,11 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["GET", "POST", "DELETE"],
         detail=True,
-        permission_classes=[IsAuthenticated],
+        permission_classes=[TeamMemberStrictManagementPermission],
     )
     def default_evaluation_contexts(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default evaluation contexts for a project."""
+        """Manage default evaluation contexts for a project. Members can read; writing requires
+        project admin, matching the admin-only settings UI."""
         return team_default_evaluation_contexts_view(self.get_object().passthrough_team, request, self.user_permissions)
 
     @extend_schema(

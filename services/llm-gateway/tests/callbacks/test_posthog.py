@@ -90,7 +90,12 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             mock_cls.assert_called_once_with(
-                "test-key", host="https://test.posthog.com", sync_mode=True, enable_local_evaluation=False
+                "test-key",
+                host="https://test.posthog.com",
+                sync_mode=True,
+                enable_local_evaluation=False,
+                _use_ai_lane=True,
+                _enable_multimodal_capture=True,
             )
             mock_client.capture.assert_called_once()
             call_kwargs = mock_client.capture.call_args.kwargs
@@ -903,6 +908,114 @@ class TestPostHogCallback:
                 }
                 assert capture_call.kwargs["properties"]["$group_1"] == "https://eu.posthog.com"
                 assert capture_call.kwargs["properties"]["$ai_is_error"] is True
+
+    @pytest.mark.asyncio
+    async def test_on_success_prefers_traceparent_trace_id(
+        self, callback, standard_logging_object, mock_posthog_client
+    ):
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {"metadata": {"user_id": '{"session_id": "blob"}'}},
+        }
+        with (
+            patch(
+                "llm_gateway.callbacks.posthog.get_traceparent_trace_id",
+                return_value="0af76519-16cd-43dd-8448-eb211c80319c",
+            ),
+            patch("llm_gateway.callbacks.posthog._capture_ai_event") as mock_capture,
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["$ai_trace_id"] == "0af76519-16cd-43dd-8448-eb211c80319c"
+
+    @pytest.mark.asyncio
+    async def test_on_success_falls_back_to_metadata_hash_without_traceparent(
+        self, callback, standard_logging_object, mock_posthog_client
+    ):
+        blob = '{"session_id": "blob"}'
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {"metadata": {"user_id": blob}},
+        }
+        with (
+            patch(
+                "llm_gateway.callbacks.posthog.get_traceparent_trace_id",
+                return_value=None,
+            ),
+            patch("llm_gateway.callbacks.posthog._capture_ai_event") as mock_capture,
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["$ai_trace_id"] == _normalize_trace_id(blob)
+
+    @pytest.mark.asyncio
+    async def test_on_success_explicit_trace_id_header_wins_over_traceparent(
+        self, callback, standard_logging_object, mock_posthog_client
+    ):
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {"metadata": {}},
+        }
+        with (
+            patch(
+                "llm_gateway.callbacks.posthog.get_traceparent_trace_id",
+                return_value="0af76519-16cd-43dd-8448-eb211c80319c",
+            ),
+            patch(
+                "llm_gateway.callbacks.posthog.get_posthog_properties",
+                return_value={"$ai_trace_id": "explicit-client-id"},
+            ),
+            patch("llm_gateway.callbacks.posthog._capture_ai_event") as mock_capture,
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["$ai_trace_id"] == "explicit-client-id"
+
+    @pytest.mark.asyncio
+    async def test_on_success_session_id_header_passes_through(
+        self, callback, standard_logging_object, mock_posthog_client
+    ):
+        kwargs = {
+            "standard_logging_object": standard_logging_object,
+            "litellm_params": {"metadata": {}},
+        }
+        with (
+            patch(
+                "llm_gateway.callbacks.posthog.get_posthog_properties",
+                return_value={"$ai_session_id": "sess-123"},
+            ),
+            patch("llm_gateway.callbacks.posthog._capture_ai_event") as mock_capture,
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["$ai_session_id"] == "sess-123"
+
+    @pytest.mark.asyncio
+    async def test_on_failure_prefers_traceparent_trace_id(self, callback, mock_posthog_client):
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "error_str": "boom",
+            },
+            "litellm_params": {"metadata": {"user_id": '{"session_id": "blob"}'}},
+        }
+        with (
+            patch(
+                "llm_gateway.callbacks.posthog.get_traceparent_trace_id",
+                return_value="0af76519-16cd-43dd-8448-eb211c80319c",
+            ),
+            patch("llm_gateway.callbacks.posthog._capture_ai_event") as mock_capture,
+        ):
+            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_capture.call_args.kwargs["properties"]
+        assert props["$ai_trace_id"] == "0af76519-16cd-43dd-8448-eb211c80319c"
+        assert props["$ai_is_error"] is True
 
 
 class TestNormalizeTraceId:

@@ -53,8 +53,8 @@ def _build_logs_query(alert: LogsAlertConfiguration, date_range: DateRange) -> L
         )
     return LogsQuery(
         dateRange=date_range,
-        serviceNames=filters.get("serviceNames", []),
-        severityLevels=filters.get("severityLevels", []),
+        serviceNames=filters.get("serviceNames") or [],
+        severityLevels=filters.get("severityLevels") or [],
         filterGroup=pg,
         kind="LogsQuery",
     )

@@ -12,7 +12,7 @@ import type {
     UserBasicApi,
     VisionObservationsRetrieveParams,
 } from '../generated/api.schemas'
-import { formatCredits } from '../utils/credits'
+import { formatCreditCount } from '../utils/credits'
 
 export type ScannerType = ScannerTypeEnumApi
 
@@ -46,7 +46,7 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
-export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events'
+export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events' | 'no_ai_consent'
 
 const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: string }> = {
     no_recording: { label: 'No recording', description: 'No recording was found for this session.' },
@@ -54,6 +54,10 @@ const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: str
     too_inactive: { label: 'Too inactive', description: 'The session had too little active interaction to analyze.' },
     too_long: { label: 'Too long', description: 'The session was too long to analyze.' },
     no_events: { label: 'No events', description: 'The session had no events to analyze.' },
+    no_ai_consent: {
+        label: 'AI analysis not allowed',
+        description: 'AI data processing is turned off for this organization, so this recording was not analyzed.',
+    },
 }
 
 export type FailureKind =
@@ -151,14 +155,14 @@ export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> =
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
-    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash (preview)',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
 export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
     (value) => ({
         value,
-        label: `${MODEL_NAMES[value]} (${formatCredits(OBSERVATION_CREDITS_BY_MODEL[value])}/observation)`,
+        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
     })
 )
 
@@ -170,11 +174,32 @@ export function modelLabel(model: string | null | undefined): string {
     return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? model
 }
 
+/** Plain model name without the price suffix, for surfaces that show the price separately. */
+export function modelName(model: string | null | undefined): string {
+    if (!model) {
+        return '—'
+    }
+    return MODEL_NAMES[model as ScannerModelEnumApi] ?? model
+}
+
 export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
     if (!scannerType) {
         return '—'
     }
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
+}
+
+// A plain-language description of what each scanner type produces per session, for people who don't yet
+// know the type names. Kept short so it reads as a chip subtitle / tooltip.
+const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
+    monitor: 'yes or no',
+    classifier: 'a tag from a set you define',
+    scorer: 'a number score',
+    summarizer: 'a text summary',
+}
+
+export function scannerTypeOutputHint(scannerType: ScannerType): string {
+    return SCANNER_TYPE_OUTPUT_HINT[scannerType]
 }
 
 export function createdByLabel(user: ScannerCreatedBy | null): string {

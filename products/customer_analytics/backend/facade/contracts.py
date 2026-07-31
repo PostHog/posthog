@@ -26,6 +26,10 @@ class InvalidCustomPropertyOptions(ValueError):
     """Raised when a select property's options fail validation; the viewset maps it to a 400."""
 
 
+class EventStreamTestMessageError(Exception):
+    """The test message could not be sent — unconfigured stream or a Slack API failure."""
+
+
 @dataclass(frozen=True)
 class AccountAssignment:
     """A user assigned to an account role (CSM, account executive, account owner)."""
@@ -88,6 +92,45 @@ class Account:
     name: str
     properties: AccountProperties
     created_at: datetime | None
+
+
+@dataclass(frozen=True)
+class AccountDueForSlackSummary:
+    """An account whose bound Slack channel is due a periodic summary.
+
+    ``period_start``/``period_end`` are the UTC instants of the last closed calendar
+    window (yesterday, last ISO week, last month) in the account team's timezone.
+    """
+
+    team_id: int
+    account_id: str
+    account_name: str
+    slack_channel_id: str
+    cadence: str
+    period_start: datetime
+    period_end: datetime
+
+
+@dataclass(frozen=True)
+class AccountSlackSummaryBinding:
+    """An account's current summary opt-in: its cadence and bound Slack channel."""
+
+    cadence: str
+    slack_channel_id: str
+
+
+@dataclass(frozen=True)
+class AccountChannelSummaryView:
+    """A stored channel summary as returned by the account summaries endpoint."""
+
+    id: UUID
+    slack_channel_id: str
+    cadence: str
+    period_start: datetime
+    period_end: datetime
+    content: str
+    message_count: int
+    generated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -271,6 +314,7 @@ class AccountView:
     properties: dict = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     notebooks: list[str] = field(default_factory=list)
+    slack_summary_cadence: str | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -347,7 +391,10 @@ class CustomPropertyDefinitionView:
     description: str | None = None
     display_type: str = "text"
     target_type: str = "account"
+    # Only set for group targets: which group type (0-4) the property attaches to. Null otherwise.
+    group_type_index: int | None = None
     is_big_number: bool = False
+    is_canonical: bool = False
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -375,6 +422,7 @@ class CustomPropertySourceView:
     source_column: str | None = ""
     key_column: str = ""
     column_property_map: dict | None = None
+    column_descriptions: dict | None = None
     is_enabled: bool = True
     consecutive_failures: int = 0
     last_synced_at: datetime | None = None
@@ -460,6 +508,7 @@ class CreateAccountInput:
     external_id: str | None = None
     properties: dict = field(default_factory=dict)
     tags: list[str] | None = None
+    slack_summary_cadence: str | None = None
 
 
 @dataclass(frozen=True)
@@ -475,9 +524,11 @@ class UpdateAccountInput:
     external_id: str | None = None
     properties: dict | None = None
     tags: list[str] | None = None
+    slack_summary_cadence: str | None = None
     # Distinguishes "external_id omitted" from "external_id explicitly set to null".
     external_id_provided: bool = False
     properties_provided: bool = False
+    slack_summary_cadence_provided: bool = False
 
 
 @dataclass(frozen=True)
@@ -533,6 +584,29 @@ class ExternalAccountCustomPropertiesResult:
     values: list[CustomPropertyValue] | None = None
     error: ExternalAccountCustomPropertiesError | None = None
     error_field: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class EventStreamView:
+    """A user's event stream as returned by the event-stream endpoints.
+
+    One stream per user per team (``created_by`` is the owner): the events to watch
+    (``event_names``), the owner's Slack delivery target, and the member accounts
+    (``account_ids``) whose users' events are streamed.
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    enabled: bool = False
+    event_names: list[str] = field(default_factory=list)
+    slack_integration: int | None = None
+    slack_channel_id: str = ""
+    slack_channel_name: str = ""
+    account_ids: list[UUID] = field(default_factory=list)
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
 
 
 class AnnouncementValidationError(ValueError):

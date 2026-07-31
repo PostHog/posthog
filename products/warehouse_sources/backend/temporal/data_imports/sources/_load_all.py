@@ -150,15 +150,18 @@ from .bamboohr.source import BambooHRSource
 from .basecamp.source import BasecampSource
 from .baserow.source import BaserowSource
 from .baseten.source import BasetenSource
+from .bcms.source import BCMSSource
 from .beamer.source import BeamerSource
 from .beehiiv.source import BeehiivSource
 from .better_stack.source import BetterStackSource
 from .bettermode.source import BettermodeSource
+from .bexio.source import BexioSource
 from .bigcommerce.source import BigCommerceSource
 from .bigeye.source import BigeyeSource
 from .bigmailer.source import BigMailerSource
 from .bigquery.source import BigQuerySource
 from .bill_com.source import BillComSource
+from .billit.source import BillitSource
 from .billomat.source import BillomatSource
 from .bing_ads.source import BingAdsSource
 from .bing_webmaster_tools.source import BingWebmasterToolsSource
@@ -244,6 +247,7 @@ from .cisco_meraki.source import CiscoMerakiSource
 from .clari.source import ClariSource
 from .clarifai.source import ClarifaiSource
 from .classy.source import ClassySource
+from .clay.source import ClaySource
 from .clazar.source import ClazarSource
 from .cleartax.source import CleartaxSource
 from .clerk.source import ClerkSource
@@ -290,6 +294,7 @@ from .conta_azul.source import ContaAzulSource
 from .contentsquare.source import ContentsquareSource
 from .convertkit.source import ConvertKitSource
 from .convex.source import ConvexSource
+from .convonite.source import ConvoniteSource
 from .copper.source import CopperSource
 from .coralogix.source import CoralogixSource
 from .cortex.source import CortexSource
@@ -336,6 +341,7 @@ from .devin_ai.source import DevinAISource
 from .dialpad.source import DialpadSource
 from .digitalocean.source import DigitalOceanSource
 from .ding_connect.source import DingConnectSource
+from .directus.source import DirectusSource
 from .discord.source import DiscordSource
 from .discourse.source import DiscourseSource
 from .display_video_360.source import DisplayVideo360Source
@@ -358,6 +364,7 @@ from .dropbox.source import DropboxSource
 from .dropbox_sign.source import DropboxSignSource
 from .dub.source import DubSource
 from .dubsado.source import DubsadoSource
+from .ducklake.source import DuckLakeSource
 from .dwolla.source import DwollaSource
 from .dynamics365.source import Dynamics365Source
 from .dynamics_365_business_central.source import Dynamics365BusinessCentralSource
@@ -365,6 +372,7 @@ from .dynamodb.source import DynamoDBSource
 from .dynatrace.source import DynatraceSource
 from .e2b.source import E2BSource
 from .e_conomic.source import EConomicSource
+from .easybill.source import EasybillSource
 from .easypost.source import EasypostSource
 from .easypromos.source import EasypromosSource
 from .ebay.source import EbaySource
@@ -414,6 +422,7 @@ from .firebolt.source import FireboltSource
 from .firecrawl.source import FirecrawlSource
 from .firehydrant.source import FireHydrantSource
 from .fireworks_ai.source import FireworksAISource
+from .first_promoter.source import FirstPromoterSource
 from .five9.source import Five9Source
 from .flagsmith.source import FlagsmithSource
 from .fleetio.source import FleetioSource
@@ -552,6 +561,7 @@ from .hivebrite.source import HivebriteSource
 from .holded.source import HoldedSource
 from .honeybadger.source import HoneybadgerSource
 from .honeycomb.source import HoneycombSource
+from .hookdeck.source import HookdeckSource
 from .hoorayhr.source import HoorayHRSource
 from .hostaway.source import HostawaySource
 from .housecall_pro.source import HousecallProSource
@@ -582,6 +592,7 @@ from .instantly.source import InstantlySource
 from .instatus.source import InstatusSource
 from .intercom.source import IntercomSource
 from .interzoid.source import InterzoidSource
+from .inth.source import InthSource
 from .intruder.source import IntruderSource
 from .invoiced.source import InvoicedSource
 from .invoiceninja.source import InvoiceninjaSource
@@ -614,6 +625,7 @@ from .kernel.source import KernelSource
 from .kestra.source import KestraSource
 from .kick.source import KickSource
 from .kickscale.source import KickscaleSource
+from .kickstarter.source import KickstarterSource
 from .kinde.source import KindeSource
 from .kion.source import KionSource
 from .kisi.source import KisiSource
@@ -636,6 +648,7 @@ from .lago.source import LagoSource
 from .lambda_labs.source import LambdaLabsSource
 from .langfuse.source import LangfuseSource
 from .langsmith.source import LangSmithSource
+from .latitude.source import LatitudeSource
 from .lattice.source import LatticeSource
 from .launchdarkly.source import LaunchDarklySource
 from .lawmatics.source import LawmaticsSource
@@ -679,12 +692,14 @@ from .mailjet.source import MailJetSource
 from .mailosaur.source import MailosaurSource
 from .mailtrap.source import MailtrapSource
 from .mantle.source import MantleSource
+from .manychat.source import ManychatSource
 from .marketo.source import MarketoSource
 from .marketstack.source import MarketstackSource
 from .mastodon.source import MastodonSource
 from .matomo.source import MatomoSource
 from .maxio.source import MaxioSource
 from .meetup.source import MeetupSource
+from .meltwater.source import MeltwaterSource
 from .mem0.source import Mem0Source
 from .memberful.source import MemberfulSource
 from .mendeley.source import MendeleySource
@@ -738,6 +753,7 @@ from .mono.source import MonoSource
 from .monte_carlo.source import MonteCarloSource
 from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
+from .moxie.source import MoxieSource
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource
 from .my_hours.source import MyHoursSource
@@ -890,6 +906,7 @@ from .preset.source import PresetSource
 from .prestashop.source import PrestaShopSource
 from .pretix.source import PretixSource
 from .primetric.source import PrimetricSource
+from .printavo.source import PrintavoSource
 from .printify.source import PrintifySource
 from .procore.source import ProcoreSource
 from .productboard.source import ProductboardSource
@@ -1010,6 +1027,7 @@ from .shopwired.source import ShopWiredSource
 from .shortcut.source import ShortcutSource
 from .shortio.source import ShortioSource
 from .shutterstock.source import ShutterstockSource
+from .sideshift.source import SideShiftSource
 from .sigma_computing.source import SigmaComputingSource
 from .signnow.source import SignNowSource
 from .signoz.source import SigNozSource
@@ -1061,6 +1079,7 @@ from .squadcast.source import SquadcastSource
 from .square.source import SquareSource
 from .squarespace.source import SquarespaceSource
 from .stack_overflow_for_teams.source import StackOverflowForTeamsSource
+from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource
 from .statuspage.source import StatuspageSource
@@ -1080,6 +1099,7 @@ from .surveymonkey.source import SurveyMonkeySource
 from .surveysparrow.source import SurveySparrowSource
 from .survicate.source import SurvicateSource
 from .svix.source import SvixSource
+from .swan.source import SwanSource
 from .swarmia.source import SwarmiaSource
 from .swonkie.source import SwonkieSource
 from .synthesia.source import SynthesiaSource
@@ -1131,11 +1151,13 @@ from .together_ai.source import TogetherAISource
 from .toggl.source import TogglSource
 from .torii.source import ToriiSource
 from .track_pms.source import TrackPMSSource
+from .tradable_bits.source import TradableBitsSource
 from .transistor.source import TransistorSource
 from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource
 from .tremendous.source import TremendousSource
 from .trigger_dev.source import TriggerDevSource
+from .triple_whale.source import TripleWhaleSource
 from .trunk_io.source import TrunkIoSource
 from .trustpilot.source import TrustPilotSource
 from .trustradius.source import TrustradiusSource
@@ -1151,9 +1173,11 @@ from .twitter_ads.source import TwitterAdsSource
 from .two_c2p.source import TwoC2pSource
 from .tyntec_sms.source import TyntecSMSSource
 from .typeform.source import TypeformSource
+from .typesense.source import TypesenseSource
 from .ubidots.source import UbidotsSource
 from .uk_companies_house.source import UkCompaniesHouseSource
 from .uk_ons.source import UkOnsSource
+from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
@@ -1166,6 +1190,7 @@ from .us_bls.source import UsBlsSource
 from .us_census.source import USCensusSource
 from .us_eia.source import UsEiaSource
 from .us_treasury_fiscal_data.source import UsTreasuryFiscalDataSource
+from .user_com.source import UserComSource
 from .usersnap.source import UsersnapSource
 from .uservoice.source import UservoiceSource
 from .vanta.source import VantaSource
@@ -1203,6 +1228,7 @@ from .wompi.source import WompiSource
 from .woocommerce.source import WooCommerceSource
 from .wordpress.source import WordpressSource
 from .workable.source import WorkableSource
+from .workato.source import WorkatoSource
 from .workday.source import WorkdaySource
 from .workflowmax.source import WorkflowmaxSource
 from .workiz.source import WorkizSource
@@ -1236,6 +1262,7 @@ from .zenduty.source import ZendutySource
 from .zenefits.source import ZenefitsSource
 from .zenloop.source import ZenloopSource
 from .zep.source import ZepSource
+from .zero.source import ZeroSource
 from .zluri.source import ZluriSource
 from .zoho_analytics.source import ZohoAnalyticsSource
 from .zoho_bigin.source import ZohoBiginSource

@@ -52,6 +52,7 @@ from posthog.hogql.database.models import DateDatabaseField, StringDatabaseField
 from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 from posthog.hogql.hogqlx import convert_tag_to_hx
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -447,6 +448,136 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    @parameterized.expand(
+        [
+            ("union all by name", "UNION ALL"),
+            ("union by name", "UNION DISTINCT"),
+        ]
+    )
+    def test_union_by_name_lowered_for_clickhouse(self, operator: str, lowered: str):
+        response = self._select(f"select 1 as a, 2 as b {operator} select 3 as b, 4 as a")
+        self.assertNotIn("BY NAME", response)
+        self.assertIn(f" {lowered} ", response)
+        self.assertIn("SELECT 4 AS a, 3 AS b", response)
+
+    @parameterized.expand([("intersect by name",), ("except by name",)])
+    def test_intersect_except_by_name_rejected_for_clickhouse(self, operator: str):
+        # INTERSECT/EXCEPT bind tighter than UNION, so aligning their operand to the first branch
+        # rather than the true set partner would silently mispair columns. No engine supports them,
+        # so they are refused rather than lowered.
+        with self.assertRaises(QueryError) as context:
+            self._select(f"select 1 as a, 2 as b {operator} select 3 as b, 4 as a")
+        self.assertIn("is not supported", str(context.exception))
+
+    def test_union_by_name_executes_on_clickhouse(self):
+        sql = self._select("select 1 as a, 2 as b union all by name select 3 as b, 4 as a")
+        # UNION ALL branches come back in whatever order they finish, so sort before comparing:
+        # what matters here is that BY NAME lowering paired each value with the right column.
+        self.assertEqual(sorted(sync_execute(sql)), [(1, 2), (4, 3)])
+
+    def test_union_by_name_nested_set_operand_reorders_every_leaf(self):
+        response = self._select(
+            "select 1 as a, 2 as b union all by name (select 30 as b, 40 as a union all select 50 as b, 60 as a)"
+        )
+        self.assertNotIn("BY NAME", response)
+        self.assertIn("SELECT 40 AS a, 30 AS b", response)
+        self.assertIn("SELECT 60 AS a, 50 AS b", response)
+
+    @parameterized.expand(
+        [
+            ("missing_column", "select 1 as a, 2 as b union all by name select 3 as b", "missing: a"),
+            (
+                "extra_column",
+                "select 1 as a union all by name select 3 as a, 4 as b",
+                "unexpected: b",
+            ),
+            (
+                "same_arity_renamed_column",
+                "select 1 as a, 2 as b union all by name select 3 as a, 4 as c",
+                "missing: b",
+            ),
+            (
+                "duplicate_columns",
+                "select uuid, uuid from events union all by name select uuid from events",
+                "uniquely named columns",
+            ),
+            (
+                "nested_leaf_arity_mismatch",
+                "select 1 as a, 2 as b union all by name (select 3 as b, 4 as a union all select 5 as a, 6 as b, 7 as c)",
+                "number of columns",
+            ),
+        ]
+    )
+    def test_by_name_invalid_column_sets_raise(self, _name: str, query: str, expected_error: str):
+        with self.assertRaises(QueryError) as context:
+            self._select(query)
+        self.assertIn(expected_error, str(context.exception))
+
+    def test_union_by_name_remaps_positional_order_by(self):
+        # `order by 2` on the reordered branch must still sort by the column the user meant. ClickHouse
+        # binds a trailing ORDER BY to the last operand, so this needs multiple rows to be observable —
+        # a string check alone passes even when the ordinal points at the wrong column. The sentinel
+        # first-branch row floats freely across the UNION ALL boundary, so assert only the sorted
+        # branch: a correct remap sorts by x (8, 9, 10); a broken one sorts by y (10, 9, 8).
+        sql = self._select(
+            "select 0 as x, 0 as y union all by name select number as y, (10 - number) as x from numbers(3) order by 2"
+        )
+        sorted_branch = [row for row in sync_execute(sql) if row[0] != 0]
+        self.assertEqual(sorted_branch, [(8, 2), (9, 1), (10, 0)])
+
+    def test_union_by_name_kept_for_postgres_dialect(self):
+        response, _ = prepare_and_print_ast(
+            parse_select("select 1 as a, 2 as b union all by name select 3 as b, 4 as a"),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "postgres",
+        )
+        self.assertIn("UNION ALL BY NAME", response)
+        self.assertIn("SELECT 3 AS b, 4 AS a", response)
+
+    @parameterized.expand([("intersect by name",), ("except by name",)])
+    def test_intersect_except_by_name_rejected_for_postgres_dialect(self, operator: str):
+        # DuckDB supports UNION BY NAME natively but rejects INTERSECT/EXCEPT BY NAME, so the postgres
+        # printer must refuse them rather than emit SQL DuckDB won't run.
+        with self.assertRaises(QueryError) as context:
+            prepare_and_print_ast(
+                parse_select(f"select 1 as a, 2 as b {operator} select 3 as b, 4 as a"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                "postgres",
+            )
+        self.assertIn("is not supported", str(context.exception))
+
+    @parameterized.expand([("mysql",), ("snowflake",), ("redshift",)])
+    def test_by_name_rejected_in_warehouse_dialects(self, dialect: str):
+        with self.assertRaises(QueryError) as context:
+            prepare_and_print_ast(
+                parse_select("select 1 as a union all by name select 2 as a"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                cast(HogQLDialect, dialect),
+            )
+        self.assertIn("UNION ALL BY NAME is not supported", str(context.exception))
+
+    @parameterized.expand([("intersect all",), ("except all",)])
+    def test_intersect_except_all_rejected_for_redshift_and_snowflake(self, operator: str):
+        # These extend the permit-all Postgres printer, so without a real gate they would ship
+        # INTERSECT ALL/EXCEPT ALL verbatim to engines that don't support them.
+        for dialect in ("redshift", "snowflake"):
+            with self.assertRaises((QueryError, ImpossibleASTError)):
+                prepare_and_print_ast(
+                    parse_select(f"select 1 as a {operator} select 1 as a"),
+                    HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                    cast(HogQLDialect, dialect),
+                )
+
+    @parameterized.expand([("intersect all",), ("except all",)])
+    def test_intersect_except_all_permitted_for_mysql(self, operator: str):
+        # MySQL 8.0.31+ supports the ALL modifier, so it must not be swept up in the Redshift/Snowflake gate.
+        printed, _ = prepare_and_print_ast(
+            parse_select(f"select 1 as a {operator} select 1 as a"),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "mysql",
+        )
+        self.assertIn(operator.upper(), printed)
+
     # these share the same priority, should stay in order
     def test_except_and_union(self):
         expr = parse_select("""select 1 as id except select 2 as id union all select 3 as id""")
@@ -705,6 +836,38 @@ class TestPrinter(BaseTest):
                     else "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')"
                 ),
             )
+
+    @parameterized.expand([(True,), (False,)])
+    def test_type_aware_simplification_modifier_drives_prepare_pipeline(self, modifier_enabled: bool):
+        # The production rollout path: the typeAwareCastSimplification modifier (not the internal
+        # context flag) must reach the simplifier inside prepare_ast_for_printing.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(typeAwareCastSimplification=modifier_enabled),
+        )
+        sql = self._select("SELECT assumeNotNull(1) AS a, toString('x') AS b FROM events", context)
+
+        if modifier_enabled:
+            assert "assumeNotNull(" not in sql
+            assert "toString(" not in sql
+        else:
+            assert "assumeNotNull(" in sql
+            assert "toString(" in sql
+
+    def test_type_aware_simplification_stays_off_via_production_default_modifiers(self):
+        # Tripwire for the default flip: this exercises the real default path
+        # (create_default_modifiers_for_team), so turning the simplifier on by default is forced to
+        # be a deliberate, reviewed change that updates this test.
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql = self._select("SELECT assumeNotNull(1) AS a, toString('x') AS b FROM events", context)
+
+        assert "assumeNotNull(" in sql
+        assert "toString(" in sql
 
     def test_hogql_properties(self):
         self.assertEqual(
@@ -2200,6 +2363,57 @@ class TestPrinter(BaseTest):
         result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
 
         self.assertNotIn("enable_analyzer=1", result)
+
+    @parameterized.expand(
+        [
+            (
+                "bare_column_table_join",
+                "SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event",
+                "ON equals(q1.event, q2.event)",
+            ),
+            (
+                "cte_join",
+                "WITH exposed AS (SELECT event, distinct_id FROM events), "
+                "first_event AS (SELECT event, distinct_id FROM events) "
+                "SELECT e.distinct_id FROM exposed AS e JOIN first_event AS f USING (distinct_id)",
+                "ON equals(e.distinct_id, f.distinct_id)",
+            ),
+            (
+                "multiple_columns_subquery_join",
+                "SELECT a.event FROM (SELECT event, distinct_id FROM events) AS a "
+                "JOIN (SELECT event, distinct_id FROM events) AS b USING (event, distinct_id)",
+                "ON and(equals(a.event, b.event), equals(a.distinct_id, b.distinct_id))",
+            ),
+            (
+                "aliasless_subquery_right_join",
+                "SELECT a.event FROM events AS a JOIN (SELECT event FROM events) USING event",
+                "AS __using_join_1 ON equals(a.event, __using_join_1.event)",
+            ),
+            (
+                "aliasless_subquery_left_join",
+                "SELECT 1 FROM (SELECT event FROM events) JOIN events AS e USING event",
+                "ON equals(__using_join_1.event, e.event)",
+            ),
+            (
+                "aliasless_subqueries_both_sides",
+                "SELECT 1 FROM (SELECT event FROM events) JOIN (SELECT event FROM events) USING event",
+                "AS __using_join_2 ON equals(__using_join_1.event, __using_join_2.event)",
+            ),
+        ],
+    )
+    def test_join_using_desugars_to_on_constraint(self, _name: str, query: str, expected_constraint: str):
+        printed = self._select(query)
+        self.assertIn(expected_constraint, printed)
+        self.assertNotIn("USING", printed)
+
+    def test_join_using_unknown_right_column_raises(self):
+        with self.assertRaisesMessage(
+            QueryError, "Unable to resolve USING column 'event' on the right-hand table \"b\" of the join"
+        ):
+            self._select(
+                "SELECT a.event FROM (SELECT event FROM events) AS a "
+                "JOIN (SELECT distinct_id FROM events) AS b USING event"
+            )
 
     def test_select_array_join(self):
         self.assertEqual(

@@ -5,7 +5,10 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, Mock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
@@ -16,14 +19,84 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     _find_nth_eval_timestamp,
     _load_evaluation_target,
     _period_for_scheduled_report,
+    _update_next_delivery_date,
     run_eval_report_agent_activity,
     store_report_run_activity,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
-from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput, StoreReportRunInput
+from posthog.temporal.ai_observability.eval_reports.types import (
+    RunEvalReportAgentInput,
+    StoreReportRunInput,
+    UpdateNextDeliveryDateInput,
+)
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
+
+
+class TestUpdateNextDeliveryDate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "unavailable_legacy",
+                "metrics_unavailable",
+                True,
+                None,
+                False,
+                ["next_delivery_date", "last_attempted_at"],
+            ),
+            (
+                "completed_legacy",
+                "completed",
+                True,
+                None,
+                True,
+                ["next_delivery_date", "last_attempted_at", "last_delivered_at"],
+            ),
+            (
+                "completed_cursor_only",
+                "completed",
+                False,
+                True,
+                True,
+                ["last_delivered_at"],
+            ),
+        ]
+    )
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects.get")
+    def test_updates_automatic_report_timing(
+        self,
+        _name: str,
+        generation_status: str,
+        record_attempt: bool,
+        advance_data_cursor: bool | None,
+        expects_delivered_advance: bool,
+        expected_update_fields: list[str],
+        get_report: MagicMock,
+    ) -> None:
+        last_delivered = timezone.now() - dt.timedelta(hours=2)
+        last_attempted = timezone.now() - dt.timedelta(hours=1)
+        period_end = timezone.now()
+        report = MagicMock(last_delivered_at=last_delivered, last_attempted_at=last_attempted)
+        get_report.return_value = report
+
+        _update_next_delivery_date(
+            UpdateNextDeliveryDateInput(
+                report_id="report-id",
+                period_end=period_end.isoformat(),
+                generation_status=generation_status,
+                record_attempt=record_attempt,
+                advance_data_cursor=advance_data_cursor,
+            )
+        )
+
+        self.assertEqual(report.last_attempted_at, period_end if record_attempt else last_attempted)
+        self.assertEqual(report.last_delivered_at, period_end if expects_delivered_advance else last_delivered)
+        if record_attempt:
+            report.set_next_delivery_date.assert_called_once_with()
+        else:
+            report.set_next_delivery_date.assert_not_called()
+        report.save.assert_called_once_with(update_fields=expected_update_fields)
 
 
 class TestEvaluationTargetLoading(BaseTest):
@@ -91,6 +164,7 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
 
     assert result.content["metrics"]["output_type"] == output_type
     assert result.content["evaluation_target"] == evaluation_target
+    assert result.generation_status == "completed"
     assert run_agent.call_args.kwargs["output_type"] == output_type
     assert run_agent.call_args.kwargs["evaluation_target"] == evaluation_target
     load_target.assert_called_once_with(inputs.team_id, inputs.evaluation_id)
@@ -190,6 +264,43 @@ async def test_store_legacy_boolean_report_emits_normalized_generic_metrics() ->
     assert properties["$ai_report_evaluation_target"] == "generation"
     assert properties["$ai_report_referenced_generation_ids"] == ["generation-id"]
     assert properties["$ai_report_referenced_trace_ids"] == ["customer/trace:42"]
+
+
+@pytest.mark.asyncio
+async def test_store_metrics_unavailable_report_omits_placeholder_metrics() -> None:
+    report_run = MagicMock(id="run-id", report_id="report-id")
+    content: dict[str, object] = {
+        "title": "Metrics temporarily unavailable",
+        "sections": [],
+        "citations": [],
+        "generation_status": "metrics_unavailable",
+        "metrics": None,
+    }
+    inputs = StoreReportRunInput(
+        report_id="report-id",
+        team_id=1,
+        evaluation_id="evaluation-id",
+        content=content,
+        period_start="2026-07-01T00:00:00+00:00",
+        period_end="2026-07-02T00:00:00+00:00",
+    )
+
+    with (
+        patch(
+            "products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects.create",
+            return_value=report_run,
+        ) as create_report_run,
+        patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
+        patch("posthog.models.event.util.create_event") as create_event,
+    ):
+        await store_report_run_activity(inputs)
+
+    properties = create_event.call_args.kwargs["properties"]
+    assert create_report_run.call_args.kwargs["metadata"] == {}
+    assert properties["$ai_report_generation_status"] == "metrics_unavailable"
+    assert "$ai_report_total_runs" not in properties
+    assert "$ai_report_result_counts" not in properties
+    assert "$ai_report_pass_rate" not in properties
 
 
 def test_count_trigger_uses_current_output_type() -> None:
@@ -435,6 +546,21 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertEqual(result.skipped_reason, "cooldown")
         execute_hogql_query.assert_not_called()
 
+    def test_check_report_uses_latest_attempt_for_cooldown_and_success_for_count_window(self):
+        now = timezone.now()
+        report = self._create_report(
+            last_delivered_at=now - dt.timedelta(hours=2),
+            last_attempted_at=now - dt.timedelta(minutes=5),
+            cooldown_minutes=60,
+        )
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            result = _check_count_triggered_eval_report_sync(str(report.id), now)
+
+        self.assertFalse(result.due)
+        self.assertEqual(result.skipped_reason, "cooldown")
+        execute_hogql_query.assert_not_called()
+
     def test_check_report_skips_daily_cap_without_clickhouse_query(self):
         now = timezone.now()
         report = self._create_report(daily_run_cap=1)
@@ -450,6 +576,24 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertFalse(result.due)
         self.assertEqual(result.skipped_reason, "daily_cap")
         execute_hogql_query.assert_not_called()
+
+    def test_check_report_does_not_count_unavailable_run_toward_daily_cap(self):
+        now = timezone.now()
+        report = self._create_report(daily_run_cap=1)
+        EvaluationReportRun.objects.create(
+            report=report,
+            content={"generation_status": "metrics_unavailable"},
+            period_start=now - dt.timedelta(hours=1),
+            period_end=now,
+        )
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            execute_hogql_query.return_value = Mock(results=[[100]])
+            result = _check_count_triggered_eval_report_sync(str(report.id), now)
+
+        self.assertTrue(result.due)
+        self.assertIsNone(result.skipped_reason)
+        execute_hogql_query.assert_called_once()
 
     def test_batch_skips_gated_reports_without_clickhouse_and_preserves_order(self):
         # Every Postgres-gated report must be resolved without touching ClickHouse — that's
@@ -575,14 +719,20 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
             delivery_targets=[{"type": "email", "value": "test@example.com"}],
         )
 
-    def _emit_eval_events(self, team: Team, evaluation_id: str, timestamps: list[dt.datetime]) -> None:
+    def _emit_eval_events(
+        self,
+        team: Team,
+        evaluation_id: str,
+        timestamps: list[dt.datetime],
+        extra_properties: dict | None = None,
+    ) -> None:
         for index, ts in enumerate(timestamps):
             _create_event(
                 team=team,
                 event="$ai_evaluation",
                 distinct_id=f"d-{evaluation_id}-{index}",
                 timestamp=ts,
-                properties={"$ai_evaluation_id": evaluation_id},
+                properties={"$ai_evaluation_id": evaluation_id, **(extra_properties or {})},
             )
 
     def test_counts_respect_since_evaluation_and_threshold(self):
@@ -676,6 +826,43 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(by_id[str(sentiment_report.id)].skipped_reason)
         self.assertTrue(by_id[str(sentiment_report.id)].due)
         self.assertTrue(by_id[str(boolean_report.id)].due)
+
+    @parameterized.expand([("boolean",), ("sentiment",)])
+    def test_skipped_runs_are_excluded_from_counts(self, output_type: str) -> None:
+        # Sentiment's event_predicate requires the result_type property; boolean's accepts null.
+        base_props = {"$ai_evaluation_result_type": output_type} if output_type == "sentiment" else {}
+        skipped_props = {**base_props, "$ai_evaluation_skipped": True, "$ai_evaluation_skip_reason": "no_user_messages"}
+        in_window = [self.T0 + dt.timedelta(hours=1), self.T0 + dt.timedelta(hours=2)]
+
+        # 2 real runs + 1 skipped vs threshold 3: due only if the skipped run leaks into the count.
+        report_not_due = self._create_report(
+            self.team, threshold=3, since=self.T0, name=f"skip-not-due-{output_type}", output_type=output_type
+        )
+        self._emit_eval_events(self.team, str(report_not_due.evaluation_id), in_window, extra_properties=base_props)
+        self._emit_eval_events(
+            self.team,
+            str(report_not_due.evaluation_id),
+            [self.T0 + dt.timedelta(minutes=90)],
+            extra_properties=skipped_props,
+        )
+
+        # Control: same events vs threshold 2 stays due, so the exclusion can't over-filter real runs.
+        report_due = self._create_report(
+            self.team, threshold=2, since=self.T0, name=f"skip-due-{output_type}", output_type=output_type
+        )
+        self._emit_eval_events(self.team, str(report_due.evaluation_id), in_window, extra_properties=base_props)
+        self._emit_eval_events(
+            self.team,
+            str(report_due.evaluation_id),
+            [self.T0 + dt.timedelta(minutes=90)],
+            extra_properties=skipped_props,
+        )
+
+        results = _check_count_triggered_eval_reports_batch([str(report_not_due.id), str(report_due.id)], self.NOW)
+
+        due_by_id = {r.report_id: r.due for r in results}
+        self.assertFalse(due_by_id[str(report_not_due.id)])
+        self.assertTrue(due_by_id[str(report_due.id)])
 
     def test_trace_target_reports_exclude_generation_events(self):
         # The batched countIf must carry the evaluation's target predicate like the

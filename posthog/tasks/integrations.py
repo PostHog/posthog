@@ -18,8 +18,15 @@ from products.workflows.backend.providers import SESProvider
 def refresh_integrations() -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
+    # Resend is excluded: its refresh token is single-use and rotates on every refresh, with
+    # reuse-detection that revokes the whole grant if a rotated token is spent twice. Resend
+    # refreshes are minted on demand under a Postgres row lock by the sync path
+    # (resolve_resend_oauth_token). This unlocked periodic sweep would race that path and
+    # double-spend the rotating token, so it must not refresh Resend.
     oauth_integrations = defer_repository_cache_fields(
-        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds).exclude(kind="meta-ads").all()
+        Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
+        .exclude(kind__in=["meta-ads", "resend"])
+        .all()
     )
 
     for integration in oauth_integrations:
@@ -72,6 +79,12 @@ def refresh_integration(id: int) -> int:
     # Re-check freshness against the just-loaded row before minting. Under an INTEGRATIONS queue
     # backlog several duplicate refreshes can pile up for the same row; the first mints a fresh token
     # and this keeps the rest from re-minting one that's already valid.
+    # Resend is deliberately not refreshed here (see refresh_integrations): its rotating single-use
+    # refresh token must only ever be spent under the sync path's row lock. Skip it even if an
+    # in-flight task from before this guard was deployed still targets a Resend row.
+    if integration.kind == "resend":
+        return 0
+
     if integration.kind in OauthIntegration.supported_kinds:
         oauth_integration = OauthIntegration(integration)
         if oauth_integration.access_token_expired():

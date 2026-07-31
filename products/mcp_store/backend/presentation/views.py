@@ -121,7 +121,7 @@ def _is_https(url: str) -> bool:
 
 
 def _is_valid_posthog_code_callback_url(url: str) -> bool:
-    """Validate that a PostHog Code callback URL is safe to redirect to (prevents open redirect)."""
+    """Validate that a PostHog Desktop callback URL is safe to redirect to (prevents open redirect)."""
     parsed = urlparse(url)
     if parsed.scheme in ("array", "posthog-code"):
         return True
@@ -175,7 +175,7 @@ class MCPServerTemplateSerializer(serializers.ModelSerializer):
         help_text="The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time "
         "via the logo.dev proxy endpoint. Empty when no brand icon is known.",
     )
-    # Kept until PostHog Code stops reading it; drop together with the model column.
+    # Kept until PostHog Desktop stops reading it; drop together with the model column.
     icon_key = serializers.CharField(
         read_only=True,
         help_text="Deprecated: use icon_domain instead. Lowercase key for clients that still "
@@ -241,7 +241,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         help_text="Brand domain from the linked template, rendered via the logo.dev icon proxy. "
         "Empty if custom install (no template).",
     )
-    # Kept until PostHog Code stops reading it; drop together with the model column.
+    # Kept until PostHog Desktop stops reading it; drop together with the model column.
     icon_key = serializers.CharField(
         source="template.icon_key",
         read_only=True,
@@ -1510,7 +1510,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
     OAuth providers redirect here after authorization. This endpoint
     validates the state token, exchanges the code for tokens, and
-    redirects to the originating client (PostHog web or PostHog Code).
+    redirects to the originating client (PostHog web or PostHog Desktop).
     """
 
     # Use SessionAuthentication; leave permission_classes empty for uniform 400s, not 401s

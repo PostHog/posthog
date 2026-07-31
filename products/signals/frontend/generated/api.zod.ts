@@ -226,24 +226,138 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, and `emit`. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * @summary Create a scout
+ */
+export const signalsScoutCreateBodyNameMax = 64
+
+export const signalsScoutCreateBodyDescriptionMax = 4096
+
+export const signalsScoutCreateBodyFilesItemPathMax = 500
+
+export const signalsScoutCreateBodyFilesItemContentTypeDefault = `text/plain`
+export const signalsScoutCreateBodyFilesItemContentTypeMax = 100
+
+export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
+export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
+
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax = 255
+
+export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
+
+export const SignalsScoutCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(signalsScoutCreateBodyNameMax)
+            .describe(
+                'Unique scout name. Must start with `signals-scout-` and contain only lowercase letters, numbers, and hyphens.'
+            ),
+        description: zod
+            .string()
+            .max(signalsScoutCreateBodyDescriptionMax)
+            .describe('Short description of the signal or behavior this scout investigates.'),
+        body: zod
+            .string()
+            .describe(
+                'Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here.'
+            ),
+        files: zod
+            .array(
+                zod.object({
+                    path: zod
+                        .string()
+                        .max(signalsScoutCreateBodyFilesItemPathMax)
+                        .describe(
+                            "File path relative to skill root, e.g. 'scripts\/setup.sh' or 'references\/guide.md'."
+                        ),
+                    content: zod.string().describe('Text content of the file.'),
+                    content_type: zod
+                        .string()
+                        .max(signalsScoutCreateBodyFilesItemContentTypeMax)
+                        .default(signalsScoutCreateBodyFilesItemContentTypeDefault)
+                        .describe('MIME type of the file content.'),
+                })
+            )
+            .optional()
+            .describe('Optional reference files bundled with the scout prompt.'),
+        config: zod
+            .object({
+                enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe('Whether this scout runs on its schedule. Defaults to true.'),
+                emit: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.'
+                    ),
+                run_interval_minutes: zod
+                    .number()
+                    .min(signalsScoutCreateBodyConfigOneRunIntervalMinutesMin)
+                    .max(signalsScoutCreateBodyConfigOneRunIntervalMinutesMax)
+                    .optional()
+                    .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
+                output_destinations: zod
+                    .object({
+                        slack: zod
+                            .union([
+                                zod.object({
+                                    integration_id: zod
+                                        .number()
+                                        .min(1)
+                                        .describe(
+                                            "ID of the Slack integration whose bot posts this scout's findings and reports."
+                                        ),
+                                    channel: zod
+                                        .string()
+                                        .max(signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax)
+                                        .nullish()
+                                        .describe(
+                                            "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                            ),
+                    })
+                    .optional()
+                    .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+                run_cron_schedule: zod
+                    .string()
+                    .max(signalsScoutCreateBodyConfigOneRunCronScheduleMax)
+                    .nullish()
+                    .describe(
+                        "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
+                    ),
+            })
+            .describe('Schedule, enablement, and delivery options accepted while creating a scout.')
+            .optional()
+            .describe(
+                'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
+            ),
+    })
+    .describe('Create a runnable custom scout and its config in one atomic request.')
+
+/**
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
-export const signalsScoutConfigCreateBodySkillNameMax = 200
-
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
+
+export const signalsScoutConfigCreateBodySkillNameMax = 200
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     .object({
-        skill_name: zod
-            .string()
-            .max(signalsScoutConfigCreateBodySkillNameMax)
-            .describe(
-                'The `signals-scout-\*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.'
-            ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
             .boolean()
@@ -257,6 +371,34 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
             .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
+        output_destinations: zod
+            .object({
+                slack: zod
+                    .union([
+                        zod.object({
+                            integration_id: zod
+                                .number()
+                                .min(1)
+                                .describe(
+                                    "ID of the Slack integration whose bot posts this scout's findings and reports."
+                                ),
+                            channel: zod
+                                .string()
+                                .max(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax)
+                                .nullish()
+                                .describe(
+                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+            })
+            .optional()
+            .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
         run_cron_schedule: zod
             .string()
             .max(signalsScoutConfigCreateBodyRunCronScheduleMax)
@@ -264,13 +406,19 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
             ),
+        skill_name: zod
+            .string()
+            .max(signalsScoutConfigCreateBodySkillNameMax)
+            .describe(
+                'The `signals-scout-\*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.'
+            ),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
     )
 
 /**
- * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
@@ -278,12 +426,16 @@ export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
 export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
+
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
         enabled: zod
             .boolean()
             .optional()
-            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+            .describe(
+                'Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched.'
+            ),
         emit: zod
             .boolean()
             .optional()
@@ -303,8 +455,70 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart. Set null to return to the rolling interval schedule."
             ),
+        output_destinations: zod
+            .object({
+                slack: zod
+                    .union([
+                        zod.object({
+                            integration_id: zod
+                                .number()
+                                .min(1)
+                                .describe(
+                                    "ID of the Slack integration whose bot posts this scout's findings and reports."
+                                ),
+                            channel: zod
+                                .string()
+                                .max(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax)
+                                .nullish()
+                                .describe(
+                                    "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+            })
+            .optional()
+            .describe(
+                'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
+            ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
+
+/**
+ * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (`signals-scout-*`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
+ * @summary Leave a note for the scouts
+ */
+export const signalsScoutNotesCreateBodyContentMax = 10000
+
+export const signalsScoutNotesCreateBodySkillNameMax = 200
+
+export const SignalsScoutNotesCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(signalsScoutNotesCreateBodyContentMax)
+            .describe(
+                "The note's prose — feedback, a pointer, or a nudge for the scout(s) to weigh on their next runs (e.g. 'we shipped a new checkout on Tuesday, watch conversion closely', 'stop flagging the staging traffic spike'). Write it in Markdown; scouts read it verbatim."
+            ),
+        skill_name: zod
+            .string()
+            .max(signalsScoutNotesCreateBodySkillNameMax)
+            .optional()
+            .describe(
+                'Address the note to one scout by its skill name (`signals-scout-\*`, exact match against an existing scout skill on the project — check `scout-config-list` for the roster). Omit or leave blank for a general note every scout sees.'
+            ),
+        expires_at: zod.iso
+            .datetime({ offset: true })
+            .nullish()
+            .describe(
+                "Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted."
+            ),
+    })
+    .describe('Request body for `notes-create`.')
 
 /**
  * Rewrite a report's title/summary, append a note, and/or set its suggested reviewers. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Title/summary edits are best-effort: the pipeline may later re-research them.
@@ -317,6 +531,14 @@ export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 20
 export const signalsScoutEditReportBodySuggestedReviewersItemReasonMax = 500
 
 export const signalsScoutEditReportBodySuggestedReviewersMax = 10
+
+export const signalsScoutEditReportBodyChartsItemChartIdMax = 100
+
+export const signalsScoutEditReportBodyChartsItemTitleMax = 200
+
+export const signalsScoutEditReportBodyChartsItemCaptionMax = 500
+
+export const signalsScoutEditReportBodyChartsMax = 20
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
@@ -372,6 +594,51 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .describe(
                 'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
             ),
+        charts: zod
+            .array(
+                zod
+                    .object({
+                        chart_id: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyChartsItemChartIdMax)
+                            .describe(
+                                "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary."
+                            ),
+                        title: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyChartsItemTitleMax)
+                            .describe('Short heading shown above the chart.'),
+                        query: zod
+                            .unknown()
+                            .describe(
+                                'The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.'
+                            ),
+                        caption: zod
+                            .string()
+                            .max(signalsScoutEditReportBodyChartsItemCaptionMax)
+                            .nullish()
+                            .describe('Optional one-line note on what to look at in the chart.'),
+                        size: zod
+                            .union([
+                                zod
+                                    .enum(['small', 'medium', 'large'])
+                                    .describe('\* `small` - small\n\* `medium` - medium\n\* `large` - large'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n\* `small` - small\n\* `medium` - medium\n\* `large` - large'
+                            ),
+                    })
+                    .describe(
+                        'One chart attached to a report — rendered in the inbox and referenceable from the summary.'
+                    )
+            )
+            .max(signalsScoutEditReportBodyChartsMax)
+            .nullish()
+            .describe(
+                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
+            ),
     })
     .describe(
         "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
@@ -391,6 +658,14 @@ export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 20
 export const signalsScoutEmitReportBodySuggestedReviewersItemReasonMax = 500
 
 export const signalsScoutEmitReportBodySuggestedReviewersMax = 10
+
+export const signalsScoutEmitReportBodyChartsItemChartIdMax = 100
+
+export const signalsScoutEmitReportBodyChartsItemTitleMax = 200
+
+export const signalsScoutEmitReportBodyChartsItemCaptionMax = 500
+
+export const signalsScoutEmitReportBodyChartsMax = 20
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -443,7 +718,9 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
         already_addressed: zod
             .boolean()
             .default(signalsScoutEmitReportBodyAlreadyAddressedDefault)
-            .describe('Whether the issue already appears fixed in recent changes (tracked separately).'),
+            .describe(
+                'Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned \/ in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately.'
+            ),
         repository: zod
             .string()
             .nullish()
@@ -498,6 +775,51 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Optional reviewers to route the report to (each a `github_login` and\/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
+            ),
+        charts: zod
+            .array(
+                zod
+                    .object({
+                        chart_id: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyChartsItemChartIdMax)
+                            .describe(
+                                "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary."
+                            ),
+                        title: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyChartsItemTitleMax)
+                            .describe('Short heading shown above the chart.'),
+                        query: zod
+                            .unknown()
+                            .describe(
+                                'The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.'
+                            ),
+                        caption: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyChartsItemCaptionMax)
+                            .nullish()
+                            .describe('Optional one-line note on what to look at in the chart.'),
+                        size: zod
+                            .union([
+                                zod
+                                    .enum(['small', 'medium', 'large'])
+                                    .describe('\* `small` - small\n\* `medium` - medium\n\* `large` - large'),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                'How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n\* `small` - small\n\* `medium` - medium\n\* `large` - large'
+                            ),
+                    })
+                    .describe(
+                        'One chart attached to a report — rendered in the inbox and referenceable from the summary.'
+                    )
+            )
+            .max(signalsScoutEmitReportBodyChartsMax)
+            .optional()
+            .describe(
+                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
@@ -725,9 +1047,10 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
             'intercom',
             'hubspot',
             'engineering_analytics',
+            'google_search_console',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
         ),
     source_type: zod
         .enum([
@@ -808,9 +1131,10 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
             'intercom',
             'hubspot',
             'engineering_analytics',
+            'google_search_console',
         ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
         ),
     source_type: zod
         .enum([
@@ -891,10 +1215,11 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
             'intercom',
             'hubspot',
             'engineering_analytics',
+            'google_search_console',
         ])
         .optional()
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `jira` - Jira\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze\n\* `signals_scout` - Signals scout\n\* `logs` - Logs\n\* `health_checks` - Health checks\n\* `endpoints` - Endpoints\n\* `replay_vision` - Replay Vision\n\* `analytics` - Product analytics\n\* `freshdesk` - Freshdesk\n\* `freshservice` - Freshservice\n\* `front` - Front\n\* `gorgias` - Gorgias\n\* `kustomer` - Kustomer\n\* `dixa` - Dixa\n\* `plain` - Plain\n\* `gitlab` - GitLab\n\* `gitea` - Gitea\n\* `shortcut` - Shortcut\n\* `sentry` - Sentry\n\* `rollbar` - Rollbar\n\* `bugsnag` - Bugsnag\n\* `honeybadger` - Honeybadger\n\* `raygun` - Raygun\n\* `snyk` - Snyk\n\* `sonarqube` - SonarQube\n\* `semgrep` - Semgrep\n\* `rapid7_insightvm` - Rapid7 InsightVM\n\* `featurebase` - Featurebase\n\* `frill` - Frill\n\* `aha` - Aha\n\* `uservoice` - UserVoice\n\* `productboard` - Productboard\n\* `canny` - Canny\n\* `asknicely` - AskNicely\n\* `retently` - Retently\n\* `appfigures` - Appfigures\n\* `appfollow` - AppFollow\n\* `judgeme_reviews` - Judge.me\n\* `intercom` - Intercom\n\* `hubspot` - HubSpot\n\* `engineering_analytics` - Engineering analytics\n\* `google_search_console` - Google Search Console'
         ),
     source_type: zod
         .enum([

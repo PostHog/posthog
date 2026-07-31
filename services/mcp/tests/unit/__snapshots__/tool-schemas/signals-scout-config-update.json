@@ -6,12 +6,49 @@
             "type": "boolean"
         },
         "enabled": {
-            "description": "Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+            "description": "Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched.",
             "type": "boolean"
         },
         "id": {
             "description": "A UUID string identifying this Signal scout config.",
             "type": "string"
+        },
+        "output_destinations": {
+            "description": "Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
+            "properties": {
+                "slack": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "channel": {
+                                    "anyOf": [
+                                        {
+                                            "maxLength": 255,
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                },
+                                "integration_id": {
+                                    "description": "ID of the Slack integration whose bot posts this scout's findings and reports.",
+                                    "minimum": 1,
+                                    "type": "number"
+                                }
+                            },
+                            "required": ["integration_id"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery."
+                }
+            },
+            "type": "object"
         },
         "run_cron_schedule": {
             "anyOf": [

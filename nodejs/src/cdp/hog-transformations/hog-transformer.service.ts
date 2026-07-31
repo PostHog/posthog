@@ -20,6 +20,7 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
+import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../services/managers/team-workflows-config.service'
 import { EmailSuppressionService } from '../services/messaging/email-suppression.service'
 import { EmailService } from '../services/messaging/email.service'
@@ -39,6 +40,7 @@ export interface HogTransformerConfig {
     siteUrl: string
     hogWatcherSampleRate: number
     hogRustVmExecutionEnabled: boolean
+    hogRustVmBatchExecutionEnabled: boolean
     mmdbFileLocation: string
 }
 
@@ -416,7 +418,9 @@ export class HogTransformerService implements HogTransformer {
 
         if (this.rustVmExecutor) {
             const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
-            const rustResult = this.rustVmExecutor.execute(invocation, sensitiveValues)
+            const rustResult = this.config.hogRustVmBatchExecutionEnabled
+                ? await this.rustVmExecutor.executeBatched(invocation, sensitiveValues)
+                : this.rustVmExecutor.execute(invocation, sensitiveValues)
             // Null means the Rust VM can't run this program (addon not built, unsupported host
             // function): fall through to the Node VM.
             if (rustResult) {
@@ -475,7 +479,13 @@ export class HogTransformerService implements HogTransformer {
  * plus the ingestion-specific sample rates from CommonConfig.
  */
 export type HogTransformerServiceConfig = CdpCoreServicesConfig &
-    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED' | 'MMDB_FILE_LOCATION'>
+    Pick<
+        CommonConfig,
+        | 'CDP_HOG_WATCHER_SAMPLE_RATE'
+        | 'CDP_HOG_RUST_VM_EXECUTION_ENABLED'
+        | 'CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED'
+        | 'MMDB_FILE_LOCATION'
+    >
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -519,13 +529,17 @@ export function createHogTransformerService(
             sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
             sesRegion: config.SES_REGION,
             sesEndpoint: config.SES_ENDPOINT,
+            sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+            sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
+            sesTenantAttributionEnabled: config.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
         trackingCodeSigner,
-        emailSuppressionService
+        emailSuppressionService,
+        new RecipientsManagerService(deps.postgres)
     )
     const pushNotificationService = new PushNotificationService(
         deps.integrationManager,
@@ -596,6 +610,7 @@ export function createHogTransformerService(
             siteUrl: config.SITE_URL,
             hogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
             hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
+            hogRustVmBatchExecutionEnabled: config.CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED,
             mmdbFileLocation: config.MMDB_FILE_LOCATION,
         }
     )

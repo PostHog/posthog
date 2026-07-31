@@ -20,7 +20,7 @@ teams:
         slack: '#team-apm'
     team-data-stack:
         slack: '#group-data-stack'
-    # PostHog Code's channel kept the name it was created under.
+    # PostHog Desktop's channel kept the name it was created under.
     team-posthog-code:
         slack: '#team-desktop'
 rules:

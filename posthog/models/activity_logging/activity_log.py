@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
     "Evaluation",
+    "LLMPrompt",
     "LLMPromptLabel",
     "LLMTrace",
     "AIGatewayCredit",
@@ -88,6 +89,7 @@ ActivityScope = Literal[
     "Log",
     "LogsAlertConfiguration",
     "LogsExclusionRule",
+    "LogsRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
@@ -277,6 +279,15 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # Full content snapshot including action inputs (auth headers, API keys) — record that a
         # draft was staged/published/discarded, never its contents.
         "draft",
+        # Encrypted secret function inputs (Fernet ciphertext) — a diff would be noise at best and
+        # leak-adjacent at worst; record that they changed, never the values.
+        "encrypted_inputs",
+        "draft_encrypted_inputs",
+        # The action graph can carry secret function inputs (auth headers, API keys). New writes strip
+        # them into encrypted_inputs, but a legacy row's first write would diff its still-plaintext
+        # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
+        # the contents — the per-version content audit lives in the revisions feature instead.
+        "actions",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -324,6 +335,10 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
+        "pause_reason": "pause reason",
+    },
+    "OAuthApplication": {
+        "_provisioning_config": "provisioning config",
     },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
@@ -407,6 +422,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     {
         "scope": "User",
         "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Staff-only email sending suspension flips: the acting staff user must not leak into the
+        # org activity log. The customer is told via email and in-app notification instead.
+        "scope": "Team",
+        "activities": ["email_sending_suspended", "email_sending_unsuspended"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -737,6 +760,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Run bookkeeping, not user intent — keep it out of change detection even when it
         # rides along with a real change (belt-and-suspenders with signal_exclusions above).
         "last_run_at",
+        # Companion bookkeeping that rides along with every logged `status` change; the
+        # activity log entry itself already carries who and when.
+        "status_changed_at",
+        "status_changed_by",
         # Reverse relations auto-managed by FK creates, not user-initiated config changes.
         "runs",
     ],
@@ -744,7 +771,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Secrets — never diff these, even masked.
         "client_secret",
         "hash_client_secret",
-        "provisioning_signing_secret",
         # Reverse token relations can hold tens of thousands of rows; reading
         # through them in `changes_between` would scan the token tables.
         "oauthaccesstoken",

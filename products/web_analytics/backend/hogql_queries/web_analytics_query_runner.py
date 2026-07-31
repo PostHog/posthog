@@ -20,6 +20,7 @@ from posthog.schema import (
     EventPropertyFilter,
     PersonPropertyFilter,
     SessionPropertyFilter,
+    WebBotsTableQuery,
     WebExternalClicksTableQuery,
     WebGoalsQuery,
     WebNotableChangesQuery,
@@ -52,7 +53,10 @@ from products.web_analytics.backend.hogql_queries.metrics import (
     WEB_ANALYTICS_QUERY_ERRORS,
 )
 from products.web_analytics.backend.hogql_queries.traffic_type import get_traffic_category_expr, get_traffic_type_expr
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_filters_eligibility_hash
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    compute_filters_eligibility_hash,
+    is_precompute_enabled_for_team,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +85,7 @@ WebQueryNode = Union[
     WebStatsTableQuery,
     WebGoalsQuery,
     WebExternalClicksTableQuery,
+    WebBotsTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
     WebNotableChangesQuery,
@@ -255,33 +260,44 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
         # path for everyone on a team, so the rollout unit is the team, not the user.
         return percent > 0 and self.team.pk % 100 < percent
 
-    @cached_property
-    def _session_id_set_flag_enabled(self) -> bool:
-        """Evaluate the rollout flag locally — fails closed on flag-service errors.
+    def _evaluate_team_rollout_flag(self, flag_key: str, failure_log_event: str) -> bool:
+        """Evaluate a team-scoped rollout flag locally — fails closed on flag-service errors.
 
-        A raised exception here must never fail the query: the fast path is an
-        optimization, so any flag-evaluation failure degrades to the join path.
+        A raised exception here must never fail the query: evaluation failure degrades
+        to the flag-off path. For optimization flags that is merely the slower query
+        shape; for result-changing flags (first-pageview attribution) it silently
+        restores the old semantics, so both the exception and the None-return cases
+        (local evaluation unavailable) are logged to keep a fleet-wide fallback
+        visible during rollout.
         """
         try:
-            return bool(
-                posthoganalytics.feature_enabled(
-                    SESSION_ID_SET_FEATURE_FLAG_KEY,
-                    str(self.team.uuid),
-                    groups={
-                        "organization": str(self.team.organization_id),
-                        "project": str(self.team.id),
-                    },
-                    group_properties={
-                        "organization": {"id": str(self.team.organization_id)},
-                        "project": {"id": str(self.team.id)},
-                    },
-                    only_evaluate_locally=True,
-                    send_feature_flag_events=False,
-                )
+            enabled = posthoganalytics.feature_enabled(
+                flag_key,
+                str(self.team.uuid),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.id)},
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
             )
+            if enabled is None:
+                logger.warning(failure_log_event, reason="feature_enabled_returned_none", team_id=self.team.pk)
+                return False
+            return bool(enabled)
         except Exception as e:
-            logger.warning("web_analytics_session_id_set_flag_evaluation_failed", error=e, team_id=self.team.pk)
+            logger.warning(failure_log_event, error=e, team_id=self.team.pk)
             return False
+
+    @cached_property
+    def _session_id_set_flag_enabled(self) -> bool:
+        return self._evaluate_team_rollout_flag(
+            SESSION_ID_SET_FEATURE_FLAG_KEY, "web_analytics_session_id_set_flag_evaluation_failed"
+        )
 
     def _session_id_set_common_eligibility(self) -> bool:
         """Shared gates for the session-id-set fast paths (filtered two-scan shape).
@@ -701,7 +717,12 @@ WHERE and(
 
     def get_cache_key(self) -> str:
         original = super().get_cache_key()
-        return f"{original}_{self.team.path_cleaning_filters}"
+        # Precompute enrollment is part of the key so flipping the rollout flag
+        # invalidates cached results: with default-on reads, disabling the flag
+        # (the kill switch) must not keep serving cached precompute-produced
+        # responses until they stale out.
+        precompute = is_precompute_enabled_for_team(self.team)
+        return f"{original}_{self.team.path_cleaning_filters}_pc{int(precompute)}"
 
     @cached_property
     def events_session_property(self):

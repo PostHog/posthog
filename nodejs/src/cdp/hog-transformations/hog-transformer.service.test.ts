@@ -24,6 +24,7 @@ import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 jest.mock('@posthog/hogvm-node', () => ({
     init: jest.fn(),
     executeSync: jest.fn(),
+    executeBatch: jest.fn(),
 }))
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
@@ -2010,6 +2011,32 @@ describe('HogTransformer', () => {
             // The node vm ran the real bytecode: the event survives with its original properties.
             expect(result.event?.properties).toMatchObject({
                 $current_url: 'https://example.com',
+                $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
+            })
+        })
+
+        it('routes through executeBatch instead of executeSync when batch execution is enabled', async () => {
+            hub.CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED = true
+            hogTransformer = createHogTransformerService(hub, {
+                ...hub,
+                monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+            })
+            mockHogvmNode.executeBatch.mockResolvedValue([
+                {
+                    result: { properties: { from_rust_batch: true } },
+                    durationUs: 100,
+                    logs: [],
+                    logsTruncated: false,
+                },
+            ])
+
+            const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+            expect(mockHogvmNode.executeSync).not.toHaveBeenCalled()
+            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeBatch.mock.calls[0][0]).toEqual(bytecode)
+            expect(result.event?.properties).toEqual({
+                from_rust_batch: true,
                 $transformations_succeeded: ['Rust routed (bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb)'],
             })
         })

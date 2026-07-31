@@ -1,13 +1,24 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { type DateFilterExclusions } from 'lib/components/DateFilter/DateFilterExclusionsControl'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { alignResolvedDateRangeToInterval } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { FunnelVizType } from '~/types'
+
+import {
+    computeDaysOfWeekUpdate,
+    daysOfWeekSetsEqual,
+    getExcludedDaysOfWeek,
+    parseIsoDaysOfWeek,
+} from './daysOfWeekFilterUtils'
 
 type InsightDateFilterProps = {
     disabled: boolean
@@ -15,10 +26,46 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, interval, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
+    const { dateRange, interval, querySource, trendsFilter, funnelsFilter, isTrends, isFunnels, isLifecycle } =
+        useValues(insightVizDataLogic(insightProps))
+    const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
     const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
+
+    // The picker speaks excluded days; the query schema stores included days
+    const excludedDaysOfWeek = getExcludedDaysOfWeek(dateRange)
+    // Funnel steps and time-to-convert deliberately lack backend daysOfWeek support: dropping
+    // mid-sequence events has ambiguous semantics (see funnel_event_query.py)
+    const supportsDaysOfWeek =
+        isTrends || isLifecycle || (isFunnels && funnelsFilter?.funnelVizType === FunnelVizType.Trends)
+    // The backend rejects daysOfWeek together with smoothing, so don't offer it
+    const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
+    const showDaysOfWeekExclusions = supportsDaysOfWeek && !smoothingActive
+
+    // Enabling smoothing hides the control, so clear daysOfWeek on that transition (never on
+    // mount): the backend rejects the combination and there'd be no UI left to remove it
+    const prevShowDaysOfWeekExclusions = useRef(showDaysOfWeekExclusions)
+    useEffect(() => {
+        const wasShown = prevShowDaysOfWeekExclusions.current
+        prevShowDaysOfWeekExclusions.current = showDaysOfWeekExclusions
+        if (wasShown && !showDaysOfWeekExclusions && smoothingActive && dateRange?.daysOfWeek?.length) {
+            updateQuerySource(computeDaysOfWeekUpdate([], dateRange))
+        }
+    }, [showDaysOfWeekExclusions, smoothingActive, dateRange, updateQuerySource])
+
+    const exclusions: DateFilterExclusions = {
+        days: showDaysOfWeekExclusions ? excludedDaysOfWeek.map(String) : [],
+        incomplete: !!dateRange?.excludeIncompletePeriods,
+    }
+    const handleExclusionsChange = (next: DateFilterExclusions): void => {
+        const nextExcludedDaysOfWeek = parseIsoDaysOfWeek(next.days)
+        if (showDaysOfWeekExclusions && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)) {
+            updateQuerySource(computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange))
+        }
+        if (next.incomplete !== exclusions.incomplete) {
+            updateDateRange({ excludeIncompletePeriods: next.incomplete ? true : null }, true)
+        }
+    }
 
     return (
         <DateFilter
@@ -26,6 +73,11 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             dateTo={dateRange?.date_to ?? undefined}
             dateFrom={dateRange?.date_from ?? '-7d'}
             explicitDate={dateRange?.explicitDate ?? false}
+            exclusions={exclusions}
+            onExclusionsChange={handleExclusionsChange}
+            showIncompletePeriodExclusion
+            showDaysOfWeekExclusions={showDaysOfWeekExclusions}
+            optionsSize="small"
             allowTimePrecision
             allowFixedRangeWithTime
             disabled={disabled}

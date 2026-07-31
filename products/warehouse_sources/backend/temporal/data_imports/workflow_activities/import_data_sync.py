@@ -11,8 +11,10 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -31,27 +33,29 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     report_heartbeat_timeout,
     trim_source_job_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import (
-    PipelineNonDLT,
-    PipelineResult,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    SchemaColumnTypeChangedException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    is_transient_object_store_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     RowFilterValidationError,
     validate_and_coerce_row_filters,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -233,7 +237,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 # fails identically on every attempt — there is nothing to retry. Treat it as
                 # non-retryable so the job gives up cleanly instead of crash-looping and spamming
                 # error tracking. Mirrors the skip in `sync_new_schemas_activity`.
-                await handle_non_retryable_error(job_inputs, str(e), logger, e)
+                await handle_non_retryable_error(
+                    job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
+                )
 
             resumable_source_manager: ResumableSourceManager | None = None
             try:
@@ -324,8 +330,13 @@ async def _handle_import_error(
 
     Errors the source classifies as retryable (rate limits, transient 5xx) reach us only after
     the source's own retries are exhausted. Temporal retries the whole activity and the error is
-    transient and self-recovering, so we log at ``warning`` rather than ``exception`` to keep
-    this benign, recoverable failure out of error tracking.
+    transient and self-recovering, so we log at ``warning`` rather than ``exception`` and re-raise
+    as ``NonReportableError`` — log level alone doesn't stop the activity interceptor
+    (``posthog/temporal/common/posthog_client.py``) from reporting whatever exception type escapes
+    the activity; only that marker type does. ``RESTClientRetryableError`` gets the same treatment
+    by type, since it's already a ``NonReportableError`` subclass and every REST-based source hits
+    that condition already. A transient object-store hiccup talking to our own data-warehouse
+    bucket is re-raised as ``NonReportableError`` the same way.
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -337,17 +348,69 @@ async def _handle_import_error(
     # contract by type so every REST-based source stops immediately, rather than depending on each
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
-        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
 
-    non_retryable_errors = source_cls.get_non_retryable_errors()
+    # Raised in shared pipeline code when incoming data can't be cast into the stored (narrower)
+    # Delta column type. delta-rs can't change a column's type in place, so this fails identically
+    # on every retry regardless of source — classify it non-retryable by type here rather than
+    # relying on each source listing the message in get_non_retryable_errors.
+    if isinstance(error, SchemaColumnTypeChangedException):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # An OAuth `Integration.access_token`/`refresh_token` that still looks like Fernet ciphertext
+    # (a lost/rotated encryption key, a corrupted row) fails identically on every retry — the
+    # third-party API sees the same garbage credential every time. Classify by type here, shared
+    # across every OAuth-based source, rather than depending on each source's
+    # get_non_retryable_errors to recognise this message.
+    if isinstance(error, UndecryptedIntegrationSecretError):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # RESTClientRetryableError only escapes the shared REST engine's own tenacity retry loop once
+    # that budget (rate limits, transient 5xx, connection resets/timeouts) is exhausted — the same
+    # "reaches us only after internal retries exhaust" contract as get_retryable_errors below.
+    # Honor it by type so every REST-based source gets this benign, self-recovering failure logged
+    # as a warning, rather than depending on each source separately listing "HTTP 429"/"HTTP 5xx"
+    # in get_retryable_errors.
+    if isinstance(error, RESTClientRetryableError):
+        await logger.awarning(error_msg)
+        await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
+        raise error
+
+    # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS
+    # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the
+    # Delta table. Not a PostHog defect and not a customer credential problem (see
+    # TRANSIENT_OBJECT_STORE_ERRORS), and retrying resolves it, so it shouldn't page anyone.
+    if is_transient_object_store_error(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient object-store error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
+    # auth, a widened column type) are raised from shared pipeline code, not any one source. The
+    # finalization activity already consults this shared dict; this in-activity handler decides whether
+    # to re-raise for a full retry, so without it a shared config error retries the activity's whole
+    # budget and reports on every attempt. Merge it in — source-specific entries win on overlap.
+    from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (  # noqa: PLC0415 — deferred to break the external_data_job -> import_data_sync import cycle
+        Any_Source_Errors,
+    )
+
+    non_retryable_errors = {**Any_Source_Errors, **source_cls.get_non_retryable_errors()}
     if any(match in error_msg for match in non_retryable_errors):
-        await handle_non_retryable_error(job_inputs, error_msg, logger, error)
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
 
     retryable_errors = source_cls.get_retryable_errors()
     if any(match in error_msg for match in retryable_errors):
         await logger.awarning(error_msg)
         await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
-        raise error
+        raise NonReportableError(error_msg) from error
 
     await logger.aexception(error_msg)
     await logger.adebug("Error encountered during import_data_activity - re-raising")

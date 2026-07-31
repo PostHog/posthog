@@ -1,6 +1,5 @@
 import os
 import re
-import json
 import uuid
 import string
 import secrets
@@ -8,7 +7,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -41,12 +40,14 @@ from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
+from products.tasks.backend.storage import append_jsonl_object
 
 logger = structlog.get_logger(__name__)
 
@@ -60,7 +61,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 
 class Channel(TeamScopedRootMixin):
-    """A shared feed of tasks (rendered as "#<name>" in PostHog Code). Every task is
+    """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
     channel ("#me") per team, provisioned lazily on first channel list."""
 
@@ -144,6 +145,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # Loop firings: named, cloud-executed agent automations triggered by schedule,
         # GitHub event or API. See products/tasks/docs/LOOPS.md.
         LOOP = "loop", "Loop"
+        # "Create fix task" on the MCP analytics tool-quality failure drill-down.
+        MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -231,7 +234,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     archived = models.BooleanField(
         default=False,
         help_text=(
-            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "If true, the task is hidden from default list responses. Used by PostHog Desktop clients "
             "to share archive state across desktop and mobile."
         ),
     )
@@ -384,7 +387,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         extra_state: dict | None = None,
         branch: str | None = None,
     ) -> "TaskRun":
-        state: dict = {"mode": mode}
+        state: dict = {} if self.runtime == Task.Runtime.PI else {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
         # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
@@ -416,6 +419,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "environment": task_run.environment,
                 "is_resume": is_resume,
                 "has_pending_message": has_pending,
+                # Loop attribution: this event uses Task.capture_event (not TaskRun's),
+                # so carry it from the run state the same way TaskRun.capture_event does.
+                "loop_id": state.get("loop_id"),
+                "loop_trigger_id": state.get("loop_trigger_id"),
             },
         )
         return task_run
@@ -863,6 +870,71 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         return task
 
 
+class TaskSession(TeamScopedRootMixin, UUIDModel):
+    organization = models.ForeignKey(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="task_sessions", db_index=False)
+    object_storage_key = models.CharField(max_length=512, null=True, blank=True, unique=True)
+    content_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    size = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_session"
+        indexes = [
+            models.Index(fields=["organization", "-updated_at"], name="task_session_org_updated_idx"),
+            models.Index(fields=["team", "-updated_at"], name="task_session_team_updated_idx"),
+            models.Index(fields=["task", "-updated_at"], name="task_session_task_updated_idx"),
+        ]
+
+    @classmethod
+    def create_for_task(cls, task: Task) -> "TaskSession":
+        return cls.objects.unscoped().create(
+            organization_id=task.team.organization_id,
+            team_id=task.team_id,
+            task=task,
+        )
+
+    def read_jsonl(self) -> str:
+        if self.object_storage_key is None:
+            return ""
+        return object_storage.read(self.object_storage_key, missing_ok=True) or ""
+
+    def tag_object(self) -> None:
+        if self.object_storage_key is None:
+            return
+        try:
+            object_storage.tag(
+                self.object_storage_key,
+                {
+                    "data_class": "task_session",
+                    "organization_id": str(self.organization_id),
+                    "team_id": str(self.team_id),
+                    "task_id": str(self.task_id),
+                },
+            )
+        except Exception as error:
+            logger.warning(
+                "task_session.failed_to_tag_object",
+                task_session_id=str(self.id),
+                object_storage_key=self.object_storage_key,
+                error=str(error),
+            )
+
+
 class TaskThreadMessage(TeamScopedRootMixin):
     """One message in a task's thread — the side conversation channel members have
     around a task. Human messages never reach the agent unless the task author
@@ -904,7 +976,9 @@ class TaskThreadMessage(TeamScopedRootMixin):
 
     class Meta:
         db_table = "posthog_task_thread_message"
-        indexes = [models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created")]
+        indexes = [
+            models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created"),
+        ]
 
     def __str__(self):
         return f"Thread message {self.id} on task {self.task_id}"
@@ -936,6 +1010,118 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
+
+
+class TaskActivity(TeamScopedRootMixin):
+    """One row per (user, task): the latest thing that happened on a task the user is
+    involved in, plus whether they have seen it.
+
+    Collapsing to one row per task is what makes "read" a property of the task rather
+    than of a feed cursor, so opening the task from anywhere clears it. Rows are
+    projected on write by ``products.tasks.backend.facade.api``.
+    """
+
+    class Kind(models.TextChoices):
+        CREATED = "created", "Created"
+        MENTION = "mention", "Mention"
+        MESSAGE = "message", "Message"
+        AWAITING_INPUT = "awaiting_input", "Awaiting input"
+        COMPLETED = "completed", "Completed"
+
+    # uuid7 rather than the uuid4 the sibling task models use: rows are insert-heavy and
+    # read newest-first, so a time-ordered key keeps the index appends local and makes the
+    # id a meaningful tiebreak when two rows share an activity_at.
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    message = models.ForeignKey(
+        TaskThreadMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name="activity_rows"
+    )
+    kind = models.CharField(max_length=32, choices=Kind)
+    activity_at = models.DateTimeField()
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_activity"
+        constraints = [models.UniqueConstraint(fields=["team", "user", "task"], name="task_activity_user_task_unique")]
+        indexes = [
+            models.Index(fields=["team", "user", "activity_at", "id"], name="task_activity_feed_idx"),
+            models.Index(
+                fields=["team", "user"], condition=models.Q(read_at__isnull=True), name="task_activity_unread_idx"
+            ),
+        ]
+
+    @classmethod
+    def record(
+        cls,
+        *,
+        team_id: int,
+        user_id: int,
+        task_id: uuid.UUID | str,
+        kind: str,
+        activity_at: datetime,
+        message_id: uuid.UUID | None = None,
+        actor_id: int | None = None,
+    ) -> None:
+        """Record the latest activity on ``task_id`` for ``user_id``, newest-wins.
+
+        A single upsert rather than read-modify-write: two messages landing on the same
+        task concurrently would otherwise race and lose one. The ``WHERE`` on the conflict
+        clause is what makes it newest-wins, so an out-of-order write (a retried Temporal
+        activity, say) can't drag ``activity_at`` backwards.
+
+        Activity the user caused themselves lands already-read — their own reply should
+        never light up their own unread badge.
+        """
+        read_at = activity_at if actor_id is not None and actor_id == user_id else None
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {cls._meta.db_table}
+                       (id, team_id, user_id, task_id, message_id, kind, activity_at, read_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (team_id, user_id, task_id) DO UPDATE
+                   SET message_id = EXCLUDED.message_id,
+                       kind = EXCLUDED.kind,
+                       activity_at = EXCLUDED.activity_at,
+                       read_at = CASE
+                           WHEN {cls._meta.db_table}.activity_at = EXCLUDED.activity_at
+                           THEN {cls._meta.db_table}.read_at
+                           ELSE EXCLUDED.read_at
+                       END
+                 WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                """,
+                [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
+            )
+
+
+class TaskPin(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    pinned_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_pin"
+        constraints = [models.UniqueConstraint(fields=["user", "task"], name="task_pin_user_task_unique")]
+        indexes = [models.Index(fields=["user", "-pinned_at"], name="task_pin_user_pinned_idx")]
+
+
+@receiver(post_save, sender=Task)
+def project_task_created_activity(sender, instance: Task, created: bool, **kwargs) -> None:
+    """Seed the creator's activity row. A signal rather than a facade call because tasks are
+    created from several paths (API, automations, the sandbox warm path) and every one of them
+    should show up in its creator's feed."""
+    if created and instance.created_by_id is not None:
+        TaskActivity.record(
+            team_id=instance.team_id,
+            user_id=instance.created_by_id,
+            task_id=instance.id,
+            kind=TaskActivity.Kind.CREATED,
+            activity_at=instance.created_at,
+            actor_id=instance.created_by_id,
+        )
 
 
 class ChannelFeedMessage(TeamScopedRootMixin):
@@ -1143,6 +1329,10 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
     # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
     # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
     context_target = models.JSONField(default=dict, blank=True)
+    # Skill bundles attached at save time: zipped local skills whose manifest entries (same shape
+    # as TaskRun.artifacts entries, type "skill_bundle", bytes in object storage under
+    # get_skill_bundle_s3_prefix()) are copied into every fired run so the sandbox installs them.
+    skill_bundles = models.JSONField(default=list, blank=True)
     internal = models.BooleanField(
         default=False,
         help_text="If true, this loop is for internal use and should not be exposed to end users.",
@@ -1172,6 +1362,16 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
 
     def __str__(self):
         return self.name
+
+    @staticmethod
+    def skill_bundle_s3_prefix_for(team_id: int, loop_id: "uuid.UUID | str") -> str:
+        """Base prefix for a loop's skill bundle objects in S3, computable from ids so
+        seeding can validate snapshot paths without loading the row."""
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/artifacts/team_{team_id}/loop_{loop_id}"
+
+    def get_skill_bundle_s3_prefix(self) -> str:
+        return Loop.skill_bundle_s3_prefix_for(self.team_id, self.id)
 
     def _get_before_update(self, **kwargs: Any) -> "Loop | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
@@ -1326,6 +1526,13 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    active_task_session = models.ForeignKey(
+        TaskSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="active_runs",
+    )
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
 
@@ -1369,7 +1576,7 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
-    # Local url-based MCP servers imported from the creating client (PostHog Code),
+    # Local url-based MCP servers imported from the creating client (PostHog Desktop),
     # merged into the sandbox agent server's --mcpServers at spawn. Encrypted because
     # header values carry credentials; never exposed through API responses.
     imported_mcp_servers = EncryptedJSONStringField(
@@ -1469,6 +1676,9 @@ class TaskRun(models.Model):
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
+        state.pop("sandbox_id", None)
+        state.pop("sandbox_url", None)
+        state.pop("sandbox_jwt_kid", None)
         self.state = state
 
         logger.info(
@@ -1527,6 +1737,21 @@ class TaskRun(models.Model):
                 state.pop(key, None)
             if updates:
                 state.update(updates)
+
+        return cls.mutate_state_atomic(run_id, _mutator)
+
+    @classmethod
+    def clear_sandbox_connection_state_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        sandbox_id: str,
+    ) -> dict[str, Any]:
+        def _mutator(state: dict[str, Any]) -> None:
+            if state.get("sandbox_id") != sandbox_id:
+                return
+
+            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid"):
+                state.pop(key, None)
 
         return cls.mutate_state_atomic(run_id, _mutator)
 
@@ -1667,13 +1892,9 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
-        is_new_file = not existing_content
+        is_new_file = append_jsonl_object(self.log_url, entries)
 
-        new_lines = "\n".join(json.dumps(entry) for entry in entries)
-        content = existing_content + ("\n" if existing_content else "") + new_lines
-
-        object_storage.write(self.log_url, content)
+        self._mirror_logs_to_posthog_logs(entries)
 
         if is_new_file and ttl_days is not None:
             try:
@@ -1691,6 +1912,41 @@ class TaskRun(models.Model):
                     log_url=self.log_url,
                     error=str(e),
                 )
+
+    def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
+        """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
+
+        Fire-and-forget: mirroring failures must never break the run's log write.
+        """
+        from products.tasks.backend.feature_flags import agent_otel_telemetry_enabled_for_state
+        from products.tasks.backend.logic.services.run_log_mirror import mirror_entries, mirroring_enabled
+
+        if not settings.TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS:
+            return
+
+        # Per-run rollout decision (tasks-agent-run-otel-telemetry), stamped into run
+        # state at dispatch; fail closed while the stamp is absent.
+        if not agent_otel_telemetry_enabled_for_state(self.state if isinstance(self.state, dict) else None):
+            return
+
+        try:
+            origin_product = self.task.origin_product
+            if not mirroring_enabled(origin_product):
+                return
+
+            mirror_entries(
+                entries,
+                team_id=self.team_id,
+                task_id=str(self.task_id),
+                run_id=str(self.id),
+                origin_product=origin_product,
+            )
+        except Exception as e:
+            logger.warning(
+                "task_run.mirror_logs_to_posthog_logs_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
 
     def effective_rtk(self) -> bool | None:
         """rtk posture for analytics: the launch-persisted effective value, falling
@@ -2414,7 +2670,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
 
 
 class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Code access."""
+    """Invite codes for PostHog Desktop access."""
 
     code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
     max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
@@ -2459,7 +2715,7 @@ class CodeInvite(UUIDModel):
 
 
 class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Code invite."""
+    """Tracks each redemption of a PostHog Desktop invite."""
 
     invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
@@ -2482,7 +2738,7 @@ TASK_PRESENCE_TTL_SECONDS = 60
 class TaskPresence(TeamScopedRootMixin):
     """Per-device 'this user is actively watching this task' beacon.
 
-    Created/refreshed by the desktop and mobile PostHog Code clients while a
+    Created/refreshed by the desktop and mobile PostHog Desktop clients while a
     task screen is foregrounded. The push fanout consults this table to skip
     devices that are demonstrably already watching the task, so we don't fire
     phantom notifications at a phone while the user is mid-conversation with
@@ -2527,6 +2783,27 @@ class TaskPresence(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
+
+
+@receiver(post_delete, sender=TaskSession)
+def delete_task_session_object(sender: type[TaskSession], instance: TaskSession, **kwargs: Any) -> None:
+    if instance.object_storage_key is None:
+        return
+    object_storage_key = instance.object_storage_key
+    task_session_id = str(instance.id)
+
+    def delete_object() -> None:
+        try:
+            object_storage.delete(object_storage_key)
+        except Exception as error:
+            logger.warning(
+                "task_session.failed_to_delete_object",
+                task_session_id=task_session_id,
+                object_storage_key=object_storage_key,
+                error=str(error),
+            )
+
+    transaction.on_commit(delete_object)
 
 
 @receiver(post_save, sender=TaskRun)

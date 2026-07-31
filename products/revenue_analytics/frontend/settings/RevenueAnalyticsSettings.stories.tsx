@@ -13,13 +13,6 @@ const getEffectiveQueryKind = (req: {
     body?: { query?: { kind?: string; source?: { kind?: string } } }
 }): string | undefined => req.body?.query?.source?.kind ?? req.body?.query?.kind
 
-const EMPTY_REVENUE_EXAMPLE_QUERY_RESPONSE = {
-    results: [],
-    hasMore: false,
-    columns: [],
-    types: [],
-}
-
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Data Management/Revenue Analytics',
@@ -29,7 +22,7 @@ const meta: Meta = {
         mockDate: '2025-01-01',
         pageUrl: urls.revenueSettings(),
         testOptions: {
-            waitForSelector: ['[data-attr="scene-name"]', '.LemonTabs'],
+            waitForSelector: ['[data-attr="scene-name"]'],
         },
     },
     decorators: [
@@ -74,12 +67,6 @@ const meta: Meta = {
 
                     if (queryKind === 'DatabaseSchemaQuery') {
                         return [200, DatabaseSchemaQuery]
-                    }
-                    if (
-                        queryKind === 'RevenueExampleEventsQuery' ||
-                        queryKind === 'RevenueExampleDataWarehouseTablesQuery'
-                    ) {
-                        return [200, EMPTY_REVENUE_EXAMPLE_QUERY_RESPONSE]
                     }
                 },
             },

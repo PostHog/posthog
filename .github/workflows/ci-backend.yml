@@ -17,12 +17,17 @@ on:
         # turbo-tests (product tests) still skip drafts. Ready PRs run the full
         # matrices — that full run is the merge gate, and ready_for_review re-triggers
         # it when a PR leaves draft. To force the full matrices on a draft, add the
-        # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
-        # start without needing a new push. Cheap checks still run on drafts.
+        # `run-ci-backend` label. Cheap checks still run on drafts.
+        # The `no-ci` label does the opposite: it silences this workflow on a draft
+        # entirely (prototypes/spikes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
+        # so every unrelated label re-ran these matrices against a commit CI had
+        # already covered. A label here takes effect from the next push, or from
+        # ready_for_review.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
         # PRs run legacy-schema only (master runs always cover both).
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -34,7 +39,7 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
-    # ci-e2e-playwright.yml restores by the same key — keep its copy in sync when bumping.
+    # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -78,6 +83,14 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
+        # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
+        # every other job needs this one, and the gates treat skipped as success.
+        # ready_for_review re-runs everything, so the merge gate is unaffected.
+        if: >-
+            github.event_name != 'pull_request'
+            || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
@@ -305,6 +318,9 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
+                        # Exec command reference templates - feed generate-exec-docs.ts
+                        - 'services/mcp/src/templates/sections/**/*'
+                        - 'services/mcp/schema/exec-command-reference.md'
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -422,6 +438,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Restore test durations from cache
               # Shard counts are derived from .test_durations (Amdahl). Restore the newest
@@ -435,6 +452,39 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+
+            - name: Restore per-segment test durations from cache
+              # Also restored here so the snapshot below covers the per-segment plan files.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-segment-durations-
+
+            - name: Snapshot the sharding plan for this run
+              # The timing caches float to their newest entry, so a re-run can shard
+              # differently from attempt 1 and, under "re-run failed jobs", a failing
+              # test can move to a shard that never re-runs while the gate goes green.
+              # Every test job applies this snapshot instead, so all attempts shard
+              # identically. Best-effort (consumers fall back to the floating caches);
+              # overwrite lets a "re-run all jobs" attempt re-snapshot.
+              continue-on-error: true
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: test-durations-plan
+                  path: |
+                      .test_durations
+                      .test_durations.core
+                      .test_durations.temporal
+                  include-hidden-files: true
+                  overwrite: true
+                  # The per-segment files are cache-only and may legitimately be absent.
+                  if-no-files-found: warn
+                  # GitHub allows re-runs for 30 days.
+                  retention-days: 30
 
             - name: Discover products to test
               id: discover
@@ -463,6 +513,7 @@ jobs:
     # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
     # a selector full-run signal), the draft skips the heavy matrices entirely —
     # the pre-selection draft behavior — and defers to the ready full run.
+    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
@@ -470,9 +521,12 @@ jobs:
         # which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == true &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
             needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
@@ -707,6 +761,7 @@ jobs:
         if: >-
             !cancelled() &&
             (github.event.pull_request.draft != true ||
+             startsWith(github.head_ref, 'trunk-merge/') ||
              contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
             needs.build-product-test-matrix.result == 'success' &&
@@ -752,20 +807,23 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure
 
+            # Dedicated app: this product matrix alone is ~half the offloadable
+            # setup-action volume, enough to threaten any shared 15k/hr bucket.
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -862,6 +920,31 @@ jobs:
                   restore-keys: |
                       posthog-test-durations-
 
+            - name: Download the run's sharding plan snapshot
+              # Same pinning as the Django job; falls back to the floating cache.
+              id: pinned-plan
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: /tmp/test-durations-plan
+
+            - name: Apply the pinned sharding plan
+              if: steps.pinned-plan.outcome == 'success'
+              shell: bash
+              run: |
+                  if [ ! -f /tmp/test-durations-plan/.test_durations ]; then
+                      echo "::warning::Sharding-plan snapshot is incomplete, keeping the floating cache restore"
+                      exit 0
+                  fi
+                  cp /tmp/test-durations-plan/.test_durations .test_durations
+                  echo "Sharding plan pinned to this run's snapshot"
+
+            - name: Warn when a re-run reshards unpinned
+              if: github.run_attempt != '1' && steps.pinned-plan.outcome != 'success'
+              shell: bash
+              run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing cache and may not re-execute tests that failed in earlier attempts"
+
             - name: Run product tests
               id: run-product-tests
               # continue-on-error so the quarantine gate below is the verdict — it passes when
@@ -943,8 +1026,9 @@ jobs:
                       [ -f "$f" ] || continue
                       cp "$f" "junit-staging/junit-product-$(basename "$(dirname "$f")").xml"
                   done
-            # Separate prefix from junit-results-backend-* on purpose: those are consumed by
-            # test-selection-verdict (snob shadow) and report-test-timings, not product tests.
+            # Separate artifact prefix from junit-results-backend-* so consumers can select
+            # product JUnit by download pattern; the product name rides in each inner filename
+            # (junit-product-<name>.xml). The failure rollup and timing reporter consume both.
             - name: Upload product test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -1726,7 +1810,7 @@ jobs:
                   retention-days: 90
 
             - name: Save schema to Actions cache for PR shards
-              # Kept for fallback and for other workflows that still restore by merge-base SHA.
+              # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -1846,7 +1930,9 @@ jobs:
             - name: Post CH migration SQL to CI report comment
               # Sticky section in the shared CI report comment so pushes don't spam the PR.
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
                   CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
@@ -2054,7 +2140,7 @@ jobs:
                   commit_message: 'chore: update OpenAPI generated types'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/** frontend/src/lib/agentScopes.generated.ts products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/**'
+                  file_pattern: 'frontend/src/generated/** frontend/src/lib/agentScopes.generated.ts products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/schema/exec-command-reference.md services/mcp/src/tools/generated/**'
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
@@ -2102,7 +2188,13 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  # A trunk-merge/** PR opens as a draft but is the merge gate, and
+                  # select-tests deliberately does not run for it. Reporting it as a
+                  # draft here would turn that empty MODE into "skip" and build an
+                  # empty matrix, so the queue would merge having run no Django tests
+                  # at all. Not-draft makes the empty MODE fall through to the full
+                  # matrix, which is what the queue has to run.
+                  IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # The new-events-schema variants double the matrix, so they only run on
                   # PRs opted in via the test-new-events-schema label and on manual dispatch.
@@ -2626,6 +2718,37 @@ jobs:
                   restore-keys: |
                       posthog-segment-durations-
 
+            - name: Download the run's sharding plan snapshot
+              # Pin every attempt to the plan turbo-discover snapshotted (rationale on
+              # that step); a missing snapshot falls back to the floating caches above.
+              id: pinned-plan
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: /tmp/test-durations-plan
+
+            - name: Apply the pinned sharding plan
+              if: steps.pinned-plan.outcome == 'success'
+              shell: bash
+              run: |
+                  if [ ! -f /tmp/test-durations-plan/.test_durations ]; then
+                      echo "::warning::Sharding-plan snapshot is incomplete, keeping the floating cache restores"
+                      exit 0
+                  fi
+                  # rm first so segment files the snapshot lacks don't survive the floating restore
+                  rm -f .test_durations.core .test_durations.temporal
+                  cp /tmp/test-durations-plan/.test_durations .test_durations
+                  for f in .test_durations.core .test_durations.temporal; do
+                      if [ -f "/tmp/test-durations-plan/$f" ]; then cp "/tmp/test-durations-plan/$f" "$f"; fi
+                  done
+                  echo "Sharding plan pinned to this run's snapshot"
+
+            - name: Warn when a re-run reshards unpinned
+              if: github.run_attempt != '1' && steps.pinned-plan.outcome != 'success'
+              shell: bash
+              run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing caches and may not re-execute tests that failed in earlier attempts"
+
             - name: Determine if --snapshot-update should be on
               # UPDATE mode: human commits - update snapshots
               # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
@@ -2962,7 +3085,10 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
-                  name: junit-results-backend-${{ matrix.artifact_key }}
+                  # Re-run attempts suffix the name: a same-name upload supersedes attempt 1's
+                  # artifact, and the timing reporter needs both to pair a re-run recovery
+                  # (attempt-N pass) with the attempt-1 failure it proves flaky.
+                  name: junit-results-backend-${{ matrix.artifact_key }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: junit-*.xml
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
@@ -3225,6 +3351,20 @@ jobs:
               with:
                   pattern: '{junit-results-backend,product-junit-results}-*'
                   path: /tmp/junit-gate/
+            # Re-run attempts upload under suffixed names, so superseded attempts must be dropped
+            # here or the rollup below lists attempt-1 failures the re-run already recovered.
+            - name: Keep only each shard's latest attempt
+              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              continue-on-error: true
+              run: |
+                  cd /tmp/junit-gate 2>/dev/null || exit 0
+                  shopt -s nullglob
+                  for d in *-attempt[0-9]*; do
+                      base="${d%-attempt*}"
+                      latest="$(printf '%s\n' "$base"-attempt[0-9]* | sort -V | tail -1)"
+                      rm -rf "$base"
+                      [[ "$d" == "$latest" ]] || rm -rf "$d"
+                  done
             - name: Check dependency results
               run: |
                   # Per-test failure rollup, emitted from THIS step because GitHub only
@@ -3290,44 +3430,22 @@ jobs:
                           print(f"::error {loc}title={title}::{body}")
                   PY
 
-                  deterministic_failure=false
-                  failed=false
-
                   if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
                     echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
-                    deterministic_failure=true
                   fi
 
                   if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
                     echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
-                    deterministic_failure=true
                   fi
 
-                  # cancel_ok tolerates a bare 'cancelled' result (the optional snapshot commit job);
-                  # required jobs treat an unexpected cancel as a failure.
                   check_required_result() {
                     local label="$1"
                     local result="$2"
-                    local cancel_ok="${3:-false}"
 
-                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
-                      return
+                    if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+                      echo "::error::$label did not succeed (result: '$result')."
+                      exit 1
                     fi
-
-                    if [[ "$result" == "cancelled" ]]; then
-                      if [[ "$deterministic_failure" == "true" ]]; then
-                        echo "::notice::$label was cancelled after a deterministic failure."
-                        return
-                      fi
-                      if [[ "$cancel_ok" == "true" ]]; then
-                        return
-                      fi
-                      echo "::error::$label was cancelled or timed out."
-                    else
-                      echo "::error::$label failed with result '$result'."
-                    fi
-
-                    failed=true
                   }
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
@@ -3344,18 +3462,15 @@ jobs:
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
-                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}" true
-
-                  if [[ "$deterministic_failure" == "true" || "$failed" == "true" ]]; then
-                    exit 1
-                  fi
+                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}"
 
                   echo "All backend and product checks passed."
 
     test-selection-verdict:
         needs: [django, turbo-tests, changes, select-tests]
         name: Test selection verdict
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        # changes is skipped on no-ci drafts — no tests ran, nothing to verdict.
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.changes.result != 'skipped' }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         permissions:
@@ -3377,6 +3492,20 @@ jobs:
                   pattern: junit-results-backend-*
                   path: /tmp/junit-results/
               continue-on-error: true
+
+            # Re-run attempts upload under suffixed names; without this the verdict double-counts
+            # re-executed shards and resurrects failures the re-run already recovered.
+            - name: Keep only each shard's latest attempt
+              continue-on-error: true
+              run: |
+                  cd /tmp/junit-results 2>/dev/null || exit 0
+                  shopt -s nullglob
+                  for d in *-attempt[0-9]*; do
+                      base="${d%-attempt*}"
+                      latest="$(printf '%s\n' "$base"-attempt[0-9]* | sort -V | tail -1)"
+                      rm -rf "$base"
+                      [[ "$d" == "$latest" ]] || rm -rf "$d"
+                  done
 
             # Reuse the selection artifact from the select-tests job rather than
             # re-running the snob script. Falls through if the artifact wasn't
@@ -3520,6 +3649,9 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
+        # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
+        # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
+        # attempt-suffixed artifact names so only they are emitted for the new attempt.
         # Master pushes and all in-repo PRs. Skip forks (no secrets access).
         if: >-
             !cancelled() &&
@@ -3532,34 +3664,39 @@ jobs:
         steps:
             # Labelled PRs run the trusted base parser, so the same PR can't swap the script that receives secrets.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              if: github.run_attempt == '1'
               with:
                   ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
                   fetch-depth: 1
             - name: Check for trusted timing reporter
               id: timing-reporter
-              if: github.run_attempt == '1'
               shell: bash
               run: |
                   # tools/owners is a path dep of the reporter, so a base ref predating it can't resolve its deps.
+                  available=false
                   if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]]; then
-                    echo "available=true" >> "$GITHUB_OUTPUT"
-                  else
-                    echo "available=false" >> "$GITHUB_OUTPUT"
-                    echo "Trusted timing reporter is not available on the checked-out ref; skipping emit."
+                    available=true
                   fi
+                  # A re-run may emit only through an attempt-aware reporter: an older script would
+                  # re-report every attempt-1 shard under the new attempt's resource attributes.
+                  if [[ "$GITHUB_RUN_ATTEMPT" != "1" ]] && ! grep -q "def partition_run_attempt" .github/scripts/report_test_timings.py 2>/dev/null; then
+                    available=false
+                  fi
+                  if [[ "$available" != "true" ]]; then
+                    echo "Trusted timing reporter is not available on the checked-out ref for attempt $GITHUB_RUN_ATTEMPT; skipping emit."
+                  fi
+                  echo "available=$available" >> "$GITHUB_OUTPUT"
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              if: steps.timing-reporter.outputs.available == 'true'
               with:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
-              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              if: steps.timing-reporter.outputs.available == 'true'
               uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               with:
                   path: ./junit-artifacts
-                  pattern: junit-results-*
+                  pattern: '{junit-results-backend,product-junit-results}-*'
             - name: Emit per-test traces
-              if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
+              if: steps.timing-reporter.outputs.available == 'true'
               continue-on-error: true
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}

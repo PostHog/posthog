@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 34 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -12,7 +12,7 @@ export const ExperimentHoldoutsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -25,7 +25,7 @@ export const ExperimentHoldoutsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -54,10 +54,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -78,6 +78,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -86,20 +90,20 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -111,9 +115,9 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                         .describe('Group type index when using group-based filters.'),
                                     operator: zod
                                         .enum(['is_set', 'is_not_set'])
-                                        .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                        .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
                                         .describe(
-                                            'Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                            'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                         ),
                                     value: zod
                                         .unknown()
@@ -126,10 +130,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -142,10 +146,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     operator: zod
                                         .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                         .describe(
-                                            '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
                                         )
                                         .describe(
-                                            'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                            'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
                                         ),
                                     value: zod
                                         .string()
@@ -155,10 +159,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -181,10 +185,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -192,10 +196,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -208,10 +212,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     operator: zod
                                         .enum(['icontains_multi', 'not_icontains_multi'])
                                         .describe(
-                                            '* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                            '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                         )
                                         .describe(
-                                            'Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                            'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                         ),
                                     value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
                                 }),
@@ -219,9 +223,9 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort'])
-                                        .describe('* `cohort` - cohort')
+                                        .describe('\* `cohort` - cohort')
                                         .describe(
-                                            'Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort'
+                                            'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -233,9 +237,9 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                         .describe('Group type index when using group-based filters.'),
                                     operator: zod
                                         .enum(['in', 'not_in'])
-                                        .describe('* `in` - in\n* `not_in` - not_in')
+                                        .describe('\* `in` - in\n\* `not_in` - not_in')
                                         .describe(
-                                            'Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in'
+                                            'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                         ),
                                     value: zod
                                         .unknown()
@@ -245,9 +249,9 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['flag'])
-                                        .describe('* `flag` - flag')
+                                        .describe('\* `flag` - flag')
                                         .describe(
-                                            'Flag property type required for flag dependency checks.\n\n* `flag` - flag'
+                                            'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -259,9 +263,9 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                                         .describe('Group type index when using group-based filters.'),
                                     operator: zod
                                         .enum(['flag_evaluates_to'])
-                                        .describe('* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe('\* `flag_evaluates_to` - flag_evaluates_to')
                                         .describe(
-                                            'Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to'
+                                            'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                         ),
                                     value: zod.unknown().describe('Value to compare flag evaluation against.'),
                                 }),
@@ -282,7 +286,7 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the *\*exclusion*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the \*\*exclusion\*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person\/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
             ),
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
@@ -292,7 +296,7 @@ export const ExperimentHoldoutsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -301,7 +305,7 @@ export const ExperimentHoldoutsPartialUpdateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -331,10 +335,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -355,6 +359,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'is_not',
                                             'icontains',
                                             'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
                                             'regex',
                                             'not_regex',
                                             'gt',
@@ -363,20 +371,20 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'lte',
                                         ])
                                         .describe(
-                                            '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         )
                                         .describe(
-                                            'Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte'
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                         ),
                                 }),
                                 zod.object({
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -388,9 +396,9 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                         .describe('Group type index when using group-based filters.'),
                                     operator: zod
                                         .enum(['is_set', 'is_not_set'])
-                                        .describe('* `is_set` - is_set\n* `is_not_set` - is_not_set')
+                                        .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
                                         .describe(
-                                            'Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set'
+                                            'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                                         ),
                                     value: zod
                                         .unknown()
@@ -403,10 +411,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -419,10 +427,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     operator: zod
                                         .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
                                         .describe(
-                                            '* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after'
+                                            '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
                                         )
                                         .describe(
-                                            'Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before'
+                                            'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
                                         ),
                                     value: zod
                                         .string()
@@ -432,10 +440,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -458,10 +466,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                             'semver_wildcard',
                                         ])
                                         .describe(
-                                            '* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         )
                                         .describe(
-                                            'Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard'
+                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
                                         ),
                                     value: zod.string().describe('Semantic version string.'),
                                 }),
@@ -469,10 +477,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort', 'person', 'group'])
-                                        .describe('* `cohort` - cohort\n* `person` - person\n* `group` - group')
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
                                         .optional()
                                         .describe(
-                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group"
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -485,10 +493,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     operator: zod
                                         .enum(['icontains_multi', 'not_icontains_multi'])
                                         .describe(
-                                            '* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                            '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                         )
                                         .describe(
-                                            'Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi'
+                                            'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
                                         ),
                                     value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
                                 }),
@@ -496,9 +504,9 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['cohort'])
-                                        .describe('* `cohort` - cohort')
+                                        .describe('\* `cohort` - cohort')
                                         .describe(
-                                            'Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort'
+                                            'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -510,9 +518,9 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                         .describe('Group type index when using group-based filters.'),
                                     operator: zod
                                         .enum(['in', 'not_in'])
-                                        .describe('* `in` - in\n* `not_in` - not_in')
+                                        .describe('\* `in` - in\n\* `not_in` - not_in')
                                         .describe(
-                                            'Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in'
+                                            'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
                                         ),
                                     value: zod
                                         .unknown()
@@ -522,9 +530,9 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                     key: zod.string().describe('Property key used in this feature flag condition.'),
                                     type: zod
                                         .enum(['flag'])
-                                        .describe('* `flag` - flag')
+                                        .describe('\* `flag` - flag')
                                         .describe(
-                                            'Flag property type required for flag dependency checks.\n\n* `flag` - flag'
+                                            'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
                                         ),
                                     cohort_name: zod
                                         .string()
@@ -536,9 +544,9 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                                         .describe('Group type index when using group-based filters.'),
                                     operator: zod
                                         .enum(['flag_evaluates_to'])
-                                        .describe('* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe('\* `flag_evaluates_to` - flag_evaluates_to')
                                         .describe(
-                                            'Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to'
+                                            'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
                                         ),
                                     value: zod.unknown().describe('Value to compare flag evaluation against.'),
                                 }),
@@ -559,7 +567,7 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the *\*exclusion*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the \*\*exclusion\*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person\/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
             ),
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
@@ -569,7 +577,7 @@ export const ExperimentHoldoutsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -577,7 +585,7 @@ export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -586,7 +594,7 @@ export const ExperimentSavedMetricsListQueryParams = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe(
-            "Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags."
+            "Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name\/description\/tags."
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -597,7 +605,7 @@ export const ExperimentSavedMetricsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -630,7 +638,7 @@ export const ExperimentSavedMetricsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -639,7 +647,7 @@ export const ExperimentSavedMetricsPartialUpdateParams = /* @__PURE__ */ zod.obj
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -674,7 +682,7 @@ export const ExperimentSavedMetricsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -685,7 +693,7 @@ export const ExperimentsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -695,7 +703,7 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.'
+            'Filter to experiments created by the given user(s). Accepts a single user ID, or a JSON-encoded \/ comma-separated list of user IDs to match any of them.'
         ),
     event: zod
         .string()
@@ -723,7 +731,7 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['all', 'complete', 'draft', 'exposure_frozen', 'paused', 'running', 'stopped'])
         .optional()
         .describe(
-            'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
+            'Filter by experiment status. \"running\", \"paused\", and \"exposure_frozen\" are mutually exclusive: \"running\" returns launched experiments with an active feature flag, \"paused\" returns launched experiments whose feature flag is deactivated, and \"exposure_frozen\" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. \"complete\" is an alias for \"stopped\". \"all\" disables status filtering.'
         ),
 })
 
@@ -734,7 +742,7 @@ export const ExperimentsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -841,6 +849,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOne
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
 export const experimentsCreateBodyConclusionCommentMax = 4000
 
+export const experimentsCreateBodyRepositoryMax = 255
+
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
@@ -890,7 +900,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             )
                             .optional()
                             .describe(
-                                'Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}].'
+                                'Overall rollout as a single group: [{\"properties\": [], \"rollout_percentage\": N}].'
                             ),
                         multivariate: zod
                             .union([
@@ -956,7 +966,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     .describe('Whether the flag persists variant assignment across authentication steps.'),
             })
             .describe(
-                "Flag config for experiment create/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
+                "Flag config for experiment create\/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
             )
             .optional()
             .describe(
@@ -1062,10 +1072,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe('Whether the experiment is archived.'),
         deleted: zod.boolean().nullish(),
         type: zod
-            .union([zod.enum(['web', 'product']).describe('* `web` - web\n* `product` - product'), zod.null()])
+            .union([zod.enum(['web', 'product']).describe('\* `web` - web\n\* `product` - product'), zod.null()])
             .optional()
             .describe(
-                'Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product'
+                'Experiment type: web for frontend UI changes, product for backend\/API changes.\n\n\* `web` - web\n\* `product` - product'
             ),
         exposure_criteria: zod
             .union([
@@ -1102,6 +1112,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -1164,6 +1178,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1221,6 +1239,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1280,6 +1302,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1336,6 +1362,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1392,6 +1422,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1455,6 +1489,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -1509,6 +1547,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1565,6 +1607,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1625,6 +1671,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1681,6 +1731,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1717,7 +1771,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with \"$feature\/\" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -1786,6 +1840,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1842,6 +1900,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1898,6 +1960,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1954,6 +2020,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2006,6 +2076,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2062,6 +2136,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2114,6 +2192,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2170,6 +2252,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2229,6 +2315,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2353,7 +2443,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -2374,6 +2464,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -2496,7 +2590,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -2517,6 +2611,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -2708,7 +2806,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -2729,6 +2827,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -2896,7 +2998,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 .union([zod.string(), zod.null()])
                                                 .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -2917,6 +3019,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -2985,7 +3091,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
@@ -3036,7 +3142,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -3057,6 +3163,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3175,7 +3285,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -3196,6 +3306,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3269,7 +3383,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
                                 .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
                                 ),
                             upper_bound_percentile: zod
                                 .union([
@@ -3351,7 +3465,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -3372,6 +3486,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3494,7 +3612,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -3515,6 +3633,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3706,7 +3828,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -3727,6 +3849,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -3894,7 +4020,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 .union([zod.string(), zod.null()])
                                                 .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -3915,6 +4041,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -3983,7 +4113,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
@@ -4034,7 +4164,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -4055,6 +4185,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4173,7 +4307,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -4194,6 +4328,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -4267,7 +4405,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
                                 .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
                                 ),
                             upper_bound_percentile: zod
                                 .union([
@@ -4306,19 +4444,26 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                     .describe(
-                        '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                        '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
             ),
         conclusion_comment: zod
             .string()
             .max(experimentsCreateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -4339,7 +4484,7 @@ export const ExperimentsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -4351,7 +4496,7 @@ export const ExperimentsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -4456,6 +4601,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercen
 
 export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
 
+export const experimentsPartialUpdateBodyRepositoryMax = 255
+
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(experimentsPartialUpdateBodyNameMax).optional().describe('Name of the experiment.'),
@@ -4506,7 +4653,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             )
                             .optional()
                             .describe(
-                                'Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}].'
+                                'Overall rollout as a single group: [{\"properties\": [], \"rollout_percentage\": N}].'
                             ),
                         multivariate: zod
                             .union([
@@ -4572,7 +4719,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     .describe('Whether the flag persists variant assignment across authentication steps.'),
             })
             .describe(
-                "Flag config for experiment create/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
+                "Flag config for experiment create\/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
             )
             .optional()
             .describe(
@@ -4675,10 +4822,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         archived: zod.boolean().optional().describe('Whether the experiment is archived.'),
         deleted: zod.boolean().nullish(),
         type: zod
-            .union([zod.enum(['web', 'product']).describe('* `web` - web\n* `product` - product'), zod.null()])
+            .union([zod.enum(['web', 'product']).describe('\* `web` - web\n\* `product` - product'), zod.null()])
             .optional()
             .describe(
-                'Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product'
+                'Experiment type: web for frontend UI changes, product for backend\/API changes.\n\n\* `web` - web\n\* `product` - product'
             ),
         exposure_criteria: zod
             .union([
@@ -4715,6 +4862,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -4777,6 +4928,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -4834,6 +4989,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -4893,6 +5052,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -4949,6 +5112,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5005,6 +5172,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5068,6 +5239,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -5122,6 +5297,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5178,6 +5357,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5238,6 +5421,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5294,6 +5481,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5330,7 +5521,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with \"$feature\/\" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -5399,6 +5590,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5455,6 +5650,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5511,6 +5710,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5567,6 +5770,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5619,6 +5826,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5675,6 +5886,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5727,6 +5942,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5783,6 +6002,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5842,6 +6065,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -5966,7 +6193,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -5987,6 +6214,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6109,7 +6340,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -6130,6 +6361,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6321,7 +6556,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -6342,6 +6577,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6509,7 +6748,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 .union([zod.string(), zod.null()])
                                                 .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -6530,6 +6769,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -6598,7 +6841,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
@@ -6649,7 +6892,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -6670,6 +6913,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6788,7 +7035,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -6809,6 +7056,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -6882,7 +7133,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
                                 .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
                                 ),
                             upper_bound_percentile: zod
                                 .union([
@@ -6964,7 +7215,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -6985,6 +7236,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7107,7 +7362,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -7128,6 +7383,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7323,7 +7582,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -7344,6 +7603,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7511,7 +7774,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 .union([zod.string(), zod.null()])
                                                 .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -7532,6 +7795,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -7600,7 +7867,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
@@ -7651,7 +7918,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -7672,6 +7939,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7790,7 +8061,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -7811,6 +8082,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -7884,7 +8159,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
                                 .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
                                 ),
                             upper_bound_percentile: zod
                                 .union([
@@ -7927,19 +8202,26 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                     .describe(
-                        '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                        '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
             ),
         conclusion_comment: zod
             .string()
             .max(experimentsPartialUpdateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsPartialUpdateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -7960,8 +8242,37 @@ export const ExperimentsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Change history for this experiment.
+ *
+ * Returns a paginated audit trail of changes to the experiment and its holdouts
+ * and shared metrics: who made each change, what changed (field-level before/after
+ * values), and when. Ordered newest first.
+ */
+export const ExperimentsActivityRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsActivityRetrieveQueryLimitDefault = 10
+
+export const experimentsActivityRetrieveQueryPageDefault = 1
+
+export const ExperimentsActivityRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .default(experimentsActivityRetrieveQueryLimitDefault)
+        .describe('Number of items per page'),
+    page: zod.number().min(1).default(experimentsActivityRetrieveQueryPageDefault).describe('Page number'),
 })
 
 /**
@@ -7978,7 +8289,7 @@ export const ExperimentsArchiveCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -8001,7 +8312,7 @@ export const ExperimentsCopyToProjectCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -8023,7 +8334,7 @@ export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -8121,6 +8432,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPerc
 
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
 export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
+
+export const experimentsDuplicateCreateBodyRepositoryMax = 255
 
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
@@ -8239,10 +8552,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe('Whether the experiment is archived.'),
         deleted: zod.boolean().nullish(),
         type: zod
-            .union([zod.enum(['web', 'product']).describe('* `web` - web\n* `product` - product'), zod.null()])
+            .union([zod.enum(['web', 'product']).describe('\* `web` - web\n\* `product` - product'), zod.null()])
             .optional()
             .describe(
-                'Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product'
+                'Experiment type: web for frontend UI changes, product for backend\/API changes.\n\n\* `web` - web\n\* `product` - product'
             ),
         exposure_criteria: zod
             .union([
@@ -8279,6 +8592,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -8341,6 +8658,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8398,6 +8719,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8457,6 +8782,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8513,6 +8842,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8569,6 +8902,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8632,6 +8969,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -8686,6 +9027,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8742,6 +9087,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8802,6 +9151,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8858,6 +9211,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -8894,7 +9251,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with \"$feature\/\" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -8963,6 +9320,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9019,6 +9380,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9075,6 +9440,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9131,6 +9500,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9183,6 +9556,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9239,6 +9616,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9291,6 +9672,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9347,6 +9732,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9406,6 +9795,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -9530,7 +9923,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -9551,6 +9944,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -9673,7 +10070,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -9694,6 +10091,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -9885,7 +10286,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -9906,6 +10307,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10073,7 +10478,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 .union([zod.string(), zod.null()])
                                                 .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -10094,6 +10499,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -10162,7 +10571,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
@@ -10213,7 +10622,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -10234,6 +10643,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10352,7 +10765,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -10373,6 +10786,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10446,7 +10863,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
                                 .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
                                 ),
                             upper_bound_percentile: zod
                                 .union([
@@ -10528,7 +10945,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -10549,6 +10966,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10671,7 +11092,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -10692,6 +11113,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -10887,7 +11312,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -10908,6 +11333,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -11075,7 +11504,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 .union([zod.string(), zod.null()])
                                                 .optional()
                                                 .describe(
-                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                    "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                                 ),
                                             math_property: zod
                                                 .union([zod.string(), zod.null()])
@@ -11096,6 +11525,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                         'is_not',
                                                                         'icontains',
                                                                         'not_icontains',
+                                                                        'starts_with',
+                                                                        'not_starts_with',
+                                                                        'ends_with',
+                                                                        'not_ends_with',
                                                                         'regex',
                                                                         'not_regex',
                                                                         'gt',
@@ -11164,7 +11597,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For funnel metrics: array of EventsNode/ActionsNode steps.'),
+                                .describe('For funnel metrics: array of EventsNode\/ActionsNode steps.'),
                             source: zod
                                 .union([
                                     zod.object({
@@ -11215,7 +11648,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -11236,6 +11669,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -11354,7 +11791,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum."
+                                                "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count\/sum."
                                             ),
                                         math_property: zod
                                             .union([zod.string(), zod.null()])
@@ -11375,6 +11812,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                                     'is_not',
                                                                     'icontains',
                                                                     'not_icontains',
+                                                                    'starts_with',
+                                                                    'not_starts_with',
+                                                                    'ends_with',
+                                                                    'not_ends_with',
                                                                     'regex',
                                                                     'not_regex',
                                                                     'gt',
@@ -11448,7 +11889,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
                                 .describe(
-                                    'For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.'
+                                    'For mean metrics: when set, reports the percentage of users whose per-user summed\/counted value reaches or exceeds this threshold. Only meaningful for sum\/count math types.'
                                 ),
                             upper_bound_percentile: zod
                                 .union([
@@ -11491,19 +11932,26 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                     .describe(
-                        '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                        '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
             ),
         conclusion_comment: zod
             .string()
             .max(experimentsDuplicateCreateBodyConclusionCommentMax)
             .nullish()
             .describe('Comment about the experiment conclusion.'),
+        repository: zod
+            .string()
+            .max(experimentsDuplicateCreateBodyRepositoryMax)
+            .nullish()
+            .describe(
+                "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
+            ),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -11515,7 +11963,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
+        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``\/``metrics_secondary``\/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
     )
 
 /**
@@ -11547,7 +11995,7 @@ export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11561,13 +12009,13 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                 .describe(
-                    '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                    '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+            'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
     conclusion_comment: zod
         .string()
@@ -11578,7 +12026,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(experimentsEndCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
 })
 
@@ -11600,7 +12048,7 @@ export const ExperimentsFreezeExposureCreateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11617,7 +12065,69 @@ export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Trigger a batch recalculation of all metrics for this experiment.
+ *
+ * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
+ * already pending or in progress for this experiment. The response payload intentionally does not
+ * include the `results` array — at POST time the workflow has just been queued and no per-metric
+ * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
+ * progresses.
+ */
+export const ExperimentsMetricsRecalculationCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Request body for triggering a metrics recalculation.')
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
+export const experimentsMetricsRecalculationRetrievePathRecalculationIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
+export const ExperimentsMetricsRecalculationRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    recalculation_id: zod
+        .string()
+        .regex(experimentsMetricsRecalculationRetrievePathRecalculationIdRegExp)
+        .describe("UUID of the recalculation run to fetch. This is the run's own id, not the experiment id."),
+})
+
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
+export const ExperimentsMetricsRecalculationLatestRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11635,7 +12145,7 @@ export const ExperimentsPauseCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11656,7 +12166,7 @@ export const ExperimentsResetCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11673,7 +12183,7 @@ export const ExperimentsResumeCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11704,7 +12214,7 @@ export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11719,13 +12229,13 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
             zod
                 .enum(['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'])
                 .describe(
-                    '* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+                    '\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
                 ),
             zod.null(),
         ])
         .optional()
         .describe(
-            'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
+            'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
     conclusion_comment: zod
         .string()
@@ -11736,7 +12246,7 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
@@ -11759,7 +12269,7 @@ export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.ob
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11787,7 +12297,7 @@ export const ExperimentsUnarchiveCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11806,7 +12316,7 @@ export const ExperimentsUnfreezeExposureCreateParams = /* @__PURE__ */ zod.objec
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11821,7 +12331,7 @@ export const ExperimentsCalculateRunningTimeCreateParams = /* @__PURE__ */ zod.o
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -11841,10 +12351,10 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
         metric_type: zod
             .enum(['funnel', 'mean_count', 'mean_sum_or_avg', 'ratio', 'retention'])
             .describe(
-                '* `funnel` - funnel\n* `mean_count` - mean_count\n* `mean_sum_or_avg` - mean_sum_or_avg\n* `ratio` - ratio\n* `retention` - retention'
+                '\* `funnel` - funnel\n\* `mean_count` - mean_count\n\* `mean_sum_or_avg` - mean_sum_or_avg\n\* `ratio` - ratio\n\* `retention` - retention'
             )
             .describe(
-                "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).\n\n* `funnel` - funnel\n* `mean_count` - mean_count\n* `mean_sum_or_avg` - mean_sum_or_avg\n* `ratio` - ratio\n* `retention` - retention"
+                "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).\n\n\* `funnel` - funnel\n\* `mean_count` - mean_count\n\* `mean_sum_or_avg` - mean_sum_or_avg\n\* `ratio` - ratio\n\* `retention` - retention"
             ),
         minimum_detectable_effect: zod
             .number()
@@ -11864,13 +12374,13 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe(
-                'Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats.'
+                'Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio\/retention). Provide this or baseline_stats.'
             ),
         variance: zod
             .number()
             .nullish()
             .describe(
-                'Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.'
+                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
             ),
         baseline_stats: zod
             .union([
@@ -11879,24 +12389,24 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
                         number_of_samples: zod
                             .number()
                             .min(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneNumberOfSamplesMin)
-                            .describe('Number of control-group samples (users/units) observed.'),
+                            .describe('Number of control-group samples (users\/units) observed.'),
                         sum: zod
                             .number()
                             .describe(
-                                'Sum of the metric values across the control group (for funnels, the numerator/conversions).'
+                                'Sum of the metric values across the control group (for funnels, the numerator\/conversions).'
                             ),
                         sum_squares: zod
                             .number()
                             .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
-                            .describe('Sum of squared metric values. Required for ratio/retention variance.'),
+                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
                         denominator_sum: zod
                             .number()
                             .nullish()
-                            .describe('Sum of the denominator values. Required for ratio/retention metrics.'),
+                            .describe('Sum of the denominator values. Required for ratio\/retention metrics.'),
                         denominator_sum_squares: zod
                             .number()
                             .nullish()
-                            .describe('Sum of squared denominator values (ratio/retention variance).'),
+                            .describe('Sum of squared denominator values (ratio\/retention variance).'),
                         numerator_denominator_sum_product: zod
                             .number()
                             .nullish()
@@ -11909,7 +12419,7 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
                             .describe('Per-step counts for funnel metrics; the last entry is the final-step count.'),
                     })
                     .describe(
-                        'Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio/retention)\nthe delta-method variance, instead of passing `baseline_value`/`variance` directly.'
+                        'Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio\/retention)\nthe delta-method variance, instead of passing `baseline_value`\/`variance` directly.'
                     ),
                 zod.null(),
             ])
@@ -11929,6 +12439,6 @@ export const ExperimentsStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })

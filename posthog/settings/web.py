@@ -14,10 +14,10 @@ from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 logger = structlog.get_logger(__name__)
 
 ####
-# Deprecated insight `dashboards` field: two-phase removal. While False (phase 1), every caller
-# still receives the field and usage is metered by access method; flipping to True (phase 2)
-# enforces the `include_dashboards` opt-in for non-first-party callers. Env-toggleable so the
-# enforcement can be reverted without a code change.
+# Deprecated insight `dashboards` field: session-authenticated callers always need to opt in with
+# `include_dashboards`. While False, API-token callers still receive the field; flipping to True
+# enforces the opt-in for them too. Env-toggleable so token enforcement can be reverted without a
+# code change.
 INSIGHT_DASHBOARDS_OPT_IN_ENFORCED = get_from_env("INSIGHT_DASHBOARDS_OPT_IN_ENFORCED", False, type_cast=str_to_bool)
 
 ####
@@ -87,7 +87,6 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
-    "products.agent_platform.backend.apps.AgentPlatformConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
@@ -550,8 +549,11 @@ SPECTACULAR_SETTINGS = {
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
+        "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
+        "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
+        "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
@@ -586,10 +588,14 @@ SPECTACULAR_SETTINGS = {
             "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
-        "EmailReputationScopeEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.Scope",
-        "EmailReputationStateEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
+        # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
+        "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
+        # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
+        "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
+        "NotebookSQLV2RefKindEnum": ["hogql", "local"],
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
         # Inline-choices variant of TaskRun.Status (labels == values), shared by
         # TaskRunUpdate.status and ExperimentFlagCleanupTask.run_status.
@@ -619,6 +625,9 @@ SPECTACULAR_SETTINGS = {
         "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
+        # daily/weekly/monthly choice set; pin one name for both.
+        "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
         # ReviewHog findings expose the same priority set on two fields (effective_priority +
         # reviewer_priority); pin one shared name for the choice set.
         "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
@@ -651,9 +660,6 @@ SPECTACULAR_SETTINGS = {
         "InvestigationVerdictEnum": ["true_positive", "false_positive", "inconclusive"],
         # Preserve Replay Vision's existing verdict type name after introducing the shared enum above.
         "VerdictEnum": ["yes", "no", "inconclusive"],
-        # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
-        # bundle-edit 409 body) share one choice set — pin them to a single named enum.
-        "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
         # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
         # choice set (top-level column vs span attribute vs resource attribute).
         "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
@@ -760,7 +766,6 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
-        "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
         "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
@@ -816,7 +821,20 @@ SPECTACULAR_SETTINGS = {
         "DescriptionContentTypeEnum": ["text", "html"],
         # Field-name collisions: multiple different choice sets use the same field name
         # across different serializer components.
-        "StringMatchOperatorEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        "StringMatchOperatorEnum": [
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
+            "regex",
+            "not_regex",
+        ],
+        # Survey url/device match types keep the operator subset without starts_with/ends_with.
+        "SurveyMatchTypeEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
         "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
         "DetailModeValueEnum": ["minimal", "detailed"],
         "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
@@ -1179,20 +1197,15 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
 
-# Teams allowed to precompute *any* web analytics query, not just the
-# single-`$host`-exact filter shape the general gate permits. For these teams the
-# eligibility gate skips the filter-shape restriction (arbitrary property filters
-# become distinct cache keys via `property_to_expr`) and flips the per-query
-# toggle from opt-in to opt-out (precompute runs unless the user explicitly turns
-# it off). Membership here also implies precompute enrollment, so a team need not
-# also appear in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. Same Cloud-only
-# default (project 2) and comma-separated env-var override as the enrollment list.
-WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
-    int(team_id)
-    for team_id in get_list(
-        get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
-    )
-]
+# Upper bound on the number of distinct precompute shapes (query cache keys) a single
+# team may have live at once. Any filter combination becomes its own shape, so a
+# pathological team could otherwise mint unbounded namespaces. This is a coarse backstop,
+# not a quota: a team builds shapes freely until it reaches this many, after which only
+# *new* shapes fall back to the live query — existing shapes keep serving and refreshing.
+# Sized well above any realistic team; 0 disables the cap.
+WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_MAX_SHAPES_PER_TEAM", 1000, type_cast=int
+)
 
 # Teams whose web analytics queries (overview, paths tile) skip the events↔sessions join
 # when nothing in the query (property filters, conversion goal, test-account filters,

@@ -1,9 +1,10 @@
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
@@ -227,6 +228,14 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+    # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
+    # the report's content rather than its artefact log: a chart illustrates the summary, so it is
+    # replaced with the summary rather than accumulating versions beside it. `summary` places one
+    # with a `[label](chart:<chart_id>)` link; the rest render below the prose.
+    # `db_default` alongside `default`: a callable default is Python-only, so without it the column
+    # lands NOT NULL with no Postgres default and any insert from a pre-deploy worker — which omits
+    # the column it doesn't know about — fails until the rollout finishes.
+    charts = models.JSONField(default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -409,10 +418,13 @@ class SignalReport(UUIDModel):
         caller owns the write so it can batch this with other changes in one transaction.
         """
         updated_fields: set[str] = set()
-        if title is not None:
+        # Compared before assigning, so an idempotent re-send of the current text is a no-op. The REST
+        # PATCH path already compares this way, and a spurious "changed" here would cost a needless
+        # save, a misleading edit-history note, and a retracted embedding (see receivers.py).
+        if title is not None and title != self.title:
             self.title = title
             updated_fields.add("title")
-        if summary is not None:
+        if summary is not None and summary != self.summary:
             self.summary = summary
             updated_fields.add("summary")
         if updated_fields:
@@ -1063,7 +1075,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
 
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
-# Three tables back the v1 Signals scout:
+# Core tables backing the Signals scout:
 #   - SignalScoutConfig: per-team binding (one row per team).
 #   - SignalScoutRun:    bridge from a `tasks.TaskRun` to its scout-domain context.
 #                        Mirrors `SignalReportTask` (1:1 to TaskRun instead of N:1
@@ -1071,6 +1083,7 @@ class SignalReportRefund(TeamScopedRootMixin, UUIDModel):
 #                        Status, timing, error, chat-log all live on `TaskRun`;
 #                        findings live on emitted `Signal`/`SignalReport` rows.
 #   - SignalScratchpad:  working notes the scout reads in future runs.
+#   - SignalScoutNote:   steering notes humans/agents leave for scouts to read.
 
 
 class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
@@ -1082,6 +1095,43 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
 
     # ModelActivityMixin only logs deletes when this is set.
     activity_logging_on_delete = True
+
+    class Status(models.TextChoices):
+        """Lifecycle states a writer deliberately moves a scout between.
+
+        Deliberately small: only states that change what the scheduler does belong here.
+        Windowed assessments (engagement, cold-start newness, a failing-but-not-tripped
+        streak) are derived at read time, never persisted as a status.
+        """
+
+        ACTIVE = "active", "Active"
+        # Warned by a system writer: will be paused on a set date unless something changes.
+        # Still scheduled. A state rather than a notification so the sweep that sets it is
+        # idempotent and any human touch has something concrete to clear.
+        PENDING_PAUSE = "pending_pause", "Pending pause"
+        PAUSED_BY_SYSTEM = "paused_by_system", "Paused by system"
+        # A human switched the scout off. No system writer may resume or re-pause it.
+        PAUSED_BY_USER = "paused_by_user", "Paused by user"
+
+    class PauseReason(models.TextChoices):
+        """Why a system writer paused (or warned) a scout.
+
+        Each value also identifies the writer that owns the pause: a system writer may only
+        clear or overwrite a pause carrying its own reason (`transition_status_by_system`),
+        which is what keeps independent pause mechanisms from undoing each other.
+        """
+
+        NO_OUTPUT = "no_output", "No output"
+        IGNORED = "ignored", "Ignored"
+        REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+
+    # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
+    # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
+    RUNNABLE_STATUSES = (Status.ACTIVE, Status.PENDING_PAUSE)
+
+    # How long a scout is treated as provisional after creation or a human re-enable, during
+    # which system writers should leave it alone (`in_cold_start_grace`).
+    COLD_START_GRACE = timedelta(days=14)
 
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
@@ -1101,7 +1151,51 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # row when it discovers a scout skill on a participating team, so a user authoring
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
     skill_name = models.CharField(max_length=200)
+    # Derived from `status` (`enabled = status in RUNNABLE_STATUSES`), but kept as a real
+    # column because the coordinator filters on it at SQL level and the warehouse mirrors it.
+    # `save` reconciles the pair for writers that only set one side; a DB constraint backstop
+    # is deferred to a follow-up migration (see Meta.constraints) so rolling deploys with
+    # enabled-only writers still in flight don't break.
     enabled = models.BooleanField(default=True, db_default=True)
+    # Source of truth for the scout's lifecycle. Two of the four states pause scheduling; who
+    # set the pause is the state itself (`paused_by_user` vs `paused_by_system`), not a
+    # side-channel field, because the two must behave differently: the system may resume its
+    # own pauses but must never touch a human's.
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        db_default=Status.ACTIVE,
+    )
+    # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
+    pause_reason = models.CharField(
+        max_length=20,
+        choices=PauseReason.choices,
+        null=True,
+        blank=True,
+    )
+    # When `status` last changed. Bookkeeping that rides along with the logged status change
+    # itself, so it is excluded from activity logging. Null until the first transition;
+    # `created_at` anchors the cold-start grace window for rows that never transitioned.
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+    # Who last moved `status`, when a human did (through the config API). Null for system
+    # transitions, unattributed writes, and rows whose status never changed. The enum already
+    # says whether a pause is human or system; this adds WHO for human actions and tells a
+    # human re-enable apart from a system resume. Who last edited anything else on the row
+    # stays the activity log's job. `db_constraint=False` because posthog_user is a hot table
+    # and adding the FK constraint would lock it; integrity is app-level only, like the
+    # constraint-free path recommended for hot-table FKs. `db_index=False` because nothing
+    # queries by attribution (it is read per-row) and the FK's default index would otherwise
+    # be built non-concurrently inside the migration.
+    status_changed_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
     # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
     # nothing — to validate it on a team before its findings reach the inbox.
@@ -1122,6 +1216,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
+    # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
+    # the API boundary so adding another destination does not require another pair of nullable
+    # config columns. A Slack destination is active only when both its integration and channel
+    # are present; the UI may persist the integration first while the user chooses a channel.
+    output_destinations = models.JSONField(default=dict, db_default={})
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -1162,7 +1261,136 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
+            # A CHECK constraint tying `enabled` to `status` is deliberately deferred to a
+            # follow-up migration: enforcing it in the same deploy that introduces the
+            # dual-write breaks rolling deploys, because not-yet-replaced instances still
+            # write `enabled` alone and a NOT VALID constraint already checks new writes.
+            # That follow-up must first re-run the enabled-wins reconciliation over drifted
+            # rows (enabled-only writes from old instances during the rollout window land
+            # after the 0075 backfill), then add and validate the constraint.
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Keep the `enabled` / `status` pair consistent for writers that only set one side.
+
+        `status` is the source of truth, but callers that predate it (fixtures, ad-hoc
+        scripts, the config API's `enabled` field) still write `enabled` alone. When the pair
+        disagrees at save time, resolve toward whichever side the caller touched: `status`
+        wins when `update_fields` names it without `enabled`, or on a create where a
+        non-default status was passed explicitly; otherwise the `enabled` value is taken as
+        the intent (True resumes any pause, False records a user pause).
+        """
+        update_fields = kwargs.get("update_fields")
+        if self.enabled != (self.status in self.RUNNABLE_STATUSES):
+            fields = set(update_fields) if update_fields is not None else None
+            status_is_intent = (
+                ("status" in fields and "enabled" not in fields)
+                if fields is not None
+                else (self._state.adding and self.status != self.Status.ACTIVE)
+            )
+            if status_is_intent:
+                self.enabled = self.status in self.RUNNABLE_STATUSES
+                touched = {"enabled"}
+            else:
+                self.status = self.Status.ACTIVE if self.enabled else self.Status.PAUSED_BY_USER
+                self.pause_reason = None
+                # An enabled-only write carries no actor, so the attribution stamp is cleared
+                # rather than left pointing at whoever made the previous transition.
+                self.status_changed_by = None
+                touched = {"status", "pause_reason", "status_changed_by"}
+                if not self._state.adding:
+                    self.status_changed_at = timezone.now()
+                    touched.add("status_changed_at")
+            if fields is not None:
+                kwargs["update_fields"] = fields | touched
+        super().save(*args, **kwargs)
+
+    def transition_status_by_system(
+        self,
+        new_status: "SignalScoutConfig.Status",
+        *,
+        pause_reason: "SignalScoutConfig.PauseReason",
+        evaluated_at: datetime | None = None,
+    ) -> bool:
+        """Apply a system-driven status transition under the reason-scoped ownership rule.
+
+        `pause_reason` names the calling writer (an inactivity sweep passes `no_output`, a
+        failure breaker `repeated_failures`) as well as the reason recorded on a pause. The
+        rule: a system writer may never touch `paused_by_user`, and may only move a scout
+        whose current pause carries its own reason, so independent pause mechanisms cannot
+        clear or overwrite each other's state. The checks run against a freshly locked row,
+        not the caller's instance, so a human pause or another writer's claim that landed
+        after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
+        caller read the state its decision is based on) to also refuse the transition if the
+        status moved after that moment, e.g. a human re-enable racing a sweep's pause.
+        Saves and returns True when the transition applies; returns False without writing
+        when it is refused or a no-op.
+        """
+        if new_status == self.Status.PAUSED_BY_USER:
+            raise ValueError("Only a user write may set paused_by_user.")
+        with transaction.atomic():
+            locked = type(self).all_teams.select_for_update().get(pk=self.pk)
+            if locked.status == self.Status.PAUSED_BY_USER:
+                return False
+            if locked.status != self.Status.ACTIVE and locked.pause_reason != pause_reason:
+                return False
+            # A warning is weaker than a pause: a delayed or retried warn must not reopen a
+            # scout its own writer already paused (pending_pause is runnable).
+            if new_status == self.Status.PENDING_PAUSE and locked.status == self.Status.PAUSED_BY_SYSTEM:
+                return False
+            if (
+                evaluated_at is not None
+                and locked.status_changed_at is not None
+                and locked.status_changed_at > evaluated_at
+            ):
+                return False
+            # A resume must not carry the team past the enabled-scout cap: the pause freed a
+            # slot the config API may have legitimately given to another scout since.
+            from products.signals.backend.scout_harness.limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
+                MAX_ENABLED_SCOUTS_PER_TEAM,
+            )
+
+            if new_status in self.RUNNABLE_STATUSES and locked.status not in self.RUNNABLE_STATUSES:
+                peers = type(self).all_teams.filter(team_id=locked.team_id, enabled=True).exclude(pk=locked.pk).count()
+                if peers >= MAX_ENABLED_SCOUTS_PER_TEAM:
+                    return False
+            recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
+            if new_status == locked.status and recorded_reason == locked.pause_reason:
+                return False
+            locked.status = new_status
+            locked.pause_reason = recorded_reason
+            locked.status_changed_at = timezone.now()
+            locked.status_changed_by = None
+            locked.enabled = new_status in self.RUNNABLE_STATUSES
+            locked.save(
+                update_fields=[
+                    "status",
+                    "pause_reason",
+                    "status_changed_at",
+                    "status_changed_by",
+                    "enabled",
+                    "updated_at",
+                ]
+            )
+        for field in ("status", "pause_reason", "status_changed_at", "status_changed_by", "enabled"):
+            setattr(self, field, getattr(locked, field))
+        return True
+
+    def in_cold_start_grace(self) -> bool:
+        """True while the scout is provisional and system writers should not evaluate it.
+
+        Anchored on `created_at`, re-anchored by any move back to `active`: a re-enable or a
+        system resume grants a fresh window before the next evaluation. Deliberately not
+        keyed on `status_changed_by` so the window survives the actor's account being
+        deleted (`SET_NULL`). A `pending_pause` warning never re-anchors (status is not
+        `active`), so a sweep cannot put its own candidates back into grace. Time-based
+        only; a consumer that also wants a minimum-runs floor applies that on top, since the
+        floor differs per writer.
+        """
+        anchor = self.created_at
+        if self.status == self.Status.ACTIVE and self.status_changed_at is not None:
+            anchor = max(anchor, self.status_changed_at)
+        return timezone.now() < anchor + self.COLD_START_GRACE
 
     def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
         # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
@@ -1249,12 +1477,21 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
-    # Scout-owned per-run context stamped once at run creation — the native home for run
-    # dimensions that matter operationally but don't each warrant a dedicated column. Known keys
-    # today: `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on
-    # when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default;
-    # empty for default-model runs. Write-once at creation, not a mutable grab-bag — new keys
-    # (e.g. a future config-level model) should also be stamped by the runner at run start.
+    # Scout-owned per-run context — the native home for run dimensions that matter operationally
+    # but don't each warrant a dedicated column. Two regions, distinguished by who writes them.
+    # Top-level keys are stamped write-once by the runner at run creation, and split by whether
+    # they are always present. `harness_prompt_version` / `report_channel` / `skill_origin` always
+    # are: they pin down which instructions the run was given, and each is unrecoverable later
+    # (the prompt has no version history, `allowed_tools` can be edited, and a seeded row flips to
+    # `custom` the moment a team edits it), which is what makes them worth stamping rather than
+    # resolving at read time. `model` / `runtime_adapter` / `reasoning_effort` appear only when the
+    # `scouts-model-selection` gate or a runtime pin overrode the agent-server default, so their
+    # absence is meaningful. New runner-known dimensions belong there, stamped by `_create_run_row`.
+    # The nested `derived` object is written once at finalize by
+    # `scout_harness/derived_metadata.py` and holds booleans the harness computes from the run's
+    # own output, so "what kind of run was this?" is a field lookup rather than prose parsing.
+    # Both regions are server-written: nothing here is scout-authored, which is what makes the
+    # column safe to query directly.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1265,6 +1502,13 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         indexes = [
             models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
+            # "which run authored this report?" is a jsonb containment lookup (`@>`) that
+            # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
+            # request. Without these the planner can only seq-scan the team's runs, and this table
+            # grows about one row per scout per run interval with no pruning, so the scan would get
+            # slower for the life of the project.
+            GinIndex(fields=["emitted_report_ids"], name="signal_scout_run_emitted_idx"),
+            GinIndex(fields=["edited_report_ids"], name="signal_scout_run_edited_idx"),
         ]
 
 
@@ -1377,6 +1621,91 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
+        ]
+
+
+class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
+    """Steering notes humans (or other agents) leave for the scout fleet — read at run time.
+
+    The inbound complement to `SignalScratchpad`: scratchpad is what the fleet *learned*
+    (agent-authored, sandbox-write-only); a note is what the team wants the fleet to *know*
+    (authored via the user-grantable `signal_scout:write` scope). Notes are the lightweight
+    steering channel for feedback and pointers that don't warrant editing a scout's skill
+    body — "look into X", "stop flagging Y", "we shipped Z on Tuesday". A note targets one
+    scout (`skill_name`) or the whole fleet (blank `skill_name`); each run lists the notes
+    addressed to it as prior context and weighs them like any other input.
+
+    Trust model: scouts read note content verbatim while holding privileged sandbox tools,
+    so writing a note is gated to skill-authoring-level authorization — API keys need
+    `llm_skill:write` on top of `signal_scout:write`, and every writer must clear the
+    `llm_skill` RBAC editor bar (see `SignalScoutNoteViewSet`). A caller who can leave a
+    note could therefore already steer the fleet by editing its skills; notes add a cheaper
+    channel, not new power. The run prompt additionally frames note content as advisory
+    steering that never overrides the harness ground rules.
+
+    Two more writers derive rows from inbox activity, both re-checking the RBAC leg of this gate
+    themselves (the actions behind them need only `task:write`) against the canonical project whose
+    scouts read the row. They differ on the key-scope leg, because they differ on whether this note is
+    the only way the text reaches a scout:
+    - `REPORT_DISMISSAL` — judging a report with a note (dismiss, snooze, or restore; not resolve),
+      see `dismissal_notes.py`. Its text also lands on the `dismissal_note` field of the reports API,
+      which every scout is told to read, so the note opens no channel a `task:write` caller lacks and
+      the key scopes aren't required on top.
+    - `REPORT_DISCUSSION` — opening a discussion on a report with a question, see
+      `discussion_notes.py`. The question otherwise lives only on the ephemeral discussion task, which
+      is in no scout's run context, so this note is its sole carrier and the full gate applies —
+      `llm_skill:write` and `signal_scout:write` included.
+    `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
+    on one report, and a discussion as a question to weigh rather than fleet-level steering.
+    """
+
+    class Origin(models.TextChoices):
+        HUMAN = "human", "Left directly"
+        REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
+        REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating
+    # this table takes no lock on those parents (app-level enforcement only).
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="signal_scout_notes",
+    )
+    # Target scout's skill name (`signals-scout-*`). Blank = a general note addressed to the
+    # whole fleet — every scout's run sees it alongside its own skill-scoped notes.
+    skill_name = models.CharField(max_length=200, blank=True, default="", db_default="")
+    # Prose the scout reads verbatim. Bounded by the create serializer, not the column.
+    content = models.TextField()
+    # Who left the note. SET_NULL so removing a user keeps the note (its content still steers).
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+    )
+    # Optional TTL — expired notes drop out of the default list view, so time-boxed steering
+    # ("watch checkout closely this week") retires itself without a delete.
+    expires_at = models.DateTimeField(null=True, blank=True)
+    # How the row got here, surfaced to the run so a scout can weigh a reviewer's verdict on one
+    # report differently from a skill author's fleet steering (see the trust model above). Carries
+    # a `db_default` because the nodejs/rust test schema is built straight from model definitions
+    # with migrations disabled, where a Python-only `default` is invisible.
+    origin = models.CharField(max_length=32, choices=Origin, default=Origin.HUMAN, db_default=Origin.HUMAN)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout note"
+        verbose_name_plural = "Signal scout notes"
+        default_manager_name = "all_teams"
+        indexes = [
+            # The run-time read is "recent notes for this team (optionally one skill)" — newest first.
+            models.Index(fields=["team", "-created_at"], name="signal_scout_note_recent_idx"),
         ]
 
 

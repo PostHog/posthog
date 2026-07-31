@@ -23,13 +23,13 @@ from psycopg import sql
 from sshtunnel import BaseSSHTunnelForwarderError
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -699,6 +699,79 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Real production wording (a Neon-style proxy) lowercases "address", unlike the
+            # capitalized key this replaced, which never matched production traffic. Host/IP, port,
+            # and the allow-listed IP tuple are volatile and excluded from the match.
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+            "(EADDRNOTALLOWED) address not in tenant allow_list: {203, 0, 113, 99}\n"
+            'connection to server at "203.0.113.10", port 5432 failed: FATAL:  (ESSLREQUIRED) SSL '
+            "connection is required for user: postgres",
+        ],
+    )
+    def test_ip_not_in_tenant_allow_list_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "address not in tenant allow_list" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"IP-not-in-allow-list error should be non-retryable: {error_msg}"
+
+    def test_ip_not_in_tenant_allow_list_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "203.0.113.10", port 5432 failed: FATAL:  '
+            "(EADDRNOTALLOWED) address not in tenant allow_list: {203, 0, 113, 99}"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "IP-not-in-allow-list error should surface an actionable message"
+        assert "allow list" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A Neon-style proxy rejects the connection for a specific branch before the SSL-required
+            # fallback attempt is even tried. Host/IP, port, and the branch id are volatile.
+            'connection failed: connection to server at "203.0.113.20", port 6432 failed: FATAL:  '
+            "connection not allowed for branch abc123xyz\n"
+            'connection to server at "203.0.113.20", port 6432 failed: FATAL:  SSL/TLS required',
+        ],
+    )
+    def test_branch_connection_not_allowed_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "connection not allowed for branch" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Branch connection restriction error should be non-retryable: {error_msg}"
+
+    def test_branch_connection_not_allowed_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = (
+            'connection failed: connection to server at "203.0.113.20", port 6432 failed: FATAL:  '
+            "connection not allowed for branch abc123xyz"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Branch connection restriction error should surface an actionable message"
+        assert "branch" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Observed on a Neon-style pooler: the role is reported on its own line instead of
+            # libpq's "for user" wording, so it doesn't substring-match "password authentication
+            # failed for user". Host/IP, port, and the role id are volatile.
+            'connection failed: connection to server at "203.0.113.30", port 5432 failed: FATAL:  '
+            'password authentication failed\nuser "11111111-2222-3333-4444-555555555555"',
+        ],
+    )
+    def test_password_authentication_failed_without_for_user_wording_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "password authentication failed" in non_retryable
+        assert "password authentication failed for user" not in error_msg
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, (
+            f"Password auth failure without 'for user' wording should be non-retryable: {error_msg}"
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
         ],
@@ -725,6 +798,8 @@ class TestPostgresSourceNonRetryableErrors:
         [
             'invalid input syntax for type integer: "1.5"',
             'InvalidTextRepresentation: invalid input syntax for type integer: "1.5"',
+            'invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
+            'InvalidTextRepresentation: invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
         ],
     )
     def test_non_integer_incremental_cursor_errors_are_non_retryable(self, source, error_msg):
@@ -921,6 +996,27 @@ class TestPostgresSourceNonRetryableErrors:
         "error_msg",
         [
             # Raw psycopg message (what the activity-level check sees via str(e)).
+            'unit "week" not supported for type interval',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'FeatureNotSupported: unit "week" not supported for type interval',
+        ],
+    )
+    def test_interval_unit_not_supported_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unsupported interval-unit error should be non-retryable: {error_msg}"
+
+    def test_interval_unit_not_supported_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'unit "week" not supported for type interval'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unsupported interval-unit error should surface an actionable message"
+        assert "interval" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
             'user mapping not found for user "svc_role", server "remote_server"',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             'UndefinedObject: user mapping not found for user "svc_role", server "remote_server"',
@@ -937,6 +1033,27 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Missing FDW user mapping error should surface an actionable message"
         assert "CREATE USER MAPPING" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'invalid input value for enum "InvitationType": "workshop"\nCONTEXT:  column "invitation_type" of foreign table "invitations"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'InvalidTextRepresentation: invalid input value for enum "InvitationType": "workshop"',
+        ],
+    )
+    def test_fdw_enum_mismatch_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"FDW enum mismatch error should be non-retryable: {error_msg}"
+
+    def test_fdw_enum_mismatch_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'invalid input value for enum "InvitationType": "workshop"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "FDW enum mismatch error should surface an actionable message"
+        assert "enum type" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1007,6 +1124,37 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
         assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
+
+
+class TestPostgresSourceRetryableErrors:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # SQLSTATE 57P01: a DBA (or a cloud provider's maintenance/failover automation) killed
+            # our backend. `get_rows`'s in-process reconnect/offset-chunking already retries this
+            # mid-stream; it only reaches `_handle_import_error` once that resume is unsafe (a
+            # full-table scan with rows already yielded) or its retry budget is exhausted.
+            "terminating connection due to administrator command",
+            "OperationalError: terminating connection due to administrator command",
+        ],
+    )
+    def test_admin_shutdown_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Admin-shutdown error should be classified retryable: {error_msg}"
+
+    def test_admin_shutdown_is_not_also_non_retryable(self, source):
+        # Guards against the two classifications disagreeing — `_handle_import_error` checks
+        # non-retryable first, so if this ever matched both, it would stop the sync instead of
+        # retrying the activity.
+        error_msg = "terminating connection due to administrator command"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Admin-shutdown error should not be non-retryable: {error_msg}"
 
 
 def _raise_eof() -> None:
@@ -1383,6 +1531,14 @@ class TestIsConnectionDroppedError:
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
+            ),
+            # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
+            # user record) times out waiting for the backend, reporting a bare OperationalError
+            # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential
+            # rejection — transient and recovers once the secret is cached.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) auth_query secret check timed out"
             ),
             # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
             # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the

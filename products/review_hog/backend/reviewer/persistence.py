@@ -91,6 +91,7 @@ def upsert_review_report(
                 "pr_url": pr_url,
                 "head_branch": pr_metadata.head_branch,
                 "base_branch": pr_metadata.base_branch,
+                "author_login": pr_metadata.author or None,
                 "status": ReviewReport.Status.ACTIVE,
                 "signal_report_id": signal_report_id,
             }
@@ -119,6 +120,10 @@ def upsert_review_report(
             updates["pr_number"] = pr_number  # branch-keyed row upgrades once its PR exists
         if pr_url:
             updates["pr_url"] = pr_url  # a branch turn's empty URL must not erase a known PR URL
+        if pr_metadata.author:
+            # Refreshed every turn (the stable fact is the login, not a login→user resolution that
+            # can change) — old rows re-stamp organically on their next turn, no backfill.
+            updates["author_login"] = pr_metadata.author
         if report.signal_report_id is None and signal_report_id is not None:
             updates["signal_report_id"] = signal_report_id
         qs.filter(pk=report.pk).update(**updates)
@@ -435,6 +440,21 @@ class TurnFindingsBundle:
         verdicts = self._verdicts.get(report_id, {})
         return [(finding, verdicts.get(issue_key)) for issue_key, finding in findings.items()]
 
+    def all_valid(self, report_id: str) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:
+        """Every valid finding of a report across all turns, paired with its verdict.
+
+        Not turn-scoped like `turn`: `issue_key` is `run_index`-prefixed so keys never collide across
+        turns, and outcome telemetry classifies whatever was published regardless of which turn posted
+        it. Latest-wins per key is already applied by `load_findings_bundle`.
+        """
+        verdicts = self._verdicts.get(report_id, {})
+        return [
+            (finding, verdict)
+            for run_findings in self._findings.get(report_id, {}).values()
+            for issue_key, finding in run_findings.items()
+            if (verdict := verdicts.get(issue_key)) is not None and verdict.is_valid
+        ]
+
 
 def load_findings_bundle(*, team_id: int, report_ids: Sequence[str]) -> TurnFindingsBundle:
     """All reports' finding/verdict artefacts in ONE query — the batch behind `load_turn_findings`.
@@ -576,7 +596,15 @@ def load_prior_findings_with_verdicts(
     return pairs
 
 
-def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str, run_index: int, head_sha: str) -> None:
+def finalize_review_report(
+    *,
+    team_id: int,
+    report_id: str,
+    body_markdown: str,
+    run_index: int,
+    head_sha: str,
+    urgency_threshold: str | None = None,
+) -> None:
     """Mark the turn complete: store the body, bump `run_count`, stamp `last_run_at` and the reviewed head.
 
     Idempotent per turn: the update is conditioned on `run_count == run_index - 1` (the turn's fixed
@@ -584,12 +612,16 @@ def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str, 
     a blind `F("run_count") + 1` would double-bump and break the `run_index == run_count` invariant
     every latest-turn reader relies on. `completed_head_sha` records what this finished turn reviewed;
     the live `head_sha` watermark already points at the NEXT turn's commit the moment that turn starts.
+    `urgency_threshold` is the resolve snapshot the turn's body/publish gated on — stamped HERE, not
+    at resolve (which describes the *next* turn and would drift mid re-review under a different
+    acting user), so the detail view buckets published vs held-back findings by the gate that ran.
     """
     ReviewReport.objects.for_team(team_id).filter(id=report_id, run_count=run_index - 1).update(
         report_markdown=body_markdown,
         run_count=run_index,
         last_run_at=timezone.now(),
         completed_head_sha=head_sha,
+        run_urgency_threshold=urgency_threshold,
         status=ReviewReport.Status.IDLE,
     )
 

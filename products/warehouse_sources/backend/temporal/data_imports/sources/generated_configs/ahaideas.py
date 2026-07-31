@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class AhaIdeasSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str

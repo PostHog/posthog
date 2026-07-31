@@ -219,8 +219,11 @@ export const sessionRecordingExperimentContextLogic = kea<sessionRecordingExperi
             }
         },
     })),
+    // Gated on the flag so `experimentContextLoading` never goes true for flag-disabled
+    // viewers — an ungated load here resolves to null but flashes the sidebar's loading
+    // placeholder on the way. The subscription above starts the load if the flag arrives late.
     afterMount(({ actions, values }) => {
-        if (!values.experimentContextLoading) {
+        if (values.experimentContextEnabled && !values.experimentContextLoading) {
             actions.loadExperimentContext()
         }
     }),

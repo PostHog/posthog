@@ -5,9 +5,15 @@ from datetime import datetime
 import pytest
 from unittest import mock
 
+from posthog.temporal.common.errors import NonReportableError
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    SchemaColumnTypeChangedException,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
@@ -99,7 +105,7 @@ async def test_non_retryable_setup_error_routes_through_handler():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_awaited_once()
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
 
 
 @pytest.mark.asyncio
@@ -129,7 +135,7 @@ async def test_unparseable_config_routes_through_handler():
             await import_data_activity_sync(_inputs())
 
     handle_mock.assert_awaited_once()
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
     source.source_for_pipeline.assert_not_called()
 
 
@@ -137,7 +143,11 @@ async def test_unparseable_config_routes_through_handler():
 async def test_source_classified_retryable_error_logged_as_warning_not_exception():
     # A rate-limit / transient error the source retries internally reaches _handle_import_error only
     # once those retries exhaust. Temporal retries the whole activity, so it must be logged at
-    # warning (not aexception, which mints error-tracking noise) while still being re-raised.
+    # warning (not aexception, which mints error-tracking noise) while still being re-raised. Logging
+    # alone doesn't keep it out of error tracking though: the Temporal activity interceptor
+    # (posthog_client.py) captures whatever exception type escapes the activity regardless of log
+    # level, unless it's a NonReportableError — so the re-raise must wrap it as one, the same way
+    # RESTClientRetryableError already does for REST sources.
     error = Exception("Mixpanel API error (retryable): status=429, url=https://data.mixpanel.com/api/2.0/export")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
@@ -149,9 +159,10 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
     logger.adebug = mock.AsyncMock()
 
     with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
-        with pytest.raises(Exception, match="retryable"):
+        with pytest.raises(NonReportableError, match="retryable") as exc_info:
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
+    assert exc_info.value.__cause__ is error
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 
@@ -182,7 +193,125 @@ async def test_rest_client_non_retryable_error_routes_through_handler_without_so
 
     handle_mock.assert_awaited_once()
     assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[3] is error
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in():
+    # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
+    # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
+    # be honored by type even when the source's get_retryable_errors doesn't list the message, so
+    # every REST-based source gets this benign, self-recovering failure logged as a warning instead
+    # of minting error-tracking noise.
+    error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(RESTClientRetryableError):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transient_object_store_error_reraised_as_non_reportable():
+    # A transient S3 credential-provider blip (IMDS/STS) talking to our own data-warehouse bucket,
+    # e.g. while resetting the Delta table. It's retryable (Temporal retries the activity as usual),
+    # but re-raising the bare OSError would still be captured by the activity interceptor, which
+    # only skips reporting for NonReportableError — so it must be wrapped, not just logged at warning.
+    error = OSError(
+        "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_schema_column_type_changed_routes_through_handler_without_source_opt_in():
+    # SchemaColumnTypeChangedException is raised in shared pipeline code when incoming data can't be
+    # cast into the stored Delta column type — a deterministic failure that only a reset and re-sync
+    # fixes. It must be non-retryable by type for every source, not just the SQL sources that list
+    # "Source column type changed" in get_non_retryable_errors, so non-SQL sources stop retrying it.
+    error = SchemaColumnTypeChangedException(
+        "Source column type changed: 'val' has values that no longer fit its stored type int32 "
+        "(incoming data is now string). Reset and fully re-sync this table to adopt the new type."
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    # autospec enforces handle_non_retryable_error's real signature, so a call with the wrong
+    # positional args (as this branch once had) fails here instead of only at runtime.
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in():
+    # "Primary key required for incremental syncs" is raised in shared pipeline code (delta merge),
+    # not any one source, and lives in the shared Any_Source_Errors dict. It must be non-retryable in
+    # this in-activity handler for every source, not just those that duplicate the message into their
+    # own get_non_retryable_errors — otherwise a keyless incremental table retries the activity's whole
+    # budget and reports on every attempt.
+    error = Exception("Primary key required for incremental syncs")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
     logger.aexception.assert_not_awaited()
 
 

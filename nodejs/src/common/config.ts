@@ -25,6 +25,7 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_ml_mirror = 'recordings-blob-ingestion-v2-ml-mirror',
     recordings_blob_ingestion_v2_ml_parquet_sink = 'recordings-blob-ingestion-v2-ml-parquet-sink',
     recordings_blob_ingestion_v2_ml_image_scrub = 'recordings-blob-ingestion-v2-ml-image-scrub',
+    recordings_blob_ingestion_v2_ml_image_scrub_dlq_replay = 'recordings-blob-ingestion-v2-ml-image-scrub-dlq-replay',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -50,7 +51,6 @@ export enum PluginServerMode {
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
-    email_reputation_evaluator = 'email-reputation-evaluator',
     ingestion_api = 'ingestion-api',
 }
 
@@ -191,6 +191,11 @@ export type CommonConfig = BaseServerConfig & {
     // Execute transformations on the Rust HogVM instead of the Node VM. Invocations the Rust VM
     // can't run (unsupported host functions, addon not built) fall back to the Node VM.
     CDP_HOG_RUST_VM_EXECUTION_ENABLED: boolean
+
+    // With the Rust VM enabled, coalesce concurrent same-program invocations into one
+    // executeBatch FFI call per tick, executed off the JS event loop, instead of per-invocation
+    // executeSync on the JS thread.
+    CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: boolean
 
     // Event loop yield helper (yieldEventLoopIfNeeded)
     EVENT_LOOP_YIELD_THRESHOLD_MS: number
@@ -363,6 +368,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         // Shared between ingestion and CDP
         CDP_HOG_WATCHER_SAMPLE_RATE: 0,
         CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+        CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
 
         // Event loop yield helper
         EVENT_LOOP_YIELD_THRESHOLD_MS: 200,

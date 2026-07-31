@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import psycopg
 import structlog
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
     batch_consumer as batch_consumer_module,
@@ -21,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ConsumerConfig,
     DeltaBatchConsumerAdapter,
     _group_by_key,
+    _update_job_status_to_failed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
@@ -175,6 +177,41 @@ class TestProcessSingle:
         assert mock_fail.call_args[1]["reason"] == message  # customer-visible error stays actionable
         states = [call[1]["job_state"] for call in mock_status.call_args_list]
         assert SourceBatchStatus.State.WAITING_RETRY not in states
+
+    @pytest.mark.parametrize(
+        ("message", "expect_capture"),
+        [
+            # Expected upstream/customer condition (a source column's type changed and no longer
+            # fits the stored type): the run fails with an actionable message but stays out of
+            # error tracking.
+            ("Source column type changed: 'price' has values that no longer fit its stored type int64", False),
+            # The job or schema was deleted mid-sync (e.g. the source was removed) — also an
+            # upstream/customer condition, not a pipeline bug.
+            ("ExternalDataJob matching query does not exist.", False),
+            ("ExternalDataSchema matching query does not exist.", False),
+            # A genuine non-retryable failure must still surface so real bugs aren't hidden.
+            ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_expected_user_error_skips_error_tracking(self, message: str, expect_capture: bool):
+        consumer = _make_consumer(max_attempts=3)
+        batch = _make_batch(latest_attempt=0)
+        consumer._process_batch = AsyncMock(side_effect=ValueError(message))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        assert mock_fail.call_args[1]["reason"] == message  # run still fails with the actionable message
+        assert mock_capture.called is expect_capture
 
     @pytest.mark.asyncio
     async def test_max_attempts_exceeded_fails_run(self):
@@ -666,6 +703,66 @@ class TestQueueOperationTimeouts:
             consumer._shutdown.set()
             await asyncio.wait_for(run_task, timeout=5.0)
 
+    @pytest.mark.asyncio
+    async def test_poll_timeout_wrapped_as_operational_error_is_not_reported(self):
+        # psycopg's async wait loop can catch the CancelledError that
+        # asyncio.timeout() raises on expiry and re-raise it as a generic
+        # OperationalError ("consuming input failed: server closed the
+        # connection unexpectedly") instead of letting TimeoutError propagate.
+        # This is still the designed poll-timeout path, not a queue-DB outage,
+        # so it must not be reported to error tracking.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+            poll_timeout_seconds=0.05,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        second_poll_started = asyncio.Event()
+        fetch_calls = 0
+
+        async def fetch_wraps_cancellation_as_operational_error(*args: Any, **kwargs: Any) -> list[PendingBatch]:
+            nonlocal fetch_calls
+            fetch_calls += 1
+            if fetch_calls >= 2:
+                second_poll_started.set()
+                return []
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                raise psycopg.OperationalError(
+                    "consuming input failed: server closed the connection unexpectedly"
+                ) from None
+            return []
+
+        with (
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_unprocessed_and_lock",
+                side_effect=fetch_wraps_cancellation_as_operational_error,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+                new_callable=AsyncMock,
+            ),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            # A second poll can only start if the wrapped timeout was treated as recoverable.
+            await asyncio.wait_for(second_poll_started.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+
 
 class TestPollFailureLiveness:
     def test_withholds_liveness_after_threshold_consecutive_failures(self):
@@ -834,6 +931,26 @@ class TestFailRun:
             await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
 
         mock_status.assert_called_once()
+
+
+class TestUpdateJobStatusToFailed:
+    def test_swallows_does_not_exist_when_job_deleted_mid_sync(self):
+        # The job row can vanish (e.g. its source was removed) between the "not already
+        # failed" check and the write below — this must be a no-op, not a second
+        # DoesNotExist raised on top of the batch's original failure.
+        with (
+            patch(
+                "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
+            ) as mock_filter,
+            patch(
+                "products.data_warehouse.backend.facade.api.update_external_job_status",
+                side_effect=ExternalDataJob.DoesNotExist,
+            ) as mock_update,
+        ):
+            mock_filter.return_value.first.return_value = None
+            _update_job_status_to_failed(job_id="job-1", team_id=1, error="boom")
+
+        mock_update.assert_called_once()
 
 
 class TestShouldProcessBatch:

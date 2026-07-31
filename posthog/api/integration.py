@@ -1,7 +1,8 @@
 import os
 import re
 import json
-from typing import Any, cast
+from collections.abc import Iterable
+from typing import Any, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -94,6 +95,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
+from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
@@ -145,7 +147,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         separators=(",", ":"),
     )
     try:
-        # 300s tolerance matches the agentic-provisioning HMAC check at ee/api/agentic_provisioning/signature.py.
+        # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -175,6 +177,17 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
                 "This integration's authentication token could not be refreshed. "
                 "Please reconnect or disconnect this integration and connect a different account."
             )
+
+
+class _HasNameOrId(Protocol):
+    id: Any
+
+    @property
+    def name(self) -> str | None: ...
+
+
+def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
+    return ", ".join(sorted(it.name or str(it.id) for it in items))
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -403,6 +416,24 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         team_id = self.context["team_id"]
         kind = validated_data["kind"]
 
+        # Setting push identity verification is a security policy change, not a credential upload, so it
+        # needs the same admin bar as editing an integration. Without this a plain member could add a
+        # *new* APNs integration carrying someone else's bundle_id under a different Apple team id —
+        # which sidesteps the overwrite check below, since it creates rather than overwrites — and set
+        # `required` on it. The push endpoint resolves the strictest mode across every integration
+        # matching a bundle_id, so that would start rejecting the real app's device registrations.
+        #
+        # `disabled` is gated too, not just the enabling modes. The overwrite check below reads the
+        # existing ids before the write, so a member racing the first setup of an integration would
+        # still be classified as a create and could land `disabled` over the policy an admin had just
+        # written. Omitting the key entirely stays open to members and is what connecting a channel
+        # without touching the policy does — that path preserves whatever is already stored.
+        requested_verification = (validated_data.get("config") or {}).get("push_identity_verification")
+        if requested_verification and not github_callback_state.has_team_management_access(
+            self.context["request"].user, self.context["get_team"]()
+        ):
+            raise PermissionDenied("Changing push identity verification requires project admin access.")
+
         # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
@@ -458,7 +489,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 key_info = config.get("key_info")
                 if not key_info:
                     raise ValidationError("Firebase service account key must be provided")
-            instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
+            instance = FirebaseIntegration.integration_from_key(
+                key_info,
+                team_id,
+                request.user,
+                push_identity_verification=(validated_data.get("config") or {}).get("push_identity_verification"),
+            )
             return instance
 
         elif validated_data["kind"] == "email":
@@ -670,6 +706,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 team_id=team_id,
                 created_by=request.user,
                 environment=environment,
+                push_identity_verification=config.get("push_identity_verification"),
             )
             return instance
 
@@ -842,7 +879,7 @@ class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
     next = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).",
+        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Desktop).",
     )
     installation_id = serializers.CharField(
         required=False,
@@ -978,15 +1015,24 @@ class IntegrationViewSet(
         functions_using_integration = get_enabled_hog_functions_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
+        batch_exports_using_integration = get_batch_exports_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+
         used_by = []
+
         if flows_using_integration:
-            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            flow_names = _concat_names_or_ids(flows_using_integration)
             used_by.append(f"active workflows: {flow_names}")
+
         if functions_using_integration:
-            function_names = ", ".join(
-                sorted(function.name or str(function.id) for function in functions_using_integration)
-            )
+            function_names = _concat_names_or_ids(functions_using_integration)
             used_by.append(f"enabled data pipelines: {function_names}")
+
+        if batch_exports_using_integration:
+            batch_export_names = _concat_names_or_ids(batch_exports_using_integration)
+            used_by.append(f"batch exports: {batch_export_names}")
+
         if used_by:
             raise ValidationError(
                 f"This integration is used by {' and '.join(used_by)}. "
@@ -1050,7 +1096,7 @@ class IntegrationViewSet(
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, team_id=self.team_id)
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)

@@ -272,7 +272,6 @@ class AssistantNavigateUrl(StrEnum):
     NOTEBOOKS = "notebooks"
     REPLAY = "replay"
     REPLAY_SETTINGS = "replaySettings"
-    REVENUE_ANALYTICS = "revenueAnalytics"
     SAVED_INSIGHTS = "savedInsights"
     SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
@@ -380,7 +379,6 @@ class AssistantTool(StrEnum):
     SEARCH = "search"
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
-    FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
     FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
     CREATE_EXPERIMENT = "create_experiment"
@@ -855,6 +853,11 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
+class DatabaseSchemaTableCertificationStatus(StrEnum):
+    CERTIFIED = "certified"
+    DEPRECATED = "deprecated"
+
+
 class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
     SYSTEM = "system"
@@ -912,6 +915,7 @@ class DefaultChannelTypes(StrEnum):
     ORGANIC_SOCIAL = "Organic Social"
     ORGANIC_VIDEO = "Organic Video"
     ORGANIC_SHOPPING = "Organic Shopping"
+    AI = "AI"
     PUSH = "Push"
     SMS = "SMS"
     AUDIO = "Audio"
@@ -1619,6 +1623,7 @@ class ExternalDataSourceType(StrEnum):
     PRESTA_SHOP = "PrestaShop"
     PRETIX = "Pretix"
     PRIMETRIC = "Primetric"
+    PRINTAVO = "Printavo"
     PRINTIFY = "Printify"
     PRODUCTIVE = "Productive"
     PYLON = "Pylon"
@@ -2429,6 +2434,32 @@ class ExternalDataSourceType(StrEnum):
     TALLY = "Tally"
     NUNTLY = "Nuntly"
     VTURB = "Vturb"
+    MELTWATER = "Meltwater"
+    USER_COM = "UserCom"
+    LATITUDE = "Latitude"
+    WORKATO = "Workato"
+    SIDE_SHIFT = "SideShift"
+    DUCK_LAKE = "DuckLake"
+    STARBURST = "Starburst"
+    EASYBILL = "Easybill"
+    BEXIO = "Bexio"
+    UMAMI = "Umami"
+    MANYCHAT = "Manychat"
+    KICKSTARTER = "Kickstarter"
+    TYPESENSE = "Typesense"
+    FIRST_PROMOTER = "FirstPromoter"
+    ZERO = "Zero"
+    INTH = "Inth"
+    BCMS = "BCMS"
+    CONVONITE = "Convonite"
+    HOOKDECK = "Hookdeck"
+    BILLIT = "Billit"
+    MOXIE = "Moxie"
+    TRIPLE_WHALE = "TripleWhale"
+    DIRECTUS = "Directus"
+    CLAY = "Clay"
+    TRADABLE_BITS = "TradableBits"
+    SWAN = "Swan"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2822,6 +2853,7 @@ class IntegrationKind(StrEnum):
     FIREBASE = "firebase"
     JIRA = "jira"
     PINTEREST_ADS = "pinterest-ads"
+    PARDOT = "pardot"
     CUSTOMERIO_APP = "customerio-app"
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
@@ -2948,6 +2980,7 @@ class MarketingAnalyticsConstants(StrEnum):
 
 class MarketingAnalyticsDrillDownLevel(StrEnum):
     CHANNEL = "channel"
+    CHANNEL_SOURCE = "channel_source"
     SOURCE = "source"
     CAMPAIGN = "campaign"
     AD_GROUP = "ad_group"
@@ -3134,8 +3167,6 @@ class NodeKind(StrEnum):
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
     RECORDINGS_QUERY = "RecordingsQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
-    REVENUE_EXAMPLE_EVENTS_QUERY = "RevenueExampleEventsQuery"
-    REVENUE_EXAMPLE_DATA_WAREHOUSE_TABLES_QUERY = "RevenueExampleDataWarehouseTablesQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     ERROR_TRACKING_SIMILAR_ISSUES_QUERY = "ErrorTrackingSimilarIssuesQuery"
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
@@ -3168,17 +3199,13 @@ class NodeKind(StrEnum):
     WEB_OVERVIEW_QUERY = "WebOverviewQuery"
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
+    WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
-    REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
-    REVENUE_ANALYTICS_METRICS_QUERY = "RevenueAnalyticsMetricsQuery"
-    REVENUE_ANALYTICS_MRR_QUERY = "RevenueAnalyticsMRRQuery"
-    REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
-    REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
@@ -3270,6 +3297,7 @@ class ProductIntentContext(StrEnum):
     SELECTED_CONNECTOR = "selected connector"
     SQL_EDITOR_EMPTY_STATE = "sql editor empty state"
     DATA_WAREHOUSE_SOURCES_TABLE = "data warehouse sources table"
+    MANAGED_WAREHOUSE_PROVISIONED = "managed warehouse provisioned"
     EXPERIMENT_CREATED = "experiment created"
     EXPERIMENT_ANALYZED = "experiment analyzed"
     EXPERIMENT_VIEW_RECORDINGS = "experiment view recordings"
@@ -3297,6 +3325,7 @@ class ProductIntentContext(StrEnum):
     METRICS_SQL_QUERY_RUN = "metrics_sql_query_run"
     METRICS_QUERY_SAVED = "metrics_query_saved"
     METRICS_FIRST_INGESTED = "metrics_first_ingested"
+    METRICS_SCRAPE_AGENT_SNIPPET_COPIED = "metrics_scrape_agent_snippet_copied"
     TAXONOMIC_FILTER_EMPTY_STATE = "taxonomic filter empty state"
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = "create_experiment_from_funnel_button"
     WEB_ANALYTICS_INSIGHT = "web_analytics_insight"
@@ -3326,10 +3355,7 @@ class ProductIntentContext(StrEnum):
     SURVEY_EDITED = "survey_edited"
     SURVEY_ANALYZED = "survey_analyzed"
     QUICK_SURVEY_STARTED = "quick_survey_started"
-    REVENUE_ANALYTICS_VIEWED = "revenue_analytics_viewed"
-    REVENUE_ANALYTICS_ONBOARDING_COMPLETED = "revenue_analytics_onboarding_completed"
     REVENUE_ANALYTICS_EVENT_CREATED = "revenue_analytics_event_created"
-    REVENUE_ANALYTICS_DATA_SOURCE_CONNECTED = "revenue_analytics_data_source_connected"
     MARKETING_ANALYTICS_SOURCE_CONFIGURED = "marketing_analytics_source_configured"
     MARKETING_ANALYTICS_SETTINGS_UPDATED = "marketing_analytics_settings_updated"
     MARKETING_ANALYTICS_DASHBOARD_INTERACTION = "marketing_analytics_dashboard_interaction"
@@ -3386,6 +3412,7 @@ class ProductKey(StrEnum):
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DATA_CATALOG = "data_catalog"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
     EARLY_ACCESS_FEATURES = "early_access_features"
@@ -3406,6 +3433,7 @@ class ProductKey(StrEnum):
     LLM_EVALUATIONS = "llm_evaluations"
     LLM_PROMPTS = "llm_prompts"
     LOGS = "logs"
+    MANAGED_WAREHOUSE = "managed_warehouse"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
     MCP_ANALYTICS = "mcp_analytics"
@@ -3488,6 +3516,10 @@ class PropertyOperator(StrEnum):
     IS_NOT = "is_not"
     ICONTAINS = "icontains"
     NOT_ICONTAINS = "not_icontains"
+    STARTS_WITH = "starts_with"
+    NOT_STARTS_WITH = "not_starts_with"
+    ENDS_WITH = "ends_with"
+    NOT_ENDS_WITH = "not_ends_with"
     REGEX = "regex"
     NOT_REGEX = "not_regex"
     GT = "gt"
@@ -3625,22 +3657,6 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 
-class MrrOrGross(StrEnum):
-    MRR = "mrr"
-    GROSS = "gross"
-
-
-class RevenueAnalyticsOverviewItemKey(StrEnum):
-    REVENUE = "revenue"
-    PAYING_CUSTOMER_COUNT = "paying_customer_count"
-    AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
-
-
-class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
-    MONTH = "month"
-    ALL = "all"
-
-
 class SessionAttributionGroupBy(StrEnum):
     CHANNEL_TYPE = "ChannelType"
     MEDIUM = "Medium"
@@ -3661,11 +3677,6 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
-
-
-class SimpleIntervalType(StrEnum):
-    DAY = "day"
-    MONTH = "month"
 
 
 class SlackIntegrationScope(StrEnum):
@@ -3690,8 +3701,10 @@ class SlackIntegrationScopeInReview(StrEnum):
     CANVASES_WRITE = "canvases:write"
     CHANNELS_MANAGE = "channels:manage"
     COMMANDS = "commands"
+    FILES_READ = "files:read"
     FILES_WRITE = "files:write"
     IM_HISTORY = "im:history"
+    MPIM_HISTORY = "mpim:history"
     MPIM_READ = "mpim:read"
 
 
@@ -4012,6 +4025,11 @@ class WebAnalyticsPreComputeStrategy(StrEnum):
     LIVE = "live"
 
 
+class WebBotsBreakdown(StrEnum):
+    CRAWLER = "Crawler"
+    PATH = "Path"
+
+
 class WebStatsBreakdown(StrEnum):
     PAGE = "Page"
     INITIAL_PAGE = "InitialPage"
@@ -4028,6 +4046,14 @@ class WebStatsBreakdown(StrEnum):
     INITIAL_UTM_TERM = "InitialUTMTerm"
     INITIAL_UTM_CONTENT = "InitialUTMContent"
     INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN = "InitialUTMSourceMediumCampaign"
+    FIRST_PAGEVIEW_CHANNEL_TYPE = "FirstPageviewChannelType"
+    FIRST_PAGEVIEW_REFERRING_DOMAIN = "FirstPageviewReferringDomain"
+    FIRST_PAGEVIEW_UTM_SOURCE = "FirstPageviewUTMSource"
+    FIRST_PAGEVIEW_UTM_CAMPAIGN = "FirstPageviewUTMCampaign"
+    FIRST_PAGEVIEW_UTM_MEDIUM = "FirstPageviewUTMMedium"
+    FIRST_PAGEVIEW_UTM_TERM = "FirstPageviewUTMTerm"
+    FIRST_PAGEVIEW_UTM_CONTENT = "FirstPageviewUTMContent"
+    FIRST_PAGEVIEW_UTM_SOURCE_MEDIUM_CAMPAIGN = "FirstPageviewUTMSourceMediumCampaign"
     BROWSER = "Browser"
     OS = "OS"
     VIEWPORT = "Viewport"

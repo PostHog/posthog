@@ -86,6 +86,8 @@ logger = get_write_only_logger()
 
 BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_execution_latency",
+    "batch_exports_activity_succeed_endtoend_latency",
+    "batch_exports_workflow_endtoend_latency",
     "batch_exports_activity_interval_execution_latency",
     "batch_exports_workflow_interval_execution_latency",
 )

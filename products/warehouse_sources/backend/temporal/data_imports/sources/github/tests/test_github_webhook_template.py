@@ -95,11 +95,56 @@ class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         assert res.result["httpResponse"]["status"] == 200
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
-    def test_workflow_job_row_lands_unchanged(self):
-        job = {"id": 1, "status": "completed", "conclusion": "success"}
-        self._run("workflow_job", {"action": "completed", "workflow_job": job}, {"workflow_job": "schema_jobs"})
+    @parameterized.expand(
+        [
+            ("workflow_job", "completed", {"id": 1, "status": "completed", "conclusion": "success"}),
+            ("deployment", "created", {"id": 7, "environment": "production", "sha": "abc123"}),
+            (
+                "check_run",
+                "completed",
+                {"id": 42, "head_sha": "abc123", "status": "completed", "conclusion": "success"},
+            ),
+        ]
+    )
+    def test_row_lands_unchanged_when_event_nests_under_its_own_key(
+        self, event_type: str, action: str, obj: dict[str, Any]
+    ):
+        # These events nest the object under body.<event_type>, matching the polled REST shape, so
+        # the row lands as-is. check_run is the one that could regress silently: it is a per-commit
+        # fan-out child, and if it ever started injecting a parent column the way reviews and
+        # deployment_statuses do, webhook rows would drift from poll rows without erroring.
+        self._run(event_type, {"action": action, event_type: obj}, {event_type: "schema_x"})
 
-        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(job, "schema_jobs")
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(obj, "schema_x")
+
+    def test_deployment_status_row_is_reshaped_to_poll_shape(self):
+        # The deployment_status event nests the status under body.deployment_status and its
+        # deployment under body.deployment; the status carries no deployment_id. The template must
+        # inject deployment_id so webhook rows match poll rows (which carry it from the parent).
+        body = {
+            "action": "created",
+            "deployment_status": {"id": 900, "state": "success", "created_at": "2026-01-20T10:00:00Z"},
+            "deployment": {"id": 7, "environment": "production"},
+        }
+        self._run("deployment_status", body, {"deployment_status": "schema_statuses"})
+
+        row, schema_id = self.mock_produce_to_warehouse_webhooks.call_args.args
+        assert schema_id == "schema_statuses"
+        assert row["id"] == 900
+        assert row["state"] == "success"
+        assert row["deployment_id"] == 7
+
+    @parameterized.expand(
+        [
+            ("missing_status", {"action": "created", "deployment": {"id": 7}}),
+            ("missing_deployment", {"action": "created", "deployment_status": {"id": 900, "state": "success"}}),
+        ]
+    )
+    def test_incomplete_deployment_status_payload_is_skipped_with_200(self, _name: str, body: dict[str, Any]):
+        res = self._run("deployment_status", body, {"deployment_status": "schema_statuses"})
+
+        assert res.result["httpResponse"]["status"] == 200
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     def test_unmapped_event_type_no_ops(self):
         # Sources whose schema_mapping predates the pull_request_review entry must 200-skip the

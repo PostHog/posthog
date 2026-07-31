@@ -1,7 +1,9 @@
 /**
  * Ingestion warning registry — the single source of truth for every warning type
  * this platform emits, shared across the Node.js pipeline and, via codegen, the
- * Rust producers (see the `captureProduced` note on the registry below).
+ * Rust producers (the whole registry is exported to
+ * `rust/common/ingestion_warnings/warning_types.generated.json`, from which the
+ * Rust `WarningType` enum is generated).
  *
  * This module is intentionally dependency-free (pure data + types): it can be
  * imported by the standalone generator (`bin/generate-ingestion-warning-types.mts`)
@@ -11,7 +13,7 @@
  * importers are unaffected.
  */
 
-export type IngestionWarningCategory = 'size' | 'merge' | 'event' | 'transformation' | 'replay'
+export type IngestionWarningCategory = 'size' | 'merge' | 'event' | 'transformation' | 'replay' | 'quota'
 export type IngestionWarningSeverity = 'info' | 'warning' | 'error'
 
 /**
@@ -28,6 +30,8 @@ export type IngestionWarningSeverity = 'info' | 'warning' | 'error'
 export const INGESTION_WARNING_TYPES = {
     // Size limits — payload or property blobs exceeding Kafka/Postgres limits
     message_size_too_large: { category: 'size', severity: 'error' },
+    // The personhog leader trimmed or rejected a person property update at
+    // admission to fit the Postgres size constraint.
     person_properties_size_violation: { category: 'size', severity: 'error' },
     person_upsert_message_size_too_large: { category: 'size', severity: 'error' },
     group_upsert_message_size_too_large: { category: 'size', severity: 'error' },
@@ -41,10 +45,8 @@ export const INGESTION_WARNING_TYPES = {
     // Event validation — malformed or rejected event data
     client_ingestion_warning: { category: 'event', severity: 'info' },
     // Capture-side validation drops (Rust capture; see rust/common/ingestion_warnings/src/registry.rs).
-    // `captureProduced: true` is the source of truth for the cross-language contract: it derives
-    // CAPTURE_PRODUCED_WARNING_TYPES (below) and is exported to
-    // rust/common/ingestion_warnings/capture_warning_types.generated.json (`pnpm gen:ingestion-warning-types`),
-    // from which the Rust WarningType enum is generated. Adding/removing a capture type is one edit here.
+    // `captureProduced: true` marks the types capture may set via the structured envelope property —
+    // it derives the CAPTURE_PRODUCED_WARNING_TYPES trust allowlist below.
     missing_event_name: { category: 'event', severity: 'error', captureProduced: true },
     event_name_too_long: { category: 'event', severity: 'error', captureProduced: true },
     missing_distinct_id: { category: 'event', severity: 'error', captureProduced: true },
@@ -81,6 +83,12 @@ export const INGESTION_WARNING_TYPES = {
     // Error tracking — exception event processing
     error_tracking_exception_processing_errors: { category: 'event', severity: 'warning' },
 
+    // Quota and rate limiting — platform-imposed limits, not team-configured ones.
+    // Severity is 'warning' rather than 'error' because nothing is dropped: the
+    // event is ingested with person profile processing turned off and rerouted to
+    // overflow. See `apply_token_distinct_id_limits` in rust/capture.
+    high_volume_distinct_id: { category: 'quota', severity: 'warning', captureProduced: true },
+
     // Transformations — user-configured hog transformations
     event_dropped_by_transformation: { category: 'transformation', severity: 'info' },
 
@@ -90,7 +98,11 @@ export const INGESTION_WARNING_TYPES = {
     message_timestamp_diff_too_large: { category: 'replay', severity: 'warning' },
 } as const satisfies Record<
     string,
-    { category: IngestionWarningCategory; severity: IngestionWarningSeverity; captureProduced?: true }
+    {
+        category: IngestionWarningCategory
+        severity: IngestionWarningSeverity
+        captureProduced?: true
+    }
 >
 
 export type IngestionWarningType = keyof typeof INGESTION_WARNING_TYPES
@@ -106,8 +118,13 @@ export type IngestionWarningType = keyof typeof INGESTION_WARNING_TYPES
  * validated `errors` array shape).
  *
  * Derived from the `captureProduced` flag above rather than hand-listed, so this
- * allowlist can never skew from the registry, and the same flag drives the Rust
- * codegen — a new capture type is wired on both sides from a single edit.
+ * allowlist can never skew from the registry. The flag is also exported in the
+ * generated Rust artifact, where a test welds this set to the union of capture's
+ * two emit routes: types derived from an error tag (`from_tag`) and types capture
+ * emits directly, with no tag behind them (`DIRECT_EMIT`). Skew in either
+ * direction silently drops warnings — a flagged type on neither route is never
+ * emitted, and a type on a route without the flag is emitted and then rejected
+ * here at the consumer.
  */
 export const CAPTURE_PRODUCED_WARNING_TYPES: ReadonlySet<IngestionWarningType> = new Set(
     (Object.entries(INGESTION_WARNING_TYPES) as [IngestionWarningType, { captureProduced?: boolean }][])

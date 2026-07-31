@@ -85,8 +85,12 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
-from products.engineering_analytics.backend.facade.temporal import create_github_job_logs_coordinator_schedule
+from products.engineering_analytics.backend.facade.temporal import (
+    create_ci_signals_coordinator_schedule,
+    create_github_job_logs_coordinator_schedule,
+)
 from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
     create_error_tracking_spike_event_cleanup_schedule,
@@ -99,6 +103,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
@@ -832,9 +837,12 @@ schedules = [
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
     create_support_reply_coordinator_schedule,
+    create_channel_summary_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_github_job_logs_coordinator_schedule,
+    create_review_hog_finding_outcomes_schedule,
+    create_ci_signals_coordinator_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:

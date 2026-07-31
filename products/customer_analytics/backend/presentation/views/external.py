@@ -7,6 +7,14 @@ Authorization header. The bulk account list instead authenticates via a project
 secret API key carrying the ``account:read`` scope, because the team token is
 readable by every project member and must not unlock a team-wide account export.
 
+The team token deliberately grants single-account writes (create, tags,
+relationships, custom property values) without per-user ``account`` scope checks:
+workflow executions have no acting user to authorize, and the token is only
+readable by members of the project whose accounts it writes. Security reviewers
+periodically flag this as a write-permission bypass — it is the accepted model
+for this surface, matching the resource-level scoping note in the product's
+CLAUDE.md.
+
 The view holds only HTTP concerns — Bearer auth, throttles, the feature-flag gate,
 request validation, and mapping facade results to responses. Data access, the
 transactional write, org-membership resolution, tag application, and exception
@@ -262,9 +270,55 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError({field: "Assignee id must be a user id"})
 
 
+class ExternalAccountCreateSerializer(serializers.Serializer):
+    external_id = serializers.CharField(
+        max_length=400,
+        help_text=(
+            "External ID (group key) for the account. An account with this ID already existing is a no-op. "
+            "The account name is derived from the matching group's `name` property, falling back to this ID."
+        ),
+    )
+
+
+class ExternalAccountAssignmentSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
+    email = serializers.CharField(help_text="Email address of the assigned user.")
+
+
+class ExternalAccountSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Account UUID.")
+    external_id = serializers.CharField(
+        allow_null=True, help_text="External account key — the group key the account is linked to."
+    )
+    name = serializers.CharField(help_text="Human-readable account name.")
+    properties = serializers.DictField(
+        child=serializers.JSONField(help_text="Property value: a string, a role-assignment object, or null."),
+        help_text="Typed account properties: role assignments (csm, account_executive, account_owner) and external-system ids.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(), help_text="Tag names on the account, sorted alphabetically."
+    )
+    relationships = serializers.DictField(
+        child=ExternalAccountAssignmentSerializer(many=True),
+        help_text=(
+            "Active relationship assignments keyed by definition name (e.g. 'CSM'). "
+            "Definitions with no active assignment are omitted."
+        ),
+    )
+    custom_properties = serializers.DictField(
+        child=serializers.JSONField(help_text="The property's active scalar value, or null when unset."),
+        help_text="Every team custom property definition keyed by name, with the account's active value or null.",
+    )
+
+
+class ExternalAccountErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="What went wrong with the request.")
+
+
 class ExternalAccountView(APIView):
     """
     GET /api/customer_analytics/external/account?external_id=<external_id> — Fetch account data
+    POST /api/customer_analytics/external/account — Create an account (no-op if it already exists)
     PATCH /api/customer_analytics/external/account — Update an account's role contacts and tags
 
     Authenticated via Bearer token (team secret_api_token) in Authorization header.
@@ -290,6 +344,53 @@ class ExternalAccountView(APIView):
             return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(_external_account_body(account))
+
+    @extend_schema(
+        request=ExternalAccountCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=ExternalAccountSerializer, description="Account created."),
+            200: OpenApiResponse(
+                response=ExternalAccountSerializer, description="Account already existed — creation skipped."
+            ),
+            400: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Invalid request body."),
+            401: OpenApiResponse(
+                response=ExternalAccountErrorSerializer, description="Missing or invalid Bearer token."
+            ),
+        },
+    )
+    def post(self, request: Request) -> Response:
+        team, error = _authenticate_team(request)
+        if error:
+            return error
+
+        assert team is not None
+
+        serializer = ExternalAccountCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+
+        external_id = data["external_id"].strip()
+        if not external_id:
+            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            account, created = facade.create_external_account(
+                team,
+                external_id=external_id,
+                workflow_id=_workflow_id_from_request(request),
+            )
+        except facade.AccountConflictError:
+            # Lost a concurrent-create race; the account exists now, so honor no-op semantics.
+            existing = facade.get_external_account(team.id, external_id)
+            if existing is None:
+                return Response({"error": "Failed to create account"}, status=status.HTTP_400_BAD_REQUEST)
+            account, created = existing, False
+
+        return Response(
+            _external_account_body(account),
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
     def patch(self, request: Request) -> Response:
         team, error = _authenticate_team(request)
@@ -550,7 +651,9 @@ class ExternalAccountCustomPropertiesView(APIView):
         if not external_id:
             return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        result = facade.set_external_account_custom_properties(team.id, external_id, properties=data["properties"])
+        result = facade.set_external_account_custom_properties(
+            team.id, external_id, properties=data["properties"], workflow_id=_workflow_id_from_request(request)
+        )
         if result.values is None:
             return _custom_properties_error_response(result)
 

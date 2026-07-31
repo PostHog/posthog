@@ -37,12 +37,6 @@ layer = "modules"
 utility = true
 
 [[modules]]
-path = "common.alerting"
-depends_on = []
-layer = "modules"
-utility = true
-
-[[modules]]
 path = "ee"
 depends_on = [
     "products.cohorts",
@@ -147,15 +141,6 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.agent_platform"
-depends_on = [
-    "posthog",
-    "products.mcp_store",
-    "products.skills",
 ]
 layer = "modules"
 
@@ -621,6 +606,7 @@ path = "products.review_hog"
 depends_on = [
     "ee",
     "posthog",
+    "products.engineering_analytics",
     "products.signals",
     "products.skills",
     "products.tasks",
@@ -667,6 +653,7 @@ layer = "modules"
 path = "products.slack_app"
 depends_on = [
     "posthog",
+    "products.alerts",
     "products.conversations",
     "products.dashboards",
     "products.product_analytics",
@@ -693,7 +680,9 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.conversations",
+    "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
@@ -710,6 +699,7 @@ depends_on = [
     "products.access_control",
     "products.actions",
     "products.analytics_platform", "products.warehouse_sources",
+    "products.feature_flags",
 ]
 layer = "modules"
 
@@ -763,6 +753,7 @@ layer = "modules"
 [[modules]]
 path = "products.web_analytics"
 depends_on = [
+    "products.access_control",
     "products.cohorts",
     "ee",
     "posthog",
@@ -1064,7 +1055,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources"]
+depends_on = ["posthog", "products.data_modeling", "products.warehouse_sources", "products.signals"]
 layer = "modules"
 
 [[interfaces]]

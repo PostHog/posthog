@@ -477,6 +477,7 @@ class ExternalDataSourceType(models.TextChoices):
     PRESTASHOP = "PrestaShop", "PrestaShop"
     PRETIX = "Pretix", "Pretix"
     PRIMETRIC = "Primetric", "Primetric"
+    PRINTAVO = "Printavo", "Printavo"
     PRINTIFY = "Printify", "Printify"
     PRODUCTIVE = "Productive", "Productive"
     PYLON = "Pylon", "Pylon"
@@ -1287,6 +1288,32 @@ class ExternalDataSourceType(models.TextChoices):
     TALLY = "Tally", "Tally"
     NUNTLY = "Nuntly", "Nuntly"
     VTURB = "Vturb", "Vturb"
+    MELTWATER = "Meltwater", "Meltwater"
+    USERCOM = "UserCom", "UserCom"
+    LATITUDE = "Latitude", "Latitude"
+    WORKATO = "Workato", "Workato"
+    SIDESHIFT = "SideShift", "SideShift"
+    DUCKLAKE = "DuckLake", "DuckLake"
+    STARBURST = "Starburst", "Starburst"
+    EASYBILL = "Easybill", "Easybill"
+    BEXIO = "Bexio", "Bexio"
+    UMAMI = "Umami", "Umami"
+    MANYCHAT = "Manychat", "Manychat"
+    KICKSTARTER = "Kickstarter", "Kickstarter"
+    TYPESENSE = "Typesense", "Typesense"
+    FIRSTPROMOTER = "FirstPromoter", "FirstPromoter"
+    ZERO = "Zero", "Zero"
+    INTH = "Inth", "Inth"
+    BCMS = "BCMS", "BCMS"
+    CONVONITE = "Convonite", "Convonite"
+    HOOKDECK = "Hookdeck", "Hookdeck"
+    BILLIT = "Billit", "Billit"
+    MOXIE = "Moxie", "Moxie"
+    TRIPLEWHALE = "TripleWhale", "TripleWhale"
+    DIRECTUS = "Directus", "Directus"
+    CLAY = "Clay", "Clay"
+    TRADABLEBITS = "TradableBits", "TradableBits"
+    SWAN = "Swan", "Swan"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -1297,6 +1324,8 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.MYSQL: "mysql",
     ExternalDataSourceType.SNOWFLAKE: "snowflake",
     ExternalDataSourceType.REDSHIFT: "redshift",
+    ExternalDataSourceType.CLICKHOUSE: "clickhouse",
+    ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
 }
 
 

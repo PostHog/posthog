@@ -7,8 +7,10 @@ import dataclasses
 from django.conf import settings
 
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
+from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
@@ -23,6 +25,10 @@ from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
+)
+from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
+    DuckLakeRegisterDataImportsInputs,
+    DuckLakeRegisterDataImportsWorkflow,
 )
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
@@ -126,6 +132,21 @@ Any_Source_Errors: dict[str, str | None] = {
         "The incremental field configured for this table doesn't exist in the data the source returns. "
         "Edit the table's sync method, pick a valid incremental field, then re-enable the sync."
     ),
+    # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
+    # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger
+    # decimals than the stored type can hold. delta-rs can't widen a column in place, so every retry
+    # replays the same failure. Already non-retryable for SQL sources; declare it here so REST and
+    # managed sources stop retrying too.
+    "Source column type changed": (
+        "A column's type changed in your source and no longer fits the type we stored. We can't widen "
+        "an existing column in place — please reset and fully re-sync this table to adopt the new type."
+    ),
+    # Raised in shared pipeline code (`table_from_py_list` → `_process_batch`) when a column imported
+    # as a number contains non-numeric text. The same cells fail identically on every retry regardless
+    # of source. Already non-retryable for Google Sheets via its own get_non_retryable_errors; declare
+    # it here so every other source stops retrying too. The enriched message names the offending column
+    # and shows example cells, so keep the raw error rather than replacing it with a generic one.
+    "must be real number, not str": None,
 }
 
 
@@ -308,14 +329,53 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
 
+@async_to_sync
+async def _start_non_billable_resume_workflow(
+    temporal: Client, workflow_id: str, inputs: ExternalDataWorkflowInputs
+) -> None:
+    await temporal.start_workflow(
+        "external-data-job",
+        inputs,
+        id=workflow_id,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+    )
+
+
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     schema = ExternalDataSchema.objects.get(id=schedule_id)
     logger = LOGGER.bind(team_id=schema.team.pk)
 
-    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+    info = activity.info()
+    billable = (
+        ExternalDataJob.objects.filter(
+            schema_id=schema.id, workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id
+        )
+        .values_list("billable", flat=True)
+        .first()
+    )
 
     temporal = sync_connect()
+
+    # The schedule's stored action is always billable, so resuming through it would charge the customer
+    # for a sync we told them was free (admin resyncs, corruption rebuilds). Start an ad-hoc run instead.
+    if billable is False:
+        workflow_id = f"{schema.id}-non-billable-resume-{info.workflow_run_id}"
+        logger.debug(f"Starting non-billable resume workflow {workflow_id} for schema {schedule_id}")
+        _start_non_billable_resume_workflow(
+            temporal,
+            workflow_id,
+            ExternalDataWorkflowInputs(
+                team_id=schema.team_id,
+                external_data_source_id=schema.source_id,
+                external_data_schema_id=schema.id,
+                billable=False,
+            ),
+        )
+        return
+
+    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
@@ -498,7 +558,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_resumable_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
             elif incremental_or_append:
@@ -506,14 +566,15 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_incremental_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
             else:
                 timeout_params = {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                        maximum_attempts=3,
+                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
                     ),
                 }
 
@@ -698,6 +759,29 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "DuckLake copy already running, skipping",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
+
+            prepared_queryable_folder = pipeline_result.get("prepared_queryable_folder")
+            if prepared_queryable_folder and workflow.patched("data-imports-ducklake-registration-workflow-v1"):
+                try:
+                    await workflow.start_child_workflow(
+                        DuckLakeRegisterDataImportsWorkflow.run,
+                        DuckLakeRegisterDataImportsInputs(
+                            team_id=inputs.team_id,
+                            job_id=job_id,
+                            schema_id=inputs.external_data_schema_id,
+                            prepared_queryable_folder=prepared_queryable_folder,
+                        ),
+                        id=(
+                            f"ducklake-register-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}-{job_id}"
+                        ),
+                        task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.warning(
+                        "DuckLake prepared-file registration already running, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id), "job_id": job_id},
+                    )
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":
