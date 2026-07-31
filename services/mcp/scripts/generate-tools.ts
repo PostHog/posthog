@@ -946,8 +946,9 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     }
 
     // Joiner between url_prefix and the enrich_url prefix: append `/` for path-segment enrichments,
-    // but not when the template continues with a query string (e.g. '?tab=alerts&alert_id={id}').
-    const joinerFor = (prefix: string): string => (prefix.startsWith('?') ? '' : '/')
+    // but not when the template continues with a query string (e.g. '?tab=alerts&alert_id={id}')
+    // or fragment (e.g. '#runs').
+    const joinerFor = (prefix: string): string => (/^[?#]/.test(prefix) ? '' : '/')
 
     if (config.list && config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
