@@ -92,6 +92,7 @@ function RoleHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
     const confirmDelete = (): void => {
         LemonDialog.open({
             title: `Delete the ${role.role_name} role?`,
+            maxWidth: '30rem',
             description: (
                 <div className="space-y-2">
                     <p className="mb-0">
@@ -130,11 +131,17 @@ function RoleHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
             <More
                 overlay={
                     <>
-                        <LemonButton fullWidth icon={<IconGear />} to={urls.settings('organization-roles')}>
+                        <LemonButton
+                            fullWidth
+                            size="small"
+                            icon={<IconGear />}
+                            to={urls.settings('organization-roles')}
+                        >
                             Manage roles
                         </LemonButton>
                         <LemonButton
                             fullWidth
+                            size="small"
                             status="danger"
                             icon={<IconTrash />}
                             disabledReason={canEditRoles === false ? 'You cannot edit roles' : undefined}
