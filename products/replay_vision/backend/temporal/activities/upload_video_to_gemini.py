@@ -42,12 +42,14 @@ async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> 
             kind = classify_gemini_error(e)
             if kind is None:
                 raise
-            # The raw error can quote request content, so it goes to logs, never into the user-visible error_reason.
+            # The raw error body can quote request content, so it stays out of both the user-visible
+            # error_reason and the logs; code + status carry the diagnostic signal.
             logger.warning(
                 "replay_vision.upload_video_to_gemini.provider_error",
                 kind=kind.value,
                 error_type=type(e).__name__,
-                error=str(e)[:2000],
+                code=getattr(e, "code", None),
+                status=getattr(e, "status", None),
             )
             raise ScannerFailureError(describe_gemini_error(e), kind=kind) from e
 
