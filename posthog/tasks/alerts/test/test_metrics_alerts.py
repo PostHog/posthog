@@ -340,3 +340,77 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         insight = self.create_metrics_insight()
         response = self.create_alert(insight, lower=1.0, config=config, expected_status=400, **alert_overrides)
         assert expected_fragment in str(response).lower(), response
+
+    def test_firing_metrics_alert_runs_investigation_and_persists_summary(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The roadmap loop: a firing metrics alert attaches an investigation to its
+        # check, so the alert page carries the why, not just the that.
+        self.seed_gauge(dict.fromkeys(range(0, 6), 5.0) | {6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
+
+        run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
+        assert alert_check.investigation_status == "done"
+        assert alert_check.investigation_summary
+        assert self.metric_name in alert_check.investigation_summary
+
+    def test_investigation_only_runs_when_enabled(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, upper=20.0)
+
+        run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert alert_check.investigation_status is None
+        assert alert_check.investigation_summary is None
+
+    def test_investigation_failure_is_recorded_without_breaking_the_alert(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        self.seed_gauge({6: 50.0, 7: 50.0})
+        insight = self.create_metrics_insight()
+        alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
+
+        with patch(
+            "posthog.tasks.alerts.metrics_investigation._run_investigation",
+            side_effect=RuntimeError("boom"),
+        ):
+            run_alert_check(alert["id"])
+
+        alert_check = AlertCheck.objects.filter(alert_configuration=alert["id"]).latest("created_at")
+        assert AlertConfiguration.objects.get(pk=alert["id"]).state == AlertState.FIRING
+        assert alert_check.investigation_status == "failed"
+        mock_send_breaches.assert_called_once()  # the alert still notifies
+
+    def test_investigation_flag_still_rejected_for_trends_threshold_alerts(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock, mock_feature_enabled: MagicMock
+    ) -> None:
+        # Loosening the metrics gate must not loosen it for other kinds: a trends
+        # threshold alert without a detector still can't enable the agent.
+        trends_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+        }
+        trends_insight = self.dashboard_api.create_insight(data={"name": "t", "query": trends_query})[1]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "trends alert",
+                "insight": trends_insight["id"],
+                "subscribed_users": [self.user.id],
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "calculation_interval": AlertCalculationInterval.DAILY,
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 1.0}}},
+                "investigation_agent_enabled": True,
+            },
+        )
+        assert response.status_code == 400
+        assert "anomaly detection" in str(response.json()).lower()
