@@ -305,9 +305,6 @@ const config: Config = {
         '/services/mcp/',
         '/products/[^/]+/frontend/e2e/',
         '/products/visual_review/cli/',
-        // products/desktop is the imported desktop app: a nested standalone pnpm
-        // workspace with its own Vitest suite (run by desktop-* CI). Its deps aren't in
-        // the root install, so root Jest can't resolve them.
         '/products/desktop/',
     ],
 
