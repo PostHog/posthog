@@ -1526,6 +1526,8 @@ async def test_deliver_subscription_workflow_end_to_end(
 
     # 2 recipients
     assert mock_send_email.call_count == 2
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription=subscription)
+    assert {call.kwargs["delivery_id"] for call in mock_send_email.call_args_list} == {delivery.id}
 
     # Both started and completed events flow through posthog.slo.events
     started_calls = [

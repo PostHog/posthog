@@ -3,7 +3,7 @@ from typing import Optional
 
 import structlog
 
-from posthog.email import EmailMessage
+from posthog.email import EmailDeliveryError, EmailMessage, was_email_delivered
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -53,6 +53,7 @@ def send_email_subscription_report(
     send_async: bool = True,
     change_summary: Optional[str] = None,
     summary_skipped_over_budget: bool = False,
+    delivery_id: Optional[uuid.UUID] = None,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
 
@@ -68,12 +69,12 @@ def send_email_subscription_report(
         raise NotImplementedError("This type of subscription resource is not supported")
 
     subject = f"PostHog {resource_info.kind} report - {resource_info.name}"
-    # Subscription id scopes MessagingRecord dedupe per subscription; without it, shared recipients only get
-    # one send per (resource kind, next_delivery_date) because campaign_key collided across subscriptions.
-    campaign_key = (
-        f"{resource_info.kind.lower()}_subscription_report_{subscription.pk}_"
-        f"{subscription.next_delivery_date.isoformat() if subscription.next_delivery_date is not None else 'unscheduled'}"
-    )
+    delivery_key = "unscheduled"
+    if subscription.next_delivery_date is not None:
+        delivery_key = subscription.next_delivery_date.isoformat()
+    if delivery_id is not None:
+        delivery_key = str(delivery_id)
+    campaign_key = f"{resource_info.kind.lower()}_subscription_report_{subscription.pk}_{delivery_key}"
 
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
@@ -112,3 +113,6 @@ def send_email_subscription_report(
     )
     message.add_recipient(email=email)
     message.send(send_async=send_async)
+
+    if not send_async and not was_email_delivered(campaign_key, email):
+        raise EmailDeliveryError("subscription report send recorded no delivery")

@@ -484,6 +484,7 @@ async def _deliver_insight_dashboard_subscription(
                 send_async=False,
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
+                delivery_id=inputs.delivery_id,
             )
 
         result = await deliver_email(subscription, inputs, recipient_results, _send_email)

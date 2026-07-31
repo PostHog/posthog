@@ -29,7 +29,7 @@ from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.messaging import MessagingRecord
+from posthog.models.messaging import MessagingRecord, get_email_hashes
 
 logger = structlog.get_logger(__name__)
 
@@ -359,6 +359,17 @@ def _send_via_smtp(
                 connection.close()
             except Exception as err:
                 logger.warning("email_connection_close_failed", error=str(err))
+
+
+class EmailDeliveryError(Exception):
+    """A synchronous send returned without recording a delivery."""
+
+
+def was_email_delivered(campaign_key: str, email: str) -> bool:
+    """Return whether the provider accepted this campaign for this recipient."""
+    return MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=get_email_hashes(email), sent_at__isnull=False
+    ).exists()
 
 
 # `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never
