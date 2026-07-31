@@ -33,9 +33,13 @@ export function PropertyAccessRules({
     subjectNoun,
     canEdit,
 }: PropertyAccessRulesProps): JSX.Element {
-    const { properties, propertiesLoading } = useValues(accessDetailLogic({ projectId, scopeType, subjectId }))
+    const { properties, propertiesLoading, ruleSaving } = useValues(
+        accessDetailLogic({ projectId, scopeType, subjectId })
+    )
     const { setPropertyRule } = useActions(accessDetailLogic({ projectId, scopeType, subjectId }))
     const { openModal } = useActions(addPropertyRestrictionModalLogic({ projectId, scopeType, subjectId }))
+
+    const editDisabledReason = !canEdit ? 'You cannot edit this' : ruleSaving ? 'Saving…' : undefined
 
     return (
         <AccessDetailSection
@@ -75,7 +79,7 @@ export function PropertyAccessRules({
                                     value={p.access_level}
                                     dropdownPlacement="bottom-end"
                                     onChange={(level) => setPropertyRule(p.property_definition_id, level)}
-                                    disabledReason={!canEdit ? 'You cannot edit this' : undefined}
+                                    disabledReason={editDisabledReason}
                                     options={PROPERTY_LEVEL_OPTIONS}
                                 />
                             </div>
@@ -93,7 +97,7 @@ export function PropertyAccessRules({
                                     size="small"
                                     status="danger"
                                     icon={<IconTrash />}
-                                    disabledReason={!canEdit ? 'You cannot edit this' : undefined}
+                                    disabledReason={editDisabledReason}
                                     tooltip="Remove the restriction. Read & write applies instead."
                                     onClick={() => setPropertyRule(p.property_definition_id, null)}
                                 />
@@ -111,7 +115,7 @@ export function PropertyAccessRules({
                     size="small"
                     icon={<IconPlus />}
                     onClick={openModal}
-                    disabledReason={!canEdit ? 'You cannot edit this' : undefined}
+                    disabledReason={editDisabledReason}
                 >
                     Add rule
                 </LemonButton>

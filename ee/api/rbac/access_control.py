@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, cast
 
+from django.apps import apps
 from django.db.models import Q
 
 from rest_framework import exceptions, serializers, status
@@ -204,8 +205,6 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
     Models and display fields come from universal search's ENTITY_MAP, whose keys match
     access-control resources, with a small supplement for resources search doesn't index.
     """
-    from django.apps import apps
-
     from posthog.api.search import (
         ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
     )
@@ -216,7 +215,9 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
     if entity is not None:
         model = entity["klass"]
         # The primary display field is the one search ranks highest (name / key / title)
-        name_field = next(field for field, rank in entity["search_fields"].items() if rank == "A")
+        name_field = next((field for field, rank in entity["search_fields"].items() if rank == "A"), None)
+        if name_field is None:
+            return {}
         try:
             rows = model.objects.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
             return {str(pk): name for pk, name in rows}
@@ -920,21 +921,21 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_default_objects")
-    def access_control_default_objects(self, request: Request, *args, **kwargs):
+    def access_control_default_objects(self, request: Request, *args, **kwargs) -> Response:
         """Object-level access rules that apply to everyone without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
         return self._object_rules_response(team)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_default_properties")
-    def access_control_default_properties(self, request: Request, *args, **kwargs):
+    def access_control_default_properties(self, request: Request, *args, **kwargs) -> Response:
         """Property restrictions that apply to everyone without a rule of their own."""
         team = cast(Team, self.team)  # type: ignore
         return self._property_rules_response(team, organization_member=None, role=None)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_member_objects")
-    def access_control_member_objects(self, request: Request, *args, **kwargs):
+    def access_control_member_objects(self, request: Request, *args, **kwargs) -> Response:
         """Object-level access rules configured for a member."""
         team = cast(Team, self.team)  # type: ignore
         membership = self._get_membership(request, team)
@@ -942,7 +943,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_member_properties")
-    def access_control_member_properties(self, request: Request, *args, **kwargs):
+    def access_control_member_properties(self, request: Request, *args, **kwargs) -> Response:
         """Property restrictions configured for a member."""
         team = cast(Team, self.team)  # type: ignore
         membership = self._get_membership(request, team)
@@ -950,7 +951,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_role_objects")
-    def access_control_role_objects(self, request: Request, *args, **kwargs):
+    def access_control_role_objects(self, request: Request, *args, **kwargs) -> Response:
         """Object-level access rules configured for a role."""
         team = cast(Team, self.team)  # type: ignore
         role = self._get_role(request, team)
@@ -958,7 +959,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_role_properties")
-    def access_control_role_properties(self, request: Request, *args, **kwargs):
+    def access_control_role_properties(self, request: Request, *args, **kwargs) -> Response:
         """Property restrictions configured for a role."""
         team = cast(Team, self.team)  # type: ignore
         role = self._get_role(request, team)

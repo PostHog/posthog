@@ -7,7 +7,7 @@ import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { APIScopeObject, AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AccessLevelSelect } from '../AccessLevelSelect'
 import { AccessObjectRule, OBJECT_RULE_RESOURCES, accessDetailLogic } from './accessDetailLogic'
@@ -66,9 +66,11 @@ export function ObjectAccessRules({
     subjectNoun,
     canEdit,
 }: ObjectAccessRulesProps): JSX.Element {
-    const { objects, objectsLoading } = useValues(accessDetailLogic({ projectId, scopeType, subjectId }))
+    const { objects, objectsLoading, ruleSaving } = useValues(accessDetailLogic({ projectId, scopeType, subjectId }))
     const { setObjectRule } = useActions(accessDetailLogic({ projectId, scopeType, subjectId }))
     const { openModal } = useActions(addObjectOverrideModalLogic({ projectId, scopeType, subjectId }))
+
+    const editDisabledReason = !canEdit ? 'You cannot edit this' : ruleSaving ? 'Saving…' : undefined
 
     return (
         <AccessDetailSection
@@ -92,7 +94,7 @@ export function ObjectAccessRules({
                             return (
                                 <div className="flex items-center gap-2">
                                     <span className="text-muted-alt flex items-center">
-                                        <ScopeIcon scope={o.resource as APIScopeObject} />
+                                        <ScopeIcon scope={o.resource} />
                                     </span>
                                     <span className="font-medium">{label}</span>
                                 </div>
@@ -117,7 +119,7 @@ export function ObjectAccessRules({
                                     level={o.access_level}
                                     levels={OBJECT_LEVELS}
                                     onChange={(level) => setObjectRule(o.resource, o.resource_id, level)}
-                                    disabledReason={!canEdit ? 'You cannot edit this' : undefined}
+                                    disabledReason={editDisabledReason}
                                 />
                             </div>
                         ),
@@ -134,7 +136,7 @@ export function ObjectAccessRules({
                                     size="small"
                                     status="danger"
                                     icon={<IconTrash />}
-                                    disabledReason={!canEdit ? 'You cannot edit this' : undefined}
+                                    disabledReason={editDisabledReason}
                                     tooltip="Remove the rule"
                                     onClick={() => setObjectRule(o.resource, o.resource_id, null)}
                                 />

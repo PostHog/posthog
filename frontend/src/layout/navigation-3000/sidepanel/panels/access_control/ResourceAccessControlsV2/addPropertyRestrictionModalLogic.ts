@@ -36,8 +36,8 @@ export interface addPropertyRestrictionModalLogicActions {
         propertyDefinitionId: string,
         level: AccessLevelEnumApi | null
     ) => {
-        propertyDefinitionId: string
         level: AccessLevelEnumApi | null
+        propertyDefinitionId: string
     } // accessDetailLogic
     closeModal: () => {
         value: true
@@ -153,7 +153,8 @@ export const addPropertyRestrictionModalLogic = kea<addPropertyRestrictionModalL
         setPropertyType: () => actions.loadPropertyOptions(null),
         setSearch: () => actions.loadPropertyOptions(null),
         submitRule: () => {
-            if (!values.propertyId) {
+            // isOpen guards a double click: the first submit closes the modal synchronously
+            if (!values.isOpen || !values.propertyId) {
                 return
             }
             actions.setPropertyRule(values.propertyId, values.level)
