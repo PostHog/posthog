@@ -28,15 +28,27 @@ impl WarningType {
     /// Types capture emits directly, with no error tag behind them.
     ///
     /// The tag route only reaches conditions capture already models as an
-    /// `Error` or a per-event drop detail. Some warnings aren't failures at all:
-    /// a rate-limited event is ingested (degraded, not dropped), so there is no
-    /// tag to map and inventing one would mean inventing an error that never
-    /// gets returned. Emit sites for these name the variant directly.
+    /// `Error` or a per-event drop detail. Two kinds of warning sit outside it:
+    ///
+    /// * Ones that aren't failures at all. A rate-limited event is ingested
+    ///   (degraded, not dropped), so there is no tag to map and inventing one
+    ///   would mean inventing an error that never gets returned.
+    /// * Ones from a pipeline that has no tag vocabulary. The AI endpoints
+    ///   reject via their own typed conditions, not `v1::Error`, so their tags
+    ///   would be strings no `Error` ever produces.
+    ///
+    /// Emit sites for these name the variant directly.
     ///
     /// This list exists so the trust-allowlist invariant below can still be
     /// airtight: `captureProduced` must equal "reachable by one of capture's two
     /// emit routes", and without this the direct route would be invisible to it.
-    pub const DIRECT_EMIT: [Self; 2] = [Self::HighVolumeDistinctId, Self::DistinctIdTruncated];
+    pub const DIRECT_EMIT: [Self; 5] = [
+        Self::HighVolumeDistinctId,
+        Self::DistinctIdTruncated,
+        Self::InvalidAiEvent,
+        Self::InvalidAiPayload,
+        Self::NoAiSpansIngested,
+    ];
 
     /// Map a capture error tag (`v1::Error::tag()` / per-event drop detail) to a
     /// registered warning type. Returns `None` for anything not on the allowlist —
