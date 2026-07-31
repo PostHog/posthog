@@ -45,6 +45,28 @@ Can't be added:
 - Non-HTTP transports (WebSocket-only) and legacy HTTP+SSE dual-endpoint servers — the probe and proxy speak streamable HTTP only.
 - Any URL that fails the probe (`speaks_mcp: false`) — never ship an unprobed URL.
 
+### Internal endpoint escape hatch
+
+Cloud operators can allow a small number of private Streamable HTTP endpoints
+for internal dogfooding with the comma-separated
+`MCP_STORE_INTERNAL_ALLOWED_URLS` environment variable. Each entry must be the
+complete MCP URL, for example:
+
+```text
+MCP_STORE_INTERNAL_ALLOWED_URLS=http://grafana-mcp.monitoring.svc.cluster.local/mcp
+```
+
+Matching is byte-for-byte. Configuring an endpoint does not allow another path,
+host, port, trailing-slash variant, or any other private address. Requests to an
+allowed endpoint bypass the process HTTP proxy on this MCP-only code path so
+cluster-local traffic is not sent to Smokescreen; the process-wide `NO_PROXY`
+configuration is unchanged.
+
+This setting only makes the endpoint reachable. Operators must separately
+restrict it with a NetworkPolicy and application authentication, and create the
+internal installation explicitly. Internal endpoints do not belong in
+`backend/catalog.py` and are never made visible in the public marketplace.
+
 Known gap: API keys are sent as `Authorization: Bearer <key>`, so servers that require a custom header (`X-API-Key`, ...) or exotic auth (signed JWTs, mTLS, IP allowlists) pass the probe but fail at first real install.
 A real end-to-end install (Gate B in the skill) is the only check that catches these.
 

@@ -9,6 +9,8 @@ from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import TextContent
 
+from products.mcp_store.backend.url_policy import trust_environment_proxy
+
 
 class MCPClientError(Exception):
     pass
@@ -42,7 +44,11 @@ class MCPClient:
 
     async def _connect_streamable_http(self) -> None:
         http_client = await self._stack.enter_async_context(
-            httpx.AsyncClient(headers=self._headers, timeout=CLIENT_TIMEOUT)
+            httpx.AsyncClient(
+                headers=self._headers,
+                timeout=CLIENT_TIMEOUT,
+                trust_env=trust_environment_proxy(self._server_url),
+            )
         )
         read, write, _get_session_id = await self._stack.enter_async_context(
             streamable_http_client(self._server_url, http_client=http_client)

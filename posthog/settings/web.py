@@ -1178,6 +1178,13 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
+# Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
+# when normal SSRF validation rejects their private/internal address. This is an
+# internal dogfooding escape hatch, not a hostname or CIDR allowlist: callers must
+# match one of these complete URLs byte-for-byte. Internal endpoints also bypass
+# the process HTTP proxy so cluster-local traffic is not sent to Smokescreen.
+MCP_STORE_INTERNAL_ALLOWED_URLS: list[str] = get_list(get_from_env("MCP_STORE_INTERNAL_ALLOWED_URLS", ""))
+
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
 

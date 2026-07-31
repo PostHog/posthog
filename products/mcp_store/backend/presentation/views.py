@@ -56,6 +56,7 @@ from ..oauth import (
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolsFetchError, sync_installation_tools
+from ..url_policy import allow_internal_mcp_url
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
@@ -343,7 +344,7 @@ class InstallCustomSerializer(serializers.Serializer):
     )
 
     def validate_url(self, value: str) -> str:
-        allowed, error = is_url_allowed(value)
+        allowed, error = allow_internal_mcp_url(value, *is_url_allowed(value))
         if not allowed:
             raise serializers.ValidationError(f"URL not allowed: {error}")
         return value
@@ -567,7 +568,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
-        allowed, reason = is_url_allowed(mcp_url)
+        allowed, reason = allow_internal_mcp_url(mcp_url, *is_url_allowed(mcp_url))
         if not allowed:
             logger.warning("SSRF blocked MCP server URL", url=mcp_url, reason=reason)
             return Response({"detail": "Server URL blocked by security policy"}, status=status.HTTP_400_BAD_REQUEST)

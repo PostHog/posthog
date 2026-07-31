@@ -17,6 +17,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .url_policy import allow_internal_mcp_url, trust_environment_proxy
 
 logger = structlog.get_logger(__name__)
 
@@ -319,7 +320,7 @@ def enforce_tool_approval(
 
 
 def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> HttpResponseBase:
-    allowed, error = is_url_allowed(installation.url)
+    allowed, error = allow_internal_mcp_url(installation.url, *is_url_allowed(installation.url))
     if not allowed:
         logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
         return HttpResponse(
@@ -372,7 +373,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 
-    client = httpx.Client(timeout=UPSTREAM_TIMEOUT)
+    client = httpx.Client(timeout=UPSTREAM_TIMEOUT, trust_env=trust_environment_proxy(installation.url))
     try:
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
             client,

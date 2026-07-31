@@ -13,6 +13,7 @@ from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 
 from products.mcp_store.backend.oauth import is_token_expiring
+from products.mcp_store.backend.url_policy import allow_internal_mcp_url
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
@@ -297,7 +298,7 @@ class CallMCPServerTool(MaxTool):
                 f"Server URL '{server_url}' is not in the user's installed MCP servers. "
                 f"Allowed URLs: {', '.join(sorted(self._allowed_server_urls))}"
             )
-        allowed, error = is_url_allowed(server_url)
+        allowed, error = allow_internal_mcp_url(server_url, *is_url_allowed(server_url))
         if not allowed:
             raise MaxToolFatalError(f"MCP server URL blocked by security policy")
 
