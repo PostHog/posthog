@@ -1319,8 +1319,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         )
         for idx, (friction, keywords) in enumerate(
             [
-                (["checkout stalls"], ["checkout"]),
+                # Stored rows can repeat a term within one summary; rankings must count it once.
+                (["checkout stalls", "checkout stalls"], ["checkout", "checkout"]),
                 (["checkout stalls", "filter reset"], ["checkout", "filters"]),
+                # Keywords without friction: the friction rate's numerator and denominator must differ here.
+                ([], ["browsing"]),
                 ([], []),
             ]
         ):
@@ -1346,14 +1349,15 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/")
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
-        self.assertEqual(body["summarizer"]["total_with_facets"], 2)
+        self.assertEqual(body["summarizer"]["total_with_facets"], 3)
+        self.assertEqual(body["summarizer"]["total_with_friction"], 2)
         self.assertEqual(
             body["summarizer"]["friction_ranked"],
             [{"term": "checkout stalls", "count": 2}, {"term": "filter reset", "count": 1}],
         )
         self.assertEqual(
             body["summarizer"]["keyword_ranked"],
-            [{"term": "checkout", "count": 2}, {"term": "filters", "count": 1}],
+            [{"term": "checkout", "count": 2}, {"term": "browsing", "count": 1}, {"term": "filters", "count": 1}],
         )
         self.assertIsNone(body["classifier"])
 

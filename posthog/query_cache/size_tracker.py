@@ -4,6 +4,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.core.cache import BaseCache, caches
+from django.db import DatabaseError
 
 import structlog
 from django_redis import get_redis_connection
@@ -128,6 +129,10 @@ def get_team_cache_limit(team_id: int) -> int:
             return int(team.extra_settings["cache_size_limit_bytes"])
     except Team.DoesNotExist:
         pass
+    except DatabaseError:
+        # This lookup only reads an optional override, so a struggling Postgres must not fail
+        # the query whose result we're about to cache.
+        logger.warning("query_cache_team_limit_lookup_failed", team_id=team_id, exc_info=True)
     return settings.TEAM_CACHE_SIZE_LIMIT_BYTES
 
 

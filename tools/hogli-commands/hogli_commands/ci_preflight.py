@@ -45,6 +45,7 @@ from hogli_commands.build import (
     _match_commands,
 )
 from hogli_commands.change_detection import changed_files, matches_globs
+from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 
 Requirement = Literal["node", "stack", "clickhouse"]
 
@@ -137,6 +138,17 @@ DIFF_CHECKS: list[DiffCheck] = [
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
         verify=["hogli", "lint:workflows"],
+    ),
+    DiffCheck(
+        key="mprocs",
+        label="bin/mprocs*.yaml docker-compose shell out of sync with generator.py",
+        # From TRACKED_MPROCS_FILES so preflight can't drift on which files need a regen.
+        triggers=[
+            "tools/hogli-commands/hogli_commands/devenv/generator.py",
+            *(t.name for t in TRACKED_MPROCS_FILES),
+        ],
+        verify=["hogli", "dev:regenerate-mprocs", "--check"],
+        fix=["hogli", "dev:regenerate-mprocs"],
     ),
     DiffCheck(
         key="openapi",

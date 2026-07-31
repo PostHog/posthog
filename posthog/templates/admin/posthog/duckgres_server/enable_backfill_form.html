@@ -3,9 +3,8 @@
 
 {% block content %}
 <p>Onboard another team onto this organization's existing managed warehouse. Runs the same flow as the
-in-product onboarding API: creates the duckgres team row and records the team's
-<code>DuckgresServerTeam</code> membership with its schema name as the backfill suffix. The
-organization's feature flag is not required here.</p>
+in-product onboarding API: creates the control-plane team row with its schema name and enables
+backfill for that team. The organization's feature flag is not required here.</p>
 
 <p>Organization: <code>{{ server.organization_id }}</code> &mdash; server <code>{{ server.host }}</code></p>
 

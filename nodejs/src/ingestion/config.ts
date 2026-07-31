@@ -168,6 +168,11 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
+    // Always-v1 rollout of the personless-table removal RFC: for these teams, merge-added distinct
+    // id mappings get version 1 unconditionally (always writing a ClickHouse override) instead of
+    // consulting posthog_personlessdistinctid for the version-0 optimization. Comma-separated team
+    // IDs, or '*' for all teams; empty means no teams.
+    PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -310,6 +315,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,

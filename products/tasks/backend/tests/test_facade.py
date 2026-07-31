@@ -440,6 +440,33 @@ class TestFacadeReadsAndMappers(TestCase):
         else:
             self.assertNotIn("custom_image_id", new_run.state)
 
+    def test_run_task_resume_carries_self_driving_head_branch(self):
+        # The signals review carve-out binds a PR to its run by matching the PR head ref against the
+        # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
+        # stamp must be copied forward or the carve-out stops matching the successor — the receiver
+        # leg refuses on the run-id mismatch and the webhook leg drops a cancelled predecessor — which
+        # silently ends re-reviews after the usual resume-after-cancel. Mirrors the wizard_head_branch
+        # carry that sits beside it.
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"self_driving_head_branch": "posthog-self-driving/fix-abc123"},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
+
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
         now = django_timezone.now()

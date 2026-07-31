@@ -12,12 +12,14 @@ const assert = require('node:assert/strict')
 
 const {
     computeTargets,
+    compileContractMatcher,
     globToRegExp,
     isTripwire,
     parseCrateDependencies,
     reverseClosure,
     ALL,
 } = require('./trunk-impacted-targets')
+const { parseTachModules, tachDependents } = require('./turbo-discover')
 
 const CONTEXT = {
     products: ['alpha', 'beta', 'gamma'],
@@ -180,6 +182,94 @@ test('an isolated product change stays narrow and names its tach dependents', ()
     assert.deepEqual(computeTargets(['products/beta/backend/api.py'], CONTEXT), ['py:product:beta'])
 })
 
+const withContractSurface = (product, inputs) => ({
+    ...CONTEXT,
+    contractSurfaces: new Map([[product, compileContractMatcher(inputs)]]),
+})
+
+// Nothing outside the product can import a file the product never exposes, so
+// no other PR can add a call to it and there is no combination to serialize.
+test('a change outside a declared contract surface keeps its own lane', () => {
+    const context = withContractSurface('alpha', ['backend/facade/**'])
+    assert.deepEqual(computeTargets(['products/alpha/backend/connectors/mongo.py'], context), ['py:product:alpha'])
+})
+
+test('a change inside a declared contract surface still cascades to dependents', () => {
+    const context = withContractSurface('alpha', ['backend/facade/**'])
+    assert.deepEqual(computeTargets(['products/alpha/backend/facade/models.py'], context), [
+        'py:product:alpha',
+        'py:product:beta',
+        'py:product:gamma',
+    ])
+})
+
+// The gate applies to the change set, not to each file: a PR that touches the
+// contract has to cascade no matter how much internal code sits beside it.
+test('one contract file among internals still cascades', () => {
+    const context = withContractSurface('alpha', ['backend/facade/**'])
+    const targets = computeTargets(
+        ['products/alpha/backend/connectors/mongo.py', 'products/alpha/backend/facade/models.py'],
+        context
+    )
+    assert.equal(targets.includes('py:product:gamma'), true)
+})
+
+// The absence of a declaration has to mean "all of it is contract". Reading it
+// as "none of it" would hand every isolated product a lane it has not earned.
+test('a product that declares no contract surface cascades on any backend file', () => {
+    const targets = computeTargets(['products/alpha/backend/connectors/mongo.py'], CONTEXT)
+    assert.equal(targets.includes('py:product:gamma'), true)
+})
+
+// Both declarations are read from the PR's own tree, so a change that narrows
+// the contract and edits a file it just removed would otherwise be gated
+// against the narrower version and never reach its dependents.
+test('editing the declarations that define the gate always cascades', () => {
+    const context = withContractSurface('alpha', ['backend/facade/**'])
+    for (const file of ['products/alpha/turbo.json', 'products/alpha/package.json']) {
+        const targets = computeTargets([file], context)
+        assert.equal(targets.includes('py:product:gamma'), true, file)
+    }
+})
+
+test('contract inputs honor negation and drop inputs outside the product', () => {
+    const matcher = compileContractMatcher(['backend/**/*.py', '!backend/**/__pycache__/**', '../../uv.lock'])
+    assert.equal(matcher('backend/api.py'), true)
+    assert.equal(matcher('backend/facade/models.py'), true)
+    assert.equal(matcher('backend/__pycache__/api.py'), false)
+    assert.equal(matcher('frontend/Scene.tsx'), false)
+})
+
+// A matcher that matched nothing would classify every file as internal, which
+// is the same silent under-report as a missing cascade.
+test('a contract with no product-relative inputs yields no matcher', () => {
+    assert.equal(compileContractMatcher(['../../uv.lock']), null)
+    assert.equal(compileContractMatcher([]), null)
+})
+
+// Only a direct importer can name the changed product's symbols. The hop beyond
+// reaches the changed code through an intermediate whose own PR carries its own
+// targets, and in the real graph a 31-product cycle makes the transitive
+// closure the whole backend.
+test('the cascade names direct importers and stops before the next hop', () => {
+    const toml = `
+[[modules]]
+path = "products.beta"
+depends_on = ["products.alpha"]
+layer = "modules"
+
+[[modules]]
+path = "products.gamma"
+depends_on = ["products.beta"]
+layer = "modules"
+`
+    const context = { ...CONTEXT, tachGraph: { graph: parseTachModules(toml), tachDependents } }
+    assert.deepEqual(computeTargets(['products/alpha/backend/api.py'], context), [
+        'py:product:alpha',
+        'py:product:beta',
+    ])
+})
+
 test('a non-isolated product change widens to every backend target', () => {
     const targets = computeTargets(['products/gamma/backend/api.py'], CONTEXT)
     assert.equal(targets.includes('py:core'), true)
@@ -252,17 +342,51 @@ test('cross-domain tools are tripwires rather than backend-only', () => {
     assert.equal(computeTargets(['tools/owners/owners/__init__.py'], CONTEXT), ALL)
 })
 
-test('markdown is classified as docs regardless of which tree it sits in', () => {
-    assert.deepEqual(computeTargets(['posthog/README.md', 'docs/guide.mdx'], CONTEXT), ['docs'])
+// Prose overlaps only other prose, and has to reach that lane through the
+// size-0 guard rather than being widened to ALL with the unclassified paths.
+test('a change set of nothing but markdown reports the prose lane', () => {
+    assert.deepEqual(computeTargets(['posthog/README.md', 'docs/guide.mdx', 'CHANGELOG.md'], CONTEXT), ['prose'])
+})
+
+// The old shared docs lane serialized two PRs whose only overlap was having
+// touched a markdown file, even with their code in unrelated trees. The prose
+// lane must not reintroduce that by riding along with real lanes.
+test('markdown alongside code contributes no lane of its own', () => {
+    assert.deepEqual(computeTargets(['rust/unrelated/src/main.rs', 'README.md'], CONTEXT), ['rust:crate:unrelated'])
+})
+
+// hogli build:skills zips products/*/skills/*, and ci-agent-skills.yml gates on
+// those paths and on .agents/, so this markdown is a build input, not prose.
+test('skill markdown keeps the lane of the tree that builds it', () => {
+    assert.deepEqual(computeTargets(['.agents/skills/merging-prs/SKILL.md'], CONTEXT), ['agents'])
+    const productSkill = computeTargets(['products/beta/skills/creating-experiments/SKILL.md'], CONTEXT)
+    assert.equal(productSkill.includes('py:product:beta'), true)
+    assert.equal(productSkill.includes('fe:product:beta'), true)
+})
+
+// docs/onboarding is the @posthog/docs-onboarding workspace package that
+// frontend/package.json depends on, so its sources compile into the app. On the
+// old docs lane it was disjoint from fe:core and could merge in parallel with
+// the frontend PR that consumes it.
+test('docs/onboarding sources claim the frontend domain', () => {
+    const onboarding = computeTargets(['docs/onboarding/experiments/nextjs.tsx'], CONTEXT)
+    const frontend = computeTargets(['frontend/src/lib/components/Foo.tsx'], CONTEXT)
+    assert.deepEqual(onboarding, frontend)
+})
+
+// Everything under docs/ is prose today apart from that package, so a new
+// non-prose tree there must widen rather than inherit the inert classification.
+test('an unrecognized non-prose file under docs forces ALL', () => {
+    assert.equal(computeTargets(['docs/tooling/generate.py'], CONTEXT), ALL)
 })
 
 test('independent trees stay disjoint so they can share no lane', () => {
     const rust = computeTargets(['rust/unrelated/src/main.rs'], CONTEXT)
     const node = computeTargets(['nodejs/src/worker.ts'], CONTEXT)
     const service = computeTargets(['services/mcp/src/index.ts'], CONTEXT)
-    const docs = computeTargets(['docs/guide.md'], CONTEXT)
+    const agents = computeTargets(['.agents/skills/merging-prs/SKILL.md'], CONTEXT)
 
-    const sets = [rust, node, service, docs]
+    const sets = [rust, node, service, agents]
     for (let i = 0; i < sets.length; i++) {
         for (let j = i + 1; j < sets.length; j++) {
             const overlap = sets[i].filter((target) => sets[j].includes(target))

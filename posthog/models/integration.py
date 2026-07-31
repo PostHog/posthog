@@ -40,6 +40,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from posthog.cache_utils import cache_for
 from posthog.egress.github.transport import github_request
@@ -1088,10 +1089,15 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "") -> str:
+    def authorize_url(cls, kind: str, token: str, next: str = "", team_id: int | None = None) -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
+        # Carry the initiating team through the OAuth round-trip. The fixed callback URL is not
+        # project-scoped, so without this the SPA re-resolves to the user's default team on
+        # reload and the integration lands on the wrong project.
         state_payload: dict[str, str] = {"next": next, "token": token}
+        if team_id is not None:
+            state_payload["team_id"] = str(team_id)
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -1926,6 +1932,21 @@ def google_ads_hierarchy_level(account: dict) -> int:
     return int(account.get("level") or 0)
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_fixed(2),
+    retry=retry_if_exception_type((requests.exceptions.Timeout, requests.exceptions.ConnectionError)),
+    reraise=True,
+)
+def _google_ads_request(method: str, url: str, **kwargs) -> requests.Response:
+    """`requests.request` with retries for a transient timeout/connection blip.
+
+    `list_google_ads_accessible_accounts` walks the account hierarchy with a chain of sequential
+    requests, so a single transient blip on any one of them would otherwise fail the whole walk.
+    """
+    return requests.request(method, url, **kwargs)
+
+
 class GoogleAdsIntegration:
     integration: Integration
 
@@ -1985,7 +2006,7 @@ class GoogleAdsIntegration:
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
     def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
-        response = requests.request(
+        response = _google_ads_request(
             "GET",
             "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
             headers={
@@ -2025,7 +2046,7 @@ class GoogleAdsIntegration:
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
                 accounts = []
-            response = requests.request(
+            response = _google_ads_request(
                 "POST",
                 f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
                 json={

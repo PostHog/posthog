@@ -11,9 +11,10 @@ import {
     IconPencil,
     IconPlus,
     IconTrash,
+    IconUpload,
     IconX,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonFileInput, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -672,6 +673,10 @@ function SkillFileViewer({
     )
 }
 
+// Stable reference so LemonFileInput never re-syncs its internal selection from the prop;
+// uploads flow one-way into the skill form via addUploadedFiles.
+const NO_UPLOADED_FILES: File[] = []
+
 const COMMON_CONTENT_TYPES = [
     { value: 'text/plain', label: 'text/plain' },
     { value: 'text/markdown', label: 'text/markdown' },
@@ -691,7 +696,8 @@ function SkillEditForm({
     fileContentsLoading: boolean
 }): JSX.Element {
     const { isNewSkill, skillForm } = useValues(llmSkillLogic)
-    const { setSkillFormValues } = useActions(llmSkillLogic)
+    const { setSkillFormValues, addUploadedFiles } = useActions(llmSkillLogic)
+    const filesDropTargetRef = useRef<HTMLDivElement | null>(null)
 
     const addFile = (): void => {
         setSkillFormValues({
@@ -781,8 +787,8 @@ function SkillEditForm({
                 />
             </LemonField>
 
-            <div>
-                <div className="mb-2 flex items-center justify-between">
+            <div ref={filesDropTargetRef}>
+                <div className="mb-2 flex items-center justify-between gap-2">
                     <div>
                         <label className="text-sm font-semibold">Bundled files</label>
                         <p className="text-xs text-secondary">
@@ -790,15 +796,35 @@ function SkillEditForm({
                             the skill body.
                         </p>
                     </div>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        size="small"
-                        onClick={addFile}
-                        data-attr="llma-skill-add-file-button"
-                    >
-                        Add file
-                    </LemonButton>
+                    <div className="flex shrink-0 items-center gap-2">
+                        <LemonFileInput
+                            multiple
+                            accept=""
+                            value={NO_UPLOADED_FILES}
+                            onChange={addUploadedFiles}
+                            showUploadedFiles={false}
+                            alternativeDropTargetRef={filesDropTargetRef}
+                            callToAction={
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconUpload />}
+                                    size="small"
+                                    data-attr="llma-skill-upload-files-button"
+                                >
+                                    Upload files
+                                </LemonButton>
+                            }
+                        />
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            size="small"
+                            onClick={addFile}
+                            data-attr="llma-skill-add-file-button"
+                        >
+                            Add file
+                        </LemonButton>
+                    </div>
                 </div>
 
                 {fileContentsLoading ? (
@@ -809,7 +835,8 @@ function SkillEditForm({
                     </div>
                 ) : skillForm.files.length === 0 ? (
                     <div className="rounded border border-dashed p-4 text-center text-sm text-secondary">
-                        No bundled files. Click "Add file" to include scripts or references.
+                        No bundled files. Upload files, drag and drop them here, or click "Add file" to write one from
+                        scratch.
                     </div>
                 ) : (
                     <div className="space-y-3">

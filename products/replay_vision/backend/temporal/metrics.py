@@ -9,6 +9,7 @@ is swallowed so telemetry can never fail an activity.
 """
 
 from prometheus_client import Counter, Gauge, Histogram
+from temporalio import workflow
 
 from posthog.otel_metrics import OtelInstrumentFactory
 
@@ -90,6 +91,28 @@ REPLAY_VISION_SIDE_EFFECT_FAILURES = Counter(
     ["effect"],
 )
 
+REPLAY_VISION_CONSENT_SKIPS = Counter(
+    "replay_vision_consent_skips_total",
+    "Scans skipped because the organization has not approved AI data processing",
+    ["scanner_type"],
+)
+
+REPLAY_VISION_ENQUEUE_CLAIM_FAILURES = Counter(
+    "replay_vision_enqueue_claim_failures_total",
+    "Redis enqueue-claim operations that failed (claims fail open, so failures over-admit)",
+    ["operation"],
+)
+
+REPLAY_VISION_ACTION_OCCURRENCES_DROPPED = Counter(
+    "replay_vision_action_occurrences_dropped_total",
+    "Vision-action occurrences claimed but permanently dropped because the child workflow start failed",
+)
+
+REPLAY_VISION_ACTION_RUNS_REAPED = Counter(
+    "replay_vision_action_runs_reaped_total",
+    "VisionActionRun rows stuck in running whose workflow was gone, failed by the reaper",
+)
+
 REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
     "replay_vision_gemini_cleanup_backlog",
     "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
@@ -153,6 +176,29 @@ def record_observation_e2e(scanner_type: str, seconds: float) -> None:
 def record_side_effect_failure(effect: str) -> None:
     REPLAY_VISION_SIDE_EFFECT_FAILURES.labels(effect=effect).inc()
     _otel.record_counter_twin(REPLAY_VISION_SIDE_EFFECT_FAILURES, 1, {"effect": effect})
+
+
+def record_consent_skip(scanner_type: str) -> None:
+    REPLAY_VISION_CONSENT_SKIPS.labels(scanner_type=scanner_type).inc()
+    _otel.record_counter_twin(REPLAY_VISION_CONSENT_SKIPS, 1, {"scanner_type": scanner_type})
+
+
+def record_enqueue_claim_failure(operation: str) -> None:
+    REPLAY_VISION_ENQUEUE_CLAIM_FAILURES.labels(operation=operation).inc()
+    _otel.record_counter_twin(REPLAY_VISION_ENQUEUE_CLAIM_FAILURES, 1, {"operation": operation})
+
+
+def record_vision_action_occurrence_dropped() -> None:
+    # Callable from workflow code: replays must not double-count.
+    if workflow.in_workflow() and workflow.unsafe.is_replaying():
+        return
+    REPLAY_VISION_ACTION_OCCURRENCES_DROPPED.inc()
+    _otel.record_counter_twin(REPLAY_VISION_ACTION_OCCURRENCES_DROPPED, 1, {})
+
+
+def record_vision_action_runs_reaped(count: int) -> None:
+    REPLAY_VISION_ACTION_RUNS_REAPED.inc(count)
+    _otel.record_counter_twin(REPLAY_VISION_ACTION_RUNS_REAPED, count, {})
 
 
 def record_gemini_cleanup_backlog(count: int) -> None:

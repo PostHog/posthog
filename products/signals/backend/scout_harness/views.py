@@ -1269,7 +1269,9 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             exclude_origins=(
                 ()
                 if _may_read_reports(request, self.team.parent_team or self.team)
-                else (SignalScoutNote.Origin.REPORT_DISMISSAL,)
+                # Both derived origins quote report content (id, title, and the reviewer's / user's
+                # text), so a caller without report read access must not see either.
+                else (SignalScoutNote.Origin.REPORT_DISMISSAL, SignalScoutNote.Origin.REPORT_DISCUSSION)
             ),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
