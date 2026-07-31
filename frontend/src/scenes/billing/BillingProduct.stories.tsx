@@ -7,6 +7,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingProductV2Type } from '~/types'
 
 import { BillingProduct } from './BillingProduct'
+import { CODE_PRODUCT_KEY } from './constants'
 
 const meta: Meta = {
     title: 'Scenes-Other/Billing Product',
@@ -289,6 +290,30 @@ export const BillingProductTemporarilyFree: Story = {
         }
 
         return <BillingProduct product={product as BillingProductV2Type} />
+    },
+}
+
+// Only products with a bill-influencing settings page get the "Manage" action. The billing fixture
+// has no Code product, so borrow a tiered one and relabel it.
+export const BillingProductWithManagementLink: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                },
+            },
+        })
+
+        const baseProduct = billingJson.products.find((product) => product.type === 'feature_flags')
+        const product = {
+            ...baseProduct,
+            type: CODE_PRODUCT_KEY,
+            name: 'PostHog Code',
+            description: 'Autonomous agents that investigate your product and open pull requests.',
+        }
+
+        return <BillingProduct product={product as unknown as BillingProductV2Type} />
     },
 }
 
