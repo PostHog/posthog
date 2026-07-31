@@ -341,6 +341,9 @@ export function SidePanelSupport(): JSX.Element {
                             to={urls.myTickets()}
                             onClick={() => closeSidePanel()}
                             tooltip="View your tickets full screen"
+                            // LemonButton's tooltip→aria-label fallback only applies to plain buttons,
+                            // not links (`to` renders a Link), so an icon-only link needs it explicitly
+                            aria-label="View your tickets full screen"
                             data-attr="support-panel-expand-tickets"
                         />
                     )}
