@@ -447,7 +447,7 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
             clauses=[
                 {"name": "a", "metricName": self.metric_name, "aggregation": "avg"},
                 {"name": "b", "metricName": "companion.metric", "aggregation": "avg"},
-                {"name": "c", "metricName": self.metric_name, "aggregation": "max"},
+                {"name": "c", "metricName": self.metric_name, "aggregation": "sum"},
             ]
         )
         alert = self.create_alert(insight, upper=20.0, investigation_agent_enabled=True)
