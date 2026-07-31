@@ -3148,6 +3148,7 @@ class NodeKind(StrEnum):
     GROUPS_QUERY = "GroupsQuery"
     FUNNELS_ACTORS_QUERY = "FunnelsActorsQuery"
     FUNNEL_CORRELATION_ACTORS_QUERY = "FunnelCorrelationActorsQuery"
+    PATHS_V2_ACTORS_QUERY = "PathsV2ActorsQuery"
     SESSIONS_TIMELINE_QUERY = "SessionsTimelineQuery"
     RECORDINGS_QUERY = "RecordingsQuery"
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
@@ -3248,6 +3249,14 @@ class PathType(StrEnum):
 class PathsV2AnchorType(StrEnum):
     START = "start"
     END = "end"
+
+
+class PathsV2ElementType(StrEnum):
+    NODE = "node"
+    EDGE = "edge"
+    DROP_OFF = "dropOff"
+    OTHER = "other"
+    CHAIN = "chain"
 
 
 class SliceContent(StrEnum):
