@@ -85,8 +85,7 @@ const githubReposResponse = {
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding/Shared/Wizard Cloud Run',
     parameters: {
-        // Component stories now, not a scene: the block renders in its own width-capped container.
-        layout: 'padded',
+        layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
         // Legacy flow, deliberately: the self-driving install step forces the cloud arm off (its run
