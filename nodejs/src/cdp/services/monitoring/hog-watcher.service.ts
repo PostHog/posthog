@@ -53,6 +53,12 @@ export type HogWatcherFunctionState = {
     state: HogWatcherState
 }
 
+type FunctionCostEntry = {
+    hogFunction?: HogFunctionType
+    functionId: string
+    cost: number
+}
+
 const hogFunctionStateChange = new Counter({
     name: 'cdp_hog_function_state_change',
     help: 'Number of times a transformation state changed',
@@ -387,14 +393,7 @@ export class HogWatcherService {
     }
 
     public async observeResults(results: CyclotronJobInvocationResult[]): Promise<void> {
-        const functionCosts: Record<
-            CyclotronJobInvocation['functionId'],
-            {
-                hogFunction?: HogFunctionType
-                functionId: CyclotronJobInvocation['functionId']
-                cost: number
-            }
-        > = {}
+        const functionCosts: Record<CyclotronJobInvocation['functionId'], FunctionCostEntry> = {}
 
         results.forEach((result) => {
             if (!isHogFunctionResult(result)) {
@@ -423,8 +422,44 @@ export class HogWatcherService {
             functionCosts[result.invocation.functionId] = functionCost
         })
 
-        const functionCostEntries = Object.values(functionCosts)
+        await this.applyCostsAndTransitionStates(Object.values(functionCosts))
+    }
 
+    /**
+     * Per-(function, Kafka message) cost reporting for log transformations.
+     *
+     * The events path allocates one CyclotronJobInvocationResult per event; at log-record
+     * volumes that is prohibitive, so the logs transformer reports a single aggregated VM
+     * duration per function per message instead. Cost is derived from that aggregate via the
+     * same piecewise-linear curve (bounds come from this instance's config, so a logs-tuned
+     * HogWatcher charges on a logs-appropriate scale). Everything downstream — token bucket,
+     * state reads, transition rules — is shared with observeResults.
+     */
+    public async observeAggregatedResults(
+        observations: { hogFunction: HogFunctionType; totalDurationMs: number }[]
+    ): Promise<void> {
+        const functionCosts: Record<string, FunctionCostEntry> = {}
+        const costConfig = this.costsMapping.hog
+        if (!costConfig) {
+            return
+        }
+
+        for (const { hogFunction, totalDurationMs } of observations) {
+            const functionCost = functionCosts[hogFunction.id] ?? {
+                functionId: hogFunction.id,
+                cost: 0,
+                hogFunction,
+            }
+            const ratio =
+                Math.max(totalDurationMs - costConfig.lowerBound, 0) / (costConfig.upperBound - costConfig.lowerBound)
+            functionCost.cost += Math.round(costConfig.cost * ratio)
+            functionCosts[hogFunction.id] = functionCost
+        }
+
+        await this.applyCostsAndTransitionStates(Object.values(functionCosts))
+    }
+
+    private async applyCostsAndTransitionStates(functionCostEntries: FunctionCostEntry[]): Promise<void> {
         if (functionCostEntries.length === 0) {
             return
         }

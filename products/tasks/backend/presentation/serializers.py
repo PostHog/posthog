@@ -251,6 +251,13 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    url = serializers.URLField(
+        required=False,
+        help_text=(
+            "Presigned download URL for the artifact. Populated on the finalize-upload response so "
+            "the caller can link to the file directly; it is time-limited and not persisted on the manifest."
+        ),
+    )
 
 
 class TaskRunDetailSerializer(DataclassSerializer):

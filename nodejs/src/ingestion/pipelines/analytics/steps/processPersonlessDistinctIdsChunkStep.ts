@@ -1,3 +1,4 @@
+import { buildIntegerMatcher } from '~/common/config/config'
 import {
     buildFlagCalledPersonlessMatcher,
     isFlagCalledPersonlessCandidate,
@@ -42,9 +43,11 @@ type PersonlessSource = 'batch' | 'flag_called'
  */
 export function processPersonlessDistinctIdsChunkStep<T extends ProcessPersonlessDistinctIdsChunkStepInput>(
     enabled: boolean,
-    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS
+    flagCalledPersonlessDefaultTeams: string = DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+    personlessWritesDisabledTeams: string = ''
 ) {
     const flagCalledDefaultEnabledForTeam = buildFlagCalledPersonlessMatcher(flagCalledPersonlessDefaultTeams)
+    const writesDisabledForTeam = buildIntegerMatcher(personlessWritesDisabledTeams, true)
 
     return async function processPersonlessDistinctIdsChunkStep(events: T[]): Promise<PipelineResult<T>[]> {
         if (enabled) {
@@ -57,6 +60,11 @@ export function processPersonlessDistinctIdsChunkStep<T extends ProcessPersonles
             const cacheMisses: Record<PersonlessSource, number> = { batch: 0, flag_called: 0 }
 
             for (const e of events) {
+                // Personless-table writes are disabled for this team (stop-writing rollout);
+                // the event still goes personless, just without the bookkeeping row.
+                if (writesDisabledForTeam(e.team.id)) {
+                    continue
+                }
                 const source = personlessSource(e, flagCalledDefaultEnabledForTeam)
                 if (source === null) {
                     continue

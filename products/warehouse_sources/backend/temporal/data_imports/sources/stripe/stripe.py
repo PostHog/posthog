@@ -1,5 +1,6 @@
 import os
 import re
+import inspect
 import dataclasses
 from collections.abc import Callable, Mapping
 from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
@@ -641,6 +642,11 @@ def get_rows(
                 resource.parent.method,
                 params={**default_params, **resource.parent.params, **resume_params},
             )
+            # Path-scoped services (e.g. customers.payment_methods.list) take the parent id as a
+            # method keyword, while flat services with a required filter (e.g.
+            # entitlements.active_entitlements.list) accept it only inside `params`. Route by the
+            # method's actual signature so both shapes get the parent id where Stripe expects it.
+            parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
             for obj in stripe_parent_objects.auto_paging_iter():
                 parent_obj_id = obj[resource.parent_id]
@@ -650,11 +656,17 @@ def get_rows(
                     skipped_parents += 1
                     continue
                 parent_params = resource.nested_params_from_parent(obj) if resource.nested_params_from_parent else {}
+                nested_params = {**default_params, **resource.params, **parent_params}
+                nested_kwargs: dict[str, Any] = {}
+                if parent_param_is_kwarg:
+                    nested_kwargs[resource.nested_parent_param] = parent_obj_id
+                else:
+                    nested_params[resource.nested_parent_param] = parent_obj_id
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
-                        **{resource.nested_parent_param: parent_obj_id},
-                        params={**default_params, **resource.params, **parent_params},
+                        params=nested_params,
+                        **nested_kwargs,
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():
                         batcher.batch(

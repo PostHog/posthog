@@ -528,3 +528,158 @@ async fn test_event_definitions_dedupe_within_batch(db: PgPool) {
         "the deduped event def and the unrelated new one must both persist"
     );
 }
+
+fn gen_updates_for_team(team_id: i32, event_name: &str, num_props: usize) -> Vec<Update> {
+    let mut properties = HashMap::<String, Value>::new();
+    for i in 0..num_props {
+        properties.insert(format!("prop_{i}"), Value::String(format!("value_{i}")));
+    }
+    let event = json!({
+        "team_id": team_id,
+        "project_id": team_id,
+        "event": event_name,
+        "properties": json!(properties).to_string(),
+    });
+    serde_json::from_value::<Event>(event)
+        .unwrap()
+        .into_updates(10000)
+}
+
+fn filter_team(updates: &[Update], team_id: i32) -> Vec<Update> {
+    updates
+        .iter()
+        .filter(|u| match u {
+            Update::Event(ed) => ed.team_id == team_id,
+            Update::Property(pd) => pd.team_id == team_id,
+            Update::EventProperty(ep) => ep.team_id == team_id,
+        })
+        .cloned()
+        .collect()
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_fk_violation_strips_dead_team_rows_and_keeps_them_cached(db: PgPool) {
+    // Prod tables enforce team FKs; a deleted team still sending events used to fail the
+    // whole batch and evict it from the dedup cache, re-issuing the same doomed writes on
+    // every future event. The shared test schema has no FKs, so recreate them locally.
+    sqlx::query(r#"CREATE TABLE posthog_team (id INTEGER PRIMARY KEY)"#)
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query(r#"INSERT INTO posthog_team (id) VALUES (111)"#)
+        .execute(&db)
+        .await
+        .unwrap();
+    for table in [
+        "posthog_eventdefinition",
+        "posthog_propertydefinition",
+        "posthog_eventproperty",
+    ] {
+        sqlx::query(&format!(
+            "ALTER TABLE {table} ADD CONSTRAINT {table}_team_fk FOREIGN KEY (team_id) REFERENCES posthog_team(id)"
+        ))
+        .execute(&db)
+        .await
+        .unwrap();
+    }
+
+    let config = Config::init_with_defaults().unwrap();
+    let cache = setup_cache(&config);
+
+    let mut updates = gen_updates_for_team(111, "$pageview", 10);
+    updates.extend(gen_updates_for_team(999, "$pageview", 10)); // team 999 was deleted
+
+    // the producer inserts every update into the shared dedup cache before the write path runs
+    for u in &updates {
+        cache.insert(u.clone());
+    }
+
+    process_batch(
+        &config,
+        cache.clone(),
+        &db,
+        updates.clone(),
+        &test_lifecycle_handle(),
+    )
+    .await;
+
+    // the live team's rows all landed despite sharing chunks with the dead team's rows
+    for (table, expected) in [
+        ("posthog_eventdefinition", 1i64),
+        ("posthog_propertydefinition", 10),
+        ("posthog_eventproperty", 10),
+    ] {
+        let live: i64 =
+            sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE team_id = 111"))
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(live, expected, "live team rows missing from {table}");
+
+        let dead: i64 =
+            sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table} WHERE team_id = 999"))
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(dead, 0, "dead team rows written to {table}");
+    }
+
+    // every update stays cached: the dead team's (so its events stop re-issuing doomed
+    // writes) and the live team's (written successfully, never evicted)
+    for u in &updates {
+        assert!(cache.contains_key(u), "update evicted from cache: {u:?}");
+    }
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn test_unparseable_fk_falls_back_to_retry_and_uncache(db: PgPool) {
+    // A composite-key FK produces detail `Key (team_id, project_id)=(999, 999) ...`, which
+    // fk_violation_key can't reduce to one column/value. The write must then behave exactly
+    // like master: bounded retries, then evict the batch from the dedup cache.
+    sqlx::query(
+        r#"CREATE TABLE posthog_team (id INTEGER, project_id BIGINT, PRIMARY KEY (id, project_id))"#,
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"ALTER TABLE posthog_eventproperty ADD CONSTRAINT eventproperty_team_proj_fk
+           FOREIGN KEY (team_id, project_id) REFERENCES posthog_team(id, project_id)"#,
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let config = Config::init_with_defaults().unwrap();
+    let cache = setup_cache(&config);
+
+    let updates = gen_updates_for_team(999, "$pageview", 5);
+    for u in &updates {
+        cache.insert(u.clone());
+    }
+
+    process_batch(
+        &config,
+        cache.clone(),
+        &db,
+        updates.clone(),
+        &test_lifecycle_handle(),
+    )
+    .await;
+
+    let written: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM posthog_eventproperty")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(written, 0, "no eventproperty rows can satisfy the FK");
+
+    // master fallback ran: the failed eventprops chunk was evicted for a future retry
+    for u in filter_team(&updates, 999) {
+        if matches!(u, Update::EventProperty(_)) {
+            assert!(
+                !cache.contains_key(&u),
+                "eventprop update not evicted by fallback path: {u:?}"
+            );
+        }
+    }
+}
