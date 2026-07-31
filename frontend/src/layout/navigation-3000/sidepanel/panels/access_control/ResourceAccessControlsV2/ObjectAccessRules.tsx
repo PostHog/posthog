@@ -179,11 +179,7 @@ export function ObjectAccessRules({
                 ]}
                 dataSource={objects}
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                emptyState={
-                    scopeType === 'default'
-                        ? 'No one-off access overrides for this project.'
-                        : `No one-off access overrides for this ${subjectNoun}.`
-                }
+                emptyState={`No one-off access overrides for this ${subjectNoun}.`}
             />
             <div>
                 <LemonButton

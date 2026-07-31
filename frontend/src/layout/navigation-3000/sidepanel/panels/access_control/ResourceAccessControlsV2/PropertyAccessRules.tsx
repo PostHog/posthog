@@ -102,11 +102,7 @@ export function PropertyAccessRules({
                 ]}
                 dataSource={properties}
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                emptyState={
-                    scopeType === 'default'
-                        ? 'No restricted properties for this project.'
-                        : `No restricted properties for this ${subjectNoun}.`
-                }
+                emptyState={`No restricted properties for this ${subjectNoun}.`}
             />
             <div>
                 <LemonButton
