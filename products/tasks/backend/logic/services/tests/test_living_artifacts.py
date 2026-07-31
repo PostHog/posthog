@@ -605,8 +605,9 @@ class TestLivingArtifacts(TestCase):
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_caller_metadata_cannot_link_an_export_asset(self, mock_integration_for_mapping, _mock_flag):
-        # Anyone with task:write can pass metadata here, and export_asset_id is what lets
-        # delivery mint an anonymous url for someone else's export.
+        # Anyone with task:write can pass metadata here, and the export link is what lets
+        # delivery mint an anonymous url for someone else's export. It lives in its own
+        # column, which caller metadata must never populate.
         self._create_mapping_with_full_scopes()
         mock_integration_for_mapping.return_value.missing_scopes.return_value = set()
 
@@ -620,7 +621,7 @@ class TestLivingArtifacts(TestCase):
             metadata={"export_asset_id": 4321, "posthog_url": "http://localhost:8010/project/1/insights/abc"},
         )
 
-        self.assertNotIn("export_asset_id", artifact.metadata)
+        self.assertIsNone(artifact.export_asset_id)
         self.assertEqual(artifact.metadata["posthog_url"], "http://localhost:8010/project/1/insights/abc")
 
         # Nor by retrofitting one onto an artifact that already exists.
@@ -630,7 +631,7 @@ class TestLivingArtifacts(TestCase):
             content_type="image/png",
             metadata={"export_asset_id": 4321},
         )
-        self.assertNotIn("export_asset_id", updated.metadata)
+        self.assertIsNone(updated.export_asset_id)
 
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
@@ -648,11 +649,12 @@ class TestLivingArtifacts(TestCase):
             content_type="image/png",
             export_asset_id=321,
         )
-        self.assertEqual(artifact.metadata["export_asset_id"], 321)
+        self.assertEqual(artifact.export_asset_id, 321)
+        self.assertNotIn("export_asset_id", artifact.metadata)
 
         updated = edit_living_artifact(artifact=artifact, content_bytes=b"png-bytes-v2", content_type="image/png")
 
-        self.assertNotIn("export_asset_id", updated.metadata)
+        self.assertIsNone(updated.export_asset_id)
 
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=False)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")

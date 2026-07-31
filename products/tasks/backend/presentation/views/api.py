@@ -2534,8 +2534,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         # Store a reference, not a url: the delivery token authenticates anonymously and
         # bypasses the org's publicly-shared-resources setting, while metadata is readable by
         # anyone with task:read. Slack delivery mints the url from this id when it posts.
-        # It travels beside metadata, not inside it, because this action is the only caller
-        # allowed to link an export — see _SERVER_OWNED_METADATA_KEYS.
+        # It lands in a dedicated column, not metadata, so the generic create/edit actions
+        # (whose metadata is writable by anyone with task:write) can never set it.
         url = self._chart_url(query, asset)
         chart_metadata: dict = {}
         if url:
