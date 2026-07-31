@@ -1234,12 +1234,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
     }),
     beforeUnload(({ values, actions }) => ({
+        // enabled receives newLocation for in-app (SPA) navigation and undefined for a real tab
+        // close / hard navigation.
         enabled: (newLocation) => {
             if (!values.hasPendingWork) {
                 return false
             }
             // Ignore in-page navigations (e.g. opening a side panel) that keep the same path
             if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            // The draft is persisted to local storage, so in-app navigation keeps it and there's
+            // nothing to warn about — only unsaved ticket metadata (which isn't persisted) still
+            // guards a route change. A real tab close (no newLocation) always warns about the draft.
+            if (newLocation && !values.hasUnsavedChanges) {
                 return false
             }
             return true
