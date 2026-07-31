@@ -487,6 +487,17 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(data["external_id"], "ext-1")
         self.assertEqual(data["properties"]["stripe_customer_id"], "cus_123")
 
+    def test_retrieve_hides_retired_role_keys_in_stored_rows(self):
+        # Rows not yet cleaned by backfill_account_relationships must not leak role keys:
+        # the frontend read-modify-writes `properties`, and echoing them back would 400.
+        account = self._create_account(
+            _properties={"csm": {"id": self.user.id, "email": self.user.email}, "billing_id": "B-1"}
+        )
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(response.json()["properties"], {"billing_id": "B-1"})
+
     def test_update(self):
         account = self._create_account(properties={"stripe_customer_id": "cus_123"})
 

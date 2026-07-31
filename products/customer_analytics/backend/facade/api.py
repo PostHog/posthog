@@ -92,7 +92,10 @@ from products.customer_analytics.backend.models import (
     SyncStatus,
     TargetType,
 )
-from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
+from products.customer_analytics.backend.models.account import (
+    RETIRED_ROLE_KEYS,
+    AccountProperties as _ModelAccountProperties,
+)
 from products.customer_analytics.backend.tasks.tasks import send_announcement
 from products.notebooks.backend.facade import (
     api as notebooks,
@@ -1961,8 +1964,10 @@ def _to_account_view(account: Account) -> contracts.AccountView:
         name=account.name,
         external_id=account.external_id,
         # Raw stored JSON (already ``exclude_unset`` from the manager), so an account with
-        # no assignments serializes ``properties`` as ``{}`` exactly as before.
-        properties=account._properties or {},
+        # no assignments serializes ``properties`` as ``{}`` exactly as before. Retired role
+        # keys are dropped: rows not yet backfilled must not leak them into responses, or the
+        # frontend's read-modify-write of ``properties`` sends them back and gets a 400.
+        properties={k: v for k, v in (account._properties or {}).items() if k not in RETIRED_ROLE_KEYS},
         # Unsorted, matching the old ``TaggedItemSerializerMixin.to_representation`` output.
         tags=_account_view_tags(account),
         notebooks=_account_view_notebooks(account),
