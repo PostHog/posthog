@@ -219,7 +219,7 @@ export interface featureFlagsLogicActions {
     deleteFlag: (id: number) => {
         id: number
     }
-    loadFeatureFlags: () => any
+    loadFeatureFlags: (_: void) => void
     loadFeatureFlagsFailure: (
         error: string,
         errorObject?: any
@@ -229,10 +229,10 @@ export interface featureFlagsLogicActions {
     }
     loadFeatureFlagsSuccess: (
         featureFlags: FeatureFlagsResult,
-        payload?: any
+        payload?: void
     ) => {
         featureFlags: FeatureFlagsResult
-        payload?: any
+        payload?: void
     }
     setActiveTab: (tabKey: FeatureFlagsTab) => {
         tabKey: FeatureFlagsTab
@@ -424,7 +424,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         featureFlags: [
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as FeatureFlagsResult,
             {
-                loadFeatureFlags: async (_, breakpoint) => {
+                loadFeatureFlags: async (_: void, breakpoint) => {
                     // Read the filters up front: `values` is live, so reading them after the await would
                     // stamp the response with whatever the user has typed since, and displayedFlags would
                     // then filter this page against filters it was never requested under.
