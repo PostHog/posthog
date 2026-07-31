@@ -254,6 +254,11 @@ export type MinimalAppMetric = {
         | 'exited_workflow_changed'
         | 'redirected_workflow_changed'
     count: number
+    // Version of the config that produced this metric — for hog flows, the `version` of the HogFlow row
+    // that actually executed the step. Not a column on `app_metrics2`: the monitoring service consumes it
+    // to key a mirrored row under the `hog_flow_version` app source, and never forwards it to Kafka.
+    // Absent (or non-numeric) means this metric only lands in the version-agnostic series.
+    app_source_version?: number
 }
 
 export type AppMetricType = MinimalAppMetric & {

@@ -121,6 +121,9 @@ type MatchedJob = {
     stepMatched: boolean
     conversionMatched: boolean
     exitsOnConversion: boolean
+    // Live version of the workflow at match time, so the conversion metric and event can be attributed
+    // to the config that was running when the person converted.
+    flowVersion: number
     // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string
@@ -346,6 +349,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     stepMatched,
                     conversionMatched,
                     exitsOnConversion: exitsOnConversion(hogflow),
+                    flowVersion: hogflow.version,
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
                     eventTimestamp: stepMatchedEventTimestamp,
@@ -496,6 +500,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         metric_kind: 'other',
                         metric_name: 'conversion',
                         count: 1,
+                        app_source_version: m.flowVersion,
                     })
                     // Emit the same billable $workflows_conversion event as the executor's property
                     // path, so event-based conversions also power insights/cohorts. Needs a
@@ -508,6 +513,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                             timestamp: new Date().toISOString(),
                             properties: {
                                 $workflow_id: m.functionId,
+                                $workflow_version: m.flowVersion,
                                 $workflow_conversion_type: 'event',
                                 $workflow_conversion_event: m.conversionEventName,
                                 $workflow_conversion_event_uuid: m.conversionEventUuid,

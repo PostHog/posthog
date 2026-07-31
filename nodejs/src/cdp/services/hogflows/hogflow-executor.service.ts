@@ -180,8 +180,11 @@ export class HogFlowExecutorService {
                 filterGlobals,
             })
 
-            // Add any generated metrics and logs to our collections
-            metrics.push(...filterResults.metrics)
+            // Add any generated metrics and logs to our collections. These are queued straight by the
+            // pipeline rather than riding an invocation result, so the workflow version is stamped here
+            // — otherwise `filtered` would be missing from the per-version series, and a trigger change
+            // that filters everyone out would look identical to no traffic at all.
+            metrics.push(...filterResults.metrics.map((metric) => ({ ...metric, app_source_version: hogFlow.version })))
             logs.push(...filterResults.logs)
 
             if (!filterResults.match) {
@@ -375,6 +378,7 @@ export class HogFlowExecutorService {
                     timestamp: new Date().toISOString(),
                     properties: {
                         $workflow_id: hogFlow.id,
+                        $workflow_version: hogFlow.version,
                         $workflow_conversion_type: 'property',
                     },
                 }

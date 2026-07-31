@@ -301,6 +301,42 @@ Existing example:
 - `posthog_assignee` type defined in nodejs/src/cdp/templates/\_destinations/posthog_conversations/posthog-update-ticket.template.ts
 - Renderer in products/conversations/frontend/components/Assignee/CyclotronJobInputAssignee.tsx
 
+## Metrics and version attribution
+
+Workflow metrics live in the ClickHouse `app_metrics2` table, written by the CDP workers.
+Every hog flow metric is written **twice**:
+
+- `app_source: 'hog_flow'`, `app_source_id: '<flow id>'` — all versions combined. What the UI reads.
+- `app_source: 'hog_flow_version'`, `app_source_id: '<flow id>/<version>'` — only the version whose config produced the metric.
+
+`instance_id`, `metric_kind` and `metric_name` mean the same thing in both series, so a version-scoped read is the version-agnostic query with `app_source` and `app_source_id` swapped.
+`app_metrics2` can't hold the version in a column of its own — it's an AggregatingMergeTree whose sort key is its aggregation key, so a new dimension would have to join the ORDER BY and re-key existing parts.
+
+Nothing reads the versioned series yet.
+`/metrics` and `/metrics/totals` always return the version-agnostic one, and adding a filter to them is the natural next step.
+Until then, query it directly:
+
+```sql
+SELECT metric_name, sum(count)
+FROM app_metrics
+WHERE app_source = 'hog_flow_version' AND app_source_id = '<flow id>/3'
+GROUP BY metric_name
+```
+
+Conversions carry the version as a `$workflow_version` property on the `$workflows_conversion` event, so version comparisons work in insights and cohorts too.
+
+Three things to know when reading these numbers:
+
+- **A version only advances where the `workflows-revisions` flag is on.** `HogFlow.version` is bumped in exactly one place, and it returns early when the flag is off, so a flag-off project can edit a workflow repeatedly and stay at version 1 forever. The column is `NOT NULL DEFAULT 1`, so the versioned series is always written — but for those projects `<flow id>/1` spans every config the workflow has ever had. Treat per-version metrics as meaningful only where revisions are enabled.
+- **The version is the one that ran the step, not the one the person entered on.** Live edits reach runs already in flight, so a run that starts on v2 and sends its email after v3 is published attributes the trigger to v2 and the email to v3. Per-version rates are therefore a comparison of what each config did while it was live, not a fixed entry cohort.
+- **Engagement metrics carry the sending version, which is not always the live one.** `email_delivered`, `email_opened`, `email_link_clicked`, the bounce metrics and complaints (`email_blocked`) arrive from an SES webhook long after the send, by which time the workflow may have been republished. The version rides on the tracking code minted at send time (`ph_id`, and the `X-PostHog-Tracking-Code` header) rather than being read off the flow when the webhook lands — reading it on arrival would blame the newest version for the previous one's sends. A message whose only surviving carrier is the short SES `EmailTags` value has no version and lands in the version-agnostic series alone.
+
+When adding a metric for a hog flow, set `app_source_version` on the `MinimalAppMetric` if you're calling `queueAppMetric` directly.
+Metrics pushed onto a `result.metrics` array need nothing: `HogFunctionMonitoringService.queueInvocationResults` stamps the version for the whole result.
+For anything emitted after the run has ended — a webhook, a callback — the version has to come from whatever the message carried, never from a fresh lookup of the workflow.
+
+Building a version picker? The list of versions that have metrics is `{flow.version} ∪ {revision versions}`, not just the revisions endpoint. A workflow that has never been edited has zero `HogFlowRevision` rows but still reports metrics under `<flow id>/1`.
+
 ## Common pitfalls
 
 - **Forgot the side-effect import**: triggers/actions must be imported by their `index.ts`, and async functions must be imported by nodejs/src/cdp/async-functions/index.ts.
