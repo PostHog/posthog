@@ -274,6 +274,7 @@ class TestInsightContext(BaseTest):
         [
             ("saved_insight", {"insight_short_id": "xyz789"}),
             ("transient_artifact", {"artifact_id": "1v9A"}),
+            ("no_identifier", {}),
         ]
     )
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
@@ -285,14 +286,20 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        if "insight_short_id" in kwargs:
+        if _name == "saved_insight":
             self.assertIn("Insight ID: xyz789", result)
             self.assertIn(f"Insight URL: /project/{self.team.id}/insights/xyz789", result)
             self.assertNotIn("Visualization ID:", result)
             self.assertNotIn("transient", result)
-        else:
+            self.assertNotIn("cannot be accessed via a URL", result)
+        elif _name == "transient_artifact":
             self.assertIn("Visualization ID: 1v9A", result)
             self.assertIn("has no URL", result)
             self.assertIn("Never write it as a link", result)
             self.assertNotIn("Insight ID:", result)
             self.assertNotIn("Insight URL:", result)
+        else:
+            self.assertIn("This insight cannot be accessed via a URL", result)
+            self.assertNotIn("Insight ID:", result)
+            self.assertNotIn("Insight URL:", result)
+            self.assertNotIn("Visualization ID:", result)

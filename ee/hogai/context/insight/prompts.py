@@ -15,6 +15,11 @@ Insight URL: {{{insight_url}}}
 {{#artifact_id}}
 This visualization is transient: it lives only in this conversation, is not saved to the project, and has no URL. Never write it as a link such as `/insights/{{{artifact_id}}}`, and never tell the user it has been saved. Pass the visualization ID to tools that accept one, such as alerts. If the user wants a permanent, linkable insight, tell them to use the "Open as new insight" icon below the chart.
 {{/artifact_id}}
+{{^insight_url}}
+{{^artifact_id}}
+This insight cannot be accessed via a URL. Never present it as a link, and never tell the user it has been saved.
+{{/artifact_id}}
+{{/insight_url}}
 {{#query_schema}}
 
 Query schema:

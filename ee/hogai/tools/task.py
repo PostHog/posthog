@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, create_model
 from posthog.schema import (
     AgentMode,
     ArtifactMessage,
+    ArtifactSource,
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantMessage,
@@ -22,6 +23,7 @@ from ee.hogai.artifacts.utils import unwrap_notebook_artifact_content, unwrap_vi
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.stream.redis_stream import get_subagent_stream_key
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -95,8 +97,10 @@ TASK_ARTIFACTS_PROMPT = """
 The following artifacts have been generated:
 
 {{{artifacts_list}}}
+{{#has_transient_visualizations}}
 
-Visualizations listed above are transient: they live only in this conversation, are not saved to the project, and have no URL. Never write a visualization ID as a link such as `/insights/<visualization ID>`, and never tell the user a visualization has been saved.
+Artifacts listed with a visualization ID are transient: they live only in this conversation, are not saved to the project, and have no URL. Never write a visualization ID as a link such as `/insights/<visualization ID>`, and never tell the user such a visualization has been saved. Artifacts listed with an insight ID are saved insights, and their insight URLs are real links you can give the user.
+{{/has_transient_visualizations}}
 """
 
 
@@ -184,12 +188,19 @@ class TaskTool(MaxTool):
         artifacts_prompt = ""
         if len(artifact_messages) > 0:
             artifacts_list_prompt = []
+            has_transient_visualizations = False
             for message in artifact_messages:
                 viz_content = unwrap_visualization_artifact_content(message)
                 if viz_content:
-                    artifacts_list_prompt.append(
-                        f"- Visualization ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
-                    )
+                    if message.source == ArtifactSource.INSIGHT:
+                        artifacts_list_prompt.append(
+                            f"- Insight ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}\nInsight URL: {build_insight_url(self._team, message.artifact_id)}"
+                        )
+                    else:
+                        has_transient_visualizations = True
+                        artifacts_list_prompt.append(
+                            f"- Visualization ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
+                        )
                     continue
                 notebook_content = unwrap_notebook_artifact_content(message)
                 if notebook_content:
@@ -197,7 +208,9 @@ class TaskTool(MaxTool):
                         f"- Notebook ID: {message.artifact_id}\nTitle: {notebook_content.title}"
                     )
             artifacts_prompt = format_prompt_string(
-                TASK_ARTIFACTS_PROMPT, artifacts_list="\n\n".join(artifacts_list_prompt)
+                TASK_ARTIFACTS_PROMPT,
+                artifacts_list="\n\n".join(artifacts_list_prompt),
+                has_transient_visualizations=has_transient_visualizations,
             )
 
         result_prompt = format_prompt_string(
