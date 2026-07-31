@@ -60,6 +60,13 @@ def create_default_modifiers_for_team(
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
+    # Endpoints-cluster routing is a server-controlled rollout gate, not a query option: the
+    # MATERIALIZED_VIEWS workload it selects shares the endpoints host and deliberately bypasses
+    # endpoints rate limiting, so honoring a client-supplied value would let any query:read caller
+    # force their reads onto that cluster. Discard the request value here so the effective setting
+    # comes only from trusted team config (below) or the server default (False).
+    modifiers.useEndpointsClusterForMaterializedViewOnlyQueries = None
+
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
             if getattr(modifiers, key, None) is None:

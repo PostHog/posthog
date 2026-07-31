@@ -42,10 +42,10 @@ class TestMaterializedViewRouting(BaseTest):
         )
 
     def _workload_for(self, query: str, *, routing_enabled: bool) -> Workload | None:
-        modifiers = create_default_modifiers_for_team(
-            self.team,
-            HogQLQueryModifiers(useEndpointsClusterForMaterializedViewOnlyQueries=routing_enabled),
-        )
+        # Enablement is server-controlled via team.modifiers, never a client-supplied query modifier.
+        self.team.modifiers = {"useEndpointsClusterForMaterializedViewOnlyQueries": routing_enabled}
+        self.team.save()
+        modifiers = create_default_modifiers_for_team(self.team)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True, modifiers=modifiers)
         prepare_ast_for_printing(parse_select(query), context=context, dialect="clickhouse")
         return context.workload
@@ -59,3 +59,15 @@ class TestMaterializedViewRouting(BaseTest):
         # Referencing events (resolved through the real pipeline) disqualifies routing.
         workload = self._workload_for("SELECT id, (SELECT count() FROM events) AS c FROM my_view", routing_enabled=True)
         assert workload != Workload.MATERIALIZED_VIEWS
+
+    def test_client_supplied_modifier_cannot_enable_routing(self):
+        # A query:read caller must not be able to force the endpoints cluster: the request modifier
+        # is discarded during resolution when the team hasn't enabled the rollout.
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            HogQLQueryModifiers(useEndpointsClusterForMaterializedViewOnlyQueries=True),
+        )
+        assert modifiers.useEndpointsClusterForMaterializedViewOnlyQueries is False
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True, modifiers=modifiers)
+        prepare_ast_for_printing(parse_select("SELECT id FROM my_view"), context=context, dialect="clickhouse")
+        assert context.workload != Workload.MATERIALIZED_VIEWS
