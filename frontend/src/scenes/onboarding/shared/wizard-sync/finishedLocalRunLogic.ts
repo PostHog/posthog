@@ -150,8 +150,9 @@ export const finishedLocalRunLogic = kea<finishedLocalRunLogicType>([
         // A handle restored from a previous pageload may carry a doc the user never saw (the run
         // finished after they left) — announce it so the one-time auto-open can still happen. The
         // live path's announcements come from the Installation layer's session bookkeeping instead.
+        // Completed only, mirroring that path: the reopen buttons don't exist on errored runs.
         const handle = values.finishedLocalRun
-        if (handle?.handoffText) {
+        if (handle?.runPhase === 'completed' && handle.handoffText) {
             actions.handoffDocReceived({
                 key: handle.sessionId,
                 text: handle.handoffText,
