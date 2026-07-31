@@ -251,12 +251,14 @@ class _NotableChangesPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBui
         super().__init__(runner=runner, supported_props_filters=STATS_TABLE_SUPPORTED_FILTERS)
 
     def get_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
-        previous_period_filter, current_period_filter = self.get_date_ranges()
+        period_filters = self.get_date_ranges()
         table_name = self.stats_table
 
         subqueries: list[ast.SelectQuery] = []
         for dim in DIMENSIONS:
-            subquery = self._build_dimension_subquery(dim, table_name, current_period_filter, previous_period_filter)
+            subquery = self._build_dimension_subquery(
+                dim, table_name, period_filters.current_period, period_filters.previous_period
+            )
             subqueries.append(subquery)
 
         return ast.SelectSetQuery.create_from_queries(subqueries, "UNION ALL")

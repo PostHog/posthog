@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     DEFAULT_BACKFILL_DAYS,
@@ -171,7 +172,7 @@ def _resolve_window(
     resume_config: Optional[PlausibleResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> tuple[date, date]:
+) -> SyncWindow[date]:
     today = datetime.now(tz=UTC).date()
     start = today - timedelta(days=DEFAULT_BACKFILL_DAYS)
     if should_use_incremental_field:
@@ -192,7 +193,7 @@ def _resolve_window(
 
     if start > end:
         start = end
-    return start, end
+    return SyncWindow(start=start, end=end)
 
 
 def plausible_source(
@@ -209,8 +210,8 @@ def plausible_source(
     config = PLAUSIBLE_ENDPOINTS[endpoint]
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start, end = _resolve_window(resume_config, should_use_incremental_field, db_incremental_field_last_value)
-    start_iso, end_iso = start.isoformat(), end.isoformat()
+    window = _resolve_window(resume_config, should_use_incremental_field, db_incremental_field_last_value)
+    start_iso, end_iso = window.start.isoformat(), window.end.isoformat()
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resume_config is not None:

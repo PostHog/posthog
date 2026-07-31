@@ -98,7 +98,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
     def _bounce_rate_query(self) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
-        previous_period_filter, current_period_filter = self.get_date_ranges()
+        period_filters = self.get_date_ranges()
 
         query = cast(
             ast.SelectQuery,
@@ -125,13 +125,19 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                         ],
                     ),
                     "visitors_tuple": self._period_comparison_tuple(
-                        "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
+                        "persons_uniq_state",
+                        "uniqMergeIf",
+                        period_filters.current_period,
+                        period_filters.previous_period,
                     ),
                     "views_tuple": self._period_comparison_tuple(
-                        "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
+                        "pageviews_count_state",
+                        "sumMergeIf",
+                        period_filters.current_period,
+                        period_filters.previous_period,
                     ),
                     "bounce_rate_tuple": self._bounce_rate_calculation_tuple(
-                        current_period_filter, previous_period_filter
+                        period_filters.current_period, period_filters.previous_period
                     ),
                     "filters": self._get_bounce_rate_filters(),
                 },
@@ -147,7 +153,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         )
 
     def _path_query(self) -> ast.SelectQuery:
-        previous_period_filter, current_period_filter = self.get_date_ranges(table_name=self.stats_table)
+        period_filters = self.get_date_ranges(table_name=self.stats_table)
 
         query = cast(
             ast.SelectQuery,
@@ -179,15 +185,15 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
                         "uniqMergeIf",
-                        current_period_filter,
-                        previous_period_filter,
+                        period_filters.current_period,
+                        period_filters.previous_period,
                         table_prefix=self.stats_table,
                     ),
                     "views_tuple": self._period_comparison_tuple(
                         "pageviews_count_state",
                         "sumMergeIf",
-                        current_period_filter,
-                        previous_period_filter,
+                        period_filters.current_period,
+                        period_filters.previous_period,
                         table_prefix=self.stats_table,
                     ),
                     "bounce_subquery": self._bounce_rate_query(),
@@ -211,11 +217,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         return query
 
     def _default_breakdown_query(self) -> ast.SelectQuery:
-        previous_period_filter, current_period_filter = self.get_date_ranges()
+        period_filters = self.get_date_ranges()
 
         if self.runner.query.conversionGoal:
             # For conversion goals, we need to join events table with pre-aggregated table
-            return self._default_breakdown_query_with_conversions(current_period_filter, previous_period_filter)
+            return self._default_breakdown_query_with_conversions(
+                period_filters.current_period, period_filters.previous_period
+            )
 
         query = cast(
             ast.SelectQuery,
@@ -233,10 +241,16 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "stats_table": ast.Field(chain=[self.stats_table]),
                     "breakdown_field": self._get_breakdown_field(),
                     "visitors_tuple": self._period_comparison_tuple(
-                        "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
+                        "persons_uniq_state",
+                        "uniqMergeIf",
+                        period_filters.current_period,
+                        period_filters.previous_period,
                     ),
                     "views_tuple": self._period_comparison_tuple(
-                        "pageviews_count_state", "sumMergeIf", current_period_filter, previous_period_filter
+                        "pageviews_count_state",
+                        "sumMergeIf",
+                        period_filters.current_period,
+                        period_filters.previous_period,
                     ),
                     "filters": self._get_filters(table_name=self.stats_table),
                 },
@@ -437,7 +451,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         Bounce-rate-style approach: Query stats table and LEFT JOIN conversion subquery.
         Similar pattern to _path_query() which joins stats with bounce rate data.
         """
-        previous_period_filter, current_period_filter = self.get_date_ranges(table_name=self.stats_table)
+        period_filters = self.get_date_ranges(table_name=self.stats_table)
 
         # Build conversion subquery from raw events (reuse existing method)
         conversion_subquery = self._build_conversion_subquery()
@@ -473,8 +487,8 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
                         "uniqMergeIf",
-                        current_period_filter,
-                        previous_period_filter,
+                        period_filters.current_period,
+                        period_filters.previous_period,
                         table_prefix=self.stats_table,
                     ),
                     "conversion_subquery": conversion_subquery,
