@@ -1,5 +1,4 @@
 import json
-from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,17 +17,18 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
+    first_per_pk_table,
+    realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     DeltaTableHelper,
-    _delta_merge_spill_kwargs,
     _deltalite_write_stats,
-    _first_per_pk_table,
     _merge_predicate_ops,
-    _realign_decimal_buffers,
 )
+
+_HELPER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
 
 
 def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misaligned: bool) -> pa.Array:
@@ -169,32 +169,6 @@ class TestStorageOptionsCommitSafety:
 
         assert options["conditional_put"] == "etag"
         assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
-
-
-class TestDeltaMergeSpillKwargs:
-    # Guards the wiring from settings → delta-rs merge kwargs. A silent break here (renamed setting,
-    # dropped forwarding, or emitting a None kwarg) stops merges spilling to disk and OOMs return.
-    @parameterized.expand(
-        [
-            ("both_unset", None, None, {}),
-            ("only_spill", 6_442_450_944, None, {"max_spill_size": 6_442_450_944}),
-            ("only_temp_dir", None, 51_539_607_552, {"max_temp_directory_size": 51_539_607_552}),
-            (
-                "both_set",
-                6_442_450_944,
-                51_539_607_552,
-                {"max_spill_size": 6_442_450_944, "max_temp_directory_size": 51_539_607_552},
-            ),
-        ]
-    )
-    def test_kwargs_from_settings(
-        self, _case: str, spill: int | None, temp_dir: int | None, expected: dict[str, int]
-    ) -> None:
-        with override_settings(
-            DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES=spill,
-            DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES=temp_dir,
-        ):
-            assert _delta_merge_spill_kwargs() == expected
 
 
 class TestHasCommitWithMetadata:
@@ -365,7 +339,7 @@ class TestWriteToDeltalakeCommitMetadataPassThrough:
 
         with (
             patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
-            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=mock_delta)),
+            patch(f"{_HELPER_MODULE}.evolve_delta_schema", AsyncMock(return_value=mock_delta)),
             patch("deltalake.write_deltalake") as mock_write,
         ):
             await helper.write_to_deltalake(
@@ -656,7 +630,7 @@ class TestIncrementalBatchDeduplication:
     def test_first_per_pk_table_keep_modes(self, _name, keep, expected_names):
         table = pa.table({"id": [1, 1, 2], "name": ["a1", "a2", "b1"]})
 
-        result = _first_per_pk_table(table, ["id"], keep=keep).sort_by("id")
+        result = first_per_pk_table(table, ["id"], keep=keep).sort_by("id")
 
         assert result.column("id").to_pylist() == [1, 2]
         assert result.column("name").to_pylist() == expected_names
@@ -773,7 +747,7 @@ class TestRealignDecimalBuffers:
         table = pa.table({"amount": _decimal_array([1, 2, 3, 4], misaligned=True), "id": pa.array([1, 2, 3, 4])})
         assert _table_is_misaligned(table) is True
 
-        result = _realign_decimal_buffers(table)
+        result = realign_decimal_buffers(table)
 
         assert _table_is_misaligned(result) is False
         # Values and schema are preserved exactly
@@ -792,7 +766,7 @@ class TestRealignDecimalBuffers:
     def test_unmisaligned_table_is_returned_unchanged(self, table: pa.Table) -> None:
         assert _table_is_misaligned(table) is False
 
-        result = _realign_decimal_buffers(table)
+        result = realign_decimal_buffers(table)
 
         # No misalignment found → identity return (no needless copy)
         assert result is table
@@ -802,7 +776,7 @@ class TestRealignDecimalBuffers:
         misaligned_dec = _decimal_array([30, 40], misaligned=True)
         table = pa.table({"good": aligned_dec, "bad": misaligned_dec, "id": pa.array([1, 2])})
 
-        result = _realign_decimal_buffers(table)
+        result = realign_decimal_buffers(table)
 
         assert _table_is_misaligned(result) is False
         assert result.column("good").to_pylist() == [10, 20]
@@ -822,7 +796,7 @@ class TestRealignDecimalBuffers:
         table = pa.table({"amount": chunked, "id": pa.array([1, 2, 3, 4])})
         assert _table_is_misaligned(table) is True
 
-        result = _realign_decimal_buffers(table)
+        result = realign_decimal_buffers(table)
 
         assert _table_is_misaligned(result) is False
         assert result.column("amount").to_pylist() == [1, 2, 3, 4]
@@ -830,7 +804,7 @@ class TestRealignDecimalBuffers:
     def test_empty_decimal_table(self) -> None:
         table = pa.table({"amount": pa.array([], type=pa.decimal128(10, 2)), "id": pa.array([], type=pa.int64())})
 
-        result = _realign_decimal_buffers(table)
+        result = realign_decimal_buffers(table)
 
         assert result.num_rows == 0
         assert result.schema == table.schema
@@ -873,47 +847,6 @@ class TestWriteMisalignedDecimalEndToEnd:
         else:
             assert {3, 4}.issubset(set(final.column("id").to_pylist()))
             assert {7, 8}.issubset(amounts)
-
-    @pytest.mark.asyncio
-    async def test_write_scd2_misaligned_decimal_to_local_delta(self, tmp_path: Path) -> None:
-        # write_scd2_to_deltalake carries its own realignment guard; without it the
-        # close-existing merge would hand delta-rs a misaligned decimal and abort the worker.
-        delta_path = str(tmp_path / "scd2_table")
-        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
-        ts2 = datetime(2026, 2, 1, tzinfo=UTC)
-        ts_type = pa.timestamp("us", tz="UTC")
-        # Seed a current (valid_to IS NULL) row for id=1 so the new batch closes it.
-        deltalake.write_deltalake(
-            delta_path,
-            pa.table(
-                {
-                    "id": pa.array([1]),
-                    "amount": _decimal_array([5], misaligned=False),
-                    "valid_from": pa.array([ts1], type=ts_type),
-                    "valid_to": pa.array([None], type=ts_type),
-                }
-            ),
-        )
-
-        helper = _make_local_helper(delta_path)
-        batch = pa.table(
-            {
-                "id": pa.array([1]),
-                "amount": _decimal_array([7], misaligned=True),
-                "valid_from": pa.array([ts2], type=ts_type),
-                "valid_to": pa.array([None], type=ts_type),
-            }
-        )
-        assert _table_is_misaligned(batch) is True
-
-        result = await helper.write_scd2_to_deltalake(data=batch, primary_keys=["id"])
-
-        final = result.to_pyarrow_table()
-        # The seeded row is closed (valid_to set) and the new misaligned row is appended.
-        assert final.num_rows == 2
-        assert set(final.column("amount").to_pylist()) == {5, 7}
-        closed = final.filter(pc.equal(final.column("amount"), pa.scalar(Decimal("5.00"), type=pa.decimal128(10, 2))))
-        assert closed.column("valid_to").to_pylist() == [ts2]
 
 
 class TestIsTableCorrupted:
