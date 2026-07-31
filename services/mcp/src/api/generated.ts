@@ -23873,7 +23873,7 @@ export namespace Schemas {
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
       /**
-         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true; it is saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used. See the flag_cleanup_target action for the repositories to choose from.
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
          * @maxLength 255
          * @nullable
          */
@@ -62672,7 +62672,7 @@ export namespace Schemas {
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
       /**
-         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true; it is saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used. See the flag_cleanup_target action for the repositories to choose from.
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
          * @maxLength 255
          * @nullable
          */

@@ -12034,7 +12034,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsEndCreateBodyRepositoryMax)
         .nullish()
         .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true; it is saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used. See the flag_cleanup_target action for the repositories to choose from."
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
         ),
 })
 
@@ -12263,7 +12263,7 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsShipVariantCreateBodyRepositoryMax)
         .nullish()
         .describe(
-            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true; it is saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used. See the flag_cleanup_target action for the repositories to choose from."
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
         ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
