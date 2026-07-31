@@ -12,8 +12,11 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 
 
-def _request(refresh: str | None = None) -> Request:
-    drf_request = cast(Request, Request(HttpRequest()))
+def _request(refresh: str | None = None, **query_params: str) -> Request:
+    http_request = HttpRequest()
+    for key, value in query_params.items():
+        http_request.GET[key] = value
+    drf_request = cast(Request, Request(http_request))
     drf_request._full_data = {"refresh": refresh} if refresh is not None else {}  # type: ignore[attr-defined]
     return drf_request
 
@@ -58,6 +61,29 @@ class TestResolveExecutionMode(SimpleTestCase):
 
             false_mode, _ = resolve_execution_mode(_request("false"), surface=ComputeSurface.DASHBOARD_TILE)
             assert false_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+
+    @parameterized.expand([("filters_override",), ("variables_override",), ("tile_filters_override",)])
+    def test_client_overrides_escalate_past_cache_only(self, param: str) -> None:
+        # Overrides change the cache key, so nothing warms it — cache-only would hand the UI
+        # result: null and a "Chart data didn't load" tile.
+        for surface in ComputeSurface:
+            mode, _ = resolve_execution_mode(_request(**{param: '{"date_from":"-14d"}'}), surface=surface)
+            assert mode == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS, surface
+
+    def test_overrides_do_not_escalate_an_explicit_opt_out(self) -> None:
+        mode, _ = resolve_execution_mode(
+            _request("force_cache", filters_override='{"date_from":"-14d"}'), surface=ComputeSurface.DASHBOARD_TILE
+        )
+        assert mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+
+    def test_overrides_do_not_change_the_shared_path(self) -> None:
+        # Shared/embedded rendering ignores client overrides entirely, so its cache key — and its
+        # execution mode — must be identical with and without them.
+        without = resolve_execution_mode(_request(), surface=ComputeSurface.SHARED, is_shared=True)
+        with_override = resolve_execution_mode(
+            _request(filters_override='{"date_from":"-14d"}'), surface=ComputeSurface.SHARED, is_shared=True
+        )
+        assert with_override == without
 
     def test_shared_flag_applies_the_clamp(self) -> None:
         # resolve_execution_mode's own responsibility is to route through the shared clamp iff

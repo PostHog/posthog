@@ -118,7 +118,26 @@ export function InsightEmptyState({
 }
 
 /** Shown when the chart area would otherwise be blank (e.g. cache miss + aborted refresh). */
-export function InsightRefreshDataHint({ onRetry }: { onRetry: () => void }): JSX.Element {
+export function InsightRefreshDataHint({
+    onRetry,
+    dashboardId,
+    insightShortId,
+    hasOverrides,
+}: {
+    onRetry: () => void
+    dashboardId?: number | null
+    insightShortId?: string | null
+    hasOverrides?: boolean
+}): JSX.Element {
+    // The hint used to be silent, so a blank tile was only ever visible in session replay.
+    useOnMountEffect(() => {
+        posthog.capture('insight refresh hint shown', {
+            dashboard_id: dashboardId ?? null,
+            insight_short_id: insightShortId ?? null,
+            has_overrides: !!hasOverrides,
+        })
+    })
+
     return (
         <div
             data-attr="insight-refresh-data-hint"

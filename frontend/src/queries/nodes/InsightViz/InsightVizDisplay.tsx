@@ -96,7 +96,24 @@ function DashboardInsightRefreshHintOrLoading({
             />
         )
     }
-    return <InsightRefreshDataHint onRetry={onRetry} />
+    return <InsightRefreshDataHint onRetry={onRetry} {...refreshHintContext(insightProps)} />
+}
+
+function refreshHintContext(insightProps: InsightLogicProps): {
+    dashboardId: number | null
+    insightShortId: string | null
+    hasOverrides: boolean
+} {
+    const { dashboardItemId } = insightProps
+    return {
+        dashboardId: insightProps.dashboardId ?? null,
+        insightShortId: typeof dashboardItemId === 'string' ? dashboardItemId : null,
+        hasOverrides: !!(
+            insightProps.filtersOverride ||
+            insightProps.variablesOverride ||
+            insightProps.tileFiltersOverride
+        ),
+    }
 }
 
 /** Dashboard tile: show refresh when merged `result` is still nullish (empty success is `[]`, not `null`). */
@@ -304,7 +321,7 @@ export function InsightVizDisplay({
                     />
                 )
             }
-            return <InsightRefreshDataHint onRetry={onRetry} />
+            return <InsightRefreshDataHint onRetry={onRetry} {...refreshHintContext(insightProps)} />
         }
 
         if (activeView === InsightType.FUNNELS && !isFlowViz) {

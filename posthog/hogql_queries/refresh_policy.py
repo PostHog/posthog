@@ -59,6 +59,21 @@ SURFACE_DEFAULT_EXECUTION_MODE: dict[ComputeSurface, ExecutionMode] = {
 }
 
 
+# Client-supplied overrides (dashboard filters, variables, tile filters) are merged into the query
+# before it is fingerprinted, so the overridden variant has a cache key of its own that no scheduled
+# refresh ever warms. Reading it cache-only returns `result: null`, which the UI renders as a
+# dead-end "Chart data didn't load" tile.
+OVERRIDE_QUERY_PARAMS = ("filters_override", "variables_override", "tile_filters_override")
+
+# What an override-carrying request falls back to instead of cache-only: serve the cache when it is
+# warm, refresh in the background when stale, and compute synchronously only on a genuine miss.
+OVERRIDE_MISS_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+
+
+def _client_overrides_present(request: "Request") -> bool:
+    return any(request.query_params.get(param) for param in OVERRIDE_QUERY_PARAMS)
+
+
 def _refresh_param_present(request: "Request") -> bool:
     """Whether the client sent a `refresh` param at all (query string or body), regardless of its
     value — so an explicit `refresh=false` is distinguished from an absent param."""
@@ -87,6 +102,14 @@ def resolve_execution_mode(
         execution_mode = execution_mode_from_refresh(refresh_requested_by_client(request))
     else:
         execution_mode = SURFACE_DEFAULT_EXECUTION_MODE[surface]
+        # Overrides are ignored on shared/embedded resources, so their cache key is unaffected there
+        # and anonymous demand must never force a recompute.
+        if (
+            not is_shared
+            and execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+            and _client_overrides_present(request)
+        ):
+            execution_mode = OVERRIDE_MISS_EXECUTION_MODE
 
     if is_shared:
         return shared_insights_execution_mode(execution_mode)
