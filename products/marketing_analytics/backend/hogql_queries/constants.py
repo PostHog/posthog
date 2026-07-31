@@ -97,7 +97,7 @@ UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
 # the channel divided by that channel's spend. Distinct from REPORTED_ROAS, which uses the ad
 # platform's own reported conversion value. Left out of MarketingAnalyticsBaseColumns because it
 # needs the unified conversion goals CTE, not just campaign_costs.
-ROAS_COLUMN = "ROAS"
+ROAS_COLUMN = MarketingAnalyticsConstants.ROAS.value
 
 # Suffix for the CAC column, joined to the "Cost per" prefix to read "Cost per customer". The
 # prefix makes it inherit the currency / higher-is-worse formatting the cost-per columns use.
