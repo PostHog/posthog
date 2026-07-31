@@ -284,6 +284,10 @@ Initial state: run the wipe once before A1 (clean slate).
 
 ## Preflight (before A1)
 
+- **Local telemetry prerequisite (required for ANY experiment run on a local stack):**
+  the local ingestion-ai forwarder 401s on `/batch/` and silently drops every AI-lane `$ai_generation` event.
+  Add `LLM_GATEWAY_POSTHOG_AI_LANE_CAPTURE=false` to the repo `.env` (gitignored) and restart the local gateway,
+  or none of the run's generations get tracked and every cost/token number is unrecoverable.
 - temporal-worker + backend running (phrocs); worker start-time > last constants edit.
 - ngrok tunnels up: `django` → :8010, `gateway` → :3308, `mcp` → :8787.
 - Local gateway restarted after the allowlist edit (verify it serves the edited config).
