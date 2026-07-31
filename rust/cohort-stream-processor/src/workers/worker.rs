@@ -1213,6 +1213,7 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 
@@ -1243,6 +1244,7 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 
@@ -1269,6 +1271,7 @@ mod tombstone_redirect_tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
+            person_seed: crate::workers::PersonSeedDeps::default(),
         })
     }
 

@@ -22,11 +22,11 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
+import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
-import { ScannerQualityTab } from './components/ScannerQualityTab'
 import { ScannerRunTab } from './components/ScannerRunTab'
 import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -74,14 +74,14 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {activeTab !== ReplayScannerTab.Quality && (
+                        {activeTab !== ReplayScannerTab.Calibration && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 icon={<IconSparkles />}
-                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Quality tab"
-                                onClick={() => setActiveTab(ReplayScannerTab.Quality)}
-                                data-attr="replay-vision-open-quality-tab"
+                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Calibration tab"
+                                onClick={() => setActiveTab(ReplayScannerTab.Calibration)}
+                                data-attr="replay-vision-open-calibration-tab"
                             >
                                 Improve scanner
                             </LemonButton>
@@ -137,9 +137,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         content: <ScannerConfigReadonly scanner={scanner} />,
                     },
                     {
-                        key: ReplayScannerTab.Quality,
-                        label: 'Quality',
-                        content: <ScannerQualityTab scannerId={scannerId} />,
+                        key: ReplayScannerTab.Calibration,
+                        label: 'Calibration',
+                        content: <ScannerCalibrationTab scannerId={scannerId} />,
                     },
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,

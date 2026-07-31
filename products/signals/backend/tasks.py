@@ -31,6 +31,7 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
@@ -499,6 +500,60 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         capture_exception(exc, {"team_id": team_id, "repository": repository})
     finally:
         cache.delete(lock_key)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.pause_inactive_signal_scouts",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def pause_inactive_signal_scouts() -> None:
+    """Daily sweep: warn, then auto-pause scouts nothing comes of.
+
+    Runs here rather than on the coordinator's 30-minute tick — that tick is deliberately
+    short-lived and bounded, and inactivity doesn't change by the half hour. See
+    `scout_harness/inactivity.py` for what counts as productive.
+    """
+    outcome = sweep_inactive_scouts()
+    logger.info(
+        "signals_scout inactivity sweep finished",
+        considered=outcome.considered,
+        warned=len(outcome.warned),
+        paused=len(outcome.paused),
+        recovered=outcome.recovered,
+        deferred=outcome.deferred,
+    )
+    if not outcome.warned and not outcome.paused:
+        return
+    # The fleet's spend was measured from analytics in the first place, so report the sweep the same
+    # way — it's how we'll tell whether the pauses are landing on the scouts we meant.
+    touched = outcome.warned + outcome.paused
+    organizations = {
+        team.id: team.organization
+        for team in Team.objects.filter(id__in={config.team_id for config in touched}).select_related("organization")
+    }
+    with ph_scoped_capture() as capture:
+        for event, configs in (
+            ("signals_scout_auto_pause_warned", outcome.warned),
+            ("signals_scout_auto_paused", outcome.paused),
+        ):
+            for config in configs:
+                organization = organizations.get(config.team_id)
+                if organization is None:
+                    continue
+                capture(
+                    distinct_id=str(organization.id),
+                    event=event,
+                    properties={
+                        "team_id": config.team_id,
+                        "organization_id": str(organization.id),
+                        "skill_name": config.skill_name,
+                        "run_interval_minutes": config.run_interval_minutes,
+                        "pause_reason": config.pause_reason,
+                    },
+                    groups=groups(organization=organization),
+                )
 
 
 @shared_task(

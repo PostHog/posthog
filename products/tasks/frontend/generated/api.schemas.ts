@@ -1311,6 +1311,8 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
+    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    url?: string
 }
 
 /**
@@ -1865,6 +1867,18 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     channel?: string | null
+}
+
+export interface TaskPinRequestApi {
+    /** Whether the task should be pinned for the requester. */
+    pinned: boolean
+}
+
+export interface TaskPinResponseApi {
+    /** Task whose pin state was updated. */
+    task_id: string
+    /** Current pin state for the requester. */
+    pinned: boolean
 }
 
 /**
@@ -2842,9 +2856,10 @@ export const JsonrpcEnumApi = {
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
  */
-export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
+export type TaskRunCommandRequestMethodEnumApi =
+    (typeof TaskRunCommandRequestMethodEnumApi)[keyof typeof TaskRunCommandRequestMethodEnumApi]
 
-export const MethodEnumApi = {
+export const TaskRunCommandRequestMethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
@@ -2875,7 +2890,7 @@ export interface TaskRunCommandRequestApi {
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear */
-    method: MethodEnumApi
+    method: TaskRunCommandRequestMethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
     /** Optional JSON-RPC request ID (string or number) */
@@ -3288,6 +3303,11 @@ export interface WizardCloudRunDTOApi {
      * @nullable
      */
     started_at?: string | null
+}
+
+export interface PinnedTaskIdsResponseApi {
+    /** Visible task IDs pinned by the requester, newest pin first. */
+    task_ids: string[]
 }
 
 export interface TaskRepositoriesResponseApi {
