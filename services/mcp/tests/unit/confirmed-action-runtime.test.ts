@@ -122,7 +122,7 @@ describe('prepareConfirmedAction', () => {
         const { stash, store } = makeStash()
         await expect(
             prepareConfirmedAction(makeContext('did-1'), {
-                args: { body: 'x'.repeat(300_000) },
+                args: { body: 'x'.repeat(1_100_000) },
                 purpose: 'scout-create',
                 actionLabel: 'create scout',
                 messageTemplate: 'msg',
