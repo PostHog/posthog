@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -6,6 +7,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, ExternalDataJobStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { agentSetupModalLogic } from './components/shell/agentSetupModalLogic'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType } from './types'
 
@@ -167,6 +169,28 @@ describe('signalSourcesLogic', () => {
 
         expect(createSourceConfig).toHaveBeenCalledTimes(1)
         expect(logic.values.isGithubIssuesToggling).toBe(false)
+    })
+
+    // DataSourceSetup's GitHub OAuth redirect sends the browser away and back to
+    // `/inbox/config?dataSource=github` (instead of the standalone new-source scene) so the
+    // connect flow can resume on the inbox.
+    it('resumes the connect flow from a `dataSource` param on /inbox/config', async () => {
+        router.actions.push('/inbox/config?dataSource=github')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dataSourceSetupSource).toBe('github')
+        expect(agentSetupModalLogic.values.openModal).toBe('signal-sources')
+        expect(router.values.searchParams.dataSource).toBeUndefined()
+    })
+
+    // A garbage/foreign `dataSource` value (another scene reusing the param, a stale bookmark)
+    // must not pop the connect wizard open.
+    it('ignores an unknown `dataSource` param on /inbox/config', async () => {
+        router.actions.push('/inbox/config?dataSource=not-a-real-source')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dataSourceSetupSource).toBeNull()
+        expect(agentSetupModalLogic.values.openModal).toBeNull()
     })
 
     it('creates an AI observability config for evaluation reports', async () => {

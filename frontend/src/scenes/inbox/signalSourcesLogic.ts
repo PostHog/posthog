@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -8,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
@@ -21,6 +23,7 @@ import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend
 
 import type { PaginatedResponse } from '../../lib/api'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
+import { AgentSetupModalKey, agentSetupModalLogic } from './components/shell/agentSetupModalLogic'
 import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
@@ -215,6 +218,9 @@ export interface signalSourcesLogicActions {
     loadSources: () => {
         value: true
     } // sourcesDataLogic
+    openSetupModal: (key: AgentSetupModalKey) => {
+        key: AgentSetupModalKey
+    } // agentSetupModalLogic
     clearSessionAnalysisFilters: () => {
         value: true
     }
@@ -378,7 +384,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [sourcesDataLogic, ['loadSources']],
+        actions: [sourcesDataLogic, ['loadSources'], agentSetupModalLogic, ['openSetupModal']],
     })),
 
     actions({
@@ -740,9 +746,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         }
 
         return {
-            loadCiSignalsConfigFailure: ({ error, errorObject }) => {
+            loadCiSignalsConfigFailure: ({ errorObject }) => {
                 // Silent failure would leave the card claiming setup is required for an armed source.
-                lemonToast.error(errorObject?.detail || error || 'Failed to load CI signals status')
+                lemonToast.error(errorObject?.detail || 'Failed to load CI signals status')
             },
             openSourcesModal: () => {
                 // Load external data sources so we can check connectivity when user toggles a source
@@ -781,7 +787,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.setDataWarehouseSourceEnabled(source, desiredEnabled)
                     downstreamToggleStarted = true
                 } catch (error: any) {
-                    lemonToast.error(error?.detail || error?.message || completion.enableErrorMessage)
+                    lemonToast.error(error?.detail || completion.enableErrorMessage)
                 } finally {
                     if (!downstreamToggleStarted) {
                         actions.completeDataWarehouseSourceToggle(source)
@@ -845,7 +851,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.loadSourceConfigs()
                 } catch (error: any) {
                     breakpoint()
-                    const errorMessage = error?.detail || error?.message || 'Failed to toggle signal source'
+                    const errorMessage = error?.detail || 'Failed to toggle signal source'
                     actions.toggleSignalSourceFailure(params, errorMessage)
                     actions.loadSourceConfigs()
                     lemonToast.error(errorMessage)
@@ -894,7 +900,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 } catch (error: any) {
                     breakpoint() // re-throws if superseded, skipping the lines below
                     actions.toggleErrorTrackingComplete()
-                    const errorMessage = error?.detail || error?.message || 'Failed to toggle Error tracking signals'
+                    const errorMessage = error?.detail || 'Failed to toggle Error tracking signals'
                     lemonToast.error(errorMessage)
                     actions.loadSourceConfigs()
                 }
@@ -919,7 +925,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         }
                     } catch (error: any) {
                         actions.toggleCiSignalsComplete()
-                        lemonToast.error(error?.detail || error?.message || 'Failed to enable GitHub CI signals')
+                        lemonToast.error(error?.detail || 'Failed to enable GitHub CI signals')
                         return
                     }
                 }
@@ -948,7 +954,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 } catch (error: any) {
                     breakpoint() // re-throws if superseded, skipping the lines below
                     actions.toggleCiSignalsComplete()
-                    const errorMessage = error?.detail || error?.message || 'Failed to toggle GitHub CI signals'
+                    const errorMessage = error?.detail || 'Failed to toggle GitHub CI signals'
                     lemonToast.error(errorMessage)
                     actions.loadCiSignalsConfig()
                     actions.loadSourceConfigs()
@@ -1038,7 +1044,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.loadSourceConfigs()
                     actions.closeSessionAnalysisSetup()
                 } catch (error: any) {
-                    const errorMessage = error?.detail || error?.message || 'Failed to save filters'
+                    const errorMessage = error?.detail || 'Failed to save filters'
                     lemonToast.error(errorMessage)
                 }
             },
@@ -1055,7 +1061,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     actions.loadSourceConfigs()
                 } catch (error: any) {
-                    const errorMessage = error?.detail || error?.message || 'Failed to clear filters'
+                    const errorMessage = error?.detail || 'Failed to clear filters'
                     lemonToast.error(errorMessage)
                 }
             },
@@ -1072,6 +1078,23 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     actions.loadCiSignalsConfig()
                 }
             }
+        },
+    })),
+
+    urlToAction(({ actions }) => ({
+        [urls.inbox('config')]: (_, searchParams) => {
+            // Resume a warehouse-source OAuth round-trip: DataSourceSetup sends the browser away and
+            // back to `?dataSource=<source>` (see DataSourceSetup.tsx's oauthRedirectUrl) instead of the
+            // standalone new-source scene, so the connect flow re-opens here rather than stranding the
+            // user off the inbox. Consume the param so a later remount doesn't reopen it.
+            const dataSource = searchParams.dataSource
+            if (!dataSource || !(dataSource in WAREHOUSE_SOURCE_SETUP)) {
+                return
+            }
+            actions.openSetupModal('signal-sources')
+            actions.openDataSourceSetup(dataSource as WarehouseBackedSource)
+            const { dataSource: _dataSource, ...restParams } = searchParams
+            router.actions.replace(urls.inbox('config'), restParams)
         },
     })),
 ])

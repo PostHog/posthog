@@ -3,6 +3,8 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { urls } from 'scenes/urls'
+
 import { SourceConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
@@ -41,12 +43,18 @@ export function DataSourceSetup({
                 onComplete,
             }}
         >
-            <DataSourceSetupForm sourceConfig={sourceConfig} />
+            <DataSourceSetupForm sourceConfig={sourceConfig} source={source} />
         </BindLogic>
     )
 }
 
-function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfig }): JSX.Element {
+function DataSourceSetupForm({
+    sourceConfig,
+    source,
+}: {
+    sourceConfig: SourceConfig
+    source: WarehouseBackedSource
+}): JSX.Element {
     const { isLoading, canGoNext } = useValues(sourceWizardLogic)
     const { setInitialConnector, onSubmit } = useActions(sourceWizardLogic)
 
@@ -63,7 +71,13 @@ function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfig }): 
                 </p>
             </div>
 
-            <SourceForm sourceConfig={sourceConfig} showPrefix={false} />
+            <SourceForm
+                sourceConfig={sourceConfig}
+                showPrefix={false}
+                // Keeps an OAuth round-trip (e.g. GitHub) on this inbox panel instead of the standalone
+                // new-source scene — AgentSetupColumn resumes the flow from the `dataSource` param.
+                oauthRedirectUrl={`${urls.inbox('config')}?dataSource=${source}`}
+            />
 
             <div className="flex justify-end">
                 <LemonButton
