@@ -24,7 +24,7 @@ from products.tasks.backend.logic.services.connection_token import (
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
@@ -689,10 +689,35 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 branch=ctx.branch if is_resume else None,
             )
 
+            if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    f"Resume branch {ctx.branch} is unavailable; cloning the repository default branch so the agent can restore its git checkpoint",
+                )
+                clone_result = sandbox.clone_repository(
+                    input.repository,
+                    github_token=input.github_token,
+                    shallow=input.shallow_clone,
+                    branch=None,
+                )
+
         if clone_result.exit_code != 0:
             raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
 
         return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
+
+
+def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:
+    if result.exit_code == 0:
+        return False
+
+    output = f"{result.stdout}\n{result.stderr}".casefold()
+    return (
+        "could not find remote branch" in output
+        or ("remote branch" in output and "not found in upstream origin" in output)
+        or "couldn't find remote ref" in output
+    )
 
 
 @activity.defn
