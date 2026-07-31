@@ -1,10 +1,10 @@
 ---
 name: downloading-batch-export-files
 description: >
-  Export PostHog events, persons, or sessions on demand and download the resulting files. Use when the user asks to
-  download/export raw PostHog data, create a one-off file export, fetch a Parquet or JSONLines export, or use the
-  file_download_batch_exports API. Covers starting the export with MCP, polling completion, and downloading via the
-  existing REST redirect endpoint.
+  Export PostHog events, persons, sessions, or the results of a HogQL query on demand and download the resulting
+  files. Use when the user asks to download/export raw PostHog data, create a one-off file export, export a SQL/HogQL
+  query result to a file, fetch a Parquet or JSONLines export, or use the file_download_batch_exports API. Covers
+  starting the export with MCP, polling completion, and downloading via the existing REST redirect endpoint.
 ---
 
 # Downloading batch export files
@@ -28,21 +28,45 @@ That endpoint is a redirecting file download endpoint, so raw HTTP/download hand
 
 Ask a short clarifying question if the user did not specify the required inputs:
 
-- `model`: one of `events`, `persons`, or `sessions`
-- `data_interval_start` and `data_interval_end`: ISO 8601 datetimes; the range must be at most one week
+- `model`: one of `events`, `persons`, `sessions`, or `hogql`
 - `file.format`: `Parquet` or `JSONLines`; prefer `Parquet` for compact analytics exports and `JSONLines` for line-oriented text processing
 - `file.compression`: optional, one of `zstd`, `gzip`, `brotli`, `lz4`, or `snappy`. If `JSONLines` was chosen as format, only `gzip` and `brotli` are supported.
 - `file.max_size_mb`: optional maximum part size in MB; set this when the user wants multiple smaller files instead of a single (potentially large) file.
 
+The rest of the request shape depends on the model:
+
+| Field                                      | `events` | `persons` / `sessions` | `hogql`  |
+| ------------------------------------------ | -------- | ---------------------- | -------- |
+| `data_interval_start`, `data_interval_end` | Required | Required               | Rejected |
+| `hogql_query`                              | Rejected | Rejected               | Required |
+| `include`, `exclude`                       | Optional | Ignored                | Rejected |
+
 For `events`, `include` and `exclude` are optional event-name filters.
 Use them only when the user asks for specific events or wants to omit specific events.
+
+#### Interval models (`events`, `persons`, `sessions`)
+
+`data_interval_start` and `data_interval_end` are ISO 8601 datetimes, both required.
+The range must be at most one week, `data_interval_end` must be after `data_interval_start`, and `data_interval_end` cannot be in the future.
+
+#### The `hogql` model
+
+Use `model: "hogql"` when the user wants a file of query results rather than a raw table dump — aggregates, joins, warehouse tables, or a specific set of columns.
+
+- `hogql_query` is required: a HogQL `SELECT` query whose result rows become the exported file.
+- Every column in the `SELECT` clause must be a plain field or carry an alias, so `SELECT count() FROM events` is rejected while `SELECT count() AS event_count FROM events` is accepted. Unaliased expressions would produce column names like `count()` that downstream destinations reject.
+- Placeholders (`{filters}`, `{placeholder}`) are not supported yet.
+- Do not send `data_interval_start`, `data_interval_end`, `include`, or `exclude` — the API rejects all four. There is no interval: the query runs as of the moment the export starts, so scope the time range inside the query itself with a `WHERE` clause. Events ingested moments before the export starts may not be included.
+- The model is gated behind the `hogql-batch-exports` feature flag. If the team does not have it, the create call fails with a 403 saying HogQL batch exports are not enabled — report that rather than retrying, and fall back to an interval model if the request can be expressed as one.
+
+The query is validated when the export is created, so an unparseable query, an unknown table or field, an unaliased column, or a placeholder comes back as a 400 immediately instead of failing mid-run.
 
 ### 2. Start the export
 
 Call `posthog:file-download-batch-exports-create` with the selected shape.
 The response contains an `id` for the export run.
 
-Example request:
+Example request for an interval model:
 
 ```json
 {
@@ -54,6 +78,19 @@ Example request:
   "include": ["$pageview"],
   "data_interval_start": "2026-05-25T00:00:00Z",
   "data_interval_end": "2026-05-26T00:00:00Z"
+}
+```
+
+Example request for the `hogql` model, with the time range expressed in the query instead of a data interval:
+
+```json
+{
+  "model": "hogql",
+  "file": {
+    "format": "Parquet",
+    "compression": "zstd"
+  },
+  "hogql_query": "SELECT properties.$current_url AS url, count() AS views FROM events WHERE event = '$pageview' AND timestamp >= '2026-05-25' AND timestamp < '2026-05-26' GROUP BY url"
 }
 ```
 
@@ -119,7 +156,7 @@ posthog-persons-<run_id>-<part>.parquet
 
 ## Watch-outs
 
-- The maximum export interval is one week. Split longer user requests into separate export runs or ask which week to export.
+- The maximum export interval is one week for `events`, `persons`, and `sessions`. Split longer user requests into separate export runs or ask which week to export. `hogql` has no interval and no such limit, so a query with a wide `WHERE` range is one way to cover a longer period — but keep it bounded, since an unbounded query can be very slow or very large.
 - A run can briefly report `Running` after completion while file records are being created. Poll again instead of failing immediately.
 - Download URLs are temporary. If a URL expires, call the REST download endpoint again for a fresh redirect.
 - Do not send the signed URL to unrelated services unless the user explicitly asks; it grants temporary access to the exported file.
