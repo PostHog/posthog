@@ -190,8 +190,8 @@ tools:
             `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before
             creating a scanner or calling `vision-scanners-scan-session`: over budget, a scanner's scheduled sweeps
             silently skip their observations until the next period, while `vision-scanners-scan-session` is rejected
-            outright with a 402. Pair with `vision-scanners-estimate-create` to size a new scanner against the
-            remaining budget.
+            outright with a 402. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining
+            budget.
         feature_flag: replay-vision
     vision-scanners-affected-cohort-create:
         operation: vision_scanners_affected_cohort_create
@@ -335,8 +335,8 @@ tools:
             List all replay vision scanners in the current project. A scanner watches a slice of session recordings
             (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each matching
             session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric
-            rubric), or `summarizer` (free-text summary, with facet embeddings for downstream search). Each
-            scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.
+            rubric), or `summarizer` (free-text summary, with facet embeddings for downstream search). Each scanner
+            returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.
         feature_flag: replay-vision
     vision-scanners-observations-create-task-create:
         operation: vision_scanners_observations_create_task_create
