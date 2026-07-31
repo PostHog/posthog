@@ -132,6 +132,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         allScopesRequired,
         identityScopeDescriptions,
         showReadOnlyBulkAction,
+        bulkActionsWithEffect,
         oauthApplication,
         oauthApplicationLoading,
         allOrganizations,
@@ -241,7 +242,7 @@ export const OAuthAuthorize = (): JSX.Element => {
     }
 
     return (
-        <div className="min-h-full overflow-y-auto">
+        <div className="min-h-full">
             <div className="max-w-2xl mx-auto py-8 px-4 sm:py-12 sm:px-6">
                 <div className="text-center mb-4 sm:mb-8">
                     {oauthApplication.logo_uri && (
@@ -383,6 +384,11 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         <LemonButton
                                             size="xsmall"
                                             type="secondary"
+                                            disabledReason={
+                                                bulkActionsWithEffect.write
+                                                    ? undefined
+                                                    : 'Every permission is already at the level this app asked for'
+                                            }
                                             onClick={() => setAllScopeAccess('write')}
                                         >
                                             Select all
@@ -391,6 +397,11 @@ export const OAuthAuthorize = (): JSX.Element => {
                                             <LemonButton
                                                 size="xsmall"
                                                 type="secondary"
+                                                disabledReason={
+                                                    bulkActionsWithEffect.read
+                                                        ? undefined
+                                                        : 'No permission is set above read access'
+                                                }
                                                 onClick={() => setAllScopeAccess('read')}
                                             >
                                                 Read-only
@@ -399,6 +410,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                                         <LemonButton
                                             size="xsmall"
                                             type="secondary"
+                                            disabledReason={
+                                                bulkActionsWithEffect.none ? undefined : 'Nothing left to deselect'
+                                            }
                                             onClick={() => setAllScopeAccess('none')}
                                         >
                                             Deselect all
@@ -466,7 +480,8 @@ export const OAuthAuthorize = (): JSX.Element => {
                             </div>
                         )}
 
-                        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4">
+                        {/* Sticky so Authorize stays reachable however many scopes the app requests */}
+                        <div className="sticky bottom-0 z-10 -mx-4 sm:-mx-6 -mb-4 sm:-mb-6 px-4 sm:px-6 py-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 bg-bg-light border-t border-border rounded-b">
                             <LemonButton
                                 type="tertiary"
                                 status="alt"

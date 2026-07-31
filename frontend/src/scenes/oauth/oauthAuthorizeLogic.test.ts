@@ -87,6 +87,37 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toEqual(expected)
     })
 
+    const bulkEffectCases: {
+        name: string
+        scopes: string[]
+        apply?: () => void
+        expected: { write: boolean; read: boolean; none: boolean }
+    }[] = [
+        {
+            name: 'no-ops select-all in the default state, where every row sits at its ceiling',
+            scopes: ['openid', 'feature_flag:write', 'query:read'],
+            expected: { write: false, read: true, none: true },
+        },
+        {
+            name: 'offers select-all again once something has been turned down',
+            scopes: ['openid', 'feature_flag:write', 'query:read'],
+            apply: () => logic.actions.setAllScopeAccess('none'),
+            expected: { write: true, read: true, none: false },
+        },
+        {
+            name: 'no-ops read-only when every row is already at read',
+            scopes: ['openid', 'feature_flag:write', 'query:read'],
+            apply: () => logic.actions.setAllScopeAccess('read'),
+            expected: { write: true, read: false, none: true },
+        },
+    ]
+
+    it.each(bulkEffectCases)('bulkActionsWithEffect $name', ({ scopes, apply, expected }) => {
+        logic.actions.setScopes(scopes)
+        apply?.()
+        expect(logic.values.bulkActionsWithEffect).toEqual(expected)
+    })
+
     it('offers the bulk read-only action for wildcard requests', () => {
         logic.actions.setScopes(['*'])
         expect(logic.values.showReadOnlyBulkAction).toBe(true)

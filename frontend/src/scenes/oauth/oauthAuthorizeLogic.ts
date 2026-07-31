@@ -153,6 +153,7 @@ export interface oauthAuthorizeLogicValues {
     allScopesRequired: boolean
     allTeams: TeamBasicType[] | null
     allTeamsLoading: boolean
+    bulkActionsWithEffect: Record<ScopeAccessLevel, boolean>
     authorizationComplete: boolean
     consentResourceScopes: string[]
     effectiveScopes: string[]
@@ -788,6 +789,17 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             (s) => [s.adjustableScopeRows],
             (adjustableScopeRows: OAuthScopeRow[]): boolean =>
                 adjustableScopeRows.some((row) => row.maxLevel === 'write'),
+        ],
+        // A bulk action is only meaningful when at least one adjustable row would end up at a
+        // different level than it already sits at — every row starts at the level the app asked
+        // for, so "Select all" is a no-op until something has been turned down.
+        bulkActionsWithEffect: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): Record<ScopeAccessLevel, boolean> => {
+                const wouldChange = (level: ScopeAccessLevel): boolean =>
+                    adjustableScopeRows.some((row) => clampAccessLevel(level, row.minLevel, row.maxLevel) !== row.value)
+                return { write: wouldChange('write'), read: wouldChange('read'), none: wouldChange('none') }
+            },
         ],
         effectiveScopes: [
             (s) => [s.scopes, s.scopeRows, s.oauthApplication],
