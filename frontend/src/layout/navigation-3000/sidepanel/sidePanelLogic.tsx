@@ -33,7 +33,13 @@ const TABS_REQUIRING_A_TEAM = [
  */
 export const TABS_PERSISTED_ACROSS_NAVIGATION = [SidePanelTab.Max, SidePanelTab.Support, SidePanelTab.Notebooks]
 
-/** Shared close rules for context changes: persisted tabs and explicit #panel= deep links stay open. */
+/**
+ * Closes the panel when the context it described goes away — a tab like activity logs or access
+ * control left open after navigating elsewhere would otherwise stay up showing stale content and
+ * cost an extra click to dismiss. Called on scene changes, and separately on settings section
+ * changes, since all settings sections share one scene. Tabs in TABS_PERSISTED_ACROSS_NAVIGATION
+ * and explicit #panel= deep links stay open.
+ */
 function closeContextBoundTab(
     values: { sidePanelOpen: boolean; selectedTab: SidePanelTab | null },
     actions: { closeSidePanel: () => void }
