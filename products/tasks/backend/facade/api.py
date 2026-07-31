@@ -5710,7 +5710,8 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=_visible_task_qs(team_id, user_id))
+    visible_tasks = _visible_task_qs(team_id, user_id).filter(internal=False, archived=False)
+    return TaskActivity.objects.filter(team_id=team_id, user_id=user_id, task__in=visible_tasks)
 
 
 def count_unread_task_activity(team_id: int, user_id: int | None) -> int:

@@ -32912,6 +32912,28 @@ export namespace Schemas {
       trace_id: string;
     }
 
+    export interface GitHubAvailableInstallation {
+      /** GitHub installation ID to pass to github/link_existing when linking this installation. */
+      installation_id: string;
+      /**
+         * GitHub account (organization or user) the installation belongs to, for display in the picker.
+         * @nullable
+         */
+      account_name: string | null;
+      /**
+         * GitHub account type, e.g. 'Organization' or 'User'.
+         * @nullable
+         */
+      account_type: string | null;
+      /** A project in the organization that already has this installation linked. */
+      source_team_id: number;
+    }
+
+    export interface GitHubAvailableInstallationsResponse {
+      /** Distinct GitHub installations in the organization available to link to this project. */
+      installations: GitHubAvailableInstallation[];
+    }
+
     export interface GitHubBranchesResponse {
       /** List of branch names */
       branches: string[];
@@ -37223,6 +37245,7 @@ export namespace Schemas {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -37270,6 +37293,7 @@ export namespace Schemas {
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
+      Posthog: 'posthog',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
@@ -37317,6 +37341,7 @@ export namespace Schemas {
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
+       * * `posthog` - Posthog
        * * `reddit-ads` - Reddit Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
@@ -40769,32 +40794,6 @@ export namespace Schemas {
       metric_name: MetricNameEnum;
       instance_id: string;
     }
-
-    /**
-     * * `user_message` - user_message
-     * * `cancel` - cancel
-     * * `close` - close
-     * * `permission_response` - permission_response
-     * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response
-     * * `pi/rpc` - pi/rpc
-     * * `queue_get` - queue_get
-     * * `queue_clear` - queue_clear
-     */
-    export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
-
-
-    export const MethodEnum = {
-      UserMessage: 'user_message',
-      Cancel: 'cancel',
-      Close: 'close',
-      PermissionResponse: 'permission_response',
-      SetConfigOption: 'set_config_option',
-      McpResponse: 'mcp_response',
-      PiRpc: 'pi/rpc',
-      QueueGet: 'queue_get',
-      QueueClear: 'queue_clear',
-    } as const;
 
     /**
      * * `up` - up
@@ -45818,7 +45817,7 @@ export namespace Schemas {
       readonly temporal_workflow_id: string;
       /** Dedupes activity retries for the same logical run. */
       readonly idempotency_key: string;
-      /** Why the run started (e.g. scheduled, manual, target_change). */
+      /** Why the run started (e.g. scheduled, manual, subscription update). */
       readonly trigger_type: string;
       /**
          * Planned send time when applicable.
@@ -53701,6 +53700,8 @@ export namespace Schemas {
       run_cron_schedule?: string | null;
       /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
       output_destinations?: SignalScoutOutputDestinations;
+      /** Exempt this scout from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste. */
+      auto_pause_exempt?: boolean;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -55969,6 +55970,53 @@ export namespace Schemas {
       priority: string | null;
       labels: unknown[];
       createdAt: string | null;
+    }
+
+    /**
+     * Query parameters to send to the target.
+     */
+    export type PostHogConnectionForwardQuery = {[key: string]: string};
+
+    /**
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE
+     */
+    export type PostHogConnectionForwardMethodEnum = typeof PostHogConnectionForwardMethodEnum[keyof typeof PostHogConnectionForwardMethodEnum];
+
+
+    export const PostHogConnectionForwardMethodEnum = {
+      Get: 'GET',
+      Post: 'POST',
+      Put: 'PUT',
+      Patch: 'PATCH',
+      Delete: 'DELETE',
+    } as const;
+
+    export interface PostHogConnectionForward {
+      /** HTTP method to use against the target project's API.
+       *
+       * * `GET` - GET
+       * * `POST` - POST
+       * * `PUT` - PUT
+       * * `PATCH` - PATCH
+       * * `DELETE` - DELETE */
+      method: PostHogConnectionForwardMethodEnum;
+      /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+      path: string;
+      /** Query parameters to send to the target. */
+      query?: PostHogConnectionForwardQuery;
+      /** JSON request body for write methods. */
+      data?: unknown;
+    }
+
+    export interface PostHogConnectionForwardResponse {
+      /** HTTP status the target project returned. */
+      status: number;
+      /** The target project's response body, passed through. */
+      data: unknown;
     }
 
     /**
@@ -63419,6 +63467,13 @@ export namespace Schemas {
       readonly last_run_at: string | null;
       /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
       readonly consecutive_failure_count: number;
+      /**
+         * When `status` last changed. For `pending_pause` this is when the warning was issued (the pause lands about a week later unless the scout surfaces something); for the paused statuses it is when the scout was paused. Null if the status never changed.
+         * @nullable
+         */
+      readonly status_changed_at: string | null;
+      /** Whether this scout is exempt from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+      readonly auto_pause_exempt: boolean;
       readonly created_at: string;
     }
 
@@ -63441,6 +63496,8 @@ export namespace Schemas {
       run_interval_minutes?: number;
       /** Destinations that receive each finding or report this scout emits. Empty by default. */
       output_destinations?: SignalScoutOutputDestinations;
+      /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+      auto_pause_exempt?: boolean;
       /**
          * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
          * @maxLength 100
@@ -63470,6 +63527,8 @@ export namespace Schemas {
       run_interval_minutes?: number;
       /** Destinations that receive each finding or report this scout emits. Empty by default. */
       output_destinations?: SignalScoutOutputDestinations;
+      /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+      auto_pause_exempt?: boolean;
       /**
          * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
          * @maxLength 100
@@ -69912,6 +69971,32 @@ export namespace Schemas {
     export type TaskRunCommandRequestParams = { [key: string]: unknown };
 
     /**
+     * * `user_message` - user_message
+     * * `cancel` - cancel
+     * * `close` - close
+     * * `permission_response` - permission_response
+     * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear
+     */
+    export type TaskRunCommandRequestMethodEnum = typeof TaskRunCommandRequestMethodEnum[keyof typeof TaskRunCommandRequestMethodEnum];
+
+
+    export const TaskRunCommandRequestMethodEnum = {
+      UserMessage: 'user_message',
+      Cancel: 'cancel',
+      Close: 'close',
+      PermissionResponse: 'permission_response',
+      SetConfigOption: 'set_config_option',
+      McpResponse: 'mcp_response',
+      PiRpc: 'pi/rpc',
+      QueueGet: 'queue_get',
+      QueueClear: 'queue_clear',
+    } as const;
+
+    /**
      * JSON-RPC request to send a command to the agent server in the sandbox.
      */
     export interface TaskRunCommandRequest {
@@ -69930,7 +70015,7 @@ export namespace Schemas {
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
        * * `queue_clear` - queue_clear */
-      method: MethodEnum;
+      method: TaskRunCommandRequestMethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
       /** Optional JSON-RPC request ID (string or number) */
@@ -79320,6 +79405,7 @@ export namespace Schemas {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -79378,6 +79464,7 @@ export namespace Schemas {
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
+      Posthog: 'posthog',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',

@@ -193,7 +193,10 @@ SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads},
     resource_defs={
         "cluster": OpsClickhouseClusterResource(max_execution_time=2 * 60 * 60, max_memory_usage=20 * ONE_GB)
     },
-    tags={"owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value},
+    tags={
+        "owner": JobOwners.TEAM_ANALYTICS_PLATFORM.value,
+        "query_log_archive_backfill_concurrency": "query_log_archive_v1",
+    },
 )
 def export_query_log_archive_to_s3():
     export_query_log_archive_day()

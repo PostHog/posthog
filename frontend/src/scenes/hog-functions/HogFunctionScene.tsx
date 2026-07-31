@@ -63,9 +63,11 @@ const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'runs', 'invocation
 export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<
-    Record<HogFunctionTypeType, { scene: Scene; url: () => string; newKind: DataPipelinesNewSceneKind }>
+    Record<HogFunctionTypeType, { scene: Scene; url: () => string; newKind?: DataPipelinesNewSceneKind }>
 > = {
     transformation: { scene: Scene.Transformations, url: urls.transformations, newKind: 'transformation' },
+    // Log transformations have no /pipeline/new page; creation happens from the Logs scene
+    transformation_log: { scene: Scene.Logs, url: urls.logs },
     destination: { scene: Scene.Destinations, url: urls.destinations, newKind: 'destination' },
     site_destination: { scene: Scene.Destinations, url: urls.destinations, newKind: 'destination' },
     source_webhook: { scene: Scene.Sources, url: urls.sources, newKind: 'source' },
@@ -308,7 +310,10 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: sceneMapping.scene,
                             name: capitalizeFirstLetter(humanizeHogFunctionType(type, true)),
-                            path: id ? sceneMapping.url() : urls.dataPipelinesNew(sceneMapping.newKind),
+                            path:
+                                id || !sceneMapping.newKind
+                                    ? sceneMapping.url()
+                                    : urls.dataPipelinesNew(sceneMapping.newKind),
                             iconType: 'data_pipeline',
                         },
                         finalCrumb,
