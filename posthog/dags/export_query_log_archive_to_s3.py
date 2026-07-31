@@ -180,7 +180,7 @@ LEFT JOIN
 SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads},
     join_algorithm = 'hash', max_bytes_before_external_group_by = 2000000000,
     min_insert_block_size_rows = 65536, min_insert_block_size_bytes = 134217728,
-    output_format_parquet_row_group_size = 131072
+    output_format_parquet_row_group_size = 131072, output_format_parquet_row_group_size_bytes = 134217728
 """
 
     def run(client: Client) -> str:
