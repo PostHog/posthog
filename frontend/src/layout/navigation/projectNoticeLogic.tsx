@@ -12,15 +12,14 @@ import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
+import { hasIngestedEventLogic } from 'lib/logic/hasIngestedEventLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { ProxyRecord } from 'scenes/settings/environment/proxyLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -169,6 +168,7 @@ export interface projectNoticeLogicValues {
     memberCount: number // membersLogic
     currentOrganizationId: string // organizationLogic
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
+    hasIngestedEvent: boolean // hasIngestedEventLogic
     user: UserType | null // userLogic
     effectiveBillingAlert: BillingAlertConfig | null
     noticeDismissedThisSession: boolean
@@ -240,8 +240,7 @@ export interface projectNoticeLogicMeta {
                 searchParams: Record<string, any>
             },
             noticeDismissedThisSession: boolean,
-            activeSceneId: string | null,
-            arg: number,
+            hasIngestedEvent: boolean,
             hasReverseProxy: boolean | null,
             isProvisionedUser: boolean
         ) => ProjectNoticeVariant | null
@@ -294,6 +293,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             // complete on the same signal. The checker throttles its own detection query internally.
             reverseProxyCheckerLogic,
             ['hasReverseProxy'],
+            hasIngestedEventLogic,
+            ['hasIngestedEvent'],
         ],
         actions: [
             eventUsageLogic,
@@ -362,8 +363,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.effectiveBillingAlert,
                 router.selectors.currentLocation,
                 s.noticeDismissedThisSession,
-                sceneLogic.selectors.activeSceneId,
-                (state) => liveEventsLogic.findMounted()?.selectors.eventCount(state) ?? 0,
+                s.hasIngestedEvent,
                 // null = not yet checked; we only nudge once detection confirms there's no proxy.
                 s.hasReverseProxy,
                 userLogic.selectors.isProvisionedUser,
@@ -388,8 +388,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     searchParams: Record<string, any>
                 },
                 noticeDismissedThisSession: boolean,
-                activeSceneId: string | null,
-                liveEventCount: number,
+                hasIngestedEvent: boolean,
                 hasReverseProxy: boolean | null,
                 isProvisionedUser: boolean
             ): ProjectNoticeVariant | null => {
@@ -423,15 +422,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // For partner-provisioned accounts, the welcome nudge supersedes the generic
                     // "no events yet" banner — their events arrive via the background wizard install.
                     return 'provisioned_welcome'
-                } else if (
-                    !isNoticeDismissed('real_project_with_no_events') &&
-                    currentTeam &&
-                    !currentTeam.ingested_event &&
-                    // Belt-and-braces: never claim "no events" while the live activity feed is
-                    // actively rendering events on the same screen — `currentTeam.ingested_event`
-                    // can lag behind the live SSE stream during the first ingestion window.
-                    !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
-                ) {
+                } else if (!isNoticeDismissed('real_project_with_no_events') && currentTeam && !hasIngestedEvent) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
                     return 'event_ingestion_restriction'

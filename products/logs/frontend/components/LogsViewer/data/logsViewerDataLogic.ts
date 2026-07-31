@@ -24,6 +24,7 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
+import { hasIngestedEventLogic } from 'lib/logic/hasIngestedEventLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -233,6 +234,9 @@ export interface logsViewerDataLogicActions {
         severityLevels: LogSeverityLevel[]
     } // logsViewerFiltersLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    reportRealDataObserved: () => {
+        value: true
+    } // hasIngestedEventLogic
     addLogsToSparkline: (logs: LogMessage[]) => LogMessage[]
     cancelInProgressLiveTail: (liveTailAbortController: AbortController | null) => {
         liveTailAbortController: AbortController | null
@@ -489,6 +493,8 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         actions: [
             teamLogic,
             ['addProductIntent'],
+            hasIngestedEventLogic,
+            ['reportRealDataObserved'],
             logsViewerFiltersLogic({ id }),
             ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'setSeverityLevels', 'setServiceNames'],
             logsViewerConfigLogic({ id }),
@@ -1082,6 +1088,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             } else {
                 posthog.capture('logs results returned', { count: logs.length })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstLogs)
+                // Real logs on screen outrank `currentTeam.ingested_event`, which only reflects
+                // posthog-js pageview/event capture and can otherwise leave the "no events yet"
+                // banner up over a populated logs table — see hasIngestedEventLogic.
+                actions.reportRealDataObserved()
             }
         },
         fetchNextLogsPage: () => {

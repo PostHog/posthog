@@ -22,6 +22,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { hasIngestedEventLogic } from 'lib/logic/hasIngestedEventLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
@@ -844,7 +845,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.hasOnboardedAnyProduct &&
-                        !teamLogic.values.currentTeam?.ingested_event &&
+                        !hasIngestedEventLogic.values.hasIngestedEvent &&
                         // Suppress the redirect when the user has explicitly exited onboarding
                         // (skipped for later, or delegated to a teammate with a pending invite).
                         // If the delegation invite is cancelled or expires, the backend clears

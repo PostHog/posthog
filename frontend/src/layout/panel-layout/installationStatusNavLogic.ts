@@ -1,5 +1,6 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 
+import { hasIngestedEventLogic } from 'lib/logic/hasIngestedEventLogic'
 import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
@@ -17,6 +18,7 @@ export interface installationStatusNavLogicValues {
     panelMounted: boolean // activeCloudRunLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasOnboardedAnyProduct: boolean // teamLogic
+    hasIngestedEvent: boolean // hasIngestedEventLogic
     hasActiveSession: boolean // wizardActiveSessionDetectorLogic
     dialogOpen: boolean // wizardSyncUiLogic
     isRunActive: boolean
@@ -38,6 +40,7 @@ export interface installationStatusNavLogicMeta {
         shouldShow: (
             hasOnboardedAnyProduct: boolean,
             currentTeam: TeamPublicType | TeamType | null,
+            hasIngestedEvent: boolean,
             activeCloudRun: CloudRunHandle | null,
             hasActiveSession: boolean,
             panelMounted: boolean
@@ -61,7 +64,7 @@ export type installationStatusNavLogicType = MakeLogicType<
  * Data sources (all already exist):
  *   - `activeCloudRunLogic.activeCloudRun` — persisted cloud-run handle
  *   - `wizardActiveSessionDetectorLogic.hasActiveSession` — cheap REST poll for local wizard runs
- *   - `teamLogic.hasOnboardedAnyProduct`, `currentTeam.ingested_event` — onboarding relevance
+ *   - `teamLogic.hasOnboardedAnyProduct`, `hasIngestedEventLogic.hasIngestedEvent` — onboarding relevance
  *   - `wizardSyncUiLogic` — shared dialog state with the floating FAB
  */
 export const installationStatusNavLogic = kea<installationStatusNavLogicType>([
@@ -76,16 +79,26 @@ export const installationStatusNavLogic = kea<installationStatusNavLogicType>([
             ['hasOnboardedAnyProduct', 'currentTeam'],
             wizardSyncUiLogic,
             ['dialogOpen'],
+            hasIngestedEventLogic,
+            ['hasIngestedEvent'],
         ],
         actions: [wizardSyncUiLogic, ['openDialog']],
     })),
     selectors({
         /** Whether the nav item should render at all. */
         shouldShow: [
-            (s) => [s.hasOnboardedAnyProduct, s.currentTeam, s.activeCloudRun, s.hasActiveSession, s.panelMounted],
+            (s) => [
+                s.hasOnboardedAnyProduct,
+                s.currentTeam,
+                s.hasIngestedEvent,
+                s.activeCloudRun,
+                s.hasActiveSession,
+                s.panelMounted,
+            ],
             (
                 hasOnboardedAnyProduct: boolean,
                 currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
+                hasIngestedEvent: boolean,
                 activeCloudRun:
                     | null
                     | import('scenes/onboarding/shared/wizard-sync/activeCloudRunLogic').CloudRunHandle,
@@ -101,7 +114,7 @@ export const installationStatusNavLogic = kea<installationStatusNavLogicType>([
                     return true
                 }
                 // Onboarding is still relevant (no events yet, or no product completed)
-                if (!hasOnboardedAnyProduct && currentTeam && !currentTeam.ingested_event) {
+                if (!hasOnboardedAnyProduct && currentTeam && !hasIngestedEvent) {
                     return true
                 }
                 return false
