@@ -243,11 +243,11 @@ describe('PushNotificationService', () => {
                 if (captured === 'nothing') {
                     // An asset is a snapshot of what a recipient received; a send that reached nobody
                     // has none, and email behaves the same way (it captures only on success).
-                    expect(result.emailAssets).toEqual([])
+                    expect(result.messageAssets).toEqual([])
                     return
                 }
-                expect(result.emailAssets).toHaveLength(1)
-                expect(result.emailAssets[0]).toMatchObject({
+                expect(result.messageAssets).toHaveLength(1)
+                expect(result.messageAssets[0]).toMatchObject({
                     kind: 'push',
                     status: captured,
                     action_id: 'action_push_1',
@@ -279,7 +279,7 @@ describe('PushNotificationService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
-                expect(result.emailAssets).toEqual([])
+                expect(result.messageAssets).toEqual([])
                 expect(result.logs.map((log) => log.message)).toContainEqual(
                     expect.stringContaining('could not be captured')
                 )
@@ -298,7 +298,7 @@ describe('PushNotificationService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(result.metrics).toEqual([])
-                expect(result.emailAssets).toEqual([])
+                expect(result.messageAssets).toEqual([])
                 expect(result.logs.map((log) => log.message)).toContainEqual(expect.stringContaining('accepted by FCM'))
             })
 
@@ -315,7 +315,7 @@ describe('PushNotificationService', () => {
 
                 const result = await serviceWithAssets.executeSendPushNotification(invocation)
 
-                expect(result.emailAssets).toHaveLength(1)
+                expect(result.messageAssets).toHaveLength(1)
             })
         })
 

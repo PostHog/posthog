@@ -291,7 +291,7 @@ export class PushNotificationService {
             try {
                 const assetRow = this.messageAssetsService.buildRowForPush(invocation, params, [...deliveredPlatforms])
                 if (assetRow) {
-                    result.emailAssets.push(assetRow)
+                    result.messageAssets.push(assetRow)
                 }
             } catch (err) {
                 addLog('warn', 'The notification was delivered but could not be captured for the Assets tab.')
