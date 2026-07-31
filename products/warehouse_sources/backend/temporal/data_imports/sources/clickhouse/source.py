@@ -8,6 +8,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -114,7 +115,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clickhouse",
