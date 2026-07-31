@@ -44,6 +44,21 @@ describe('getToolRecoveryHint', () => {
     })
 })
 
+describe('getToolRecoveryHint — insight query endpoint', () => {
+    const INSIGHT_QUERY_URL = 'https://us.posthog.com/api/projects/2/query/'
+
+    it('returns the narrow-and-retry hint for a 5xx on the insight query endpoint', () => {
+        const hint = getToolRecoveryHint({ url: INSIGHT_QUERY_URL, status: 504 })
+
+        expect(hint).not.toBeUndefined()
+        expect(hint).toContain('max execution time')
+    })
+
+    it.each([400, 404])('does not fire for %i — those carry an actionable detail already', (status) => {
+        expect(getToolRecoveryHint({ url: INSIGHT_QUERY_URL, status })).toBeUndefined()
+    })
+})
+
 describe('handleToolError recovery hints', () => {
     it('appends the recovery hint to a 5xx logs query failure', () => {
         const error = new PostHogApiError({

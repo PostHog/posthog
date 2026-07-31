@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import { queryHandler } from '@/tools/insights/query'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
@@ -67,6 +68,40 @@ function createContext(overrides?: { getData?: unknown; queryData?: unknown }): 
 
     return { context, insightsGet, insightsQuery }
 }
+
+describe('queryHandler — error propagation', () => {
+    it('preserves the typed API error as `cause` when the insight get fails', async () => {
+        const apiError = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '{"detail":"not found"}',
+            url: 'https://us.posthog.com/api/projects/1/insights/42/',
+            method: 'GET',
+        })
+        const { context, insightsGet } = createContext()
+        insightsGet.mockResolvedValue({ success: false, error: apiError })
+
+        await expect(queryHandler(context, { insightId: '42', output_format: 'json' })).rejects.toMatchObject({
+            cause: apiError,
+        })
+    })
+
+    it('preserves the typed API error as `cause` when the query call fails', async () => {
+        const apiError = new PostHogApiError({
+            status: 504,
+            statusText: 'Gateway Timeout',
+            body: 'upstream timeout',
+            url: 'https://us.posthog.com/api/projects/1/query/',
+            method: 'POST',
+        })
+        const { context, insightsQuery } = createContext()
+        insightsQuery.mockResolvedValue({ success: false, error: apiError })
+
+        await expect(queryHandler(context, { insightId: '42', output_format: 'json' })).rejects.toMatchObject({
+            cause: apiError,
+        })
+    })
+})
 
 describe('queryHandler — overrides forwarding', () => {
     it('forwards a string variables_override unchanged', async () => {

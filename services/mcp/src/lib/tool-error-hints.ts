@@ -39,6 +39,23 @@ const LOGS_QUERY_URL_FRAGMENTS = [
     '/logs/sparkline/',
 ]
 
+/**
+ * The generic insight `/query/` endpoint runs arbitrary HogQL/insight queries
+ * against ClickHouse and can time out or fail server-side (surfacing as a 5xx)
+ * on a broad or expensive query, independent of the logs-specific endpoints above.
+ */
+const INSIGHT_QUERY_RECOVERY_HINT = [
+    'This query failed server-side, most often because it hit the max execution time or scanned too much data — not necessarily a bug in the query itself.',
+    '',
+    'Narrow the query and retry:',
+    '1. Shorten the date range.',
+    '2. Add more specific filters (event, property, or breakdown) to reduce the rows scanned.',
+    '3. If querying a saved insight, check whether it already includes a wide date range or an expensive breakdown before retrying as-is.',
+].join('\n')
+
+/** URL path fragments for the insight query endpoint. */
+const INSIGHT_QUERY_URL_FRAGMENTS = ['/query/']
+
 interface RecoveryHintInput {
     /** The failed request URL (from `PostHogApiError.url`), if the error was an HTTP failure. */
     url?: string | undefined
@@ -61,6 +78,9 @@ export function getToolRecoveryHint({ url, status }: RecoveryHintInput): string 
     }
     if (url && LOGS_QUERY_URL_FRAGMENTS.some((fragment) => url.includes(fragment))) {
         return LOGS_QUERY_RECOVERY_HINT
+    }
+    if (url && INSIGHT_QUERY_URL_FRAGMENTS.some((fragment) => url.includes(fragment))) {
+        return INSIGHT_QUERY_RECOVERY_HINT
     }
     return undefined
 }
