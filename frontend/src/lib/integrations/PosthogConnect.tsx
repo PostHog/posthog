@@ -9,7 +9,6 @@ import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { TZLabel } from 'lib/components/TZLabel'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
-
 import { userLogic } from 'scenes/userLogic'
 
 import { IntegrationType } from '~/types'
@@ -69,7 +68,9 @@ function PosthogConnectionRow({ integration }: { integration: IntegrationType })
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">{integration.display_name || 'PostHog'}</span>
-                    <span className="text-xs text-muted bg-surface-secondary px-1.5 py-0.5 rounded">{region} region</span>
+                    <span className="text-xs text-muted bg-surface-secondary px-1.5 py-0.5 rounded">
+                        {region} region
+                    </span>
                 </div>
                 <div className="mt-0.5 text-xs text-secondary">
                     {integration.created_at ? (
