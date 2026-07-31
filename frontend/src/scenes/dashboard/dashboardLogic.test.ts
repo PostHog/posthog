@@ -1164,14 +1164,14 @@ describe('dashboardLogic', () => {
             })
         })
 
-        describe('classic 404 path', () => {
+        describe('when the dashboard GET returns 404', () => {
             beforeEach(() => {
                 logic = dashboardLogic({ id: 13 })
                 logic.mount()
             })
 
-            // The NotFound scene is gated on error404, so the classic loader must set it once a
-            // fetch settles as a 404 — and must NOT set it before the request has been made.
+            // The NotFound scene is gated on error404, so the loader must set it once the fetch
+            // settles as a 404 — and must NOT set it before the request has been made.
             it('sets error404 after a settled 404 and not before', async () => {
                 expect(logic.values.error404).toBe(false)
 
