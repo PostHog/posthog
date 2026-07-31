@@ -6502,6 +6502,14 @@ snapshots:
         hash: v1.k794b7964.a4f65ae92d92d3600674689dc61f5ba834aac470154fb26b82821cb17b12cada.vAYLkto1-GBp1WeHETUeB5R0Pljn-RwHDW9h3bib1KQ
     scenes-app-mcp-analytics-dashboard-cards--share-by-harness--light:
         hash: v1.k794b7964.c5eae070d2b0728ce676a8248650123f9a153ec8a9b9052f119d28b82e112e75.CdS-40DZGyT0t1Th9qh7g6Cc9Dgt__lEEujO7OXp4IM
+    scenes-app-mcp-analytics-tool-quality-charts--in-progress-bucket--dark:
+        hash: v1.k794b7964.cb575879ad1044413db6602a42cdd55d8325c1b7a86618bbf61c6f0027f8d396.VwV3uapTtM35cAwkGPx28mCWFl03HVcTxa4tdtqQQZE
+    scenes-app-mcp-analytics-tool-quality-charts--in-progress-bucket--light:
+        hash: v1.k794b7964.bf8496b4a7103103ec3a4b31efe1ec4828079f3b5b8d5abe472c16bb9303ccba.MA0W6oUfi1mfyPbNaC8VX3cXB5qWI1cp9q7Pk0tt82E
+    scenes-app-mcp-analytics-tool-quality-charts--settled-window--dark:
+        hash: v1.k794b7964.9f5b5cf95369d8822ac8b995151ff5386e5588d27a8a5fa0e1e2a70e8ca0ef27.5AywKm-JhISINz7_bggX38c9vtYVpCCUgeiJ5Yrukho
+    scenes-app-mcp-analytics-tool-quality-charts--settled-window--light:
+        hash: v1.k794b7964.ffd727aeabfa7614a64378cfe84563a23dcfb016cef6257fa51b8f5b01318f3a.Izt8TRdp_Kl4BruaSpc2ZRXgd5Qdc_36oM7pWPH_E28
     scenes-app-notebooks--bullet-list--dark:
         hash: v1.k794b7964.ff3b99437db7b9bcc36ff7530f42aa5c397f0e4d3ef300b741a84914afb3083c.5niOTwV3qBfjQba0L2N6T6HHEDSltopfXj1A5COVdbQ
     scenes-app-notebooks--bullet-list--light:
