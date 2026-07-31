@@ -74,9 +74,7 @@ export interface twoFactorResetLogicActions {
             token: string
         }
     }
-    resendLink: () => {
-        value: true
-    }
+    resendLink: () => any
     resendLinkFailure: (
         error: string,
         errorObject?: any
@@ -85,11 +83,23 @@ export interface twoFactorResetLogicActions {
         errorObject?: any
     }
     resendLinkSuccess: (
-        resendLinkResult: ResendLinkResponse,
-        payload?: null
+        resendLinkResult:
+            | ResendLinkResponse
+            | {
+                  error: any
+                  requires_login: boolean
+                  success: false
+              },
+        payload?: any
     ) => {
-        resendLinkResult: ResendLinkResponse
-        payload?: null
+        resendLinkResult:
+            | ResendLinkResponse
+            | {
+                  error: any
+                  requires_login: boolean
+                  success: false
+              }
+        payload?: any
     }
     resetState: () => {
         value: true
@@ -97,13 +107,13 @@ export interface twoFactorResetLogicActions {
     setRequiresLogin: (requires: boolean) => {
         requires: boolean
     }
+    setResendLinkError: (error: string | null) => {
+        error: string | null
+    }
     setResetComplete: (complete: boolean) => {
         complete: boolean
     }
     setResetError: (error: string | null) => {
-        error: string | null
-    }
-    setResendLinkError: (error: string | null) => {
         error: string | null
     }
     validateResetToken: ({ uuid, token }: { token: string; uuid: string }) => {
