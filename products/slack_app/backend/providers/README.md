@@ -37,14 +37,14 @@ class InboundMessage:
 
 and drive a provider-neutral routing pipeline with it. Don't introduce this type before that pipeline exists — it would be dead code.
 
-## Adding a provider (checklist, annotated with where Telegram landed)
+## Adding a provider (checklist, annotated with where Telegram and WhatsApp landed)
 
-1. Implement `ChatProvider` in `providers/<name>.py`, delegating to provider-specific service modules; register it in `registry._PROVIDERS`. _Telegram: `providers/telegram.py`, delegating to `services/telegram_api.py` (hand-rolled Bot API client) and `services/telegram_link.py`._
-2. Add the webhook view (`/<name>/event-callback` in `posthog/urls.py`) doing signature validation via the provider class, plus the provider's secret to `region_auth.region_claims_secret` and its kinds to `region_claims._PROVIDER_CLAIM_KINDS`. _Telegram: `views/telegram_events.py`; secrets are the `TELEGRAM_APP_BOT_TOKEN` / `TELEGRAM_APP_WEBHOOK_SECRET` instance settings, and the webhook secret doubles as the region-claims secret._
-3. Identity linking: add the provider kind to `UserIntegration.IntegrationKind` and build a linking flow; reuse `_pick_accessible_linked_user` in `services/slack_user_oauth.py`. _Telegram: no email and a 64-char `/start` payload limit, so linking rides one-shot cache-backed codes (`services/telegram_link.py`) minted by the login-gated `views/telegram_link.py` views._
-4. Conversation binding: decide how a chat maps to an `Integration` row. _Telegram: every chat (DM or group) binds to exactly one team via `kind="telegram"`, `integration_id=chat_id`; DMs bind on `/start` redemption, groups on `/connect <code>` with a minter-match guard (the pasted command is visible to the whole group, so the code alone must not suffice)._
-5. Thread mapping: add a provider-specific mapping table (thread → task run); fan the run-keyed lookups in the tasks product out across provider mappings, and stamp `"provider": "<name>"` into serialized thread contexts so `thread_handler_from_context` can dispatch. _Telegram: `TelegramChatTaskMapping` (one row per originating message); fan-outs live in `slack_relay/activities.py`, `facade/api.py` (relay gate), and `living_artifacts.py` (artifacts refused — no delivery adapter)._
-6. Temporal: new workflow + activities with provider-specific registered names; reuse the workflow's structure, not its registrations. _Telegram: `posthog/temporal/ai/telegram_app/` (`telegram-app-mention-processing`), registered on `TASKS_TASK_QUEUE`._
+1. Implement `ChatProvider` in `providers/<name>.py`, delegating to provider-specific service modules; register it in `registry._PROVIDERS`. _Telegram: `providers/telegram.py`, delegating to `services/telegram_api.py` (hand-rolled Bot API client) and `services/telegram_link.py`. WhatsApp: `providers/whatsapp.py`, delegating to `services/whatsapp_api.py` (hand-rolled Graph API client) and `services/whatsapp_link.py`._
+2. Add the webhook view (`/<name>/event-callback` in `posthog/urls.py`) doing signature validation via the provider class, plus the provider's secret to `region_auth.region_claims_secret` and its kinds to `region_claims._PROVIDER_CLAIM_KINDS`. _Telegram: `views/telegram_events.py`; the webhook secret doubles as the region-claims secret. WhatsApp: `views/whatsapp_events.py`; validation is an `X-Hub-Signature-256` HMAC over the raw body with the Meta app secret (which doubles as the region-claims secret), plus Meta's GET `hub.challenge` verification handshake — exactly the per-provider envelope divergence that keeps webhook views out of a generic dispatcher._
+3. Identity linking: add the provider kind to `UserIntegration.IntegrationKind` and build a linking flow; reuse `_pick_accessible_linked_user` in `services/slack_user_oauth.py`. _Both Telegram and WhatsApp ride the shared one-shot cache-backed codes in `services/chat_link_codes.py` (codes are provider-scoped — a Telegram code cannot redeem on WhatsApp). Telegram redeems via `/start <code>` deep links; WhatsApp via a `wa.me/<number>?text=link%20<code>` prefill the user just sends._
+4. Conversation binding: decide how a chat maps to an `Integration` row. _Telegram: every chat (DM or group) binds to exactly one team via `kind="telegram"`, `integration_id=chat_id`; groups use `/connect <code>` with a minter-match guard. WhatsApp: DMs only (the Cloud API has no user-created groups), so the chat IS the user — `kind="whatsapp"`, `integration_id=wa_id` (the phone number), bound on link redemption._
+5. Thread mapping: add a provider-specific mapping table (thread → task run); fan the run-keyed lookups in the tasks product out across provider mappings, and stamp `"provider": "<name>"` into serialized thread contexts so `thread_handler_from_context` can dispatch. _Telegram: `TelegramChatTaskMapping`; WhatsApp: `WhatsAppChatTaskMapping` (root id is the opaque `wamid`). Fan-outs live in `slack_relay/activities.py`, `facade/api.py` (relay gate), and `living_artifacts.py` (artifacts refused — no delivery adapter)._
+6. Temporal: new workflow + activities with provider-specific registered names; reuse the workflow's structure, not its registrations. _Telegram: `posthog/temporal/ai/telegram_app/` (`telegram-app-mention-processing`); WhatsApp: `posthog/temporal/ai/whatsapp_app/` (`whatsapp-app-mention-processing`); both on `TASKS_TASK_QUEUE`._
 7. Cross-product access goes through `facade/api.py` — extend the facade, don't import product internals from outside.
 
 ## Telegram v1 scope and setup
@@ -52,6 +52,31 @@ and drive a provider-neutral routing pipeline with it. Don't introduce this type
 Deliberate scope cuts, matching the minimal loop: no inline keyboards or interactivity (unresolvable repo cascades get an ask-for-explicit-repo reply instead of a picker), no untagged follow-ups (one task per originating message), terminal-updates-only output (progress and status-stream handler methods are no-ops), and plain-text relay (no MarkdownV2 escaping — a mis-escaped entity drops the whole message).
 
 Operational setup: create the bot with BotFather, provision `TELEGRAM_APP_BOT_TOKEN` and `TELEGRAM_APP_WEBHOOK_SECRET` identically in both Cloud regions (Telegram delivers all updates to one URL; the receiving region proxies to the owning one via the claims probe), then run `python manage.py setup_telegram_webhook` (use `--url` for an ngrok tunnel in dev). BotFather group privacy mode can stay ON — mentions and replies to the bot are still delivered, which is the entire group surface. The mention path is additionally gated by the `telegram-app` feature flag.
+
+## WhatsApp v1 scope and setup
+
+Scope cuts, matching the minimal loop and WhatsApp's platform rules: **DMs only** (the Cloud API has no user-created groups; the 2026 Groups API is business-created, OBA-gated, and out of scope), text messages only, no interactivity, one task per originating message, terminal-updates-only output, plain-text relay. One WhatsApp-specific rule shapes delivery: free-form messages are only deliverable inside the **24-hour customer service window** opened by the user's last inbound message. A terminal update landing outside the window fails with error code 131047; v1 logs it (`slack_app_whatsapp_window_closed`) and drops the message — the known follow-up is an approved utility-template fallback ("your task finished — reply to see results") that reopens the window. The message path is gated by the `whatsapp-app` feature flag, and every instance setting below empty-defaults to dark.
+
+### Instance settings (env vars)
+
+All four live in `CONSTANCE_CONFIG` (settable via env var or instance settings API) and must be provisioned **identically in both Cloud regions** — Meta delivers all events to one webhook URL, and the receiving region proxies to the owning one via the claims probe:
+
+| Setting                        | Where it comes from                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `WHATSAPP_APP_ACCESS_TOKEN`    | Permanent system-user token from Meta Business Manager, with `whatsapp_business_messaging` + `whatsapp_business_management` permissions                |
+| `WHATSAPP_APP_APP_SECRET`      | The Meta app's **App secret** (App Dashboard → App settings → Basic); validates `X-Hub-Signature-256` on webhooks and signs cross-region claims probes |
+| `WHATSAPP_APP_VERIFY_TOKEN`    | Any random string you choose; echoed during Meta's GET webhook-verification handshake                                                                  |
+| `WHATSAPP_APP_PHONE_NUMBER_ID` | The Graph API **Phone number ID** of the business number (App Dashboard → WhatsApp → API Setup) — not the phone number itself                          |
+
+### Meta-side setup (once, ops)
+
+1. **Meta app**: create a Business-type app in the [Meta App Dashboard](https://developers.facebook.com/apps/), add the **WhatsApp** product. This attaches a WhatsApp Business Account (WABA) and a free test number; production needs a dedicated real number (registered in App Dashboard → WhatsApp → API Setup) and **Meta business verification** — start that early, it takes days to weeks.
+2. **Permanent token**: in Business Manager, create a system user, grant it the app + WABA assets, and generate a never-expiring token with the two `whatsapp_business_*` permissions. That's `WHATSAPP_APP_ACCESS_TOKEN`.
+3. **Webhook**: in App Dashboard → WhatsApp → Configuration, set the callback URL to `https://<region-domain>/whatsapp/event-callback/` and the verify token to your `WHATSAPP_APP_VERIFY_TOKEN` (the settings must be provisioned first — the handshake fails closed while unconfigured). Subscribe to the **messages** webhook field.
+4. **Subscribe the app to the WABA**: `python manage.py setup_whatsapp_webhook --waba-id <WABA id>` (this is the API-side half of webhook delivery; without it Meta accepts the URL but sends nothing).
+5. Roll out the `whatsapp-app` feature flag to the target orgs.
+
+Dev loop: point the App Dashboard callback URL at an ngrok tunnel (`https://<ngrok>/whatsapp/event-callback/`), use the free test number from API Setup (it can only message up to five pre-verified recipient numbers — add your own), then link via `/whatsapp/link/start/?team_id=<id>` and DM the number.
 
 ## Splitting / deploy sequencing
 
