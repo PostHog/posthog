@@ -135,18 +135,23 @@ class MeanQueryBuilder:
             # the experiment for cache reusability, so we must filter on read. The upper
             # bound includes the conversion window since metric events can occur after
             # experiment end, mirroring build_metric_predicate() on the direct path.
+            # GROUP BY collapses replayed rows by event identity: ReplacingMergeTree only
+            # dedups at merge time and this read doesn't use FINAL, so a re-applied build
+            # INSERT would otherwise double-count sums. Same defense as the exposures read;
+            # the funnel read skips it because funnel evaluation tolerates duplicate events.
             entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
             metric_events_cte = f"""
             metric_events AS (
                 SELECT
                     {entity_id_cast} AS entity_id,
                     t.timestamp AS timestamp,
-                    t.numeric_value AS value
+                    any(t.numeric_value) AS value
                 FROM experiment_metric_events_preaggregated AS t
                 WHERE t.job_id IN {{metric_events_job_ids}}
                     AND t.team_id = {{metric_events_team_id}}
                     AND t.timestamp >= {{metric_events_date_from}}
                     AND t.timestamp < {{metric_events_date_to}} + toIntervalSecond({{metric_events_conversion_window_seconds}})
+                GROUP BY t.entity_id, t.timestamp, t.event_uuid
             )"""
         else:
             metric_events_cte = """

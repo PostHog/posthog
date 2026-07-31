@@ -1,13 +1,24 @@
 from datetime import UTC, datetime
+from typing import cast
 
+from posthog.test.base import _create_event, _create_person
 from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, ExperimentMeanMetric, ExperimentMetricMathType, ExperimentQuery, IntervalType
+from posthog.schema import (
+    EventsNode,
+    ExperimentMeanMetric,
+    ExperimentMetricMathType,
+    ExperimentQuery,
+    ExperimentQueryResponse,
+    IntervalType,
+)
 
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window
@@ -50,6 +61,85 @@ class TestExperimentMeanMetricEventsPreaggregation(ExperimentQueryRunnerBaseTest
     def _build_runner(self, experiment, metric: ExperimentMeanMetric, as_of: datetime | None = None):
         query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
         return ExperimentQueryRunner(query=query, team=self.team, as_of=as_of)
+
+    def _create_exposure_event(self, distinct_id, feature_flag, variant, timestamp):
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            properties={
+                f"$feature/{feature_flag.key}": variant,
+                "$feature_flag_response": variant,
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
+    def test_precomputed_result_tolerates_replayed_build_rows(self):
+        feature_flag = self.create_feature_flag(key="mean-metric-events-replay")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 10),
+        )
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount")
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        for variant, count in (("control", 3), ("test", 3)):
+            for i in range(count):
+                _create_person(distinct_ids=[f"{variant}_{i}"], team_id=self.team.pk)
+                self._create_exposure_event(
+                    f"{variant}_{i}", feature_flag, variant, datetime(2024, 1, 2, 12, 0, tzinfo=UTC)
+                )
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"{variant}_{i}",
+                    timestamp=datetime(2024, 1, 3, 12, 0, tzinfo=UTC),
+                    properties={"amount": 10 * (i + 1)},
+                )
+
+        self._disable_precomputation()
+        direct_runner = self._build_runner(experiment, metric)
+        direct_result = cast(ExperimentQueryResponse, direct_runner.calculate())
+
+        # First precomputed run builds the jobs whose rows the second run will re-read.
+        self._enable_precomputation()
+        first_runner = self._build_runner(experiment, metric)
+        first_runner.calculate()
+        assert first_runner._metric_events_precomputed is True
+
+        # Simulate a replayed build INSERT: every stored metric-event row appears twice
+        # under the same job. ReplacingMergeTree only collapses these at merge time, so
+        # the read must dedup by event identity or sums double.
+        table = SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE()
+        rows_before = sync_execute(
+            f"SELECT count() FROM {table} WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+        )[0][0]
+        assert rows_before > 0
+        sync_execute(
+            f"INSERT INTO {table} SELECT * FROM {table} WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )
+
+        precomputed_runner = self._build_runner(experiment, metric)
+        precomputed_result = cast(ExperimentQueryResponse, precomputed_runner.calculate())
+        assert precomputed_runner._metric_events_precomputed is True
+
+        assert direct_result.baseline is not None
+        assert precomputed_result.baseline is not None
+        assert precomputed_result.baseline.number_of_samples == direct_result.baseline.number_of_samples
+        assert precomputed_result.baseline.sum == direct_result.baseline.sum
+        assert direct_result.variant_results is not None
+        assert precomputed_result.variant_results is not None
+        assert precomputed_result.variant_results[0].sum == direct_result.variant_results[0].sum
+        assert (
+            precomputed_result.variant_results[0].number_of_samples
+            == direct_result.variant_results[0].number_of_samples
+        )
 
     @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
     def test_mean_metric_events_precomputation_hash_ignores_moving_experiment_end(self, mock_sync_execute):
