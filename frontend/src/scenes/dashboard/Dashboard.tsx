@@ -152,7 +152,7 @@ function DashboardScene({
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
-                <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
+                <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
                 <div
                     className={cn({
