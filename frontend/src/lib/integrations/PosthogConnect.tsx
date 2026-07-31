@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
+import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
+import { API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 
 import api from 'lib/api'
 
 // NOTE: intentionally uses local component state rather than a kea logic. The form only collects a
 // region + scope selection and builds an authorize URL to redirect to — there is no business logic
-// or shared state to host in a logic, and a logic here would add a generated logicType file for no
-// behavioural gain. If this grows (async validation, listing reachable teams), promote it to a logic.
+// or shared state to host in a logic. A logic would also need a generated logicType file. If this
+// grows (async validation, listing reachable teams), promote it to a logic.
 
 type PosthogConnectRegion = 'US' | 'EU'
 
@@ -16,18 +19,43 @@ const REGION_OPTIONS: { value: PosthogConnectRegion; label: string }[] = [
     { value: 'EU', label: 'European Union (EU)' },
 ]
 
-// The `scopes` value maps to what the backend authorize endpoint accepts: the `read_only` / `full`
-// presets it expands server-side, or an explicit comma list. A connection can proxy any request its
-// granted scopes allow, so these decide how much the connection can do in the target project.
-const SCOPE_OPTIONS: { value: string; label: string }[] = [
-    { value: 'task:read,task:write', label: 'Tasks only (read and write)' },
-    { value: 'read_only', label: 'Read-only (everything)' },
-    { value: 'full', label: 'Full access' },
+// Only offer scopes an OAuth client can actually be granted (mirrors get_oauth_scopes_supported on
+// the backend, which excludes privileged/internal/hidden scopes). openid/email are added server-side.
+const GRANTABLE_SCOPES = API_SCOPES.filter((scope) => !scope.unprivilegedExcluded)
+
+const readAllScopes = (): string[] =>
+    GRANTABLE_SCOPES.filter((s) => !s.disabledActions?.includes('read')).map((s) => `${s.key}:read`)
+
+const fullAccessScopes = (): string[] =>
+    GRANTABLE_SCOPES.map((s) => (s.disabledActions?.includes('write') ? `${s.key}:read` : `${s.key}:write`))
+
+const SCOPE_PRESETS: { value: string; label: string; scopes: () => string[] }[] = [
+    { value: 'tasks', label: 'Tasks only (read and write)', scopes: () => ['task:read', 'task:write'] },
+    { value: 'read_only', label: 'Read-only (everything)', scopes: readAllScopes },
+    { value: 'full', label: 'Full access', scopes: fullAccessScopes },
 ]
 
 export function PosthogConnect({ next }: { next?: string }): JSX.Element {
     const [region, setRegion] = useState<PosthogConnectRegion>('EU')
-    const [scopes, setScopes] = useState<string>('task:read,task:write')
+    const [scopes, setScopes] = useState<string[]>(['task:read', 'task:write'])
+    const [searchTerm, setSearchTerm] = useState<string>('')
+
+    const scopeActions = useMemo(() => scopesArrayToObject(scopes), [scopes])
+
+    const setScopeAction = (key: string, action: string): void => {
+        const next = scopesArrayToObject(scopes)
+        if (action === 'none') {
+            delete next[key]
+        } else {
+            next[key] = action
+        }
+        setScopes(scopesObjectToArray(next))
+    }
+
+    const filteredScopes = useMemo(() => {
+        const term = searchTerm.trim().toLowerCase()
+        return term ? GRANTABLE_SCOPES.filter((s) => s.objectName.toLowerCase().includes(term)) : GRANTABLE_SCOPES
+    }, [searchTerm])
 
     return (
         <div className="deprecated-space-y-2 max-w-prose">
@@ -45,13 +73,62 @@ export function PosthogConnect({ next }: { next?: string }): JSX.Element {
                 />
             </div>
             <div className="flex flex-col gap-1">
-                <label className="font-semibold">Access to grant</label>
-                <LemonSelect value={scopes} onChange={(value) => setScopes(value ?? 'task:read,task:write')} options={SCOPE_OPTIONS} />
+                <div className="flex items-center justify-between gap-2">
+                    <label className="font-semibold">Access to grant</label>
+                    <LemonSelect
+                        placeholder="Apply a preset"
+                        size="small"
+                        value={null}
+                        onChange={(value) => {
+                            const preset = SCOPE_PRESETS.find((p) => p.value === value)
+                            if (preset) {
+                                setScopes(preset.scopes())
+                            }
+                        }}
+                        options={SCOPE_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+                        dropdownMatchSelectWidth={false}
+                    />
+                </div>
+                <LemonInput
+                    type="search"
+                    placeholder="Search scopes..."
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    size="small"
+                />
+                <div className="max-h-[50vh] overflow-y-auto">
+                    {filteredScopes.length === 0 ? (
+                        <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
+                    ) : (
+                        filteredScopes.map((scope) => (
+                            <ScopeAccessRow
+                                key={scope.key}
+                                label={scope.objectName}
+                                info={scope.info}
+                                value={scopeActions[scope.key] ?? 'none'}
+                                onChange={(value) => setScopeAction(scope.key, value)}
+                                readDisabledReason={
+                                    scope.disabledActions?.includes('read') ? 'Does not apply to this resource' : undefined
+                                }
+                                writeDisabledReason={
+                                    scope.disabledActions?.includes('write')
+                                        ? 'Does not apply to this resource'
+                                        : undefined
+                                }
+                            />
+                        ))
+                    )}
+                </div>
             </div>
             <LemonButton
                 type="primary"
-                to={api.integrations.authorizeUrl({ kind: 'posthog', region, scopes, next })}
+                to={api.integrations.authorizeUrl({
+                    kind: 'posthog',
+                    next,
+                    extraParams: { region, scopes: scopes.join(',') },
+                })}
                 disableClientSideRouting
+                disabledReason={scopes.length === 0 ? 'Select at least one scope' : undefined}
             >
                 Connect {region}
             </LemonButton>
