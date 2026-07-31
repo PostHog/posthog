@@ -1834,6 +1834,18 @@ def get_relayed_imported_mcp_name_collision_error(attrs: dict) -> str | None:
     return None
 
 
+def _get_task_runtime_from_serializer_context(context: dict[str, Any]) -> str | None:
+    view = context.get("view")
+    request = context.get("request")
+    view_kwargs = getattr(view, "kwargs", {})
+    task_id = view_kwargs.get("parent_lookup_task_id") or view_kwargs.get("pk")
+    team_id = getattr(view, "team_id", None)
+    user_id = getattr(getattr(request, "user", None), "id", None)
+    if not isinstance(task_id, str) or not isinstance(team_id, int):
+        return None
+    return tasks_facade.task_runtime(task_id, team_id, user_id, for_control=True)
+
+
 class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpServersFieldMixin, serializers.Serializer):
     """Request body for creating a new task run"""
 
@@ -2185,7 +2197,8 @@ class TaskRunBootstrapCreateRequestSerializer(
                         f"'{runtime_adapter}'. Supported values: {allowed_values}."
                     )
 
-        runtime_fields = ("runtime_adapter", "model")
+        is_pi_runtime = _get_task_runtime_from_serializer_context(self.context) == tasks_facade.TaskRuntime.PI
+        runtime_fields = ("model",) if is_pi_runtime else ("runtime_adapter", "model")
         has_runtime_selection = any(
             attrs.get(field) is not None
             for field in (*runtime_fields, "reasoning_effort", "context_window", "fast_mode")

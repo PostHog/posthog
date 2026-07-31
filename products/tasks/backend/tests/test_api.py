@@ -2287,6 +2287,62 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["auto_publish"], True)
         mock_workflow.assert_not_called()
 
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.pi_cloud_runtime_enabled", return_value=True)
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_endpoint_accepts_pi_model_without_runtime_adapter(
+        self, mock_workflow: MagicMock, _mock_pi_enabled: MagicMock
+    ) -> None:
+        task = self.create_task(runtime=Task.Runtime.PI)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {
+                "environment": "cloud",
+                "mode": "interactive",
+                "model": "claude-haiku-4-5",
+                "reasoning_effort": "high",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        task_run = TaskRun.objects.get(id=response.json()["id"])
+        self.assertNotIn("runtime_adapter", task_run.state)
+        self.assertNotIn("provider", task_run.state)
+        self.assertEqual(task_run.state["model"], "claude-haiku-4-5")
+        self.assertEqual(task_run.state["reasoning_effort"], "high")
+        mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_runtime_adapter", {"model": "gpt-5.3-codex"}, "runtime_adapter"),
+            ("missing_model", {"runtime_adapter": "codex"}, "model"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_endpoint_rejects_incomplete_acp_runtime_selection(
+        self, _case_name: str, payload: dict[str, str], expected_attr: str, mock_workflow: MagicMock
+    ) -> None:
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud", **payload},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "This field is required when selecting a cloud runtime.",
+                "attr": expected_attr,
+            },
+        )
+        mock_workflow.assert_not_called()
+
     # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
     @patch("products.tasks.backend.presentation.serializers.is_url_allowed", return_value=(True, None))
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
