@@ -81,7 +81,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
 
     // Single pod gets all partitions
-    let pod = start_leader_pod(Arc::clone(&store), "leader-0", 100, cancel.clone()).await;
+    let pod = start_leader_pod(Arc::clone(&store), "leader-0", 1 << 20, cancel.clone()).await;
 
     // Wait for all partitions to be assigned
     let check_store = Arc::clone(&store);
@@ -171,7 +171,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
 #[tokio::test]
 async fn unowned_partition_returns_failed_precondition() {
     // Create service + cache directly, no coordination
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
@@ -249,7 +249,7 @@ async fn unowned_partition_returns_failed_precondition() {
 /// partition — even when the person exists and its partition is warm.
 #[tokio::test]
 async fn missing_partition_metadata_returns_invalid_argument() {
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
@@ -330,7 +330,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
 /// when the named partition is warm and the person exists there.
 #[tokio::test]
 async fn mismatched_partition_metadata_returns_invalid_argument() {
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
@@ -414,7 +414,7 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
 /// cutover. Releasing the partition clears the fence with it.
 #[tokio::test]
 async fn writes_fenced_after_drain_reads_still_served() {
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
@@ -532,7 +532,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
 /// already be rejected while the drain is still waiting.
 #[tokio::test]
 async fn drain_fences_before_waiting_on_inflight() {
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
@@ -650,7 +650,7 @@ async fn release_partition_stops_serving() {
     let _router = start_router(Arc::clone(&store), "router-0", cancel.clone());
 
     // Start pod 1 — gets all partitions
-    let pod1 = start_leader_pod(Arc::clone(&store), "leader-0", 100, cancel.clone()).await;
+    let pod1 = start_leader_pod(Arc::clone(&store), "leader-0", 1 << 20, cancel.clone()).await;
 
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
@@ -685,7 +685,7 @@ async fn release_partition_stops_serving() {
     assert_eq!(response.into_inner().person.unwrap().id, 42);
 
     // Start pod 2 — triggers rebalance
-    let pod2 = start_leader_pod(Arc::clone(&store), "leader-1", 100, cancel.clone()).await;
+    let pod2 = start_leader_pod(Arc::clone(&store), "leader-1", 1 << 20, cancel.clone()).await;
 
     // Wait for balanced assignment and handoffs to settle
     let check_store = Arc::clone(&store);
@@ -772,14 +772,14 @@ async fn rewarm_after_pod_crash() {
     let _pod1 = start_leader_pod_with_lease_ttl(
         Arc::clone(&store),
         "leader-0",
-        100,
+        1 << 20,
         2,
         pod1_cancel.clone(),
     )
     .await;
 
     // Pod 2 (long-lived)
-    let pod2 = start_leader_pod(Arc::clone(&store), "leader-1", 100, cancel.clone()).await;
+    let pod2 = start_leader_pod(Arc::clone(&store), "leader-1", 1 << 20, cancel.clone()).await;
 
     // Wait for balanced assignment
     let check_store = Arc::clone(&store);
@@ -852,7 +852,7 @@ async fn update_produces_person_state_to_kafka() {
     assert_eq!(routing_partition, 2, "test key must map to partition 2");
     let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
 
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer.clone(),
@@ -960,7 +960,7 @@ async fn update_produces_person_state_to_kafka() {
 
 #[tokio::test]
 async fn kafka_produce_failure_leaves_cache_unchanged() {
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
 
     let service = PersonHogLeaderService::new(
@@ -1068,7 +1068,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
 #[tokio::test]
 async fn e2e_update_produces_to_local_kafka() {
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let kafka_producer = create_local_kafka_producer().await;
 
     let service = PersonHogLeaderService::new(
@@ -1395,7 +1395,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
     let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
 
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     // Recovery reads from the same mock broker the update produces to.
     // Deliberately no PG pool: a recovery path that (wrongly) fell back to
@@ -1496,7 +1496,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
     let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
 
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
@@ -1600,7 +1600,7 @@ async fn writes_shed_when_dirty_index_is_full() {
         .expect("a second person maps to the same partition");
 
     let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     // Capacity 1: the first person's mark fills the index.
     let dirty_index = Arc::new(DirtyIndex::new(1));
     let service = PersonHogLeaderService::new(
@@ -1695,7 +1695,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
     let routing_partition: u32 = partition_for_person(1, PERSON_ID, NUM_PARTITIONS);
     let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
 
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
@@ -1800,7 +1800,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
         .expect("a second person maps to the same partition");
 
     let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(
@@ -2009,7 +2009,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         .create_topic("clickhouse_ingestion_warnings", 1, 1)
         .unwrap();
 
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let service = PersonHogLeaderService::new(

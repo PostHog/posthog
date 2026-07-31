@@ -75,8 +75,8 @@ class MessageAssetSerializer(serializers.Serializer):
         help_text="The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs."
     )
     kind = serializers.CharField(
-        help_text="Message channel this asset was sent on: 'email' or 'push'. The per-person endpoint "
-        "currently returns only 'email'."
+        help_text="Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints "
+        "return one channel each."
     )
     distinct_id = serializers.CharField(help_text="The recipient's distinct_id.")
     person_id = serializers.CharField(help_text="The recipient's person UUID, if resolved.")
@@ -166,13 +166,13 @@ class PersonMessageAssetsRequestSerializer(serializers.Serializer):
         default=50,
         max_value=500,
         min_value=1,
-        help_text="Maximum number of emails to return (1-500, default 50).",
+        help_text="Maximum number of assets to return (1-500, default 50).",
     )
     offset = serializers.IntegerField(
         required=False,
         default=0,
         min_value=0,
-        help_text="Number of emails to skip, for pagination.",
+        help_text="Number of assets to skip, for pagination.",
     )
 
 
@@ -267,6 +267,7 @@ def fetch_message_assets_for_person(
     offset: int = 0,
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
+    kind: str = "email",
 ) -> list[MessageAsset]:
     where = [
         "team_id = %(team_id)s",
@@ -274,14 +275,15 @@ def fetch_message_assets_for_person(
         # Standalone hog_function email destinations aren't surfaced anywhere yet,
         # so this endpoint only returns workflow-step rows.
         "function_kind = 'hog_flow'",
-        # Push assets are captured but not yet surfaced: this backs the person Emails tab, and a push
-        # rendered as an email row would misrepresent it. Drop this filter when that tab becomes a
-        # combined Messages view.
-        "kind = 'email'",
+        # One channel per call. The person view shows email and push in separate tabs, each with
+        # columns shaped for its channel, so returning both from one call would misrepresent whichever
+        # tab it landed in.
+        "kind = %(kind)s",
     ]
     kwargs: dict[str, Any] = {
         "team_id": team_id,
         "person_id": person_id,
+        "kind": kind,
         "limit": limit,
         "offset": offset,
     }

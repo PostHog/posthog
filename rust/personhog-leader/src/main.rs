@@ -71,8 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting personhog-leader service");
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!(
-        "Cache memory capacity: {} entries",
-        config.cache_memory_capacity
+        "Cache capacity: {} bytes per partition",
+        config.cache_memory_capacity_bytes
     );
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
@@ -145,7 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Initialize partitioned cache and Kafka producer
-    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity));
+    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
 
     let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
         Ok(producer) => producer,

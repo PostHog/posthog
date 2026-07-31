@@ -241,6 +241,18 @@ export namespace Schemas {
     }
 
     /**
+     * Metadata for one message a channel summary covered — never the message text.
+     */
+    export interface ChannelSummaryMessage {
+      /** Display name of the message author. */
+      readonly author: string;
+      /** When the message was sent. */
+      readonly sent_at: string;
+      /** Slack permalink to the message. */
+      readonly permalink: string;
+    }
+
+    /**
      * An AI summary of one closed period of the account's bound Slack channel (read-only).
      */
     export interface AccountChannelSummary {
@@ -262,6 +274,8 @@ export namespace Schemas {
       readonly content: string;
       /** Number of channel messages the summary covered. */
       readonly message_count: number;
+      /** The messages the summary covered, in transcript order — metadata only, no message text. */
+      readonly messages: readonly ChannelSummaryMessage[];
       /** When the summary was generated. */
       readonly generated_at: string;
     }
@@ -8044,6 +8058,14 @@ export namespace Schemas {
       readonly window_days: number;
     }
 
+    export type AgentKeyEnum = typeof AgentKeyEnum[keyof typeof AgentKeyEnum];
+
+
+    export const AgentKeyEnum = {
+      Support: 'support',
+      Scout: 'scout',
+    } as const;
+
     /**
      * * `product_analytics` - product_analytics
      * * `sql` - sql
@@ -9222,6 +9244,63 @@ export namespace Schemas {
       date: string | null;
     }
 
+    /**
+     * * `everyone` - Everyone
+     * * `members` - Members
+     * * `agents` - Agents
+     */
+    export type AppliesToEnum = typeof AppliesToEnum[keyof typeof AppliesToEnum];
+
+
+    export const AppliesToEnum = {
+      Everyone: 'everyone',
+      Members: 'members',
+      Agents: 'agents',
+    } as const;
+
+    /**
+     * * `members` - members
+     * * `agents` - agents
+     */
+    export type AudienceEnum = typeof AudienceEnum[keyof typeof AudienceEnum];
+
+
+    export const AudienceEnum = {
+      Members: 'members',
+      Agents: 'agents',
+    } as const;
+
+    /**
+     * * `allow` - Allow all
+     * * `user` - Member decides
+     * * `ask` - Ask for destructive
+     * * `block` - Block destructive
+     */
+    export type MCPPolicyPresetEnum = typeof MCPPolicyPresetEnum[keyof typeof MCPPolicyPresetEnum];
+
+
+    export const MCPPolicyPresetEnum = {
+      Allow: 'allow',
+      User: 'user',
+      Ask: 'ask',
+      Block: 'block',
+    } as const;
+
+    export interface ApplyPreset {
+      /** Which audience's baseline to overwrite.
+       *
+       * * `members` - members
+       * * `agents` - agents */
+      audience: AudienceEnum;
+      /** Preset to apply.
+       *
+       * * `allow` - Allow all
+       * * `user` - Member decides
+       * * `ask` - Ask for destructive
+       * * `block` - Block destructive */
+      preset: MCPPolicyPresetEnum;
+    }
+
     export interface ApplyPromptSuggestionRequest {
       /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
       config?: unknown;
@@ -9388,6 +9467,26 @@ export namespace Schemas {
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
     } as const;
+
+    export interface AuditActorServiceAccount {
+      /** Service account id. */
+      id: string;
+      /** Agent display name. */
+      name: string;
+      /** Agent identity handle. */
+      handle: string;
+    }
+
+    export interface AuditCounts {
+      /** Every audited tool call. */
+      all: number;
+      /** Calls made by service accounts. */
+      agents: number;
+      /** Calls that were approved or are awaiting approval. */
+      approvals: number;
+      /** Calls the gateway blocked. */
+      blocked: number;
+    }
 
     /**
      * * `oauth` - oauth
@@ -14553,6 +14652,24 @@ export namespace Schemas {
 
     export const ConnectFromEnum = {
       PosthogCode: 'posthog_code',
+    } as const;
+
+    /**
+     * * `ready` - ready
+     * * `pending_oauth` - pending_oauth
+     * * `needs_reauth` - needs_reauth
+     * * `disabled` - disabled
+     * * `missing_credential` - missing_credential
+     */
+    export type ConnectionStateEnum = typeof ConnectionStateEnum[keyof typeof ConnectionStateEnum];
+
+
+    export const ConnectionStateEnum = {
+      Ready: 'ready',
+      PendingOauth: 'pending_oauth',
+      NeedsReauth: 'needs_reauth',
+      Disabled: 'disabled',
+      MissingCredential: 'missing_credential',
     } as const;
 
     /**
@@ -21419,6 +21536,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `rule` - rule
+     * * `scope` - scope
+     * * `team` - team
+     * * `preset` - preset
+     * * `legacy` - legacy
+     * * `default` - default
+     */
+    export type DecidedByEnum = typeof DecidedByEnum[keyof typeof DecidedByEnum];
+
+
+    export const DecidedByEnum = {
+      Rule: 'rule',
+      Scope: 'scope',
+      Team: 'team',
+      Preset: 'preset',
+      Legacy: 'legacy',
+      Default: 'default',
+    } as const;
+
+    /**
      * * `bayesian` - Bayesian
      * * `frequentist` - Frequentist
      */
@@ -23612,6 +23749,18 @@ export namespace Schemas {
       charts_set: number | null;
     }
 
+    /**
+     * * `needs_approval` - Require approval
+     * * `do_not_use` - Block
+     */
+    export type EffectEnum = typeof EffectEnum[keyof typeof EffectEnum];
+
+
+    export const EffectEnum = {
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
 
 
@@ -24045,6 +24194,12 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
+      /**
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
     }
 
     export interface EndpointBreakdownLimitExceededSignalExtra {
@@ -28037,6 +28192,39 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+    }
+
+    /**
+     * * `explicit` - explicit
+     * * `single_repo` - single_repo
+     * * `ambiguous` - ambiguous
+     * * `no_integration` - no_integration
+     */
+    export type ExperimentFlagCleanupTargetSourceEnum = typeof ExperimentFlagCleanupTargetSourceEnum[keyof typeof ExperimentFlagCleanupTargetSourceEnum];
+
+
+    export const ExperimentFlagCleanupTargetSourceEnum = {
+      Explicit: 'explicit',
+      SingleRepo: 'single_repo',
+      Ambiguous: 'ambiguous',
+      NoIntegration: 'no_integration',
+    } as const;
+
+    export interface ExperimentFlagCleanupTarget {
+      /**
+         * Repository a flag-cleanup pull request would be opened in, or null when none can be determined.
+         * @nullable
+         */
+      repository: string | null;
+      /** How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+       *
+       * * `explicit` - explicit
+       * * `single_repo` - single_repo
+       * * `ambiguous` - ambiguous
+       * * `no_integration` - no_integration */
+      source: ExperimentFlagCleanupTargetSourceEnum;
+      /** Repositories connected to the team's GitHub integration, to choose a target from. */
+      candidates: string[];
     }
 
     /**
@@ -32748,6 +32936,174 @@ export namespace Schemas {
     }
 
     /**
+     * * `active` - Active
+     * * `paused` - Paused
+     */
+    export type MCPServiceAccountStatusEnum = typeof MCPServiceAccountStatusEnum[keyof typeof MCPServiceAccountStatusEnum];
+
+
+    export const MCPServiceAccountStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+    } as const;
+
+    /**
+     * One agent's access to a gateway server.
+     */
+    export interface GatewayAgentAccess {
+      /** Service account granted access. */
+      service_account_id: string;
+      /** Agent display name. */
+      name: string;
+      /** Agent identity handle, e.g. posthog-support. */
+      handle: string;
+      /** active, or paused (all access off).
+       *
+       * * `active` - Active
+       * * `paused` - Paused */
+      status: MCPServiceAccountStatusEnum;
+      /**
+         * When the agent last made a call.
+         * @nullable
+         */
+      last_active_at: string | null;
+      /** Admin who shared this server with the agent. */
+      granted_by: UserBasic | null;
+    }
+
+    export const GatewayConfigUpdateMemberDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
+    export const GatewayConfigUpdateAgentDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
+    export interface GatewayConfigUpdate {
+      /** Whether non-admin members may register custom MCP servers. */
+      allow_custom_servers?: boolean;
+      /** Whether non-admin members may share their available MCP connections with agents and manage agent tool policies. */
+      allow_member_agent_access?: boolean;
+      /** Whether servers with no gateway registration — including catalog templates published later — are enabled for the team. A registered server's own toggle always wins. */
+      default_servers_enabled?: boolean;
+      /** Baseline preset for members.
+       *
+       * * `allow` - Allow all
+       * * `user` - Member decides
+       * * `ask` - Ask for destructive
+       * * `block` - Block destructive */
+      member_default_preset?: typeof GatewayConfigUpdateMemberDefaultPreset[keyof typeof GatewayConfigUpdateMemberDefaultPreset];
+      /** Baseline preset for agents.
+       *
+       * * `allow` - Allow all
+       * * `user` - Member decides
+       * * `ask` - Ask for destructive
+       * * `block` - Block destructive */
+      agent_default_preset?: typeof GatewayConfigUpdateAgentDefaultPreset[keyof typeof GatewayConfigUpdateAgentDefaultPreset];
+    }
+
+    /**
+     * One member's personal connection to a gateway server.
+     */
+    export interface GatewayConnection {
+      /** Installation row backing this connection. */
+      installation_id: string;
+      /** The member who connected. */
+      user: UserBasic;
+      /**
+         * When this connection last proxied a tool call. Null if never used.
+         * @nullable
+         */
+      last_used_at: string | null;
+      /** True when the OAuth round-trip has not completed yet. */
+      pending_oauth: boolean;
+      /** True when the stored token was invalidated and needs reauth. */
+      needs_reauth: boolean;
+    }
+
+    /**
+     * One team member's gateway posture (admin overview).
+     */
+    export interface GatewayMemberSummary {
+      /** The member. */
+      user: UserBasic;
+      /** Whether the member is an organization admin or owner. */
+      is_org_admin: boolean;
+      /** Gateway servers the member has a personal connection to. */
+      connected_server_ids: string[];
+      /** Gateway servers an admin turned off for this member. */
+      revoked_server_ids: string[];
+    }
+
+    /**
+     * * `team` - Team default
+     * * `member` - Member
+     * * `agent` - Agent
+     */
+    export type ScopeTypeEnum = typeof ScopeTypeEnum[keyof typeof ScopeTypeEnum];
+
+
+    export const ScopeTypeEnum = {
+      Team: 'team',
+      Member: 'member',
+      Agent: 'agent',
+    } as const;
+
+    export type MCPToolApprovalStateEnum = typeof MCPToolApprovalStateEnum[keyof typeof MCPToolApprovalStateEnum];
+
+
+    export const MCPToolApprovalStateEnum = {
+      Approved: 'approved',
+      NeedsApproval: 'needs_approval',
+      DoNotUse: 'do_not_use',
+    } as const;
+
+    export interface ToolPolicyEntry {
+      /**
+         * Tool to set the policy for, up to 200 characters.
+         * @maxLength 200
+         */
+      tool_name: string;
+      /** State to apply for this scope.
+       *
+       * * `approved` - Approved
+       * * `needs_approval` - Needs approval
+       * * `do_not_use` - Do not use */
+      policy_state: MCPToolApprovalStateEnum;
+    }
+
+    export interface GatewayPoliciesUpsert {
+      /** Which scope to resolve: the team default, one member, or one agent.
+       *
+       * * `team` - Team default
+       * * `member` - Member
+       * * `agent` - Agent */
+      scope_type?: ScopeTypeEnum;
+      /** Member scope target. Defaults to the requesting user. */
+      scope_user_id?: number;
+      /** Agent scope target. Required when scope_type is agent. */
+      scope_service_account_id?: string;
+      /**
+         * Per-tool states to upsert for the scope. At most 1,000 entries per request.
+         * @maxItems 1000
+         */
+      policies: ToolPolicyEntry[];
+    }
+
+    /**
+     * The requesting user's own connection to a gateway server.
+     */
+    export interface GatewayYourConnection {
+      /** The caller's installation row for this server. */
+      installation_id: string;
+      /** Per-connection switch — false when self-disabled. */
+      is_enabled: boolean;
+      /** True when the OAuth round-trip has not completed yet. */
+      pending_oauth: boolean;
+      /** True when the stored token was invalidated and needs reauth. */
+      needs_reauth: boolean;
+      /**
+         * When the caller last proxied a call through this connection.
+         * @nullable
+         */
+      last_used_at: string | null;
+    }
+
+    /**
      * * `last_n_days` - last_n_days
      * * `since_last_run` - since_last_run
      */
@@ -32871,6 +33227,28 @@ export namespace Schemas {
       generated_field_paths: string[];
       /** LLM trace id for debugging and feedback. */
       trace_id: string;
+    }
+
+    export interface GitHubAvailableInstallation {
+      /** GitHub installation ID to pass to github/link_existing when linking this installation. */
+      installation_id: string;
+      /**
+         * GitHub account (organization or user) the installation belongs to, for display in the picker.
+         * @nullable
+         */
+      account_name: string | null;
+      /**
+         * GitHub account type, e.g. 'Organization' or 'User'.
+         * @nullable
+         */
+      account_type: string | null;
+      /** A project in the organization that already has this installation linked. */
+      source_team_id: number;
+    }
+
+    export interface GitHubAvailableInstallationsResponse {
+      /** Distinct GitHub installations in the organization available to link to this project. */
+      installations: GitHubAvailableInstallation[];
     }
 
     export interface GitHubBranchesResponse {
@@ -37134,11 +37512,17 @@ export namespace Schemas {
       client_secret?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
+      /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
+      team_enabled?: boolean;
+      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
+      agent_ids?: string[];
+      /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
+      return_path?: string;
     }
 
     export interface InstallTemplate {
@@ -37146,11 +37530,17 @@ export namespace Schemas {
       api_key?: string;
       install_source?: InstallSourceEnum;
       posthog_code_callback_url?: string;
-      /** 'personal' is per-user; 'shared' is team-wide (visible to all project members and sandbox agents).
+      /** 'personal' is per-user; 'shared' makes the credential available to project members. Agent access is granted separately.
        *
        * * `personal` - personal
        * * `shared` - shared */
       scope?: MCPInstallationScopeEnum;
+      /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
+      team_enabled?: boolean;
+      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
+      agent_ids?: string[];
+      /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
+      return_path?: string;
     }
 
     /**
@@ -37184,6 +37574,7 @@ export namespace Schemas {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -37231,6 +37622,7 @@ export namespace Schemas {
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
+      Posthog: 'posthog',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
@@ -37278,6 +37670,7 @@ export namespace Schemas {
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
+       * * `posthog` - Posthog
        * * `reddit-ads` - Reddit Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
@@ -39774,6 +40167,44 @@ export namespace Schemas {
     }
 
     /**
+     * * `auto` - Auto-approved
+     * * `approved` - Approved
+     * * `pending` - Awaiting approval
+     * * `blocked` - Blocked
+     */
+    export type MCPAuditDecisionEnum = typeof MCPAuditDecisionEnum[keyof typeof MCPAuditDecisionEnum];
+
+
+    export const MCPAuditDecisionEnum = {
+      Auto: 'auto',
+      Approved: 'approved',
+      Pending: 'pending',
+      Blocked: 'blocked',
+    } as const;
+
+    export interface MCPAuditEvent {
+      readonly id: string;
+      readonly created_at: string;
+      /** Gateway server name at call time (denormalized). */
+      readonly server_name: string;
+      /** Tool that was called. */
+      readonly tool_name: string;
+      /** How the gateway decided the call.
+       *
+       * * `auto` - Auto-approved
+       * * `approved` - Approved
+       * * `pending` - Awaiting approval
+       * * `blocked` - Blocked */
+      readonly decision: MCPAuditDecisionEnum;
+      /** Member who made the call, if any. */
+      readonly actor_user: UserBasic | null;
+      /** Agent that made the call, if any. Null for member calls. */
+      readonly actor_service_account: AuditActorServiceAccount | null;
+      /** Denormalized actor label (email or handle) that survives deletion. */
+      readonly actor_label: string;
+    }
+
+    /**
      * * `api_key` - API Key
      * * `oauth` - OAuth
      */
@@ -39857,6 +40288,91 @@ export namespace Schemas {
        * * `docs` - Docs
        * * `other` - Other */
       category?: MCPFeedbackCreateCategoryEnum;
+    }
+
+    /**
+     * * `business` - Business Operations
+     * * `data` - Data & Analytics
+     * * `design` - Design & Content
+     * * `dev` - Developer Tools & APIs
+     * * `infra` - Infrastructure
+     * * `productivity` - Productivity & Collaboration
+     */
+    export type MCPServerCategoryEnum = typeof MCPServerCategoryEnum[keyof typeof MCPServerCategoryEnum];
+
+
+    export const MCPServerCategoryEnum = {
+      Business: 'business',
+      Data: 'data',
+      Design: 'design',
+      Dev: 'dev',
+      Infra: 'infra',
+      Productivity: 'productivity',
+    } as const;
+
+    /**
+     * A server registered in the team's gateway, with connection summary.
+     */
+    export interface MCPGatewayServer {
+      readonly id: string;
+      readonly name: string;
+      readonly url: string;
+      readonly description: string;
+      readonly category: MCPServerCategoryEnum;
+      /** Fixed authentication type for catalog templates. Null for custom servers, where members choose.
+       *
+       * * `api_key` - API Key
+       * * `oauth` - OAuth */
+      readonly template_auth_type: MCPAuthTypeEnum | null;
+      readonly is_team_enabled: boolean;
+      /** Deprecated brand icon key from the linked template. Empty for custom servers. */
+      readonly icon_key: string;
+      /** Brand domain from the linked template. Empty for custom servers. */
+      readonly icon_domain: string;
+      /** Documentation URL from the template. */
+      readonly docs_url: string;
+      /**
+         * Linked catalog template.
+         * @nullable
+         */
+      readonly template_id: string | null;
+      /** Number of live tools known for this server. */
+      readonly tool_count: number;
+      /** Members with a connection to this server. Only project admins receive this list. */
+      readonly connections: readonly GatewayConnection[];
+      /** The requesting user's own connection, or null when not connected. */
+      readonly your_connection: GatewayYourConnection | null;
+      /** Agents this server is shared with. */
+      readonly agents: readonly GatewayAgentAccess[];
+      /** Ids of members whose access an admin has turned off. Only project admins receive this list. */
+      readonly revoked_user_ids: readonly number[];
+      /** True when an admin has turned this server off for the requesting user. */
+      readonly is_revoked_for_you: boolean;
+      /** Who registered the server. Null when that user was deleted. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface MCPGatewayServerUpdate {
+      /**
+         * Display name shown across the gateway.
+         * @maxLength 200
+         */
+      name?: string;
+      /** Short description shown on server cards. */
+      description?: string;
+      /** Catalog category used for filter chips.
+       *
+       * * `business` - Business Operations
+       * * `data` - Data & Analytics
+       * * `design` - Design & Content
+       * * `dev` - Developer Tools & APIs
+       * * `infra` - Infrastructure
+       * * `productivity` - Productivity & Collaboration */
+      category?: MCPServerCategoryEnum;
+      /** Whether the team can see and call the server. Turning it off also blocks agent access. */
+      is_team_enabled?: boolean;
     }
 
     export interface MCPIntentClusterToolEntry {
@@ -40052,6 +40568,37 @@ export namespace Schemas {
       blocked?: boolean;
     }
 
+    export interface MCPOrgRule {
+      readonly id: string;
+      /**
+         * Short rule name shown wherever the rule locks a tool.
+         * @maxLength 200
+         */
+      name: string;
+      /** Why this guardrail exists. */
+      description?: string;
+      /** Audience the rule constrains.
+       *
+       * * `everyone` - Everyone
+       * * `members` - Members
+       * * `agents` - Agents */
+      applies_to?: AppliesToEnum;
+      /** State the rule forces on matching tools.
+       *
+       * * `needs_approval` - Require approval
+       * * `do_not_use` - Block */
+      effect?: EffectEnum;
+      /**
+         * fnmatch pattern against tool names. Blank matches destructive tools heuristically.
+         * @maxLength 400
+         */
+      tool_pattern?: string;
+      /** Disabled rules are kept but not evaluated. */
+      enabled?: boolean;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     /**
      * * `personal` - Personal
      * * `shared` - Shared
@@ -40093,27 +40640,20 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
-    /**
-     * * `approved` - Approved
-     * * `needs_approval` - Needs approval
-     * * `do_not_use` - Do not use
-     */
-    export type MCPServerInstallationToolApprovalStateEnum = typeof MCPServerInstallationToolApprovalStateEnum[keyof typeof MCPServerInstallationToolApprovalStateEnum];
-
-
-    export const MCPServerInstallationToolApprovalStateEnum = {
-      Approved: 'approved',
-      NeedsApproval: 'needs_approval',
-      DoNotUse: 'do_not_use',
-    } as const;
-
     export interface MCPServerInstallationTool {
       readonly id: string;
       readonly tool_name: string;
       readonly display_name: string;
       readonly description: string;
       readonly input_schema: unknown;
-      approval_state?: MCPServerInstallationToolApprovalStateEnum;
+      /** Effective state after applying the team ceiling. */
+      readonly approval_state: MCPToolApprovalStateEnum;
+      /** Team-admin ceiling for this tool. Null when the team imposes no ceiling. */
+      readonly team_state: MCPToolApprovalStateEnum | null;
+      /** True when a rule or Blocked team ceiling leaves no editable state. */
+      readonly locked: boolean;
+      /** Policy layer that decided the effective state. */
+      readonly decided_by: string;
       readonly last_seen_at: string;
       /** @nullable */
       readonly removed_at: string | null;
@@ -40121,26 +40661,6 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
     }
-
-    /**
-     * * `business` - Business Operations
-     * * `data` - Data & Analytics
-     * * `design` - Design & Content
-     * * `dev` - Developer Tools & APIs
-     * * `infra` - Infrastructure
-     * * `productivity` - Productivity & Collaboration
-     */
-    export type MCPServerTemplateCategoryEnum = typeof MCPServerTemplateCategoryEnum[keyof typeof MCPServerTemplateCategoryEnum];
-
-
-    export const MCPServerTemplateCategoryEnum = {
-      Business: 'business',
-      Data: 'data',
-      Design: 'design',
-      Dev: 'dev',
-      Infra: 'infra',
-      Productivity: 'productivity',
-    } as const;
 
     export interface MCPServerTemplate {
       readonly id: string;
@@ -40156,7 +40676,65 @@ export namespace Schemas {
       readonly icon_key: string;
       /** The vendor's brand domain (e.g. 'linear.app'), resolved to an icon at render time via the logo.dev proxy endpoint. Empty when no brand icon is known. */
       readonly icon_domain: string;
-      category?: MCPServerTemplateCategoryEnum;
+      category?: MCPServerCategoryEnum;
+    }
+
+    /**
+     * A credential-safe summary of a server configured for an agent.
+     */
+    export interface MCPServiceAccountServer {
+      /** Gateway server granted to the agent. */
+      id: string;
+      /** Server display name. */
+      name: string;
+      /** Server description. */
+      description: string;
+      /** Deprecated brand icon key. Empty for custom servers. */
+      icon_key: string;
+      /** Brand domain. Empty for custom servers. */
+      icon_domain: string;
+      /** Whether the credential delegated to the agent is ready to use.
+       *
+       * * `ready` - ready
+       * * `pending_oauth` - pending_oauth
+       * * `needs_reauth` - needs_reauth
+       * * `disabled` - disabled
+       * * `missing_credential` - missing_credential */
+      connection_state: ConnectionStateEnum;
+    }
+
+    export interface MCPServiceAccount {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      /** Stable internal identity handle for this PostHog agent. */
+      readonly handle: string;
+      /** Stable PostHog agent identifier. */
+      readonly agent_key: AgentKeyEnum;
+      /** active, or paused (all MCP access off).
+       *
+       * * `active` - Active
+       * * `paused` - Paused */
+      readonly status: MCPServiceAccountStatusEnum;
+      /** Gateway servers configured for this agent. */
+      readonly server_ids: readonly string[];
+      /** Credential-safe summaries of the gateway servers configured for this agent. */
+      readonly servers: readonly MCPServiceAccountServer[];
+      /**
+         * When the agent last made a call through the gateway.
+         * @nullable
+         */
+      readonly last_active_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface MCPServiceAccountUpdate {
+      /** active, or paused (all MCP access off).
+       *
+       * * `active` - Active
+       * * `paused` - Paused */
+      status?: MCPServiceAccountStatusEnum;
     }
 
     export interface MCPSession {
@@ -40534,6 +41112,13 @@ export namespace Schemas {
       scraping_status?: ScrapingStatusEnum | BlankEnum | null;
     }
 
+    export interface MemberAccessUpdate {
+      /** Gateway server to toggle for the member. */
+      gateway_server_id: string;
+      /** False turns the server off for the member; true restores it. */
+      enabled: boolean;
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
@@ -40567,7 +41152,7 @@ export namespace Schemas {
       function_name: string;
       /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
       parent_run_id: string;
-      /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoint currently returns only 'email'. */
+      /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
       kind: string;
       /** The recipient's distinct_id. */
       distinct_id: string;
@@ -40730,32 +41315,6 @@ export namespace Schemas {
       metric_name: MetricNameEnum;
       instance_id: string;
     }
-
-    /**
-     * * `user_message` - user_message
-     * * `cancel` - cancel
-     * * `close` - close
-     * * `permission_response` - permission_response
-     * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response
-     * * `pi/rpc` - pi/rpc
-     * * `queue_get` - queue_get
-     * * `queue_clear` - queue_clear
-     */
-    export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
-
-
-    export const MethodEnum = {
-      UserMessage: 'user_message',
-      Cancel: 'cancel',
-      Close: 'close',
-      PermissionResponse: 'permission_response',
-      SetConfigOption: 'set_config_option',
-      McpResponse: 'mcp_response',
-      PiRpc: 'pi/rpc',
-      QueueGet: 'queue_get',
-      QueueClear: 'queue_clear',
-    } as const;
 
     /**
      * * `up` - up
@@ -43232,6 +43791,15 @@ export namespace Schemas {
       results: FolderInstructionsVersion[];
     }
 
+    export interface PaginatedGatewayMemberSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: GatewayMemberSummary[];
+    }
+
     export interface PaginatedGroupUsageMetricList {
       count: number;
       /** @nullable */
@@ -43506,6 +44074,33 @@ export namespace Schemas {
       results: MCPAnalyticsSubmission[];
     }
 
+    export interface PaginatedMCPAuditEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPAuditEvent[];
+    }
+
+    export interface PaginatedMCPGatewayServerList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPGatewayServer[];
+    }
+
+    export interface PaginatedMCPOrgRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPOrgRule[];
+    }
+
     export interface PaginatedMCPServerInstallationList {
       count: number;
       /** @nullable */
@@ -43531,6 +44126,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPServerTemplate[];
+    }
+
+    export interface PaginatedMCPServiceAccountList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: MCPServiceAccount[];
     }
 
     export interface PaginatedMCPSessionList {
@@ -44452,6 +45056,59 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Repo[];
+    }
+
+    /**
+     * JSON Schema describing the tool's input arguments.
+     */
+    export type ResolvedToolPolicyInputSchema = { [key: string]: unknown };
+
+    /**
+     * One tool with its effective policy for the requested scope.
+     */
+    export interface ResolvedToolPolicy {
+      /** Tool name as exposed by the upstream server. */
+      tool_name: string;
+      /** Tool description from the upstream server. */
+      description: string;
+      /** JSON Schema describing the tool's input arguments. */
+      input_schema: ResolvedToolPolicyInputSchema;
+      /** Effective state for the scope.
+       *
+       * * `approved` - Approved
+       * * `needs_approval` - Needs approval
+       * * `do_not_use` - Do not use */
+      policy_state: MCPToolApprovalStateEnum;
+      /** What the team-level chain (row or preset) yields, ignoring the scope. Null when the team imposes nothing.
+       *
+       * * `approved` - Approved
+       * * `needs_approval` - Needs approval
+       * * `do_not_use` - Do not use */
+      team_state: MCPToolApprovalStateEnum | null;
+      /** True when no state is editable for this scope (a rule match or a Blocked team ceiling). */
+      locked: boolean;
+      /** Which policy layer decided the state.
+       *
+       * * `rule` - rule
+       * * `scope` - scope
+       * * `team` - team
+       * * `preset` - preset
+       * * `legacy` - legacy
+       * * `default` - default */
+      decided_by: DecidedByEnum;
+      /** Matching org rule name, when decided_by is rule. */
+      rule_name: string;
+      /** Matching org rule description, when decided_by is rule. */
+      rule_description: string;
+    }
+
+    export interface PaginatedResolvedToolPolicyList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ResolvedToolPolicy[];
     }
 
     export interface ReviewQueueItem {
@@ -45779,7 +46436,7 @@ export namespace Schemas {
       readonly temporal_workflow_id: string;
       /** Dedupes activity retries for the same logical run. */
       readonly idempotency_key: string;
-      /** Why the run started (e.g. scheduled, manual, target_change). */
+      /** Why the run started (e.g. scheduled, manual, subscription update). */
       readonly trigger_type: string;
       /**
          * Planned send time when applicable.
@@ -51564,10 +52221,70 @@ export namespace Schemas {
       triggers?: LoopTriggerWrite[];
     }
 
+    export interface PatchedMCPGatewayServerUpdate {
+      /**
+         * Display name shown across the gateway.
+         * @maxLength 200
+         */
+      name?: string;
+      /** Short description shown on server cards. */
+      description?: string;
+      /** Catalog category used for filter chips.
+       *
+       * * `business` - Business Operations
+       * * `data` - Data & Analytics
+       * * `design` - Design & Content
+       * * `dev` - Developer Tools & APIs
+       * * `infra` - Infrastructure
+       * * `productivity` - Productivity & Collaboration */
+      category?: MCPServerCategoryEnum;
+      /** Whether the team can see and call the server. Turning it off also blocks agent access. */
+      is_team_enabled?: boolean;
+    }
+
+    export interface PatchedMCPOrgRule {
+      readonly id?: string;
+      /**
+         * Short rule name shown wherever the rule locks a tool.
+         * @maxLength 200
+         */
+      name?: string;
+      /** Why this guardrail exists. */
+      description?: string;
+      /** Audience the rule constrains.
+       *
+       * * `everyone` - Everyone
+       * * `members` - Members
+       * * `agents` - Agents */
+      applies_to?: AppliesToEnum;
+      /** State the rule forces on matching tools.
+       *
+       * * `needs_approval` - Require approval
+       * * `do_not_use` - Block */
+      effect?: EffectEnum;
+      /**
+         * fnmatch pattern against tool names. Blank matches destructive tools heuristically.
+         * @maxLength 400
+         */
+      tool_pattern?: string;
+      /** Disabled rules are kept but not evaluated. */
+      enabled?: boolean;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedMCPServerInstallationUpdate {
       display_name?: string;
       description?: string;
       is_enabled?: boolean;
+    }
+
+    export interface PatchedMCPServiceAccountUpdate {
+      /** active, or paused (all MCP access off).
+       *
+       * * `active` - Active
+       * * `paused` - Paused */
+      status?: MCPServiceAccountStatusEnum;
     }
 
     export interface PatchedMaterializedColumnSlot {
@@ -53662,6 +54379,8 @@ export namespace Schemas {
       run_cron_schedule?: string | null;
       /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
       output_destinations?: SignalScoutOutputDestinations;
+      /** Exempt this scout from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste. */
+      auto_pause_exempt?: boolean;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -54680,7 +55399,7 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
@@ -55636,8 +56355,8 @@ export namespace Schemas {
     }
 
     export interface PersonDeletePropertyRequest {
-      /** The property key to remove from this person. */
-      $unset: string;
+      /** A property key, or a list of property keys, to remove from this person. */
+      $unset: string | string[];
     }
 
     /**
@@ -55930,6 +56649,53 @@ export namespace Schemas {
       priority: string | null;
       labels: unknown[];
       createdAt: string | null;
+    }
+
+    /**
+     * Query parameters to send to the target.
+     */
+    export type PostHogConnectionForwardQuery = {[key: string]: string};
+
+    /**
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE
+     */
+    export type PostHogConnectionForwardMethodEnum = typeof PostHogConnectionForwardMethodEnum[keyof typeof PostHogConnectionForwardMethodEnum];
+
+
+    export const PostHogConnectionForwardMethodEnum = {
+      Get: 'GET',
+      Post: 'POST',
+      Put: 'PUT',
+      Patch: 'PATCH',
+      Delete: 'DELETE',
+    } as const;
+
+    export interface PostHogConnectionForward {
+      /** HTTP method to use against the target project's API.
+       *
+       * * `GET` - GET
+       * * `POST` - POST
+       * * `PUT` - PUT
+       * * `PATCH` - PATCH
+       * * `DELETE` - DELETE */
+      method: PostHogConnectionForwardMethodEnum;
+      /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+      path: string;
+      /** Query parameters to send to the target. */
+      query?: PostHogConnectionForwardQuery;
+      /** JSON request body for write methods. */
+      data?: unknown;
+    }
+
+    export interface PostHogConnectionForwardResponse {
+      /** HTTP status the target project returned. */
+      status: number;
+      /** The target project's response body, passed through. */
+      data: unknown;
     }
 
     /**
@@ -62935,6 +63701,18 @@ export namespace Schemas {
       send_async?: boolean;
     }
 
+    export interface ServiceAccountAccessUpdate {
+      /** Gateway server to grant or revoke. */
+      gateway_server_id: string;
+      /** True grants access, false revokes it. */
+      enabled: boolean;
+      /**
+         * Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.
+         * @maxItems 1000
+         */
+      policies?: ToolPolicyEntry[];
+    }
+
     export interface SessionGroupSummary {
       readonly id: string;
       /** Title of the group session summary */
@@ -63038,6 +63816,18 @@ export namespace Schemas {
       custom_tags?: SessionSummariesConfigCustomTags;
     }
 
+    export interface SetAllServersEnabled {
+      /** True enables every MCP server for the team; false disables them all. Applies to every registered server and becomes the default for untouched and future catalog servers. */
+      enabled: boolean;
+    }
+
+    export interface SetTemplateEnabled {
+      /** Active catalog template to enable or disable for the team. */
+      template_id: string;
+      /** True lets the team see and call the server; false hides it from members and blocks connections. */
+      enabled: boolean;
+    }
+
     /**
      * * `trace` - trace
      * * `debug` - debug
@@ -63110,6 +63900,12 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
+      /**
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       /** The key of the variant to ship. */
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
@@ -63372,6 +64168,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_run_at: string | null;
+      /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
+      readonly consecutive_failure_count: number;
+      /**
+         * When `status` last changed. For `pending_pause` this is when the warning was issued (the pause lands about a week later unless the scout surfaces something); for the paused statuses it is when the scout was paused. Null if the status never changed.
+         * @nullable
+         */
+      readonly status_changed_at: string | null;
+      /** Whether this scout is exempt from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+      readonly auto_pause_exempt: boolean;
       readonly created_at: string;
     }
 
@@ -63394,6 +64199,8 @@ export namespace Schemas {
       run_interval_minutes?: number;
       /** Destinations that receive each finding or report this scout emits. Empty by default. */
       output_destinations?: SignalScoutOutputDestinations;
+      /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+      auto_pause_exempt?: boolean;
       /**
          * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
          * @maxLength 100
@@ -63423,6 +64230,8 @@ export namespace Schemas {
       run_interval_minutes?: number;
       /** Destinations that receive each finding or report this scout emits. Empty by default. */
       output_destinations?: SignalScoutOutputDestinations;
+      /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+      auto_pause_exempt?: boolean;
       /**
          * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
          * @maxLength 100
@@ -69356,7 +70165,7 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
@@ -69865,6 +70674,32 @@ export namespace Schemas {
     export type TaskRunCommandRequestParams = { [key: string]: unknown };
 
     /**
+     * * `user_message` - user_message
+     * * `cancel` - cancel
+     * * `close` - close
+     * * `permission_response` - permission_response
+     * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear
+     */
+    export type TaskRunCommandRequestMethodEnum = typeof TaskRunCommandRequestMethodEnum[keyof typeof TaskRunCommandRequestMethodEnum];
+
+
+    export const TaskRunCommandRequestMethodEnum = {
+      UserMessage: 'user_message',
+      Cancel: 'cancel',
+      Close: 'close',
+      PermissionResponse: 'permission_response',
+      SetConfigOption: 'set_config_option',
+      McpResponse: 'mcp_response',
+      PiRpc: 'pi/rpc',
+      QueueGet: 'queue_get',
+      QueueClear: 'queue_clear',
+    } as const;
+
+    /**
      * JSON-RPC request to send a command to the agent server in the sandbox.
      */
     export interface TaskRunCommandRequest {
@@ -69883,7 +70718,7 @@ export namespace Schemas {
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
        * * `queue_clear` - queue_clear */
-      method: MethodEnum;
+      method: TaskRunCommandRequestMethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
       /** Optional JSON-RPC request ID (string or number) */
@@ -70382,7 +71217,7 @@ export namespace Schemas {
       title_manually_set?: boolean;
       /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
-      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
        *
        * * `onboarding` - Onboarding
        * * `error_tracking` - Error Tracking
@@ -70781,6 +71616,33 @@ export namespace Schemas {
       readonly email_sending_suspended_at: string | null;
       /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
       readonly email_sending_suspension_reason: string;
+    }
+
+    export const TeamMCPGatewayConfigMemberDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
+    export const TeamMCPGatewayConfigAgentDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
+    export interface TeamMCPGatewayConfig {
+      /** Whether non-admin members may register custom MCP servers with the gateway. */
+      allow_custom_servers?: boolean;
+      /** Whether non-admin members may share their available MCP connections with agents and manage agent tool policies. */
+      allow_member_agent_access?: boolean;
+      /** Whether servers with no gateway registration — including catalog templates published later — are enabled for the team. A registered server's own toggle always wins. */
+      default_servers_enabled?: boolean;
+      /** Baseline preset for members. Empty until an admin applies one from Team settings.
+       *
+       * * `allow` - Allow all
+       * * `user` - Member decides
+       * * `ask` - Ask for destructive
+       * * `block` - Block destructive */
+      member_default_preset?: typeof TeamMCPGatewayConfigMemberDefaultPreset[keyof typeof TeamMCPGatewayConfigMemberDefaultPreset];
+      /** Baseline preset deriving default policies for tools an agent has no explicit row for.
+       *
+       * * `allow` - Allow all
+       * * `user` - Member decides
+       * * `ask` - Ask for destructive
+       * * `block` - Block destructive */
+      agent_default_preset?: typeof TeamMCPGatewayConfigAgentDefaultPreset[keyof typeof TeamMCPGatewayConfigAgentDefaultPreset];
+      /** Whether the requesting user can administer the gateway (org admin or explicit project admin). */
+      readonly is_admin: boolean;
     }
 
     export interface TeamMergeTrendPoint {
@@ -79273,6 +80135,7 @@ export namespace Schemas {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -79331,6 +80194,7 @@ export namespace Schemas {
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
+      Posthog: 'posthog',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
@@ -80348,6 +81212,114 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type McpGatewayAuditListParams = {
+    /**
+     * Only calls made by this service account.
+     */
+    actor_service_account_id?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * all, agents (agent calls only), approvals (approved or pending), or blocked.
+     *
+     * * `all` - all
+     * * `agents` - agents
+     * * `approvals` - approvals
+     * * `blocked` - blocked
+     * @minLength 1
+     */
+    quick_filter?: McpGatewayAuditListQuickFilter;
+    };
+
+    export type McpGatewayAuditListQuickFilter = typeof McpGatewayAuditListQuickFilter[keyof typeof McpGatewayAuditListQuickFilter];
+
+
+    export const McpGatewayAuditListQuickFilter = {
+      All: 'all',
+      Agents: 'agents',
+      Approvals: 'approvals',
+      Blocked: 'blocked',
+    } as const;
+
+    export type McpGatewayMembersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpGatewayRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpGatewayServersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpGatewayServersToolsRetrieveParams = {
+    /**
+     * Agent scope target. Required when scope_type is agent.
+     */
+    scope_service_account_id?: string;
+    /**
+     * Which scope to resolve: the team default, one member, or one agent.
+     *
+     * * `team` - Team default
+     * * `member` - Member
+     * * `agent` - Agent
+     * @minLength 1
+     */
+    scope_type?: McpGatewayServersToolsRetrieveScopeType;
+    /**
+     * Member scope target. Defaults to the requesting user.
+     */
+    scope_user_id?: number;
+    };
+
+    export type McpGatewayServersToolsRetrieveScopeType = typeof McpGatewayServersToolsRetrieveScopeType[keyof typeof McpGatewayServersToolsRetrieveScopeType];
+
+
+    export const McpGatewayServersToolsRetrieveScopeType = {
+      Team: 'team',
+      Member: 'member',
+      Agent: 'agent',
+    } as const;
+
+    export type McpGatewayServiceAccountsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -80368,6 +81340,10 @@ export namespace Schemas {
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
     installation_id?: string;
     posthog_code_callback_url?: string;
+    /**
+     * In-app path to land back on after the OAuth round-trip. Must be a same-app relative path.
+     */
+    return_path?: string;
     template_id?: string;
     };
 
@@ -80683,13 +81659,13 @@ export namespace Schemas {
     before?: string;
     format?: PersonsEmailsListFormat;
     /**
-     * Maximum number of emails to return (1-500, default 50).
+     * Maximum number of assets to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
      */
     limit?: number;
     /**
-     * Number of emails to skip, for pagination.
+     * Number of assets to skip, for pagination.
      * @minimum 0
      */
     offset?: number;
@@ -80711,6 +81687,39 @@ export namespace Schemas {
 
 
     export const PersonsPropertiesTimelineRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type PersonsPushNotificationsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    format?: PersonsPushNotificationsListFormat;
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type PersonsPushNotificationsListFormat = typeof PersonsPushNotificationsListFormat[keyof typeof PersonsPushNotificationsListFormat];
+
+
+    export const PersonsPushNotificationsListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

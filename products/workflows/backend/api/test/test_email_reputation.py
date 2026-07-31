@@ -118,6 +118,21 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["aws"] is None
         assert data["workflows"] == []
 
+    def test_reputation_endpoint_does_not_redial_aws_after_a_failure(self):
+        provider = MagicMock()
+        provider.get_tenant_reputation.side_effect = Exception("SES timeout")
+        with (
+            patch("products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source", return_value={}),
+            patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+        ):
+            url = f"/api/projects/{self.team.id}/hog_flows/reputation"
+            first = self.client.get(url)
+            second = self.client.get(url)
+
+        assert first.json()["aws"] is None
+        assert second.json()["aws"] is None
+        assert provider.get_tenant_reputation.call_count == 1
+
     # Creating a HogFlowBatchJob fires a post_save signal that dispatches to the plugin server —
     # patched out like every other batch-job test, or CI fails on the outbound HTTP attempt.
     @patch(

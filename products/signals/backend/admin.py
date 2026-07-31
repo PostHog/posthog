@@ -116,6 +116,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "pause_reason",
         "status_changed_at",
         "status_changed_by",
+        "consecutive_failure_count",
     )
     list_select_related = ("team", "team__organization")
     show_full_result_count = False
