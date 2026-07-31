@@ -27,7 +27,7 @@ from products.tasks.backend.constants import (
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
-from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
@@ -695,7 +695,7 @@ def get_sandbox_ph_mcp_configs(
     - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
     - Other hosts → empty list (MCP not available)
     """
-    url = resolve_mcp_url()
+    url = _resolve_mcp_url()
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
@@ -709,9 +709,6 @@ def get_sandbox_ph_mcp_configs(
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
-
-
-_resolve_mcp_url = resolve_mcp_url
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
