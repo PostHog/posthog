@@ -19,6 +19,7 @@ export const PlayerFrame = (): JSX.Element => {
     const frameRef = useRef<HTMLDivElement | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerDimensions = useSize(containerRef)
+    const lastAppliedScaleRef = useRef<number | null>(null)
 
     // Define callbacks before they're used in effects
     const updatePlayerDimensions = useCallback(
@@ -44,6 +45,17 @@ export const PlayerFrame = (): JSX.Element => {
                 parentDimensions.height / replayDimensions.height,
                 0.999
             )
+
+            // Skip near-identical updates. Sub-pixel jitter in getBoundingClientRect while a
+            // transform is applied can otherwise re-apply the transform and re-dispatch setScale
+            // every frame, visibly shaking the player and churning every playerMetaLogic consumer.
+            if (
+                lastAppliedScaleRef.current !== null &&
+                Math.abs(lastAppliedScaleRef.current - scale) < 0.001
+            ) {
+                return
+            }
+            lastAppliedScaleRef.current = scale
 
             player.replayer.wrapper.style.transform = `scale(${scale})`
 
