@@ -150,6 +150,7 @@ from .bamboohr.source import BambooHRSource
 from .basecamp.source import BasecampSource
 from .baserow.source import BaserowSource
 from .baseten.source import BasetenSource
+from .bcms.source import BCMSSource
 from .beamer.source import BeamerSource
 from .beehiiv.source import BeehiivSource
 from .better_stack.source import BetterStackSource
@@ -160,6 +161,7 @@ from .bigeye.source import BigeyeSource
 from .bigmailer.source import BigMailerSource
 from .bigquery.source import BigQuerySource
 from .bill_com.source import BillComSource
+from .billit.source import BillitSource
 from .billomat.source import BillomatSource
 from .bing_ads.source import BingAdsSource
 from .bing_webmaster_tools.source import BingWebmasterToolsSource
@@ -245,6 +247,7 @@ from .cisco_meraki.source import CiscoMerakiSource
 from .clari.source import ClariSource
 from .clarifai.source import ClarifaiSource
 from .classy.source import ClassySource
+from .clay.source import ClaySource
 from .clazar.source import ClazarSource
 from .cleartax.source import CleartaxSource
 from .clerk.source import ClerkSource
@@ -291,6 +294,7 @@ from .conta_azul.source import ContaAzulSource
 from .contentsquare.source import ContentsquareSource
 from .convertkit.source import ConvertKitSource
 from .convex.source import ConvexSource
+from .convonite.source import ConvoniteSource
 from .copper.source import CopperSource
 from .coralogix.source import CoralogixSource
 from .cortex.source import CortexSource
@@ -337,6 +341,7 @@ from .devin_ai.source import DevinAISource
 from .dialpad.source import DialpadSource
 from .digitalocean.source import DigitalOceanSource
 from .ding_connect.source import DingConnectSource
+from .directus.source import DirectusSource
 from .discord.source import DiscordSource
 from .discourse.source import DiscourseSource
 from .display_video_360.source import DisplayVideo360Source
@@ -556,6 +561,7 @@ from .hivebrite.source import HivebriteSource
 from .holded.source import HoldedSource
 from .honeybadger.source import HoneybadgerSource
 from .honeycomb.source import HoneycombSource
+from .hookdeck.source import HookdeckSource
 from .hoorayhr.source import HoorayHRSource
 from .hostaway.source import HostawaySource
 from .housecall_pro.source import HousecallProSource
@@ -747,6 +753,7 @@ from .mono.source import MonoSource
 from .monte_carlo.source import MonteCarloSource
 from .moodle.source import MoodleSource
 from .motherduck.source import MotherduckSource
+from .moxie.source import MoxieSource
 from .mssql.source import MSSQLSource
 from .mux.source import MuxSource
 from .my_hours.source import MyHoursSource
@@ -1092,6 +1099,7 @@ from .surveymonkey.source import SurveyMonkeySource
 from .surveysparrow.source import SurveySparrowSource
 from .survicate.source import SurvicateSource
 from .svix.source import SvixSource
+from .swan.source import SwanSource
 from .swarmia.source import SwarmiaSource
 from .swonkie.source import SwonkieSource
 from .synthesia.source import SynthesiaSource
@@ -1143,11 +1151,13 @@ from .together_ai.source import TogetherAISource
 from .toggl.source import TogglSource
 from .torii.source import ToriiSource
 from .track_pms.source import TrackPMSSource
+from .tradable_bits.source import TradableBitsSource
 from .transistor.source import TransistorSource
 from .travis_ci.source import TravisCISource
 from .trello.source import TrelloSource
 from .tremendous.source import TremendousSource
 from .trigger_dev.source import TriggerDevSource
+from .triple_whale.source import TripleWhaleSource
 from .trunk_io.source import TrunkIoSource
 from .trustpilot.source import TrustPilotSource
 from .trustradius.source import TrustradiusSource

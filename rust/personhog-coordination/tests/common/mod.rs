@@ -217,6 +217,29 @@ pub fn start_pod_blocking(
     }
 }
 
+/// Coordinator whose reconcile tick and phase deadlines are parked, so a
+/// test can prove an advancement was event-driven rather than rescued by
+/// the periodic backstop.
+pub fn start_coordinator_reconcile_parked(
+    store: Arc<PersonhogStore>,
+    strategy: Arc<dyn AssignmentStrategy>,
+    cancel: CancellationToken,
+) -> JoinHandle<Result<()>> {
+    let coordinator = Coordinator::new(
+        store,
+        CoordinatorConfig {
+            reconcile_interval: Duration::from_secs(86_400),
+            handoff_deadline: Duration::from_secs(86_400),
+            warming_deadline: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        strategy,
+        None,
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { coordinator.run(token).await })
+}
+
 pub fn start_coordinator_with_debounce(
     store: Arc<PersonhogStore>,
     strategy: Arc<dyn AssignmentStrategy>,

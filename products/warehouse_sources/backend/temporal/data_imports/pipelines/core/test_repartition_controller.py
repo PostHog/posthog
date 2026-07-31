@@ -4,7 +4,7 @@ import datetime
 import tempfile
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError
 
@@ -12,6 +12,7 @@ import pyarrow as pa
 import deltalake as deltalake
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -227,6 +228,25 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["partition_mode"] is None
         assert schema.repartition_pending["partition_keys"] == ["id"]
+
+
+class TestIsAutoRepartitionEnabled:
+    def test_retries_once_on_transient_db_connection_drop(self, team):
+        # The Team lookup runs on a long-lived Temporal worker thread; a pooler-dropped connection
+        # raises OperationalError on first use. Without a retry this propagates out of
+        # is_auto_repartition_enabled uncaught (it's outside the function's Team.DoesNotExist/
+        # feature_enabled try blocks) instead of resolving the flag.
+        schema = _make_schema(team, {})
+        mock_queryset = MagicMock()
+        mock_queryset.get.side_effect = [OperationalError("server closed the connection unexpectedly"), team]
+
+        with (
+            patch("posthog.models.Team.objects.only", return_value=mock_queryset),
+            patch.object(ctrl.posthoganalytics, "feature_enabled", return_value=True),
+        ):
+            assert ctrl.is_auto_repartition_enabled(schema) is True
+
+        assert mock_queryset.get.call_count == 2
 
 
 class TestRepartitionOOMHistoryTrigger:
@@ -560,6 +580,37 @@ class TestRepartitionActivity:
         emitted = [c.args[0] for c in capture.call_args_list]
         assert "warehouse_repartition_started" in emitted
         assert "warehouse_repartition_failed" not in emitted
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == 0
+
+    def test_admin_transient_infra_error_reraises_for_activity_retry(self, team):
+        # An operator staged this rewrite (trigger_reason "admin") because syncing on the old layout is
+        # pathological — deferring a transient blip to the next sync runs that crawl first. The activity
+        # must re-raise retryable so Temporal re-runs the rewrite in this run, while still emitting no
+        # failure event and consuming no attempt (in-run retries must not exhaust the budget on infra
+        # noise). ActivityEnvironment bypasses the worker interceptor chain, so this does NOT cover the
+        # error-tracking exemption for the re-raise — that lives in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+        # (posthog_client.py), keyed on the ApplicationError's type string.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "admin",
+                "attempts": 0,
+            }
+        )
+        mocked = AsyncMock(side_effect=OperationalError("server closed the connection unexpectedly"))
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+        ):
+            with pytest.raises(ApplicationError):
+                ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
         schema.refresh_from_db()
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0

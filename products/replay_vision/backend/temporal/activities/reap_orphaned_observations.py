@@ -4,7 +4,6 @@ The same pass reaps prompt-suggestion evaluations stuck in `running`: the workfl
 failures, so a terminated or timed-out run leaves the row claiming to be in flight forever.
 """
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
@@ -14,8 +13,7 @@ from django.utils import timezone
 
 import structlog
 from temporalio import activity
-from temporalio.client import Client, WorkflowExecutionStatus
-from temporalio.service import RPCError, RPCStatusCode
+from temporalio.client import Client
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -27,6 +25,7 @@ from products.replay_vision.backend.prompt_evaluation import (
     summarize_results,
 )
 from products.replay_vision.backend.temporal.activities.observation_state import mark_observation_terminal
+from products.replay_vision.backend.temporal.activities.reaping import classify_stale_rows
 from products.replay_vision.backend.temporal.constants import (
     OBSERVATION_ORPHAN_CUTOFF,
     REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE,
@@ -40,9 +39,6 @@ logger = structlog.get_logger(__name__)
 
 _LIVE_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 _ORPHANED_ERROR_REASON = f"{FailureKind.ORPHANED.value}:The analysis stopped without recording an outcome."
-# Describes are Temporal-API round trips; running them a few at a time keeps a 500-row pass inside the
-# activity's budget without hammering the service.
-_DESCRIBE_CONCURRENCY = 20
 # Evaluations whose stamp predates the workflow's own execution timeout can no longer be live.
 _EVALUATION_ORPHAN_CUTOFF = EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT * 2
 # One pass reaps at most this many; the rest drain on later reconciler ticks.
@@ -60,40 +56,28 @@ def _list_stale_observations() -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], list(rows))
 
 
-def _list_stale_evaluations() -> list[UUID]:
+def _evaluation_stamp_is_stale(evaluation: dict[str, Any], cutoff: datetime) -> bool:
+    """A stamp that is unparseable or naive can never age out on its own, so it counts as stale."""
+    try:
+        started_at = datetime.fromisoformat(str(evaluation.get("started_at") or ""))
+    except ValueError:
+        return True
+    return started_at.tzinfo is None or started_at < cutoff
+
+
+def _list_stale_evaluations() -> list[dict[str, Any]]:
+    """Suggestions whose running evaluation predates the cutoff, shaped for `classify_stale_rows`."""
     cutoff = timezone.now() - _EVALUATION_ORPHAN_CUTOFF
     rows = (
         ReplayScannerPromptSuggestion.objects.filter(evaluation__status="running")
         .order_by("created_at")
         .values("id", "evaluation")[:_EVALUATION_BATCH_SIZE]
     )
-    stale: list[UUID] = []
-    for row in rows:
-        evaluation = row["evaluation"]
-        if not isinstance(evaluation, dict):
-            continue
-        try:
-            started_at = datetime.fromisoformat(str(evaluation.get("started_at") or ""))
-        except ValueError:
-            # An unparseable stamp can never age out on its own, so treat it as stale.
-            stale.append(row["id"])
-            continue
-        if started_at.tzinfo is not None and started_at < cutoff:
-            stale.append(row["id"])
-    return stale
-
-
-async def _workflow_is_open(temporal: Client, workflow_id: str) -> bool | None:
-    """Whether the latest run of `workflow_id` is still open; `None` when Temporal couldn't answer."""
-    try:
-        desc = await temporal.get_workflow_handle(workflow_id).describe()
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        return None
-    except Exception:
-        return None
-    return desc.status == WorkflowExecutionStatus.RUNNING
+    return [
+        {"id": row["id"], "workflow_id": build_evaluate_prompt_suggestion_workflow_id(row["id"])}
+        for row in rows
+        if isinstance(row["evaluation"], dict) and _evaluation_stamp_is_stale(row["evaluation"], cutoff)
+    ]
 
 
 def _mark_orphaned(observation_id: UUID, scanner_type: str) -> bool:
@@ -127,36 +111,13 @@ def _fail_evaluation(suggestion_id: UUID) -> bool:
     return True
 
 
-async def _describe_openness(temporal: Client, workflow_ids: list[str]) -> list[bool | None]:
-    """Per-id: True still open, False provably closed or absent, None Temporal couldn't say. An empty id
-    never had a workflow, so it is closed by definition."""
-    describe_sem = asyncio.Semaphore(_DESCRIBE_CONCURRENCY)
-
-    async def _one(workflow_id: str) -> bool | None:
-        if not workflow_id:
-            return False
-        async with describe_sem:
-            return await _workflow_is_open(temporal, workflow_id)
-
-    return await asyncio.gather(*(_one(workflow_id) for workflow_id in workflow_ids))
-
-
 async def _reap_observations(temporal: Client, rows: list[dict[str, Any]]) -> int:
-    activity.heartbeat({"phase": "observations_listed", "scanned": len(rows)})
-    openness = await _describe_openness(temporal, [row["workflow_id"] for row in rows])
-    activity.heartbeat({"phase": "observations_described", "described": len(openness)})
-
+    reapable, skipped_open, skipped_temporal_error = await classify_stale_rows(
+        temporal, rows, workflow_id_key="workflow_id"
+    )
+    activity.heartbeat({"phase": "observations_described", "reapable": len(reapable)})
     reaped = 0
-    skipped_open = 0
-    skipped_temporal_error = 0
-    for row, is_open in zip(rows, openness):
-        # Only settle rows whose workflow is provably gone; anything else waits for the next tick.
-        if is_open is True:
-            skipped_open += 1
-            continue
-        if is_open is None:
-            skipped_temporal_error += 1
-            continue
+    for row in reapable:
         snapshot = row["scanner_snapshot"] or {}
         scanner_type = snapshot.get("scanner_type") or "unknown"
         if await database_sync_to_async(_mark_orphaned, thread_sensitive=False)(row["id"], scanner_type):
@@ -171,19 +132,14 @@ async def _reap_observations(temporal: Client, rows: list[dict[str, Any]]) -> in
     return reaped
 
 
-async def _reap_evaluations(temporal: Client, suggestion_ids: list[UUID]) -> int:
-    activity.heartbeat({"phase": "evaluations_listed", "scanned": len(suggestion_ids)})
-    openness = await _describe_openness(
-        temporal, [build_evaluate_prompt_suggestion_workflow_id(sid) for sid in suggestion_ids]
-    )
+async def _reap_evaluations(temporal: Client, rows: list[dict[str, Any]]) -> int:
+    reapable, _, _ = await classify_stale_rows(temporal, rows, workflow_id_key="workflow_id")
+    activity.heartbeat({"phase": "evaluations_described", "reapable": len(reapable)})
     reaped = 0
-    for suggestion_id, is_open in zip(suggestion_ids, openness):
-        # Only settle rows whose workflow is provably gone; a slow-but-live run keeps reporting progress.
-        if is_open is not False:
-            continue
-        if await database_sync_to_async(_fail_evaluation, thread_sensitive=False)(suggestion_id):
+    for row in reapable:
+        if await database_sync_to_async(_fail_evaluation, thread_sensitive=False)(row["id"]):
             reaped += 1
-    logger.info("replay_vision.reap_stuck_evaluations", scanned=len(suggestion_ids), reaped=reaped)
+    logger.info("replay_vision.reap_stuck_evaluations", scanned=len(rows), reaped=reaped)
     return reaped
 
 
@@ -196,9 +152,9 @@ async def reap_orphaned_observations_activity() -> int:
     The describe check protects rows reclaimed by a live re-trigger of the same deterministic workflow id.
     """
     rows = await database_sync_to_async(_list_stale_observations, thread_sensitive=False)()
-    suggestion_ids = await database_sync_to_async(_list_stale_evaluations, thread_sensitive=False)()
-    if not rows and not suggestion_ids:
+    evaluations = await database_sync_to_async(_list_stale_evaluations, thread_sensitive=False)()
+    if not rows and not evaluations:
         return 0
+    activity.heartbeat({"phase": "listed", "observations": len(rows), "evaluations": len(evaluations)})
     temporal = await async_connect()
-    # Independent passes, and the tick has a 3-minute budget to cover both.
-    return sum(await asyncio.gather(_reap_observations(temporal, rows), _reap_evaluations(temporal, suggestion_ids)))
+    return await _reap_observations(temporal, rows) + await _reap_evaluations(temporal, evaluations)
