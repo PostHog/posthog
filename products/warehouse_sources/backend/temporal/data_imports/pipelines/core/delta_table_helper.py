@@ -1,5 +1,6 @@
 import json
 import asyncio
+import contextlib
 from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
@@ -613,19 +614,22 @@ class DeltaTableHelper:
                 pass
             return False
 
-        # Committed — the real table is now deltalite's output. Post-commit steps are best-effort; the
-        # write already succeeded, so they never fall back to the MERGE.
+        # Committed — the real table is now deltalite's output. NOTHING past this point may raise into
+        # the caller: an exception here would leave `deltalite_wrote` unset and either fail/retry the
+        # sync or re-run the delta-rs MERGE on top of deltalite's already-committed write. So every
+        # post-commit step (handle refresh, log, metric) is wrapped best-effort and we always return True.
         try:
             # Refresh the in-memory delta-rs handle to deltalite's new version so the table returned by
             # write_to_deltalake (and any subsequent reads) reflects the real state.
             await asyncio.to_thread(existing_delta_table.update_incremental)
-        except Exception as e:  # noqa: BLE001 - data is committed; a stale handle must not re-run the MERGE
-            await self._logger.awarning(f"deltalite write committed but post-commit table refresh failed: {e}")
-        await self._logger.ainfo(
-            f"deltalite write: committed v{stats.version} "
-            f"(+{stats.rows_inserted} inserted / ~{stats.rows_updated} updated / {stats.rows_copied} copied)"
-        )
-        DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
+            await self._logger.ainfo(
+                f"deltalite write: committed v{stats.version} "
+                f"(+{stats.rows_inserted} inserted / ~{stats.rows_updated} updated / {stats.rows_copied} copied)"
+            )
+            DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
+        except Exception as e:  # noqa: BLE001 - the write is committed; bookkeeping must never raise
+            with contextlib.suppress(Exception):
+                await self._logger.awarning(f"deltalite write committed but post-commit bookkeeping failed: {e}")
         return True
 
     async def write_to_deltalake(
