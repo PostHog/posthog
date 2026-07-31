@@ -1,21 +1,17 @@
 from posthog.hogql import ast
 from posthog.hogql.database.models import FunctionCallTable, Table
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.duckdb_table_functions import (
-    GenerateSeriesTable,
-    OpaqueFunctionCallTable,
-    RangeTable,
-)
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.workload import Workload
 
-# Standalone table functions (numbers(), range(), generate_series(), opaque direct-SQL calls) are pure
-# compute with no cluster affinity — they run identically on any cluster, so they don't disqualify a
-# query from materialized-view routing. Mirrors the exclusion list in posthog/hogql/query.py.
-_STANDALONE_FUNCTION_TABLES = (RangeTable, GenerateSeriesTable, OpaqueFunctionCallTable, NumbersTable)
+# numbers() is a pure-compute ClickHouse table function with no cluster affinity — it runs identically
+# on any cluster, so it must not disqualify a matview-only query from routing. (range() /
+# generate_series() / opaque direct-SQL table functions are DuckDB-only and raise in the ClickHouse
+# dialect this collector runs in, so they can never appear here.)
+_STANDALONE_FUNCTION_TABLES = (NumbersTable,)
 
 
 class WorkloadCollector(TraversingVisitor):

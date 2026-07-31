@@ -2,6 +2,8 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.context import HogQLContext
@@ -48,11 +50,10 @@ class TestMaterializedViewRouting(BaseTest):
         prepare_ast_for_printing(parse_select(query), context=context, dialect="clickhouse")
         return context.workload
 
-    def test_matview_only_query_routes_to_endpoints_cluster(self):
-        assert self._workload_for("SELECT id FROM my_view", routing_enabled=True) == Workload.ENDPOINTS
-
-    def test_matview_only_query_stays_default_when_routing_disabled(self):
-        assert self._workload_for("SELECT id FROM my_view", routing_enabled=False) != Workload.ENDPOINTS
+    @parameterized.expand([("routing_enabled", True, True), ("routing_disabled", False, False)])
+    def test_matview_only_query_routing(self, _name: str, routing_enabled: bool, expects_endpoints: bool):
+        workload = self._workload_for("SELECT id FROM my_view", routing_enabled=routing_enabled)
+        assert (workload == Workload.ENDPOINTS) is expects_endpoints
 
     def test_matview_query_touching_events_stays_default(self):
         # Referencing events (resolved through the real pipeline) disqualifies routing.
