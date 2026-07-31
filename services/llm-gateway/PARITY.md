@@ -20,6 +20,32 @@ Bug, security, and reliability fixes for blocked callers are valid reasons. Conv
 
 When a gap closes, new work uses the Go gateway and affected callers should migrate. Do not add the same feature to both gateways by default.
 
+## Current rollout inventory
+
+This inventory records known caller rollout state as of 2026-07-31. It complements the contract audit below. A migrated caller is evidence that its specific contract works, not proof that every caller in the same product can move.
+
+### ✅ Migrated to the Go gateway
+
+- AI observability summarization, eval reports, and clustering
+- SherlockHog
+- StampHog
+- Signals grouping, safety, eval summarization, emission, and `signals_eval`
+
+Signals scout code has Go-capable paths, but the sandbox production rollout remains paused as described below.
+
+### ⏳ Still on the Python gateway
+
+| Caller                        | Current reason or state                                                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| PostHog AI (`ai`)             | Requires first-party product policy that is not yet available together in Go.                                       |
+| PostHog Desktop               | Requires trusted auth and attribution that are not yet available together in Go.                                    |
+| Session Replay                | Not yet migrated. Inventory its exact contract before changing either gateway.                                      |
+| Wizard                        | Requires first-party product policy that is not yet available together in Go.                                       |
+| Agent package                 | Migration is in progress. Re-check the current implementation and deployment state before making related changes.   |
+| Scouts                        | Migration is paused pending auth and attribution support. Do not infer readiness from the migrated Signals callers. |
+| Warehouse semantic enrichment | A migration is in draft. Re-check the draft and current parity before starting overlapping work.                    |
+| Survey summary                | Partially migrated. Some Gemini calls use the Python gateway's Haiku path as a temporary fallback.                  |
+
 ## Choose by use case
 
 ### ✅ Use the Go gateway

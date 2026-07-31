@@ -5,6 +5,7 @@ These PRs show different migration shapes and rollout states. Check each PR's cu
 ## Django and direct-provider callers
 
 - [#64448: make cluster labeling routable through the AI gateway](https://github.com/PostHog/posthog/pull/64448) introduces an environment-gated OpenAI client, validates paired settings, preserves direct-provider fallback, checks model availability before rollout, and tests both routes.
+- [#65043: route the eval-report agent through the AI gateway](https://github.com/PostHog/posthog/pull/65043) moves the AI observability eval-report agent after the shared route exists and tests the selected client path.
 - [#65044: route OpenAI summarization through the AI gateway](https://github.com/PostHog/posthog/pull/65044) extracts shared sync and async builders, uses the slugless Go URL and project secret, keeps `trust_env=False`, retains the Python fallback, and prevents duplicate `$ai_generation` capture.
 - [#68329: route the PR-approval agent through the AI gateway](https://github.com/PostHog/posthog/pull/68329) covers a non-Django SDK process. It validates and translates gateway environment variables, switches away from the traced SDK wrapper in gateway mode, keeps a direct fallback, and tests credential and metadata wiring without exposing secret values.
 
@@ -13,6 +14,9 @@ These PRs show different migration shapes and rollout states. Check each PR's cu
 - [#71947: add the Signals AI gateway client and per-call opt-in](https://github.com/PostHog/posthog/pull/71947) adds the Anthropic builder and an opt-in seam without moving traffic. It converts per-key metadata to `X-PostHog-Properties`, strips `/v1` for the Anthropic SDK, and preserves Python behavior for callers that have not opted in.
 - [#71948: route Signals grouping through the AI gateway](https://github.com/PostHog/posthog/pull/71948) uses that seam to move one workload at a time. Reverting the small opt-in returns only grouping to Python.
 - [#71949: route Signals emission stages through the AI gateway](https://github.com/PostHog/posthog/pull/71949) handles batch and per-call metadata explicitly. Its tests cover both the Go JSON properties blob and Python per-key fallback headers.
+- [#71950: route Signals safety through the AI gateway](https://github.com/PostHog/posthog/pull/71950) opts the safety filter and report safety judge into the shared Go-capable client.
+- [#71951: route Signals eval summarization through the AI gateway](https://github.com/PostHog/posthog/pull/71951) applies the same narrow per-call rollout to eval summaries.
+- [#72769: tag eval-fixture generation as `signals_eval`](https://github.com/PostHog/posthog/pull/72769) preserves workload attribution for Signals eval generation.
 
 ## Sandbox and deployment wiring
 
@@ -32,16 +36,16 @@ Treat these as linked sequences. A client PR alone does not prove that traffic m
 
 All five changes are merged. Still verify the current deployment and live attribution before using this sequence as proof of present-day behavior.
 
-### 🚧 Sandbox Signals stages: production rollout incomplete
+### 🚧 Signals sandbox Scouts: production rollout paused
 
 1. [PostHog/code #3659: route selected products to the AI gateway](https://github.com/PostHog/code/pull/3659) selects a gateway per sandbox request. It requires both the Go URL and an allowlist, keeps unlisted products on Python, converts attribution to one bounded ASCII-safe JSON header, and gives each workload a distinct product tag.
 2. [PostHog/posthog #72770: route selected sandbox products to the AI gateway](https://github.com/PostHog/posthog/pull/72770) passes the settings into sandboxes, reserves them against user overrides, updates both egress enforcement layers, validates configured hostnames, and extends startup diagnostics.
 3. [PostHog/charts #13358: route Signals sandbox stages in development](https://github.com/PostHog/charts/pull/13358) activates the client and Django support for four workloads in development.
-4. [PostHog/charts #13361: route Signals sandbox stages in production](https://github.com/PostHog/charts/pull/13361) is the production follow-up and remains an open draft. Do not describe this sequence as a completed production migration until it merges and the live route is verified.
+4. [PostHog/charts #13361: route Signals sandbox stages in production](https://github.com/PostHog/charts/pull/13361) is the production follow-up and remains an open draft. The rollout is paused pending auth and attribution support. Do not describe this sequence as a completed production migration until the blocker closes, the change merges, and the live route is verified.
 
-### 🚧 Stamphog: implementation without PR evidence of activation
+### ✅ StampHog: migrated caller
 
-- [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) shows a standalone Claude Agent SDK implementation. It validates paired settings, strips `/v1` before the SDK restores its messages path, sets both Anthropic auth variables, avoids duplicate capture by bypassing the traced wrapper in gateway mode, and keeps direct-provider fallback. The PR explicitly left secret population and a live gateway request unverified, and no merged follow-up PR was found that closes those steps.
+- [PostHog/posthog #68329: route the PR-approval agent through the AI gateway](https://github.com/PostHog/posthog/pull/68329) and [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) show the migration in both repositories. The implementation validates paired settings, strips `/v1` before the SDK restores its messages path, sets both Anthropic auth variables, avoids duplicate capture by bypassing the traced wrapper in gateway mode, and keeps direct-provider fallback.
 
 ### ✅ Deployment-only example
 
