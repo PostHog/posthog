@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
@@ -403,6 +404,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "This table is set to sync incrementally but has no incremental field configured, so "
                 "PostHog can't build its sync query. Choose an incremental field for the table in its "
                 "sync settings, or switch it to full table replication, then re-enable the sync."
+            ),
+            # `xmin` was picked as a plain incremental/append field instead of through the dedicated
+            # xmin replication sync type — `_build_query`/`_build_count_query` raise this before
+            # emitting SQL Postgres would reject (`xid >= integer` has no operator). The stored config
+            # is fixed until the customer changes it, so every retry re-hits the same wall.
+            XMIN_AS_INCREMENTAL_FIELD_ERROR: (
+                "This table's incremental field is set to Postgres's internal 'xmin' system column, "
+                "which only works with the dedicated xmin replication sync type. Switch this schema to "
+                "xmin replication, or choose a different incremental field, then re-enable the sync."
             ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.

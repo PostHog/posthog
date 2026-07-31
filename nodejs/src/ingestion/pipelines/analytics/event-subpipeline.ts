@@ -108,9 +108,15 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
-        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS), {
-            retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
-        })
+        .pipe(
+            createProcessPersonlessStep(
+                options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                options.PERSONLESS_WRITES_DISABLED_TEAMS
+            ),
+            {
+                retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
+            }
+        )
         .pipe(
             topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({

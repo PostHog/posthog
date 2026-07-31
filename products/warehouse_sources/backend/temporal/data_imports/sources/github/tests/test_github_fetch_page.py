@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest import mock
 
@@ -60,6 +62,42 @@ def test_fetch_page_404_skips_only_for_org_scoped_endpoints(skip_on_not_found, e
             github._fetch_page(
                 "https://api.github.com/orgs/acme/teams", {}, mock.Mock(), skip_on_not_found=skip_on_not_found
             )
+
+
+def _unprocessable_response(message: str) -> mock.Mock:
+    response = mock.Mock(spec=requests.Response)
+    response.status_code = 422
+    response.ok = False
+    response.headers = {}
+    response.text = json.dumps({"message": message})
+    response.json.return_value = {"message": message}
+    response.request = None
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "422 Client Error: Unprocessable Entity for url", response=response
+    )
+    return response
+
+
+def test_fetch_page_raises_repository_too_large_for_code_frequency_422():
+    # GitHub permanently 422s /stats/code_frequency once a repo passes 10,000 commits; the caller
+    # must treat this as a benign skip, not crash and retry the activity forever.
+    session = mock.Mock()
+    session.request.return_value = _unprocessable_response("repository must have fewer than 10000 commits")
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubRepositoryTooLargeError):
+            github._fetch_page("https://api.github.com/repos/o/r/stats/code_frequency", {}, mock.Mock())
+
+
+def test_fetch_page_reraises_other_422_errors():
+    # A generic 422 (e.g. malformed request params) is a real, fixable problem and must stay fatal
+    # rather than being swallowed by the too-large-repository check.
+    session = mock.Mock()
+    session.request.return_value = _unprocessable_response("Validation failed")
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(requests.exceptions.HTTPError):
+            github._fetch_page("https://api.github.com/repos/o/r/stats/code_frequency", {}, mock.Mock())
 
 
 def test_fetch_page_retries_chunked_encoding_error():

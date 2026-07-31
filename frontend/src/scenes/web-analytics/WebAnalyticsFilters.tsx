@@ -19,6 +19,7 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { baseModifier } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { SuppressTaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMenuToggle'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -104,11 +105,15 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]) {
-        return <CondensedWebAnalyticsFilterBar tabs={tabs} />
+        return (
+            <SuppressTaxonomicMenuToggle>
+                <CondensedWebAnalyticsFilterBar tabs={tabs} />
+            </SuppressTaxonomicMenuToggle>
+        )
     }
 
     return (
-        <>
+        <SuppressTaxonomicMenuToggle>
             <IncompatibleFiltersWarning />
 
             <div data-attr="web-analytics-filters">
@@ -150,7 +155,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     }
                 />
             </div>
-        </>
+        </SuppressTaxonomicMenuToggle>
     )
 }
 
