@@ -965,6 +965,24 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
 
+    def test_list_date_range_bounds_use_project_timezone(self) -> None:
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        # 05:00 UTC is 21:00 the previous day in Pacific; 20:00 UTC is 12:00 the same day.
+        previous_day = self._create_observation(session_id="pacific-previous-day")
+        ReplayObservation.objects.filter(pk=previous_day.pk).update(created_at=datetime(2026, 3, 3, 5, 0, tzinfo=UTC))
+        same_day = self._create_observation(session_id="pacific-same-day")
+        ReplayObservation.objects.filter(pk=same_day.pk).update(created_at=datetime(2026, 3, 3, 20, 0, tzinfo=UTC))
+
+        base_url = self.observations_url(str(self.scanner.id))
+        resp = self.client.get(f"{base_url}?date_from=2026-03-03&date_to=2026-03-03")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["pacific-same-day"])
+
+        resp = self.client.get(f"{base_url}?date_from=2026-03-02&date_to=2026-03-02")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["pacific-previous-day"])
+
     def test_retrieve_with_filters_resolves_object_and_scopes_neighbors_only(self) -> None:
         observation = self._create_observation(session_id="s-pending")
         self._create_observation(session_id="s-other")
