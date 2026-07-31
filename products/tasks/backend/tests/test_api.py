@@ -31,10 +31,12 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
+from posthog.utils import absolute_uri
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
+from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
     _gateway_usage_url,
@@ -77,6 +79,7 @@ from products.tasks.backend.presentation.serializers import (
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskRunLivingArtifactChartRequestSerializer,
 )
+from products.tasks.backend.presentation.views.api import CHART_IMAGE_URL_TTL
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 
@@ -8454,15 +8457,6 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["export_asset_id"], 321)
-        self.assertIn("/insights/new#q=", data["url"])
-        self.assertEqual(mock_create.call_args.kwargs["artifact"]["content_bytes"], b"png-bytes")
-        self.assertEqual(
-            mock_create.call_args.kwargs["artifact"]["metadata"],
-            {"image_url": "https://app.dev/exporter/export-1.png?token=abc", "posthog_url": data["url"]},
-        )
-        # The facade rejects any export_context whose source isn't an InsightVizNode, so a wrong
-        # wrapping here would 400 every real request with the assertions above still green.
-        # upgrade() stamps schema versions on nested nodes, so compare everything else.
         mock_render.assert_called_once()
         render_kwargs = mock_render.call_args.kwargs
         self.assertEqual(render_kwargs["team"], self.team)
@@ -8470,9 +8464,24 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         self.assertIsNone(render_kwargs["insight_id"])
         sent_query = render_kwargs["export_context"]["source"]
         self.assertEqual(sent_query["kind"], "InsightVizNode")
+        self.assertEqual(sent_query["source"]["kind"], self.CHART_QUERY["source"]["kind"])
+        self.assertEqual(sent_query["source"]["series"], self.CHART_QUERY["source"]["series"])
+        expected_url = absolute_uri(f"/project/{self.team.id}/insights/new") + f"#q={quote(json.dumps(sent_query))}"
+        self.assertEqual(data["posthog_url"], expected_url)
+        mock_asset.get_subscription_delivery_content_url.assert_called_once_with(expiry_delta=CHART_IMAGE_URL_TTL)
         self.assertEqual(
-            {k: v for k, v in sent_query["source"].items() if k != "version"},
-            self.CHART_QUERY["source"],
+            mock_create.call_args.kwargs["artifact"],
+            {
+                "name": "Chart.png",
+                "artifact_type": TaskArtifactType.FILE,
+                "adapter": TaskArtifactAdapter.SLACK_FILE,
+                "content_type": "image/png",
+                "content_bytes": b"png-bytes",
+                "metadata": {
+                    "image_url": "https://app.dev/exporter/export-1.png?token=abc",
+                    "posthog_url": expected_url,
+                },
+            },
         )
 
     @parameterized.expand(
@@ -8520,7 +8529,6 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         mock_render.return_value = (MagicMock(id=322, exception="Query exploded"), None)
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        # The raw asset.exception stays in the log — the agent relays this field into Slack.
         self.assertEqual(response.json()["error"], "Chart render failed")
 
 

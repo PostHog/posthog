@@ -170,8 +170,8 @@ class OctetStreamParser(BaseParser):
 logger = logging.getLogger(__name__)
 
 # The url is an unauthenticated public link, so scope it to the artifact's 30-day storage TTL
-# rather than the 365-day default.
-CHART_IMAGE_URL_TTL = timedelta(days=31)
+# (LIVING_ARTIFACT_TTL_DAYS) rather than the 365-day default.
+CHART_IMAGE_URL_TTL = timedelta(days=30)
 
 
 def _pi_cloud_runtime_disabled_response() -> Response:
@@ -2380,6 +2380,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         run_id = self.kwargs.get("parent_lookup_run_id")
         if not run_id:
             raise NotFound("Run ID is required")
+        try:
+            UUID(run_id)
+        except (ValueError, TypeError):
+            raise NotFound("Run not found")
         return run_id
 
     def _ensure_task_accessible(self) -> str:
@@ -2475,17 +2479,14 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     )
     def chart(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
-        # The render below is expensive (executes the query, blocks on the export
-        # workflow) — refuse unknown runs before it, like every sibling action does.
+        # Refuse unknown runs before the expensive render, like every sibling action does.
         if not tasks_facade.task_run_exists(self._run_id(), task_id, self.team_id):
             raise NotFound()
         name = request.validated_data["name"]
         query = request.validated_data.get("query")
         if query is not None:
-            # Allow-list, not deny-list: QuerySchemaRoot admits dozens of kinds
-            # (DataTableNode, EventsQuery, bare HogQLQuery, ...) that render as table
-            # dumps or nothing. Only InsightVizNode renders a chart deterministically;
-            # its source schema excludes SQL, so this also covers the SQL-unsupported rule.
+            # Only InsightVizNode renders a chart deterministically; QuerySchemaRoot
+            # also admits kinds that render as table dumps or nothing.
             if not isinstance(query, dict) or query.get("kind") != "InsightVizNode":
                 return Response(
                     TaskRunErrorResponseSerializer(
@@ -2501,8 +2502,6 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 # or we'd validate one shape and render another.
                 query = upgrade(query)
                 QuerySchemaRoot.model_validate(query)
-            # upgrade() raises TypeError/KeyError/ValueError on malformed shapes an LLM
-            # plausibly produces (string versions, list kinds) — all must stay typed 400s.
             except (pydantic.ValidationError, TypeError, KeyError, ValueError):
                 return Response(
                     TaskRunErrorResponseSerializer({"error": "Invalid insight query"}).data,
@@ -2532,9 +2531,6 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 TaskRunErrorResponseSerializer({"error": "Chart render failed"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        # Persisted on the artifact so Slack delivery can compose the chart card:
-        # image_url lets Slack's image proxy fetch the rendered PNG from us (no
-        # files:write scope needed), posthog_url powers the "Open in PostHog" button.
         # The delivery-purposed token works for orgs that disallow publicly shared
         # resources, same as subscription images.
         url = self._chart_url(query, asset)
@@ -2548,7 +2544,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             task_id,
             self.team_id,
             artifact={
-                "name": name,
+                "name": self._with_png_extension(name),
                 "artifact_type": TaskArtifactType.FILE,
                 "adapter": TaskArtifactAdapter.SLACK_FILE,
                 "content_type": "image/png",
@@ -2559,11 +2555,19 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if artifact is None and error is None:
             raise NotFound()
         if error is not None:
+            # The render already persisted the export; without this it would sit
+            # orphaned until its own six-month expiry instead of being cleaned up now.
+            asset.delete()
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactChartResponseSerializer(
-            {"artifact": artifact, "export_asset_id": asset.id, "url": url}
+            {"artifact": artifact, "export_asset_id": asset.id, "posthog_url": url}
         )
         return Response(serializer.data)
+
+    @staticmethod
+    def _with_png_extension(name: str) -> str:
+        base, ext = os.path.splitext(name)
+        return name if ext.lower() == ".png" else f"{base or name}.png"
 
     def _chart_url(self, query: dict | None, asset: "ExportedAsset") -> str | None:
         if query is not None:

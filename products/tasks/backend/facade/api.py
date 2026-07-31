@@ -1936,9 +1936,9 @@ def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> T
 
 
 def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:
-    """Cheap visibility precheck so callers can 404 before doing expensive work (e.g. a render)."""
+    """Precheck so callers can 404 before doing expensive work (e.g. a render)."""
     try:
-        return _get_visible_run(run_id, task_id, team_id) is not None
+        return TaskRun.objects.filter(pk=run_id, team_id=team_id, task_id=task_id).exists()
     except (ValueError, TypeError, DjangoValidationError):
         return False
 

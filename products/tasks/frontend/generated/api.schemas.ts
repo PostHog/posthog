@@ -3277,7 +3277,7 @@ export interface TaskRunLivingArtifactChartResponseApi {
      * Link to explore this chart interactively in PostHog.
      * @nullable
      */
-    url?: string | null
+    posthog_url?: string | null
 }
 
 export type TaskThreadMessageDTOApiPayload = { [key: string]: unknown }
