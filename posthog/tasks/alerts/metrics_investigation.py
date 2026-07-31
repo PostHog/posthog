@@ -6,8 +6,14 @@ window around the fire and the outcome lands on the AlertCheck's existing
 investigation fields — so the alert page carries the why, not just the that.
 Distinct from the detector alerts' agent workflow: this is a bounded set of
 metric queries, run in-line with the check, no agent or notebook involved.
+
+Frequency is bounded by the same per-alert cooldown the detector path uses
+(`claim_investigation_slot`), which the caller claims inside the check's
+transaction; the run itself happens outside that transaction because it issues
+ClickHouse queries and must never hold the row lock or affect the check outcome.
 """
 
+import math
 from typing import TYPE_CHECKING
 
 import structlog
@@ -16,7 +22,7 @@ from posthog.schema import AlertState, NodeKind
 
 from posthog.utils import get_from_dict_or_attr
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 
 if TYPE_CHECKING:
     from products.metrics.backend.facade.contracts import InvestigationResult
@@ -30,14 +36,24 @@ def should_investigate_metrics_alert(
     previous_state: str | None,
     new_state: str,
 ) -> bool:
-    """True when this check should get a synchronous metrics investigation:
+    """True when this check is eligible for a synchronous metrics investigation:
     a threshold (non-detector) alert on a metrics insight, opted in via the
-    investigation flag, on a transition into FIRING (not on every re-fire)."""
+    investigation flag, on a transition into FIRING (not on every re-fire).
+
+    Cooldown is enforced separately by `claim_investigation_slot`, mirroring the
+    detector path. Never raises — an unexpected error reading the insight kind
+    must not break the alert-evaluation path, so it degrades to "don't
+    investigate".
+    """
     if not alert.investigation_agent_enabled or alert.detector_config:
         return False
     if previous_state == AlertState.FIRING or new_state != AlertState.FIRING:
         return False
-    return alert.insight.alertable_query_kind == NodeKind.METRICS_QUERY
+    try:
+        return alert.insight.alertable_query_kind == NodeKind.METRICS_QUERY
+    except Exception:
+        logger.exception("metrics_alert_investigation_gate_failed", alert_id=str(alert.id))
+        return False
 
 
 def run_metrics_alert_investigation(alert: AlertConfiguration, alert_check: AlertCheck) -> None:
@@ -49,13 +65,13 @@ def run_metrics_alert_investigation(alert: AlertConfiguration, alert_check: Aler
     """
     try:
         summary = _run_investigation(alert, alert_check)
-        alert_check.investigation_status = "done"
+        alert_check.investigation_status = InvestigationStatus.DONE
         alert_check.investigation_summary = summary
         alert_check.save(update_fields=["investigation_status", "investigation_summary"])
     except Exception as error:
         logger.exception("metrics_alert_investigation_failed", alert_id=str(alert.id), error=str(error))
-        alert_check.investigation_status = "failed"
-        alert_check.investigation_error = str(error)[:1000]
+        alert_check.investigation_status = InvestigationStatus.FAILED
+        alert_check.investigation_error = {"message": str(error)[:1000]}
         alert_check.save(update_fields=["investigation_status", "investigation_error"])
 
 
@@ -103,13 +119,20 @@ def _summarize(result: "InvestigationResult") -> str:
     section and in notification surfaces that only carry a sentence or two.
     """
     symptom = result.symptom
-    change = f"{symptom.change_ratio:.1f}x" if symptom.baseline_mean else "from a zero baseline"
-    lines = [
-        f"{result.metric_name} moved {symptom.direction} to {symptom.anomaly_mean:.2f} "
-        f"(baseline {symptom.baseline_mean:.2f}, {change})"
-        + (f", starting around {symptom.onset_time}" if symptom.onset_time else "")
-        + f". Blast radius: {result.blast_radius}; confidence: {result.confidence}."
-    ]
+    no_movement = symptom.direction == "flat" or (symptom.baseline_mean == 0 and symptom.anomaly_mean == 0)
+    if no_movement:
+        headline = f"{result.metric_name} showed no significant movement in the window"
+    else:
+        if symptom.baseline_mean and math.isfinite(symptom.change_ratio):
+            change = f"{symptom.change_ratio:.1f}x"
+        else:
+            change = "from a near-zero baseline"
+        headline = (
+            f"{result.metric_name} moved {symptom.direction} to {symptom.anomaly_mean:.2f} "
+            f"(baseline {symptom.baseline_mean:.2f}, {change})"
+            + (f", starting around {symptom.onset_time}" if symptom.onset_time else "")
+        )
+    lines = [f"{headline}. Blast radius: {result.blast_radius}; confidence: {result.confidence}."]
     movers = ", ".join(f"{mover.key}={mover.label}" for mover in symptom.top_movers[:3])
     if movers:
         lines.append(f"Top movers: {movers}.")
