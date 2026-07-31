@@ -9,7 +9,14 @@ import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLFilters, HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } from '~/queries/schema/schema-general'
+import {
+    HogQLFilters,
+    HogQLQueryResponse,
+    MCPHarnessBreakdownItem,
+    MCPToolCallBreakdownItem,
+    MCPToolCallsAndErrorsItem,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 
 import type { TeamPublicType } from '../../../frontend/src/types'
@@ -110,43 +117,12 @@ LIMIT 50
 // single source of truth for client → harness labelling — so the tile reads typed,
 // already-bucketed rows rather than re-deriving the labels in the browser.
 
-// Daily success/error split powering the activity time-series bar chart.
-const ACTIVITY_QUERY = `
-SELECT
-    __BUCKET__ AS day,
-    countIf(NOT toBool(properties.$mcp_is_error)) AS successes,
-    countIf(toBool(properties.$mcp_is_error)) AS errors
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY day
-ORDER BY day
-`
-
-// Daily call counts per tool, powering the tool-usage stacked bar (one segment per tool).
-const TOOL_DAILY_QUERY = `
-SELECT
-    __BUCKET__ AS day,
-    toString(properties.$mcp_tool_name) AS tool,
-    count() AS calls
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY day, tool
-ORDER BY day
-LIMIT 10000
-`
-
-// The `__BUCKET__` expression every bucketed query above is built with. toString() is load-bearing:
-// a bare dateTrunc returns a typed DateTime that the query API serializes with the project's UTC
-// offset attached (2026-07-21T00:00:00-07:00), which the client then reads back as an instant and
+// The `__BUCKET__` expression the KPI query is built with. toString() is load-bearing: a bare
+// dateTrunc returns a typed DateTime that the query API serializes with the project's UTC offset
+// attached (2026-07-21T00:00:00-07:00), which the client then reads back as an instant and
 // converts, shifting every bucket away from the wall-clock keys it joins and compares against.
 // Rendering it server-side leaves a plain string with nothing left to reinterpret, matching the
-// backend runners (tool_quality_tables.py, tool_tables.py).
+// backend runners (dashboard_series.py, tool_quality_tables.py, tool_tables.py).
 const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
 
 export interface BucketRow {
@@ -818,17 +794,19 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ActivityRow[],
             {
                 loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: ACTIVITY_QUERY.replace('__BUCKET__', bucketExpr(values.interval)),
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
+                        kind: NodeKind.MCPToolCallsAndErrorsQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                        interval: values.interval,
+                    })) as { results?: MCPToolCallsAndErrorsItem[] }
                     breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        day: normalizeBucket(r[0]),
-                        successes: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
+                    return (response?.results ?? []).map((r) => ({
+                        day: normalizeBucket(r.bucket),
+                        successes: r.successes,
+                        errors: r.errors,
                     }))
                 },
             },
@@ -837,17 +815,19 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ToolDailyRow[],
             {
                 loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: TOOL_DAILY_QUERY.replace('__BUCKET__', bucketExpr(values.interval)),
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
+                        kind: NodeKind.MCPToolCallBreakdownQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                        interval: values.interval,
+                    })) as { results?: MCPToolCallBreakdownItem[] }
                     breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        day: normalizeBucket(r[0]),
-                        tool: String(r[1] ?? ''),
-                        calls: Number(r[2] ?? 0),
+                    return (response?.results ?? []).map((r) => ({
+                        day: normalizeBucket(r.bucket),
+                        tool: r.tool,
+                        calls: r.calls,
                     }))
                 },
             },

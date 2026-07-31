@@ -21,7 +21,7 @@ import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend
 
 import type { PaginatedResponse } from '../../lib/api'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import { captureSignalSourceConnected } from './inboxAnalytics'
+import { captureSignalSourceConnected, captureSignalSourceDisabled } from './inboxAnalytics'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
@@ -839,6 +839,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             isFirstConnection: !(existing && !existing.id.startsWith('new_')),
                             viaSetupWizard: params.viaSetupWizard ?? false,
                         })
+                    } else {
+                        captureSignalSourceDisabled({ sourceProduct, sourceType })
                     }
                     actions.loadSourceConfigs()
                 } catch (error: any) {
@@ -881,6 +883,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             sourceType: SignalSourceType.IssueCreated,
                             isFirstConnection: !wasConnected,
                             viaSetupWizard: false,
+                        })
+                    } else {
+                        captureSignalSourceDisabled({
+                            sourceProduct: SignalSourceProduct.ErrorTracking,
+                            sourceType: SignalSourceType.IssueCreated,
                         })
                     }
                     actions.loadSourceConfigs()
@@ -930,6 +937,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             sourceType: SignalSourceType.CiFlakyCheck,
                             isFirstConnection: !wasConnected,
                             viaSetupWizard,
+                        })
+                    } else {
+                        captureSignalSourceDisabled({
+                            sourceProduct: SignalSourceProduct.EngineeringAnalytics,
+                            sourceType: SignalSourceType.CiFlakyCheck,
                         })
                     }
                     actions.loadSourceConfigs()
