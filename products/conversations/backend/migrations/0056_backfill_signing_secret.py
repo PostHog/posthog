@@ -17,21 +17,19 @@ def backfill_signing_secrets(apps, schema_editor):
     Team = apps.get_model("posthog", "Team")
     SigningSecret = apps.get_model("conversations", "SigningSecret")
 
-    # Idempotent under bin/migrate retries: skip teams that already have a row.
-    existing_team_ids = set(SigningSecret.objects.values_list("team_id", flat=True))
-
     teams = (
         Team.objects.exclude(secret_api_token__isnull=True).exclude(secret_api_token="").only("id", "secret_api_token")
     )
 
     total = 0
     for team in teams.iterator(chunk_size=BATCH_SIZE):
-        if team.id in existing_team_ids:
-            continue
-        # Per-row save() so EncryptedTextField encrypts through the ORM field layer;
-        # a raw SQL copy would store the value as plaintext.
-        SigningSecret(team_id=team.id, secret=team.secret_api_token).save()
-        total += 1
+        # get_or_create: idempotent under bin/migrate retries, and race-safe against the
+        # rotation dual-write (an existing row is newer — keep it, don't clobber). Goes
+        # through the ORM field layer so EncryptedTextField encrypts; raw SQL would store
+        # the value as plaintext.
+        _, created = SigningSecret.objects.get_or_create(team_id=team.id, defaults={"secret": team.secret_api_token})
+        if created:
+            total += 1
 
     logger.info("backfilled_conversations_signing_secrets", created_rows=total)
 
