@@ -9,6 +9,7 @@ import {
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
 import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
@@ -17,6 +18,7 @@ import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { getDevicePushSubscriptionToken } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { MessageAssetsService } from './message-assets.service'
 import {
     NormalizedPushError,
     PushPlatform,
@@ -128,7 +130,8 @@ export class PushNotificationService {
         private integrationManager: IntegrationManagerService,
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
-        private redis: RedisV2 | null
+        private redis: RedisV2 | null,
+        private messageAssetsService?: MessageAssetsService
     ) {}
 
     @instrumented('push-notification.executeSendPushNotification')
@@ -184,6 +187,9 @@ export class PushNotificationService {
         let otherErrorCount = 0
         const errors: PushSendError[] = []
         let firstError: string | undefined
+        // Which providers took delivery. Only its emptiness is read, to decide whether there is a
+        // delivered notification worth capturing.
+        const deliveredPlatforms = new Set<string>()
         for (const integrationId of integrationIds) {
             try {
                 const integration = await this.integrationManager.get(integrationId)
@@ -202,6 +208,7 @@ export class PushNotificationService {
 
                 if (sent) {
                     successCount++
+                    deliveredPlatforms.add(integration.kind === 'firebase' ? 'Firebase' : 'APNs')
                 } else {
                     // A channel with no registered device token for this recipient is skipped, not failed.
                     skippedCount++
@@ -265,6 +272,27 @@ export class PushNotificationService {
         pushMetric('push_sent', successCount)
         pushMetric('push_skipped', skippedCount)
         pushMetric('push_failed', errorCount)
+
+        // Captured at the terminal outcome for the same reason the business metrics are: a rescheduled
+        // attempt returns earlier, so a retried notification produces one asset rather than one per try.
+        // Only a delivered notification is captured, matching email: an asset is a snapshot of what a
+        // recipient received, and a skip has no recipient. Skips stay visible as `push_skipped` plus the
+        // per-channel run log explaining why.
+        if (this.messageAssetsService && successCount > 0) {
+            // Best-effort: the notification is already delivered by this point, so a capture failure
+            // must not fail the invocation. Throwing here would send the whole batch back for a retry
+            // and deliver every notification in it a second time. Losing an Assets row is the cheaper
+            // outcome, and it is the same trade the flush path already makes on a Kafka failure.
+            try {
+                const assetRow = this.messageAssetsService.buildRowForPush(invocation, params, [...deliveredPlatforms])
+                if (assetRow) {
+                    result.emailAssets.push(assetRow)
+                }
+            } catch (err) {
+                addLog('warn', 'The notification was delivered but could not be captured for the Assets tab.')
+                logger.warn('⚠️', `failed to capture a sent push notification: ${err}`, { error: String(err) })
+            }
+        }
         for (const error of errors) {
             pushNotificationFailedCounter.labels({ platform: error.platform, reason: error.reason }).inc()
         }
