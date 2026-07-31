@@ -696,7 +696,6 @@ function EmailTemplaterModal(): JSX.Element {
         emailTemplateChanged,
         isSaveTemplateModalOpen,
         isTemplatePickerOpen,
-        templates,
         activeContentTab,
     } = useValues(emailTemplaterLogic)
     const {
@@ -757,11 +756,6 @@ function EmailTemplaterModal(): JSX.Element {
                         </div>
                         <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
                         <div className="flex gap-2 items-center mt-2">
-                            {templates.length > 0 && (
-                                <LemonButton type="secondary" onClick={() => setIsTemplatePickerOpen(true)}>
-                                    Start from a template
-                                </LemonButton>
-                            )}
                             <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
                                 Save as new template
                             </LemonButton>
