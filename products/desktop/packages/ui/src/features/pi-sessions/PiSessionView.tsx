@@ -23,6 +23,7 @@ import type { AgentConversationEvent } from "@posthog/shared";
 import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
+import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
 import {
   CloudConnectionBanner,
   CloudStreamDisconnectedBanner,
@@ -356,6 +357,19 @@ export function PiSessionView({
     return <TaskDetailSkeleton />;
   }
 
+  const mcpPermission = session.mcpToolPermissionRequests.values().next().value;
+  const respondMcpPermission = (
+    decision: "allow" | "allow_always" | "reject",
+  ) => {
+    if (!mcpPermission) {
+      return;
+    }
+    void piSessionController
+      .respondMcpToolPermission(taskId, mcpPermission, decision)
+      .catch((error) =>
+        log.error("Failed to respond to MCP permission", error),
+      );
+  };
   const controlsPending = status ? isStreaming || isBashRunning : false;
   const hasQueuedMessage =
     session.queue.steering.length + session.queue.followUp.length > 0;
@@ -406,49 +420,92 @@ export function PiSessionView({
           onEdit={editQueuedMessage}
           onRemove={removeQueuedMessage}
         />
-        <PromptInput
-          sessionId={taskId}
-          taskId={taskId}
-          repoPath={repoPath}
-          placeholder="Type a message..."
-          disabled={isCompacting}
-          isLoading={controlsPending}
-          submitDisabledExternal={
-            !sessionAvailable ||
-            !status ||
-            !isOnline ||
-            hasQueuedMessage ||
-            isAuthRestoring
-          }
-          submitTooltipOverride={
-            !isOnline
-              ? "No internet connection"
-              : isAuthRestoring
-                ? "Restoring authentication"
-                : hasQueuedMessage
-                  ? "A message is already queued"
-                  : undefined
-          }
-          enableBashMode
-          enableCommands
-          modelSelector={
-            <PiSessionModelControls
-              taskId={taskId}
-              taskRunId={taskRunId}
-              session={session}
-              controller={piSessionController}
-              isOnline={isOnline}
-              onError={handleControllerError}
-            />
-          }
-          reasoningSelector={null}
-          messagingModeToggle={messagingModeToggle}
-          onToggleMessagingMode={toggleMessagingMode}
-          onPromptRecall={handlePromptRecall}
-          onSubmit={sendPrompt}
-          onBashCommand={runBashCommand}
-          onCancel={cancelPrompt}
-        />
+        {mcpPermission ? (
+          <PermissionSelector
+            toolCall={{
+              toolCallId: mcpPermission.requestId,
+              title: `The agent wants to call ${mcpPermission.toolName} (${mcpPermission.serverName})`,
+              kind: "other",
+              content: mcpPermission.description
+                ? [
+                    {
+                      type: "content",
+                      content: {
+                        type: "text",
+                        text: mcpPermission.description,
+                      },
+                    },
+                  ]
+                : [],
+              rawInput: {
+                ...mcpPermission.arguments,
+                mcpServer: mcpPermission.serverName,
+                mcpTool: mcpPermission.toolName,
+              },
+            }}
+            options={[
+              { kind: "allow_once", name: "Allow", optionId: "allow" },
+              {
+                kind: "allow_always",
+                name: "Always allow",
+                optionId: "allow_always",
+              },
+              { kind: "reject_once", name: "Reject", optionId: "reject" },
+            ]}
+            onSelect={(optionId) => {
+              if (optionId === "allow" || optionId === "allow_always") {
+                respondMcpPermission(optionId);
+                return;
+              }
+              respondMcpPermission("reject");
+            }}
+            onCancel={() => respondMcpPermission("reject")}
+          />
+        ) : (
+          <PromptInput
+            sessionId={taskId}
+            taskId={taskId}
+            repoPath={repoPath}
+            placeholder="Type a message..."
+            disabled={isCompacting}
+            isLoading={controlsPending}
+            submitDisabledExternal={
+              !sessionAvailable ||
+              !status ||
+              !isOnline ||
+              hasQueuedMessage ||
+              isAuthRestoring
+            }
+            submitTooltipOverride={
+              !isOnline
+                ? "No internet connection"
+                : isAuthRestoring
+                  ? "Restoring authentication"
+                  : hasQueuedMessage
+                    ? "A message is already queued"
+                    : undefined
+            }
+            enableBashMode
+            enableCommands
+            modelSelector={
+              <PiSessionModelControls
+                taskId={taskId}
+                taskRunId={taskRunId}
+                session={session}
+                controller={piSessionController}
+                isOnline={isOnline}
+                onError={handleControllerError}
+              />
+            }
+            reasoningSelector={null}
+            messagingModeToggle={messagingModeToggle}
+            onToggleMessagingMode={toggleMessagingMode}
+            onPromptRecall={handlePromptRecall}
+            onSubmit={sendPrompt}
+            onBashCommand={runBashCommand}
+            onCancel={cancelPrompt}
+          />
+        )}
       </Box>
     </Flex>
   );

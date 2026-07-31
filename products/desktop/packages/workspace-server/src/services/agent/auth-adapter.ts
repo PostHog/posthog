@@ -4,7 +4,7 @@ import {
   sanitizeMcpServerName,
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
-import type { McpServerConnection } from "@posthog/shared";
+import type { McpServerConnection, McpToolPolicy } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import type { AuthProxyService } from "../auth-proxy/auth-proxy";
 import { AUTH_PROXY_SERVICE } from "../auth-proxy/identifiers";
@@ -84,19 +84,32 @@ export class AgentAuthAdapter {
     return projectId === null ? null : { apiHost, projectId };
   }
 
-  async getMcpServerConnections(): Promise<McpServerConnection[]> {
+  async getMcpRuntimeConfiguration(): Promise<{
+    servers: McpServerConnection[];
+    policies: McpToolPolicy[];
+  }> {
     const credentials = await this.getCurrentCredentials();
     if (!credentials) {
-      return [];
+      return { servers: [], policies: [] };
     }
 
-    return (await this.buildMcpServers(credentials)).servers;
+    const configuration = await this.buildMcpServers(credentials, {
+      refreshTools: true,
+    });
+    return {
+      servers: configuration.servers,
+      policies: configuration.toolPolicies,
+    };
   }
 
-  async buildMcpServers(credentials: Credentials): Promise<{
+  async buildMcpServers(
+    credentials: Credentials,
+    options: { refreshTools?: boolean } = {},
+  ): Promise<{
     servers: McpServerConnection[];
     toolApprovals: McpToolApprovals;
     toolInstallations: McpToolInstallations;
+    toolPolicies: McpToolPolicy[];
   }> {
     const servers: McpServerConnection[] = [];
     const mcpUrl = this.getPostHogMcpUrl(credentials.apiHost);
@@ -142,10 +155,17 @@ export class AgentAuthAdapter {
       });
     }
 
-    const { approvals: toolApprovals, toolInstallations } =
-      await this.fetchMcpToolApprovals(credentials, installations);
+    const {
+      approvals: toolApprovals,
+      toolInstallations,
+      policies: toolPolicies,
+    } = await this.fetchMcpToolApprovals(
+      credentials,
+      installations,
+      options.refreshTools ?? false,
+    );
 
-    return { servers, toolApprovals, toolInstallations };
+    return { servers, toolApprovals, toolInstallations, toolPolicies };
   }
 
   async ensureGatewayProxy(apiHost: string): Promise<string> {
@@ -225,6 +245,22 @@ export class AgentAuthAdapter {
     return host.endsWith("/") ? host.slice(0, -1) : host;
   }
 
+  async approveMcpTool(
+    installationId: string,
+    toolName: string,
+  ): Promise<void> {
+    const credentials = await this.getCurrentCredentials();
+    if (!credentials) {
+      throw new Error("PostHog authentication is required");
+    }
+    await this.updateMcpToolApproval(
+      credentials,
+      installationId,
+      toolName,
+      "approved",
+    );
+  }
+
   async updateMcpToolApproval(
     credentials: Credentials,
     installationId: string,
@@ -253,13 +289,16 @@ export class AgentAuthAdapter {
       name: string;
       display_name: string;
     }>,
+    refreshTools: boolean,
   ): Promise<{
     approvals: McpToolApprovals;
     toolInstallations: McpToolInstallations;
+    policies: McpToolPolicy[];
   }> {
     const baseUrl = this.getPostHogApiBaseUrl(credentials.apiHost);
     const approvals: McpToolApprovals = {};
     const toolInstallations: McpToolInstallations = {};
+    const policies: McpToolPolicy[] = [];
 
     const results = await Promise.allSettled(
       installations.map(async (installation) => {
@@ -267,18 +306,30 @@ export class AgentAuthAdapter {
           installation.name || installation.display_name || installation.url,
         );
         const toolsUrl = `${baseUrl}/api/environments/${credentials.projectId}/mcp_server_installations/${installation.id}/tools/`;
+        const refreshUrl = `${toolsUrl}refresh/`;
 
-        const response = await this.authService.authenticatedFetch(
+        let response = await this.authService.authenticatedFetch(
           fetch,
-          toolsUrl,
-          { headers: { "Content-Type": "application/json" } },
+          refreshTools ? refreshUrl : toolsUrl,
+          {
+            method: refreshTools ? "POST" : "GET",
+            headers: { "Content-Type": "application/json" },
+          },
         );
+        if (!response.ok && refreshTools) {
+          response = await this.authService.authenticatedFetch(
+            fetch,
+            toolsUrl,
+            { headers: { "Content-Type": "application/json" } },
+          );
+        }
         if (!response.ok) return [];
 
         const data = (await response.json()) as {
           results?: Array<{
             tool_name: string;
             approval_state?: string;
+            description?: string;
           }>;
         };
         return (data.results ?? []).map((tool) => ({
@@ -286,6 +337,7 @@ export class AgentAuthAdapter {
           installationId: installation.id,
           toolName: tool.tool_name,
           approvalState: tool.approval_state,
+          description: tool.description,
         }));
       }),
     );
@@ -309,10 +361,19 @@ export class AgentAuthAdapter {
           installationId: tool.installationId,
           toolName: tool.toolName,
         };
+        if (tool.approvalState && isValidApprovalState(tool.approvalState)) {
+          policies.push({
+            serverName: tool.serverName,
+            toolName: tool.toolName,
+            installationId: tool.installationId,
+            approvalState: tool.approvalState,
+            ...(tool.description ? { description: tool.description } : {}),
+          });
+        }
       }
     }
 
-    return { approvals, toolInstallations };
+    return { approvals, toolInstallations, policies };
   }
 
   private async fetchMcpInstallations(credentials: Credentials): Promise<

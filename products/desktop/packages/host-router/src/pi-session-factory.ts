@@ -44,6 +44,33 @@ class TrpcPiSession implements PiSession {
     return this.hostClient.piSession.clearQueue.mutate({ taskId: this.taskId });
   }
 
+  onMcpToolPermissionRequest(
+    onRequest: Parameters<
+      NonNullable<PiSession["onMcpToolPermissionRequest"]>
+    >[0],
+    onError: Parameters<
+      NonNullable<PiSession["onMcpToolPermissionRequest"]>
+    >[1],
+  ): () => void {
+    const subscription =
+      this.hostClient.piSession.onMcpToolPermissionRequest.subscribe(
+        { taskId: this.taskId },
+        { onData: onRequest, onError },
+      );
+    return () => subscription.unsubscribe();
+  }
+
+  respondMcpToolPermission(
+    request: Parameters<NonNullable<PiSession["respondMcpToolPermission"]>>[0],
+    decision: Parameters<NonNullable<PiSession["respondMcpToolPermission"]>>[1],
+  ): Promise<void> {
+    return this.hostClient.piSession.respondMcpToolPermission.mutate({
+      taskId: this.taskId,
+      request,
+      decision,
+    });
+  }
+
   onConversationEvent(
     onEvent: Parameters<PiSession["onConversationEvent"]>[0],
     onError: Parameters<PiSession["onConversationEvent"]>[1],

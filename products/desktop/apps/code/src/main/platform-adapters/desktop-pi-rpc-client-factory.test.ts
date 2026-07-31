@@ -38,15 +38,26 @@ describe("DesktopPiRpcClientFactory", () => {
     const authProxy = {
       start: vi.fn(async () => "http://127.0.0.1:1234"),
     } as unknown as AuthProxyService;
+    const policies = [
+      {
+        serverName: "Cloudflare",
+        toolName: "search",
+        installationId: "installation-1",
+        approvalState: "needs_approval" as const,
+      },
+    ];
     const mcpServerSource = {
-      getMcpServerConnections: vi.fn(async () => [
-        {
-          name: "posthog",
-          type: "http" as const,
-          url: "http://127.0.0.1:4321/posthog",
-          headers: [{ name: "x-posthog-project-id", value: "1" }],
-        },
-      ]),
+      getMcpRuntimeConfiguration: vi.fn(async () => ({
+        servers: [
+          {
+            name: "posthog",
+            type: "http" as const,
+            url: "http://127.0.0.1:4321/posthog",
+            headers: [{ name: "x-posthog-project-id", value: "1" }],
+          },
+        ],
+        policies,
+      })),
     };
     const client = {} as PiRpcClient;
     createPiRpcClient.mockReturnValue(client);
@@ -56,12 +67,15 @@ describe("DesktopPiRpcClientFactory", () => {
       mcpServerSource,
     );
 
-    await expect(factory.create({ cwd: "/workspace" })).resolves.toBe(client);
+    await expect(
+      factory.create({ taskId: "task-1", cwd: "/workspace" }),
+    ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
       getLlmGatewayUrl(getCloudUrlFromRegion("eu")),
     );
     expect(createPiRpcClient).toHaveBeenCalledWith({
       cwd: "/workspace",
+      mcpToolPolicies: policies,
       runtimeMcpServers: {
         posthog: {
           args: [],

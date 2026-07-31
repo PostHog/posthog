@@ -6,7 +6,9 @@ import type { PiRuntime } from "@posthog/agent/pi/runtime";
 
 export interface PiRpcClientFactory {
   create(
-    input: Pick<PiRpcClientOptions, "cwd" | "model" | "sessionFile">,
+    input: Pick<PiRpcClientOptions, "cwd" | "model" | "sessionFile"> & {
+      taskId: string;
+    },
   ): Promise<PiRpcClient>;
 }
 
@@ -16,6 +18,7 @@ export const PI_RPC_CLIENT_FACTORY = Symbol.for(
 
 export interface PiRuntimeFactory {
   create(input: {
+    taskId: string;
     cwd: string;
     model?: string;
     sessionFile?: string;

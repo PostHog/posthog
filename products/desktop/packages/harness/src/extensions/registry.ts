@@ -7,12 +7,15 @@ import type { HogBrandingOptions } from "./hog-branding/extension";
 import { createHogBrandingExtension } from "./hog-branding/extension";
 import type { McpConfig } from "./mcp/config";
 import { createMcpExtension } from "./mcp/extension";
+import type { PosthogMcpPolicyOptions } from "./posthog-mcp-policy/extension";
+import { createPosthogMcpPolicyExtension } from "./posthog-mcp-policy/extension";
 import { createPosthogProviderExtension } from "./posthog-provider/extension";
 import type { PosthogProviderOptions } from "./posthog-provider/provider";
 import { createWebAccessExtension } from "./web-access/extension";
 
 export type HarnessExtensionOptions = PosthogProviderOptions &
-  HogBrandingOptions & {
+  HogBrandingOptions &
+  PosthogMcpPolicyOptions & {
     runtimeMcpServers?: McpConfig["mcpServers"];
   };
 
@@ -29,6 +32,10 @@ const EXTENSIONS: HarnessExtension[] = [
     name: "mcp",
     create: (options) =>
       createMcpExtension({ runtimeServers: options.runtimeMcpServers }),
+  },
+  {
+    name: "posthog-mcp-policy",
+    create: createPosthogMcpPolicyExtension,
   },
 ];
 
