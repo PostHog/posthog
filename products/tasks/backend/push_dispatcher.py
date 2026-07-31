@@ -11,16 +11,17 @@ Three guards before we enqueue:
    tokens start arriving.
 2. **Cooldown.** A per-source Redis lock collapses duplicate triggers in a
    short window.
-3. **Access.** Recipients must still be able to access the task's team.
+3. **Access.** Recipients must still be able to view the task.
 """
 
 from __future__ import annotations
 
 from collections.abc import Collection
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections, transaction
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 import structlog
@@ -31,11 +32,12 @@ from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL
-from products.tasks.backend.models import TaskPresence
+from products.tasks.backend.models import Task, TaskPresence
 from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
-    from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
+    from products.tasks.backend.models import TaskRun, TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -113,17 +115,33 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
         "taskId": str(message.task_id),
         "messageId": str(message.id),
     }
-    recipients = User.objects.filter(id__in=recipient_ids, teams__id=message.team_id).distinct()
+    visible_task = Task.objects.for_team(message.team_id).filter(  # type: ignore[attr-defined]  # fail-closed manager is attached dynamically
+        task_visibility_q(cast(int, OuterRef("id"))), id=message.task_id
+    )
+    recipients = (
+        User.objects.filter(id__in=recipient_ids, teams__id=message.team_id).filter(Exists(visible_task)).distinct()
+    )
     for user in recipients:
         action = "mentioned you" if user.id in mentioned else "replied"
-        _enqueue_user(
-            user,
-            task=message.task,
-            kind="thread_message",
-            cooldown_subject=f"{message.id}:{user.id}",
-            body=f'{author_name} {action} in "{task_title}"',
-            data=data,
-        )
+        try:
+            _enqueue_user(
+                user,
+                task=message.task,
+                kind="thread_message",
+                cooldown_subject=f"{message.id}:{user.id}",
+                body=f'{author_name} {action} in "{task_title}"',
+                data=data,
+            )
+        except Exception as exc:
+            PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind="thread_message", reason=_failure_reason(exc)).inc()
+            logger.warning(
+                "push_dispatcher.enqueue_failed",
+                task_id=str(message.task_id),
+                message_id=str(message.id),
+                user_id=user.id,
+                kind="thread_message",
+                exc_info=True,
+            )
 
 
 def _project_awaiting_input_activity(task_run: TaskRun) -> None:
