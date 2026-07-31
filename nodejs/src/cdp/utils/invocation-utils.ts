@@ -70,7 +70,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
         | 'finished'
         | 'capturedPostHogEvents'
         | 'warehouseWebhookPayloads'
-        | 'emailAssets'
+        | 'messageAssets'
         | 'logs'
         | 'metrics'
         | 'error'
@@ -82,7 +82,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
         finished: true,
         capturedPostHogEvents: [],
         warehouseWebhookPayloads: [],
-        emailAssets: [],
+        messageAssets: [],
         logs: [],
         metrics: [],
         ...resultParams,
