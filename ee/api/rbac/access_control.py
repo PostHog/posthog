@@ -280,6 +280,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "access_control_defaults",
             "access_control_roles",
             "access_control_members",
+            "access_control_default_objects",
+            "access_control_default_properties",
             "access_control_member_objects",
             "access_control_member_properties",
             "access_control_role_objects",
@@ -844,11 +846,14 @@ class AccessControlViewSetMixin(_GenericViewSet):
         default.
         """
         is_project_default = membership is None and role is None
-        rule_filter: dict[str, Any] = {"organization_member": membership, "role": role}
+        rule_filter: dict[str, Any]
         if membership is not None:
             rule_filter = {"organization_member": membership}
         elif role is not None:
             rule_filter = {"role": role}
+        else:
+            # Project-wide rules are the rows with no subject at all
+            rule_filter = {"organization_member": None, "role": None}
         rows = list(
             AccessControl.objects.filter(team=team, resource_id__isnull=False, **rule_filter).exclude(
                 resource="project"
