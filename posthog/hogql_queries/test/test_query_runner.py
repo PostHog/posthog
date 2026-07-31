@@ -286,6 +286,7 @@ class TestQueryRunner(BaseTest):
                 "sessionPropertyPreAggregation": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
                 "sessionsV2JoinMode": SessionsV2JoinMode.UUID,
+                "useEndpointsClusterForMaterializedViewOnlyQueries": False,
                 "useMaterializedViews": True,
             },
             "products_modifiers": {
@@ -296,7 +297,6 @@ class TestQueryRunner(BaseTest):
                     "campaign_name_mappings": {},
                     "custom_source_mappings": {},
                     "campaign_field_preferences": {},
-                    "costs_dedup_v2": False,
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -366,7 +366,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
+        assert cache_key == "cache_42_27f711c65fe4ac9828d73c2056ac6f09cdda4769fc347e0add6ba30c7f69cab9"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -380,7 +380,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_916dab3186430d61979f436fca08d88c23559c270894cf8c96a19e2c18a8ae4f"
+        assert cache_key == "cache_42_d29b758d2f988b37fa6dc0628de038b45d65bcd9b818c18d9d97ae30248d5b4a"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -391,7 +391,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_032f9a7be3ea1fc4451f1e5a77841bb79f9b9ef65ad949f251ee0e68e8ee5fb0"
+        assert cache_key == "cache_42_e4b76128de4fb9db2c87808e542362fb6e47ca9a06f0dab13dcf22cf515b44f9"
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()
