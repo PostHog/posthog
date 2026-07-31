@@ -51,12 +51,12 @@ export function ScoutLifecycleBadge({ config }: { config: SignalScoutConfig }): 
         return null
     }
     if (config.status === 'pending_pause') {
-        const why =
+        const title =
             config.pause_reason === 'ignored'
-                ? "Nothing has come of this scout's recent reports, so it pauses in about a week unless that changes."
-                : "It hasn't surfaced anything in the last two weeks, so it pauses in about a week unless it finds something."
+                ? "Nothing has come of this scout's recent reports, so it pauses in about a week unless that changes. Turn on 'Keep running while quiet' in its settings to leave it running."
+                : "This scout hasn't surfaced anything in the last two weeks. It keeps running, but check that it's watching the right things. Turn on 'Keep running while quiet' in its settings if quiet is expected."
         return (
-            <Tooltip title={`${why} Turn on 'Keep running while quiet' in its settings to leave it running.`}>
+            <Tooltip title={title}>
                 <LemonTag type="caution" size="small">
                     Quiet
                 </LemonTag>
