@@ -422,7 +422,7 @@ function NativeEmailTemplaterForm({
                                 </LemonButton>
                             ) : null}
                             <LemonSegmentedButton
-                                size="xsmall"
+                                size="small"
                                 value={activeContentTab}
                                 onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
                                 options={[
