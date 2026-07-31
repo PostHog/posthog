@@ -32,9 +32,10 @@ use cohort_stream_processor::partitions::{
     LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
 };
 use cohort_stream_processor::producer::{
-    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaSeedTileSink, KafkaStreamEventSink,
-    KafkaTransferSink, MembershipSink, NoopCascadeSink, NoopSeedTileSink, SeedTileSink,
-    StreamEventSink, TransferSink,
+    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaReconcileMarkerSink,
+    KafkaSeedTileSink, KafkaStreamEventSink, KafkaTransferSink, MembershipSink, NoopCascadeSink,
+    NoopReconcileMarkerSink, NoopSeedTileSink, ReconcileMarkerSink, SeedTileSink, StreamEventSink,
+    TransferSink,
 };
 use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
@@ -221,6 +222,18 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         Arc::new(NoopSeedTileSink)
     };
+    let marker_sink: Arc<dyn ReconcileMarkerSink> = if config.cohort_seed_reconcile_enabled {
+        Arc::new(
+            KafkaReconcileMarkerSink::new(
+                &kafka_config,
+                config.cohort_reconcile_markers_topic.clone(),
+            )
+            .await
+            .context("creating cohort_reconcile_markers producer")?,
+        )
+    } else {
+        Arc::new(NoopReconcileMarkerSink)
+    };
     let reconcile_backlog = Arc::new(ReconcileBacklog::default());
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
@@ -243,6 +256,7 @@ async fn async_main(config: Config) -> Result<()> {
             enabled: config.cohort_seed_reconcile_enabled,
             scan_page: config.cohort_seed_reconcile_scan_page,
             backlog: reconcile_backlog.clone(),
+            marker_sink,
         },
         person_seed: PersonSeedDeps {
             enabled: config.cohort_seed_person_apply_enabled,
@@ -386,6 +400,11 @@ async fn async_main(config: Config) -> Result<()> {
             config.cohort_stream_seed_events_topic,
             seed_partitions,
         );
+        // Nothing co-partitions with the marker topic, so only its existence matters. Failing here
+        // beats the alternative: a marker produce retrying forever while it holds the seed offset.
+        if config.cohort_seed_reconcile_enabled {
+            fetch_partition_count(seed_consumer, &config.cohort_reconcile_markers_topic)?;
+        }
     }
 
     if let Some(manifest) = restore.manifest.as_ref() {
@@ -784,6 +803,7 @@ fn log_startup(config: &Config) {
         kafka_hosts = %config.kafka_hosts,
         input_topic = %config.cohort_stream_events_topic,
         output_topic = %config.cohort_membership_changed_topic,
+        reconcile_markers_topic = %config.cohort_reconcile_markers_topic,
         consumer_group = %config.kafka_consumer_group,
         offset_reset = %config.kafka_consumer_offset_reset,
         merge_topic = %config.person_merge_events_topic,

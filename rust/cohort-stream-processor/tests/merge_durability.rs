@@ -557,6 +557,7 @@ struct Topics {
     transfers: String,
     cascade: String,
     shadow: String,
+    markers: String,
 }
 
 impl Topics {
@@ -567,6 +568,7 @@ impl Topics {
             transfers: format!("cohort_merge_state_transfer_{suffix}"),
             cascade: format!("cohort_cascade_events_{suffix}"),
             shadow: format!("cohort_membership_changed_{suffix}"),
+            markers: format!("cohort_reconcile_markers_{suffix}"),
         }
     }
 
@@ -576,13 +578,14 @@ impl Topics {
         }
     }
 
-    fn names(&self) -> [&str; 5] {
+    fn names(&self) -> [&str; 6] {
         [
             &self.events,
             &self.merges,
             &self.transfers,
             &self.cascade,
             &self.shadow,
+            &self.markers,
         ]
     }
 }
@@ -904,6 +907,10 @@ fn merge_durability_config(
     env.insert(
         "COHORT_MEMBERSHIP_CHANGED_TOPIC".into(),
         topics.shadow.clone(),
+    );
+    env.insert(
+        "COHORT_RECONCILE_MARKERS_TOPIC".into(),
+        topics.markers.clone(),
     );
     env.insert("KAFKA_CONSUMER_GROUP".into(), groups.events.clone());
     env.insert("KAFKA_MERGE_CONSUMER_GROUP".into(), groups.merges.clone());

@@ -269,10 +269,10 @@ pub struct Config {
     #[envconfig(default = "4")]
     pub seeder_reconcile_max_concurrent_dispatches: usize,
 
-    /// The membership-change topic whose high watermarks anchor the marker watcher's start
-    /// positions, captured at dispatch time. The observer reads markers from the same topic.
-    #[envconfig(default = "cohort_membership_changed_shadow")]
-    pub cohort_membership_changed_topic: String,
+    /// The reconcile-marker topic whose high watermarks anchor the marker watcher's start positions,
+    /// captured at dispatch time. The observer reads markers from the same topic.
+    #[envconfig(default = "cohort_reconcile_markers")]
+    pub cohort_reconcile_markers_topic: String,
 
     /// Enable the dark-by-default reconcile observer: the marker-watch task and the driver's
     /// observation pass. A separate gate from auto-dispatch — observation can run against
@@ -285,7 +285,7 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-seeds")]
     pub kafka_seed_consumer_group: String,
 
-    /// Timeout for the seed-group OffsetFetch and membership-topic watermark metadata calls the
+    /// Timeout for the seed-group OffsetFetch and marker-topic watermark metadata calls the
     /// observer makes.
     #[envconfig(default = "10000")]
     pub seeder_reconcile_offsets_timeout_ms: u64,

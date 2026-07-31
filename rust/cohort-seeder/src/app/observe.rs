@@ -3,7 +3,7 @@
 //! Outcomes land before observed: every non-superseded participation gets a definitive outcome
 //! write before `reconcile_observed_at` is stamped, which is this pass's last
 //! write. The marker set is the completion *authority* (bitmaps decide complete vs short); the seed
-//! group's committed offsets are *liveness only* (they gate whether we may even capture the membership
+//! group's committed offsets are *liveness only* (they gate whether we may even capture the marker-topic
 //! end-watermarks that a negative verdict's settlement proof requires). Hash attribution splits a
 //! shortfall into terminal (the cohort diverged or was deleted — supersede) vs retryable (the hash
 //! still matches — a gate-off or lossy fleet, error only). A [`CompletionStoreError::CompletionFenceLost`]
@@ -62,7 +62,7 @@ pub enum ObserveStep {
     ObservedAllComplete,
     /// The seed group has not drained the reconcile records; the run holds for the next tick.
     LivenessLagging(usize),
-    /// Liveness passed and the membership end-watermarks were captured; observation resumes next tick.
+    /// Liveness passed and the marker-topic end-watermarks were captured; observation resumes next tick.
     EndsCaptured,
     /// Liveness passed earlier but the marker watcher has not read to the captured ends.
     MarkerLagging(usize),
@@ -284,7 +284,7 @@ pub trait CommittedOffsetSource: Send + Sync {
     async fn committed(&self) -> Result<SeedGroupCommits, SourceError>;
 }
 
-/// The membership topic's current end-watermarks — captured at the liveness pass to bound the marker
+/// The marker topic's current end-watermarks — captured at the liveness pass to bound the marker
 /// set of this dispatch.
 #[async_trait]
 pub trait TopicOffsetSource: Send + Sync {
@@ -342,11 +342,12 @@ pub trait ObservationStore: Send + Sync {
 /// The real observation store over the seeder's pool.
 pub struct PgObservationStore {
     pool: PgPool,
+    marker_topic: String,
 }
 
 impl PgObservationStore {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, marker_topic: String) -> Self {
+        Self { pool, marker_topic }
     }
 }
 
@@ -375,7 +376,7 @@ impl ObservationStore for PgObservationStore {
         epoch: DispatchEpoch,
         ends: &ObservationEnds,
     ) -> Result<(), CompletionStoreError> {
-        persist_observation_ends(&self.pool, run_id, epoch, ends).await
+        persist_observation_ends(&self.pool, run_id, epoch, ends, &self.marker_topic).await
     }
 
     async fn mark_completed(
@@ -432,7 +433,7 @@ impl SourceError {
 pub enum ObserveError {
     #[error("reading the seed group's committed offsets")]
     Committed(#[source] SourceError),
-    #[error("capturing the membership end watermarks")]
+    #[error("capturing the marker-topic end watermarks")]
     TopicEnds(#[source] SourceError),
     #[error(transparent)]
     Store(#[from] CompletionStoreError),
@@ -457,7 +458,7 @@ impl CommittedOffsetSource for KafkaCommittedOffsets {
     }
 }
 
-/// The real topic-offset seam: the seed producer's client fetches the membership topic's watermarks.
+/// The real topic-offset seam: the seed producer's client fetches the marker topic's watermarks.
 pub struct KafkaTopicOffsets {
     producer: SeedTileProducer,
     topic: String,
@@ -484,7 +485,7 @@ impl TopicOffsetSource for KafkaTopicOffsets {
             tokio::task::spawn_blocking(move || producer.capture_topic_offsets(&topic, timeout))
                 .await
                 .map_err(|error| {
-                    SourceError::new(format!("join membership watermark task: {error}"))
+                    SourceError::new(format!("join marker-topic watermark task: {error}"))
                 })?
                 .map_err(|error| SourceError::new(render_error_chain(&error)))?;
         Ok(ObservationEnds::from_positions(&positions))
@@ -501,8 +502,8 @@ mod tests {
     use uuid::Uuid;
 
     use crate::domain::{
-        CommittedOffset, MarkerPartition, MembershipPartition, NextOffset, ProducedOffset,
-        SeedPartition, WatchPositions,
+        CommittedOffset, MarkerPartition, NextOffset, ProducedOffset, SeedPartition,
+        WatchPartition, WatchPositions,
     };
     use crate::store::completion::CompletionOperation;
 
@@ -579,6 +580,7 @@ mod tests {
             epoch: epoch(),
             hwms: full_hwms(),
             watch: MarkerWatch {
+                topic: "cohort_reconcile_markers".to_string(),
                 positions: watched_positions(),
                 ends,
             },
@@ -588,29 +590,20 @@ mod tests {
     /// Where the watcher has read to. Past [`caught_up_ends`], short of [`pending_ends`].
     fn watched_positions() -> WatchPositions {
         let mut positions = WatchPositions::new();
-        positions.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(10),
-        );
+        positions.insert(WatchPartition::new(0), NextOffset::from_high_watermark(10));
         positions
     }
 
     /// Ends the watcher's positions already satisfy, so settlement is reachable.
     fn caught_up_ends() -> ObservationEnds {
         let mut ends = ObservationEnds::new();
-        ends.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(10),
-        );
+        ends.insert(WatchPartition::new(0), NextOffset::from_high_watermark(10));
         ends
     }
 
     fn pending_ends() -> ObservationEnds {
         let mut ends = ObservationEnds::new();
-        ends.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(20),
-        );
+        ends.insert(WatchPartition::new(0), NextOffset::from_high_watermark(20));
         ends
     }
 

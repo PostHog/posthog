@@ -13,7 +13,7 @@ use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 
 use crate::domain::{
-    MembershipPartition, NextOffset, PersonSeed, ReconcileTile, SeedTile, WatchPositions,
+    NextOffset, PersonSeed, ReconcileTile, SeedTile, WatchPartition, WatchPositions,
 };
 
 pub use crate::domain::partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
@@ -125,7 +125,7 @@ impl SeedTileProducer {
         self.producer.flush(timeout)
     }
 
-    /// Capture the membership topic's per-partition high watermarks as the marker watcher's start
+    /// Capture the marker topic's per-partition high watermarks as the marker watcher's start
     /// positions. The high watermark is the offset the next record *will* receive, so it is exactly
     /// the first offset the watcher must read — no clock or "latest committed" assumption. Callers
     /// capture these BEFORE producing reconcile tiles: markers acked after this point sit at or above
@@ -185,7 +185,7 @@ impl SeedTileProducer {
                     source,
                 })?;
             positions.insert(
-                MembershipPartition::new(partition.id()),
+                WatchPartition::new(partition.id()),
                 NextOffset::from_high_watermark(high),
             );
         }
@@ -193,25 +193,24 @@ impl SeedTileProducer {
     }
 }
 
-/// Why capturing the membership topic's start positions failed. The dispatch cannot record a
-/// resumable watch state without them, so every variant aborts the dispatch (it re-converges on the
-/// next tick).
+/// Why capturing the marker topic's start positions failed. The dispatch cannot record a resumable
+/// watch state without them, so every variant aborts the dispatch (it re-converges on the next tick).
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureOffsetsError {
-    #[error("fetching membership topic metadata")]
+    #[error("fetching marker topic metadata")]
     Metadata(#[source] KafkaError),
-    #[error("membership topic {topic:?} is not present in broker metadata")]
+    #[error("marker topic {topic:?} is not present in broker metadata")]
     Missing { topic: String },
-    #[error("membership topic {topic:?} metadata reports {code}")]
+    #[error("marker topic {topic:?} metadata reports {code}")]
     Topic {
         topic: String,
         code: RDKafkaErrorCode,
     },
-    #[error("membership topic {topic:?} reports no partitions")]
+    #[error("marker topic {topic:?} reports no partitions")]
     NoPartitions { topic: String },
-    #[error("capturing membership topic {topic:?} offsets exceeded its {budget:?} budget")]
+    #[error("capturing marker topic {topic:?} offsets exceeded its {budget:?} budget")]
     BudgetExhausted { topic: String, budget: Duration },
-    #[error("fetching watermarks for membership topic {topic:?} partition {partition}")]
+    #[error("fetching watermarks for marker topic {topic:?} partition {partition}")]
     Watermarks {
         topic: String,
         partition: i32,

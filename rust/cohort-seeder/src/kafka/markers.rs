@@ -1,13 +1,13 @@
-//! Tails the membership-change topic for `reconcile_complete` markers — the completion *authority*.
+//! Tails the reconcile-marker topic for `reconcile_complete` markers — the completion *authority*.
 //!
 //! An assign-only consumer with a unique throwaway group id: it never subscribes and never commits, so
-//! it participates in no rebalance and leaves no durable offset. It watches every membership partition
+//! it participates in no rebalance and leaves no durable offset. It watches every marker partition
 //! from explicit start offsets (the high watermarks captured at dispatch), with `auto.offset.reset=
 //! error` so a start below the log's low watermark surfaces as [`WatchError::Truncated`] instead of
-//! silently jumping. The topic is high-volume and person-keyed; markers are the rare key that contains
-//! `':'` (`"{team}:{cohort}:{run}"`), so that byte probe rejects membership rows before any JSON parse.
-//! Non-marker messages still advance the partition's next-read offset. rdkafka types stay confined
-//! here — the watcher yields typed [`WatchItem`]s.
+//! silently jumping. Every marker is keyed `"{team}:{cohort}:{run}"`; on a dedicated topic the `b':'`
+//! probe is no longer a hot-path filter but a guard against a mis-pointed topic, so anything it (or the
+//! parse behind it) rejects is counted by `reason`. Skipped messages still advance the partition's
+//! next-read offset. rdkafka types stay confined here — the watcher yields typed [`WatchItem`]s.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ use rdkafka::message::Message;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 
 use crate::domain::{
-    MarkerPartition, MembershipPartition, NextOffset, ObservedMarker, ReconcileCompleteMarker,
+    MarkerPartition, NextOffset, ObservedMarker, ReconcileCompleteMarker, WatchPartition,
     WatchPositions,
 };
 use crate::observability::metrics::RECONCILE_MARKER_PARSE_FAILURES;
@@ -30,16 +30,17 @@ use crate::observability::metrics::RECONCILE_MARKER_PARSE_FAILURES;
 /// In-flight watermark fetches during a seek, matching the group-lag scanner's bound.
 const WATERMARK_CONCURRENCY: usize = 16;
 
-/// One record read from the membership topic: where the watcher now sits on that partition, and the
-/// marker it carried (if any). Non-marker rows carry `marker: None` but still advance `next_offset`.
+/// One record read from the marker topic: where the watcher now sits on that partition, and the
+/// marker it carried (if any). A rejected record carries `marker: None` but still advances
+/// `next_offset`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchItem {
-    pub partition: MembershipPartition,
+    pub partition: WatchPartition,
     pub next_offset: NextOffset,
     pub marker: Option<ObservedMarker>,
 }
 
-/// An assign-only consumer over the membership topic. Holds an rdkafka `StreamConsumer` behind an
+/// An assign-only consumer over the marker topic. Holds an rdkafka `StreamConsumer` behind an
 /// `Arc` so the (infrequent, blocking) watermark check can run on the blocking pool while `recv` keeps
 /// borrowing it. The app-level `MarkerStream` seam wraps it so the watch task can be tested with a fake.
 pub struct MarkerWatcher {
@@ -89,13 +90,13 @@ impl MarkerWatcher {
 
     /// Fetch every watched partition's low watermark, one blocking call each, bounded-concurrent
     /// like `ingestion-control-plane`'s group-lag scan. Each call can block for the full watermark
-    /// timeout, and a seek covers all 64 membership partitions, so serializing them against an
-    /// unresponsive broker overruns the watch task's liveness deadline.
+    /// timeout, and a seek covers every marker partition, so serializing them against an unresponsive
+    /// broker overruns the watch task's liveness deadline.
     async fn low_watermarks(
         &self,
         start: &WatchPositions,
-    ) -> Result<HashMap<MembershipPartition, i64>, WatchError> {
-        let partitions: Vec<MembershipPartition> = start.iter().map(|(p, _)| p).collect();
+    ) -> Result<HashMap<WatchPartition, i64>, WatchError> {
+        let partitions: Vec<WatchPartition> = start.iter().map(|(p, _)| p).collect();
         stream::iter(partitions)
             .map(|partition| {
                 let consumer = Arc::clone(&self.consumer);
@@ -128,11 +129,11 @@ impl MarkerWatcher {
             .map_err(WatchError::Assign)
     }
 
-    /// Await the next record and classify it. A membership row yields `marker: None`; a keyed record
-    /// that fails to parse increments the parse-failure counter and still advances the offset.
+    /// Await the next record and classify it. A record the classifier rejects yields `marker: None`,
+    /// increments the parse-failure counter under its reason, and still advances the offset.
     pub async fn next_item(&self) -> Result<WatchItem, WatchError> {
         let message = self.consumer.recv().await.map_err(WatchError::Recv)?;
-        let partition = MembershipPartition::new(message.partition());
+        let partition = WatchPartition::new(message.partition());
         let next_offset = NextOffset::from_high_watermark(message.offset() + 1);
         let marker = classify_marker(message.key(), message.payload());
         Ok(WatchItem {
@@ -149,7 +150,7 @@ impl MarkerWatcher {
 fn build_assignment(
     topic: &str,
     start: &WatchPositions,
-    lows: &HashMap<MembershipPartition, i64>,
+    lows: &HashMap<WatchPartition, i64>,
 ) -> Result<TopicPartitionList, WatchError> {
     let mut tpl = TopicPartitionList::new();
     for (partition, next) in start.iter() {
@@ -168,23 +169,24 @@ fn build_assignment(
     Ok(tpl)
 }
 
-/// Cheap discriminator then parse. Markers are keyed `"{team}:{cohort}:{run}"`; membership rows are
-/// keyed by a person UUID (no `':'`), so the byte probe skips the JSON parse for the common case.
+/// Key probe then parse. On a dedicated topic every record should be a marker, so each rejection is
+/// counted under the `reason` that explains it rather than silently skipped.
 fn classify_marker(key: Option<&[u8]>, payload: Option<&[u8]>) -> Option<ObservedMarker> {
-    let key = key?;
+    let skip = |reason: &'static str| {
+        counter!(RECONCILE_MARKER_PARSE_FAILURES, "reason" => reason).increment(1);
+        None
+    };
+    let Some(key) = key else {
+        return skip("no_key");
+    };
     if !key.contains(&b':') {
-        return None;
+        return skip("foreign_key");
     }
     let Some(payload) = payload else {
-        counter!(RECONCILE_MARKER_PARSE_FAILURES).increment(1);
-        return None;
+        return skip("no_payload");
     };
-    let marker = match serde_json::from_slice::<ReconcileCompleteMarker>(payload) {
-        Ok(marker) => marker,
-        Err(_) => {
-            counter!(RECONCILE_MARKER_PARSE_FAILURES).increment(1);
-            return None;
-        }
+    let Ok(marker) = serde_json::from_slice::<ReconcileCompleteMarker>(payload) else {
+        return skip("decode");
     };
     match MarkerPartition::new(u32::from(marker.partition())) {
         Ok(partition) => Some(ObservedMarker {
@@ -193,10 +195,7 @@ fn classify_marker(key: Option<&[u8]>, payload: Option<&[u8]>) -> Option<Observe
             partition,
             run_id: marker.run_id(),
         }),
-        Err(_) => {
-            counter!(RECONCILE_MARKER_PARSE_FAILURES).increment(1);
-            None
-        }
+        Err(_) => skip("partition"),
     }
 }
 
@@ -225,16 +224,16 @@ fn build_config(kafka: &KafkaConfig, group_id: &str) -> ClientConfig {
 pub enum WatchError {
     #[error("creating the marker-watch consumer")]
     Consumer(#[source] KafkaError),
-    #[error("fetching watermarks for membership partition {partition}")]
+    #[error("fetching watermarks for marker partition {partition}")]
     Watermarks {
         partition: i32,
         #[source]
         source: KafkaError,
     },
-    #[error("joining the membership watermark task")]
+    #[error("joining the marker-topic watermark task")]
     WatermarkJoin(#[source] tokio::task::JoinError),
     #[error(
-        "membership partition {partition} start offset {requested} is below the log's low watermark \
+        "marker partition {partition} start offset {requested} is below the log's low watermark \
          {low}: the topic was truncated past the captured watch position"
     )]
     Truncated {
@@ -244,7 +243,7 @@ pub enum WatchError {
     },
     #[error("assigning the marker-watch partitions")]
     Assign(#[source] KafkaError),
-    #[error("receiving from the membership topic")]
+    #[error("receiving from the marker topic")]
     Recv(#[source] KafkaError),
 }
 
@@ -268,7 +267,7 @@ mod tests {
 
     #[test]
     fn classify_probes_the_key_before_parsing_and_extracts_the_marker() {
-        // Person-keyed membership row: no ':' in the key, so no parse attempt, no marker.
+        // A foreign, person-keyed row: no ':' in the key, so no parse attempt, no marker.
         assert!(classify_marker(Some(b"01928aaa-bbbb-cccc"), Some(b"{}")).is_none());
 
         // A marker key with a valid payload.
@@ -288,7 +287,7 @@ mod tests {
     fn a_start_below_the_low_watermark_is_truncation_and_the_boundary_is_not() {
         // A start exactly at the low watermark is the normal case right after a retention sweep.
         // Reporting it as truncated would drop and tombstone every run on the partition.
-        let partition = MembershipPartition::new(0);
+        let partition = WatchPartition::new(0);
         let lows = HashMap::from([(partition, 20_i64)]);
         let positions = |offset| {
             let mut positions = WatchPositions::new();
@@ -312,5 +311,5 @@ mod tests {
         );
     }
 
-    const TOPIC: &str = "cohort_membership_changed_shadow";
+    const TOPIC: &str = "cohort_reconcile_markers";
 }

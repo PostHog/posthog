@@ -310,6 +310,11 @@ pub struct Config {
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
 
+    /// Reconcile completion markers ride their own topic: the membership topic's consumers reject
+    /// any record without `person_id`/`status`, and the seeder's watcher tails this one end to end.
+    #[envconfig(default = "cohort_reconcile_markers")]
+    pub cohort_reconcile_markers_topic: String,
+
     /// `murmur2_random` co-partitions a `person_id` key identically to the Node/Python producers.
     #[envconfig(default = "murmur2_random")]
     pub kafka_producer_partitioner: String,
@@ -1083,6 +1088,7 @@ mod tests {
             pod_name: None,
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
+            cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
             kafka_producer_partitioner: "murmur2_random".to_string(),
             cohort_partition_count: 64,
             kafka_compression_codec: "none".to_string(),

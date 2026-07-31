@@ -51,6 +51,8 @@ pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in
 pub const RUNS_RECONCILING: &str = "seeder_runs_reconciling";
 // Liveness, marker watcher, and observation.
 pub const RECONCILE_MARKERS_OBSERVED: &str = "seeder_reconcile_markers_observed_total";
+/// Records the watcher rejected, labelled by `reason` (counter). On a dedicated marker topic every
+/// record should be a marker, so any of these means something is mis-pointed or corrupt.
 pub const RECONCILE_MARKER_PARSE_FAILURES: &str = "seeder_reconcile_marker_parse_failures_total";
 pub const RECONCILE_MARKER_WATCH_LAG: &str = "seeder_reconcile_marker_watch_lag";
 pub const RECONCILE_LIVENESS_LAGGING_PARTITIONS: &str =

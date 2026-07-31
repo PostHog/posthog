@@ -153,7 +153,7 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
             let recorded = dispatch_and_record(
                 &pool,
                 &producer,
-                &config.cohort_membership_changed_topic,
+                &config.cohort_reconcile_markers_topic,
                 max_inflight,
                 PARTITION_VERIFY_TIMEOUT,
                 certified,
