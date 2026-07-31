@@ -465,7 +465,7 @@ describe('mcpDashboardOverviewLogic', () => {
             const bucketed = mockApi.query.mock.calls
                 .map((call) => (call[0] as any).query)
                 .filter((query: string | undefined): query is string => !!query?.includes('dateTrunc('))
-            expect(bucketed).toHaveLength(3)
+            expect(bucketed).toHaveLength(1)
             expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
         })
 

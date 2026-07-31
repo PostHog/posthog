@@ -1304,6 +1304,16 @@ class ExternalDataSourceType(models.TextChoices):
     FIRSTPROMOTER = "FirstPromoter", "FirstPromoter"
     ZERO = "Zero", "Zero"
     INTH = "Inth", "Inth"
+    BCMS = "BCMS", "BCMS"
+    CONVONITE = "Convonite", "Convonite"
+    HOOKDECK = "Hookdeck", "Hookdeck"
+    BILLIT = "Billit", "Billit"
+    MOXIE = "Moxie", "Moxie"
+    TRIPLEWHALE = "TripleWhale", "TripleWhale"
+    DIRECTUS = "Directus", "Directus"
+    CLAY = "Clay", "Clay"
+    TRADABLEBITS = "TradableBits", "TradableBits"
+    SWAN = "Swan", "Swan"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
