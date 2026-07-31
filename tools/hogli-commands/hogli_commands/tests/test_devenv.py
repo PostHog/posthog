@@ -941,6 +941,12 @@ class TestMprocsGeneratorRegression:
         assert "secure-connections-demo" in secure_connections_config.procs
         assert "autostart" not in secure_connections_config.procs["secure-connections-demo"]
         assert "autostart_when_resolved" not in secure_connections_config.procs["secure-connections-demo"]
+        backend_shell = secure_connections_config.procs["backend"]["shell"]
+        assert "SECURE_CONNECTION_MANAGEMENT_URL=" in backend_shell
+        assert "http://127.0.0.1:18081" in backend_shell
+        assert "SECURE_CONNECTION_DEMO_TENANT_SLUG=" in backend_shell
+        assert "acme" in backend_shell
+        assert "SECURE_CONNECTION_MANAGEMENT_URL" not in default_config.procs["backend"]["shell"]
 
 
 class TestMprocsGeneratorPreservesCapability:

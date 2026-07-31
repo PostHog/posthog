@@ -42,12 +42,14 @@ class TestSecureConnectionsFacade(SimpleTestCase):
                         "id": "7c18c57e-f1bb-4309-b879-42cb9a8c079e",
                         "name": "internal-api",
                         "kind": "http",
+                        "selector_kind": "hostname",
                         "status": "active",
                     },
                     {
                         "id": "83f4eeea-f273-4c61-ac24-37f46d23af6f",
                         "name": "old-api",
                         "kind": "http",
+                        "selector_kind": "hostname",
                         "status": "disabled",
                     },
                 ]
@@ -60,7 +62,35 @@ class TestSecureConnectionsFacade(SimpleTestCase):
         assert len(result.connections) == 1
         assert result.connections[0].name == "internal-api"
         assert responses.calls[0].request.headers["Authorization"] == "Bearer operator-secret"
+        assert json.loads(responses.calls[1].request.body)["audience"] == "burrow-control"
         assert responses.calls[2].request.headers["Authorization"] == "Bearer tenant-token"
+
+    @responses.activate
+    def test_status_falls_back_to_selector_kind_when_kind_is_empty(self) -> None:
+        tenant_id = "8247d991-d342-4ea3-a5d1-dce541312cb8"
+        responses.get(
+            "https://management.internal/admin/tenants/posthog-team-42",
+            json={"id": tenant_id, "slug": "posthog-team-42"},
+        )
+        responses.post(f"https://management.internal/admin/tenants/{tenant_id}/tokens", json={"token": "token"})
+        responses.get(
+            f"https://control.internal/api/tenants/{tenant_id}/connections",
+            json={
+                "connections": [
+                    {
+                        "id": "7c18c57e-f1bb-4309-b879-42cb9a8c079e",
+                        "name": "warehouse",
+                        "kind": "",
+                        "selector_kind": "port",
+                        "status": "active",
+                    }
+                ]
+            },
+        )
+
+        result = api.get_status(team_id=42)
+
+        assert result.connections[0].connection_type == "port"
 
     @responses.activate
     def test_missing_tenant_does_not_mint_credentials(self) -> None:
@@ -102,7 +132,7 @@ class TestSecureConnectionsFacade(SimpleTestCase):
         assert json.loads(responses.calls[0].request.body) == {"external_id": "42", "slug": "posthog-team-42"}
         assert json.loads(responses.calls[2].request.body) == {
             "name": "connection-proxy",
-            "audience": "control",
+            "audience": "burrow-control",
             "scopes": ["advertise"],
             "ttl_seconds": 31536000,
         }

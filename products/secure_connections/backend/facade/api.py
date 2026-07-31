@@ -26,7 +26,7 @@ def get_status(team_id: int) -> SecureConnectionStatus:
         SecureConnection(
             id=str(connection["id"]),
             name=str(connection["name"]),
-            connection_type=str(connection["kind"]),
+            connection_type=str(connection.get("kind") or connection["selector_kind"]),
             connection_status=str(connection["status"]),
         )
         for connection in service_connections

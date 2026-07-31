@@ -5,7 +5,13 @@ from unittest.mock import call, patch
 
 from django.test import SimpleTestCase
 
-from products.secure_connections.cli import ENV_BLOCK_END, ENV_BLOCK_START, run_managed_demo, update_demo_environment
+from products.secure_connections.cli import (
+    ENV_BLOCK_END,
+    ENV_BLOCK_START,
+    run_demo_command,
+    run_managed_demo,
+    update_demo_environment,
+)
 
 
 class TestSecureConnectionsDemoEnvironment(SimpleTestCase):
@@ -51,3 +57,12 @@ class TestSecureConnectionsDemoEnvironment(SimpleTestCase):
             call(burrow_repo, "stop"),
         ]
         assert not env_file.exists() or env_file.read_text() == ""
+
+    @patch("products.secure_connections.cli.subprocess.run")
+    @patch.dict("products.secure_connections.cli.os.environ", {}, clear=True)
+    def test_demo_commands_use_posthog_compose_project(self, subprocess_run_mock) -> None:
+        burrow_repo = Path(self.temporary_directory.name) / "burrow"
+
+        run_demo_command(burrow_repo, "test")
+
+        assert subprocess_run_mock.call_args.kwargs["env"]["COMPOSE_PROJECT_NAME"] == "posthog"

@@ -105,7 +105,7 @@ class SecureConnectionServiceClient:
             headers=self._management_headers(),
             json={
                 "name": "connection-proxy",
-                "audience": "control",
+                "audience": "burrow-control",
                 "scopes": ["advertise"],
                 "ttl_seconds": 31536000,
             },
@@ -120,7 +120,7 @@ class SecureConnectionServiceClient:
             headers=self._management_headers(),
             json={
                 "name": "posthog-status-check",
-                "audience": "control",
+                "audience": "burrow-control",
                 "scopes": ["discover"],
                 "ttl_seconds": 60,
             },

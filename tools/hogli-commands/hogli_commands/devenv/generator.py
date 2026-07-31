@@ -302,6 +302,7 @@ class MprocsGenerator(ConfigGenerator):
             # Special handling for backend/nodejs - wire up personhog env vars when capability is active
             if name == "backend":
                 proc_config = self._add_personhog_env(proc_config, resolved)
+                proc_config = self._add_secure_connections_env(proc_config, resolved)
             if name == "nodejs":
                 proc_config = self._add_personhog_env(proc_config, resolved)
 
@@ -471,6 +472,25 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         original_shell = proc_config.get("shell", "")
         if original_shell:
             env_exports = "export PERSONHOG_ADDR='127.0.0.1:50052'"
+            proc_config["shell"] = f"{env_exports} && {original_shell}"
+
+        return proc_config
+
+    def _add_secure_connections_env(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Configure Django before the concurrently-started demo process is ready."""
+        if "secure_connections_demo" not in resolved.capabilities:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if original_shell:
+            env = {
+                "SECURE_CONNECTION_MANAGEMENT_URL": "http://127.0.0.1:18081",
+                "SECURE_CONNECTION_CONTROL_URL": "http://127.0.0.1:18081",
+                "SECURE_CONNECTION_PUBLIC_CONTROL_URL": "http://burrow:8080",
+                "SECURE_CONNECTION_ADMIN_TOKEN": "demo-admin-token",
+                "SECURE_CONNECTION_DEMO_TENANT_SLUG": "acme",
+            }
+            env_exports = " && ".join(f"export {key}='{value}'" for key, value in env.items())
             proc_config["shell"] = f"{env_exports} && {original_shell}"
 
         return proc_config

@@ -60,7 +60,9 @@ def run_demo_command(burrow_repo: Path, action: str) -> None:
         "logs": "demo-logs",
         "stop": "demo-down",
     }[action]
-    subprocess.run(["make", make_target], cwd=burrow_repo, check=True)
+    env = os.environ.copy()
+    env["COMPOSE_PROJECT_NAME"] = os.environ.get("COMPOSE_PROJECT_NAME") or "posthog"
+    subprocess.run(["make", make_target], cwd=burrow_repo, check=True, env=env)
 
 
 def run_managed_demo(burrow_repo: Path, env_file: Path) -> None:
