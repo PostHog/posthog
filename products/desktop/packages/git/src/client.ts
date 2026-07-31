@@ -26,6 +26,15 @@ export function createGitClient(
     trimmed: true,
     abort: signal,
     config,
+    // simple-git >=3.36 blocks the hardcoded core.fsmonitor perf flag and the
+    // inherited GIT_EDITOR/PAGER env by default. These are trusted values on the
+    // user's own machine, not the untrusted protocol.allow injection the CVEs
+    // addressed, so opt in explicitly.
+    unsafe: {
+      allowUnsafeFsMonitor: true,
+      allowUnsafeEditor: true,
+      allowUnsafePager: true,
+    },
     ...rest,
   });
 }

@@ -38,7 +38,12 @@ The tree is a verbatim copy of the source at the pinned SHA except:
   PostHog/code so resyncs do not reintroduce the violations.
 - Local security patches (reapply on resync until the pin includes the upstream fix):
   `apps/code/src/main/utils/encryption.ts` passes `{ authTagLength: 16 }` to
-  `createDecipheriv` (semgrep `gcm-no-tag-length`, ERROR). Upstreamed to PostHog/code.
+  `createDecipheriv` (semgrep `gcm-no-tag-length`, ERROR). For the simple-git 3.36 RCE fix,
+  `packages/git/src/client.ts` opts into `unsafe.{allowUnsafeFsMonitor,allowUnsafeEditor,
+  allowUnsafePager}` (3.36's block-unsafe plugin otherwise rejects the hardcoded
+  core.fsmonitor perf flag and inherited GIT_EDITOR/PAGER), and `packages/git/src/queries.ts`
+  runs `git worktree list` through raw `execFile` instead of simple-git. All upstreamed to
+  PostHog/code (#4030).
 
 The nested workspace is intentional: `products/desktop/` keeps its own `pnpm-workspace.yaml`,
 lockfile, Biome config and Node 22, and is NOT in the root `pnpm-workspace.yaml` globs.
@@ -233,14 +238,17 @@ ports from source using these rules.
 - **Dependency CVEs (local patch, reapply on resync until the pin includes the upstream
   fix)**: `pnpm-workspace.yaml` overrides pin advisory-flagged packages to patched,
   age-compliant versions (protobufjs 7.6.5, axios 1.18.1, hono 4.12.28, @xmldom/xmldom
-  0.8.13, node-forge 1.4.0, simple-git 3.32.3, drizzle-orm 0.45.2, fast-uri 3.1.4, @hono/node-server 1.19.13, lodash 4.18.0, serialize-javascript 7.0.5, undici 8.5.0/7.28.0), plus direct floors `simple-git ^3.32.3`
-  and `tar ^7.5.19`; the lockfile is regenerated to match. This mirrors PostHog/code
-  hardening PR #4030. To regenerate under the 7-day `minimumReleaseAge`, temporarily add
-  `@expo-google-fonts/material-symbols` to `minimumReleaseAgeExclude` (an already-committed
-  too-new transitive that blocks re-resolution), run `pnpm install --lockfile-only`, then
-  revert that one exclude. simple-git is capped at 3.32.3 (critical fix); 3.36 clears the
-  residual high but adds a block-unsafe plugin that breaks core.fsmonitor/GIT_EDITOR/PAGER.
-  The broader transitive advisory tail is left for a dedicated dependency-hygiene sweep.
+  0.8.13, node-forge 1.4.0, simple-git 3.36.0, drizzle-orm 0.45.2, fast-uri 3.1.4,
+  @hono/node-server 1.19.13, lodash 4.18.0, serialize-javascript 7.0.5, undici 8.5.0/7.28.0,
+  rollup 4.59.0, brace-expansion 1.1.16/2.1.2, ws 7.5.11/8.21.0), plus direct floors
+  `simple-git ^3.36.0` and `tar ^7.5.19`; the lockfile is regenerated to match. This mirrors
+  PostHog/code hardening PR #4030. To regenerate under the 7-day `minimumReleaseAge`,
+  temporarily add `@expo-google-fonts/material-symbols` to `minimumReleaseAgeExclude` (an
+  already-committed too-new transitive that blocks re-resolution), run
+  `pnpm install --lockfile-only`, then revert that one exclude. simple-git 3.36 (RCE fix)
+  needs the `packages/git/src/{client.ts,queries.ts}` source patches below. The remaining
+  transitive high/moderate tail (minimatch, picomatch, js-yaml, form-data, svgo, etc.) is
+  left for a dedicated dependency-hygiene sweep.
 - **Visual Review baseline**: the committed `apps/code/snapshots.yml` is signed for the
   PostHog/code VR registration, so submitting from this repo flags every story as new and
   the job reds. In-app approval can't fix it (the VR bot can't commit a posthog-signed

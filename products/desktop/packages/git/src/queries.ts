@@ -1,11 +1,15 @@
 import { createReadStream, readFileSync, statSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { isBinaryFile } from "@posthog/shared";
 import type { CreateGitClientOptions } from "./client";
 import { mapWithConcurrency } from "./concurrency";
 import { getGitOperationManager } from "./operation-manager";
 import { streamGitStatus } from "./status-stream";
+
+const execFileAsync = promisify(execFile);
 
 export interface WorktreeListEntry {
   path: string;
@@ -291,37 +295,37 @@ export async function listWorktrees(
   baseDir: string,
   options?: CreateGitClientOptions,
 ): Promise<WorktreeListEntry[]> {
-  const manager = getGitOperationManager();
-  return manager.executeRead(
-    baseDir,
-    async (git) => {
-      const output = await git.raw(["worktree", "list", "--porcelain"]);
-      const worktrees: WorktreeListEntry[] = [];
-      let current: Partial<WorktreeListEntry> = {};
+  // Raw git instead of simple-git: simple-git >=3.36's block-unsafe plugin changes
+  // `worktree list` behavior enough to break primary-worktree resolution from a
+  // secondary worktree. `worktree add` already runs through raw git for the same reason.
+  const { stdout: output } = await execFileAsync(
+    "git",
+    ["worktree", "list", "--porcelain"],
+    { cwd: baseDir, signal: options?.abortSignal, maxBuffer: 64 * 1024 * 1024 },
+  );
+  const worktrees: WorktreeListEntry[] = [];
+  let current: Partial<WorktreeListEntry> = {};
 
-      for (const line of output.split("\n")) {
-        if (line.startsWith("worktree ")) {
-          if (current.path) {
-            worktrees.push(current as WorktreeListEntry);
-          }
-          current = { path: line.slice(9), branch: null };
-        } else if (line.startsWith("HEAD ")) {
-          current.head = line.slice(5);
-        } else if (line.startsWith("branch ")) {
-          current.branch = line.slice(7).replace("refs/heads/", "");
-        } else if (line === "detached") {
-          current.branch = null;
-        }
-      }
-
+  for (const line of output.split("\n")) {
+    if (line.startsWith("worktree ")) {
       if (current.path) {
         worktrees.push(current as WorktreeListEntry);
       }
+      current = { path: line.slice(9), branch: null };
+    } else if (line.startsWith("HEAD ")) {
+      current.head = line.slice(5);
+    } else if (line.startsWith("branch ")) {
+      current.branch = line.slice(7).replace("refs/heads/", "");
+    } else if (line === "detached") {
+      current.branch = null;
+    }
+  }
 
-      return worktrees;
-    },
-    { signal: options?.abortSignal },
-  );
+  if (current.path) {
+    worktrees.push(current as WorktreeListEntry);
+  }
+
+  return worktrees;
 }
 
 export async function getFileAtHead(

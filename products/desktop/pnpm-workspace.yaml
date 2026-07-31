@@ -114,7 +114,7 @@ overrides:
   hono: 4.12.28
   '@xmldom/xmldom': 0.8.13
   node-forge: 1.4.0
-  simple-git: 3.32.3
+  simple-git: 3.36.0
   # Additional HIGH transitive fixes (low-risk patch/minor bumps within range).
   drizzle-orm: 0.45.2
   fast-uri: 3.1.4
@@ -122,6 +122,11 @@ overrides:
   lodash: 4.18.0
   serialize-javascript: 7.0.5
   '@electron/get>undici': 7.28.0
+  rollup: 4.59.0
+  'brace-expansion@1': 1.1.16
+  'brace-expansion@2': 2.1.2
+  'ws@7': 7.5.11
+  'ws@8': 8.21.0
 
 onlyBuiltDependencies:
   - '@parcel/watcher'
