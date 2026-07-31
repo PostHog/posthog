@@ -1129,6 +1129,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
     RUNNABLE_STATUSES = (Status.ACTIVE, Status.PENDING_PAUSE)
 
+    # The pause reasons the inactivity sweep owns (`scout_harness/inactivity.py`): `no_output`
+    # for a scout that surfaced nothing, `ignored` for one whose output nobody picked up. On the
+    # model rather than the sweep because the update serializer also reads them — a human
+    # re-enable of a pause carrying one of these marks the scout `auto_pause_exempt`.
+    INACTIVITY_PAUSE_REASONS = (PauseReason.NO_OUTPUT, PauseReason.IGNORED)
+
     # How long a scout is treated as provisional after creation or a human re-enable, during
     # which system writers should leave it alone (`in_cold_start_grace`).
     COLD_START_GRACE = timedelta(days=14)
@@ -1196,6 +1202,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         db_index=False,
     )
+    # Opt-out from the inactivity sweep (`scout_harness/inactivity.py`) — a watchdog whose whole
+    # value is staying quiet (health checks, inbox validation) is *supposed* to surface nothing
+    # most weeks, so silence must never read as waste. Also set by the update serializer when a
+    # human re-enables a scout the sweep paused: that re-enable is a human overruling the rule,
+    # and the sweep must not undo it one window later. `db_default` alongside `default` keeps the
+    # AddField non-blocking and the column populated for writers that don't know about it yet.
+    auto_pause_exempt = models.BooleanField(default=False, db_default=False)
     # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
     # nothing — to validate it on a team before its findings reach the inbox.
