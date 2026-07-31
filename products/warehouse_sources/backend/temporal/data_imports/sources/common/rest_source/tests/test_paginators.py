@@ -1,11 +1,12 @@
 import json
-import logging
 from typing import Any
 
 import pytest
+from unittest import mock
 
 from requests import PreparedRequest, Request, Response, Session
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import paginators
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     HeaderLinkPaginator,
     JSONLinkPaginator,
@@ -69,19 +70,20 @@ class TestJSONResponsePaginator:
         p.update_state(resp)
         assert p.has_next_page is False
 
-    def test_stops_when_next_url_repeats(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_stops_when_next_url_repeats(self) -> None:
         # Some APIs (e.g. Paddle) populate `next` even on the last page, pointing at
         # the page just fetched. Following it verbatim loops forever.
         p = JSONResponsePaginator(next_url_path="next")
         url = "https://api.example.com/page2?api_key=secret-token"
         p.update_state(_make_response({"next": url, "data": []}))
         assert p.has_next_page is True
-        with caplog.at_level(logging.WARNING):
+        # Patch the logger rather than use caplog: the suite's logging config can
+        # disable this module's logger, which would drop the record before capture.
+        with mock.patch.object(paginators.logger, "warning") as warning:
             p.update_state(_make_response({"next": url, "data": []}))
         # The logged URL must not carry the query string, which can hold credentials.
-        record = next(r for r in caplog.records if "not advancing" in r.getMessage())
-        assert record.next_url == "https://api.example.com/page2"  # type: ignore[attr-defined]
-        assert "secret-token" not in str(record.__dict__)
+        assert warning.call_args.kwargs["extra"]["next_url"] == "https://api.example.com/page2"
+        assert "secret-token" not in str(warning.call_args)
         assert p.has_next_page is False
 
     def test_header_link_paginator_stops_when_next_url_repeats(self) -> None:
