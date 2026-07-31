@@ -57,6 +57,13 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
         if event_plan is None and params.run_phase == RunPhase.COMPLETED and previous_session:
             event_plan = previous_session.event_plan
 
+        # Monotonic within a session: the doc arrives late in the run, so a push without it
+        # (an ordering race between debounced snapshots, or an older CLI) must not wipe it.
+        # A new run is a new session_id, so nothing ever needs to clear the field.
+        handoff_text = params.handoff_text
+        if not handoff_text and previous_session:
+            handoff_text = previous_session.handoff_text
+
         defaults = {
             "workflow_id": params.workflow_id,
             "skill_id": params.skill_id,
@@ -73,6 +80,7 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             "event_plan": event_plan,
             "error": params.error,
             "pending_input": params.pending_input,
+            "handoff_text": handoff_text,
         }
         # created_by only in create_defaults so a later push for the same run can't reattribute it.
         instance, created = WizardSession.objects.update_or_create(
@@ -164,6 +172,7 @@ def _to_dto(instance: WizardSession) -> WizardSessionDTO:
         event_plan=instance.event_plan,
         error=instance.error,
         pending_input=instance.pending_input,
+        handoff_text=instance.handoff_text,
         created_by=(
             WizardSessionUserDTO(id=created_by.id, first_name=created_by.first_name, email=created_by.email)
             if created_by is not None

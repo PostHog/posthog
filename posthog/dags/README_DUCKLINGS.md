@@ -5,8 +5,8 @@ This document describes the Dagster jobs and sensors for backfilling ClickHouse 
 ## Architecture
 
 ```text
-DuckgresServer + DuckgresServerTeam (Django models)
-    │ team_id → org's DuckgresServer (connection + bucket); DuckgresServerTeam gates enablement
+DuckgresServer (Django model) + control-plane team rows
+    │ DuckgresServer stores the org connection; control-plane rows gate each team's enablement
     ▼
 ClickHouse (events/person tables)
     │ export via s3() - bucket policy allows ClickHouse EC2 role
@@ -132,9 +132,9 @@ class DucklingBackfillConfig:
 
 ## Adding a New Duckling
 
-1. Provision (or create) the org's `DuckgresServer` (typically via the Django admin
-   "Provision managed warehouse" action, which also records the team's
-   `DuckgresServerTeam`). The relevant fields are:
+1. Provision the org's managed warehouse, typically with the Django admin
+   "Provision managed warehouse" action. This creates the org's `DuckgresServer`
+   connection record and the first control-plane team row. The relevant local fields are:
    - `organization`: the org that owns the warehouse
    - `bucket` / `bucket_region`: S3 bucket name and AWS region
    - `catalog_host` / `catalog_database` / `catalog_username` / `catalog_password`: the
@@ -142,9 +142,10 @@ class DucklingBackfillConfig:
 
    Ensure the runtime IAM role can read from and write to the configured S3 bucket.
 
-2. Enable the team's backfill by creating its `DuckgresServerTeam` row with
-   `backfill_enabled=True` (the provision / enable-backfill admin actions do this). The
-   discovery sensor will then pick up the team on its next run. The enablement flow also creates a
+2. Enable another team's backfill with the "Enable warehouse backfill for a team" admin
+   action or the managed warehouse onboarding API. This creates the control-plane team row
+   with backfill enabled. The discovery sensor will pick up the team on its next run.
+   The enablement flow also creates a
    managed Postgres live-query connection with a distinct Duckgres reader for the team. Once the
    warehouse is ready, background schema discovery exposes every table in the team's event/person,
    data-import, team, and modeled-data namespaces in the SQL editor. Duckgres enforces read-only
@@ -181,7 +182,8 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **Job definition**: `posthog/dags/events_backfill_to_duckling.py`
 - **Tests**: `posthog/dags/test_events_backfill_to_duckling.py`
 - **Dagster registration**: `posthog/dags/locations/data_stack.py`
-- **DuckgresServer / DuckgresServerTeam models**: `posthog/ducklake/models.py`
+- **DuckgresServer model**: `posthog/ducklake/models.py`
+- **Control-plane team state**: `posthog/ducklake/cp_teams.py` and `posthog/ducklake/team_state.py`
 
 ## S3 Path Structure
 

@@ -40,6 +40,7 @@ class WizardSessionDTO:
     event_plan: dict[str, Any] | None
     error: dict[str, Any] | None
     pending_input: dict[str, Any] | None
+    handoff_text: str | None
     created_by: WizardSessionUserDTO | None
     created_at: datetime
     updated_at: datetime
@@ -63,6 +64,7 @@ class UpsertWizardSessionRequest:
     event_plan: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
     pending_input: dict[str, Any] | None = None
+    handoff_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -77,5 +79,6 @@ class UpsertWizardSessionInput:
     event_plan: dict[str, Any] | None
     error: dict[str, Any] | None
     pending_input: dict[str, Any] | None
+    handoff_text: str | None = None
     # Set on create only, never overwritten on later pushes for the same run.
     created_by_id: int | None = None

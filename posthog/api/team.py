@@ -225,6 +225,11 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
     first one is blocked once the team has access to project secret API keys."""
     if team.secret_api_token or team.secret_api_token_backup:
         return
+    if team.conversations_enabled:
+        # Support signs widget identity hashes with the raw token and authenticates its external
+        # API against it. Project secret API keys are only ever stored hashed, so they cannot
+        # replace it, which would leave Support with no way to verify identity at all.
+        return
     if posthoganalytics.feature_enabled(
         "project-secret-api-keys",
         str(user.distinct_id),

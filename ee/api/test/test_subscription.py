@@ -299,6 +299,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.mock_temporal_client.start_workflow.assert_called_once()
         wf_args, _ = self.mock_temporal_client.start_workflow.call_args
         activity_inputs = wf_args[1]
+        assert activity_inputs.previous_target_value == "test@posthog.com"
         assert activity_inputs.previous_value == "test@posthog.com"
         assert activity_inputs.invite_message == "hi new user"
 
@@ -1203,6 +1204,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         activity_inputs = wf_args[1]
         assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
         assert activity_inputs.subscription_id == sub_id
+        assert activity_inputs.previous_target_value is None
         assert activity_inputs.previous_value is None
         assert activity_inputs.trigger_type == SubscriptionTriggerType.MANUAL
         assert wf_kwargs["id"] == f"test-delivery-subscription-{sub_id}"
@@ -1664,7 +1666,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_re_enable_resets_stale_next_delivery_date(self):
         # Without this reset the scheduler's `next_delivery_date__lte=now` filter
         # picks the sub up on its next tick and fires a second delivery right
-        # after the immediate TARGET_CHANGE confirmation.
+        # after the immediate SUBSCRIPTION_CHANGE confirmation.
         subscription = Subscription.objects.create(
             team=self.team,
             target_type="email",

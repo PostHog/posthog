@@ -21,10 +21,11 @@ use tokio_util::sync::CancellationToken;
 use assignment_coordination::store::parse_watch_value;
 use async_trait::async_trait;
 use common::{
-    revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod, start_pod_gated,
-    start_pod_with_lease_ttl, start_router_with_lease_ttl, store_at, test_store,
-    test_store_with_prefix, wait_for_condition, CutoverEvent, FlakyProxy, HandoffEvent,
-    MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT, POLL_INTERVAL, WAIT_TIMEOUT,
+    revoke_lease_of_key, start_coordinator, start_coordinator_named,
+    start_coordinator_reconcile_parked, start_pod, start_pod_gated, start_pod_with_lease_ttl,
+    start_router_with_lease_ttl, store_at, test_store, test_store_with_prefix, wait_for_condition,
+    CutoverEvent, FlakyProxy, HandoffEvent, MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT,
+    POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -604,6 +605,7 @@ async fn guarded_handoff_delete_skips_recreated_handoff() {
             router_name: "router-0".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -676,6 +678,7 @@ async fn ack_for_previous_handoff_does_not_satisfy_quorum() {
             router_name: "r-live".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "a-previous-handoff".to_string(),
         })
         .await
@@ -715,10 +718,109 @@ async fn ack_for_previous_handoff_does_not_satisfy_quorum() {
             router_name: "r-live".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
         .expect("write correlated ack");
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .get_handoff(0)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|h| h.phase != HandoffPhase::Freezing)
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// A freeze whose quorum is held open by a registered-but-silent router
+/// must advance the moment that router's registration disappears —
+/// event-driven via the router-departure watch, not rescued later by
+/// the reconcile tick (parked here to prove the distinction). This is
+/// the deploy path: a router deregisters at shutdown, or its lease
+/// expires after a crash, while handoffs sit frozen on its ack.
+#[tokio::test]
+async fn router_departure_advances_a_waiting_freeze() {
+    let store = test_store("router-departure").await;
+    let cancel = CancellationToken::new();
+
+    // Two registered routers: one will ack, one never will — its process
+    // is gone and only its registration remains, on its own lease.
+    let live_lease = store.grant_lease(30).await.expect("lease");
+    store
+        .register_router(
+            &RegisteredRouter {
+                router_name: "r-live".to_string(),
+                registered_at: 0,
+                last_heartbeat: 0,
+            },
+            live_lease,
+        )
+        .await
+        .expect("register live router");
+    let dead_lease = store.grant_lease(30).await.expect("lease");
+    store
+        .register_router(
+            &RegisteredRouter {
+                router_name: "r-dead".to_string(),
+                registered_at: 0,
+                last_heartbeat: 0,
+            },
+            dead_lease,
+        )
+        .await
+        .expect("register dead router");
+
+    let _coord = start_coordinator_reconcile_parked(
+        Arc::clone(&store),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+
+    put_handoff(
+        &store,
+        0,
+        Some("pod-old"),
+        "pod-new",
+        HandoffPhase::Freezing,
+    )
+    .await;
+    store
+        .put_freeze_ack(&RouterFreezeAck {
+            router_name: "r-live".to_string(),
+            partition: 0,
+            acked_at: 0,
+            acked_at_ms: 0,
+            handoff_id: "test-handoff-0".to_string(),
+        })
+        .await
+        .expect("write ack");
+
+    // The live ack alone must not satisfy the quorum while the silent
+    // router is still registered.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let handoff = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+    assert_eq!(
+        handoff.phase,
+        HandoffPhase::Freezing,
+        "a registered router that has not acked must hold the freeze"
+    );
+
+    // The silent router departs. Revoke stands in for both shutdown
+    // deregistration and crash-side lease expiry — the same Delete event.
+    store.revoke_lease(dead_lease).await.expect("revoke");
 
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
@@ -813,6 +915,7 @@ async fn legacy_ack_without_handoff_id_does_not_satisfy_quorum() {
             router_name: "r-legacy".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1131,6 +1234,7 @@ async fn freezing_handoff_advances_when_unacked_router_departs() {
             router_name: "router-acked".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1273,6 +1377,7 @@ async fn stale_freeze_ack_does_not_satisfy_quorum_for_live_router() {
             router_name: "router-departed".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1330,6 +1435,7 @@ async fn stale_freeze_ack_does_not_satisfy_quorum_for_live_router() {
             router_name: "router-silent".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
