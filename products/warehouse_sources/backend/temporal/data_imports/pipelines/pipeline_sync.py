@@ -17,7 +17,6 @@ import dlt.extract.incremental
 import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
 
-from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import retry_on_db_connection_drop
@@ -29,6 +28,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import INTERNAL_COLUMN_NAMES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
     resolve_table_and_folder_names,
@@ -54,10 +54,23 @@ def merge_columns(
     """
     columns: dict[str, Any] = {}
     for column_name, db_column_type in db_columns.items():
+        if column_name in INTERNAL_COLUMN_NAMES:
+            continue
+
         hogql_type = table_schema_dict.get(column_name)
 
         if hogql_type is None:
-            capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
+            existing_column = existing_columns.get(column_name)
+            existing_hogql_type = existing_column.get("hogql") if isinstance(existing_column, dict) else None
+            if existing_hogql_type is not None:
+                columns[column_name] = {"clickhouse": db_column_type, "hogql": existing_hogql_type}
+            else:
+                # A column can be missing from table_schema_dict for routine reasons, e.g. a
+                # binary/skipped Arrow type, or the current run's batches not touching this
+                # column. Fall back to a safe default rather than dropping the column from
+                # `DataWarehouseTable.columns` and making it unqueryable in HogQL.
+                LOGGER.warning(f"HogQL type not found for column, defaulting to String: {column_name}")
+                columns[column_name] = {"clickhouse": db_column_type, "hogql": "StringDatabaseField"}
             continue
 
         existing_column = existing_columns.get(column_name)

@@ -181,7 +181,10 @@ class TestMergeColumnsRaceCondition:
 
         assert result["user_id"] == {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}
 
-    def test_merge_columns_skips_column_when_hogql_type_missing_from_schema(self):
+    def test_merge_columns_defaults_new_column_when_hogql_type_missing_from_schema(self):
+        # e.g. a binary Arrow column HogQLSchema doesn't register a type for, or a column
+        # absent from this run's arrow batches. Previously this dropped the column entirely,
+        # making it unqueryable in HogQL until a re-sync.
         existing_columns = {
             "user_id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
         }
@@ -191,4 +194,29 @@ class TestMergeColumnsRaceCondition:
         result = merge_columns(db_columns, table_schema, existing_columns)
 
         assert "user_id" in result
-        assert "new_col" not in result
+        assert result["new_col"] == {"clickhouse": "Int64", "hogql": "StringDatabaseField"}
+
+    def test_merge_columns_preserves_prior_hogql_type_when_missing_from_schema(self):
+        # A column already registered in a prior sync must not regress to the String default
+        # just because this run's introspection couldn't resolve its HogQL type again.
+        existing_columns = {
+            "amount": {"clickhouse": "Decimal", "hogql": "FloatDatabaseField"},
+        }
+        db_columns = {"amount": "Decimal"}
+        table_schema: dict[str, str] = {}
+
+        result = merge_columns(db_columns, table_schema, existing_columns)
+
+        assert result["amount"] == {"clickhouse": "Decimal", "hogql": "FloatDatabaseField"}
+
+    def test_merge_columns_drops_internal_columns(self):
+        # _ph_debug and friends are always appended by our own pipeline code and are never
+        # present in table_schema_dict — they must be excluded outright, not reported as an
+        # unresolved HogQL type.
+        db_columns = {"user_id": "String", "_ph_debug": "String"}
+        table_schema = {"user_id": "StringDatabaseField"}
+
+        result = merge_columns(db_columns, table_schema, {})
+
+        assert "user_id" in result
+        assert "_ph_debug" not in result
