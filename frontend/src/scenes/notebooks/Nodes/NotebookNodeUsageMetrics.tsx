@@ -1,12 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UsageMetricsConfig, UsageMetricsModal } from 'scenes/settings/environment/UsageMetricsConfig'
@@ -56,13 +55,23 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     const { loadData } = useActions(logic)
     const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId, onMetricsChanged: loadData }
     const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
+    const { reportUsageMetricsCreateButtonClicked } = useActions(eventUsageLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
-    useOnMountEffect(() => {
+    useEffect(() => {
         const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.UsageMetrics)
         const addMetricMenuItem = {
             label: 'Add metric',
             sideIcon: <IconPlusSmall />,
-            onClick: openModal,
+            disabledReason: restrictedReason ?? undefined,
+            'data-attr': 'usage-metrics-node-add-metric',
+            onClick: () => {
+                reportUsageMetricsCreateButtonClicked()
+                openModal()
+            },
         }
         const refreshMenuItem = {
             label: 'Refresh',
@@ -74,7 +83,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
             return
         }
         setMenuItems([addMetricMenuItem, refreshMenuItem])
-    })
+        // oxlint-disable-next-line exhaustive-deps
+    }, [restrictedReason])
 
     if (!expanded) {
         return null
@@ -104,10 +114,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     return (
         <BindLogic logic={usageMetricsConfigLogic} props={usageMetricsConfigLogicProps}>
             <div className="@container">
-                <div className="flex justify-end px-4 pt-4">
-                    <AddUsageMetricButton />
-                </div>
-                <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 px-4 pb-4 pt-2">
+                <div className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-4 gap-4 p-4">
                     {results.map((metric) => (
                         <UsageMetricCard key={metric.id} metric={metric} />
                     ))}
@@ -115,31 +122,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
                 <UsageMetricsModal />
             </div>
         </BindLogic>
-    )
-}
-
-function AddUsageMetricButton(): JSX.Element {
-    const { openModal } = useActions(usageMetricsConfigLogic)
-    const { reportUsageMetricsCreateButtonClicked } = useActions(eventUsageLogic)
-    const restrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
-
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={<IconPlusSmall />}
-            disabledReason={restrictedReason}
-            data-attr="usage-metrics-node-add-metric"
-            onClick={() => {
-                reportUsageMetricsCreateButtonClicked()
-                openModal()
-            }}
-        >
-            Add metric
-        </LemonButton>
     )
 }
 

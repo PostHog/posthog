@@ -180,7 +180,8 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         observation_created_at__lt=period_end,
     ).aggregate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))["total"]
     # In-flight rows aren't in the ledger yet (receipt is written on success), so reserve their credits live,
-    # priced from the frozen snapshot model exactly as the eventual receipt will be.
+    # priced from the frozen snapshot model exactly as the eventual receipt will be. One created just before
+    # a period rollover settles into the next window, so it is briefly counted in neither; accepted.
     in_flight_models = Counter(
         ReplayObservation.objects.filter(
             team__organization_id=organization_id,

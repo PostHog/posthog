@@ -562,6 +562,7 @@ async def _spawn_and_run(
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+        mcp_builtin_agent_key="scout",
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
         # and attributable to one scout. `ai_stage` is the only run-shaped value the harness

@@ -10,6 +10,7 @@ import re
 import time
 import asyncio
 import functools
+from dataclasses import dataclass
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -33,8 +34,8 @@ from products.replay_vision.backend.temporal.conversation import function_calls,
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index, dispatch_events_tool, events_tool
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
-from products.replay_vision.backend.temporal.metrics import record_provider_call
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.metrics import record_mission_pass, record_provider_call
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     TIMESTAMP_CITATION_RE,
@@ -57,19 +58,47 @@ from products.replay_vision.backend.temporal.types import (
 logger = structlog.get_logger(__name__)
 
 _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended per step
+# One clean re-ask after a validation failure. The per-step re-prompt above retries inside the same conversation,
+# where the model stays anchored on the answer it just got wrong; a fresh conversation is an independent draw.
+_MAX_MISSION_ATTEMPTS = 2
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
 
+@dataclass(frozen=True)
+class _StepResult:
+    """One mission step's outcome: the validated output, or, when exhausted, whether the provider refused to answer."""
+
+    output: BaseModel | None
+    provider_refused: bool = False
+
+
 @activity.defn
 @track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
-    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 10-min timeout.
+    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 20-min timeout.
     async with Heartbeater(factor=4):
-        return await _call_scanner_provider(inputs)
+        try:
+            return await _call_scanner_provider(inputs)
+        except Exception as e:
+            # Classify at the activity boundary, not inside the mission, so the cached-run fallback below can
+            # inspect the raw provider error and decide which layer owns the retry.
+            kind = classify_gemini_error(e)
+            if kind is None:
+                raise
+            # The raw error body can quote request content (prompt text), so it stays out of both the
+            # user-visible error_reason and the logs; code + status carry the diagnostic signal.
+            logger.warning(
+                "replay_vision.call_scanner_provider.provider_error",
+                kind=kind.value,
+                error_type=type(e).__name__,
+                code=getattr(e, "code", None),
+                status=getattr(e, "status", None),
+            )
+            raise ScannerFailureError(describe_gemini_error(e), kind=kind) from e
 
 
 async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
@@ -97,6 +126,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
         navigation=[entry.model_dump() for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
+        events_truncated=llm_inputs.events_truncated,
     )
     video_part = types.Part(file_data=types.FileData(file_uri=inputs.file_uri, mime_type=inputs.mime_type))
 
@@ -237,30 +267,59 @@ async def _run_mission(
         metric_labels=metric_labels,
     )
     try:
-        if cache is None:
-            step_outputs = await run(cache_name=None)
-        else:
-            try:
-                step_outputs = await run(cache_name=cache.name)
-            except ScannerFailureError:
-                raise  # a required step genuinely couldn't be satisfied — re-running won't help.
-            except Exception as exc:
-                # The cached request failed (a bad cache reference, or a transient provider error) — retry inline once.
-                # Capture the cause: this fallback fires often enough that we need to know whether it's the
-                # cached-content + response-schema combination, a stale cache reference, or a transient provider error.
-                logger.warning(
-                    "replay_vision.video_cache.run_failed_retrying_inline",
-                    model=snapshot.model,
-                    error=str(exc),
-                    error_type=type(exc).__name__,
-                    exc_info=True,
-                )
-                step_outputs = await run(cache_name=None)
+        step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
     finally:
         if cache is not None:
             await _delete_video_cache(cache_client, cache.name)
 
     return scanner.assemble(step_outputs)
+
+
+async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
+    """Run the mission, re-asking once from a clean conversation when a required step failed validation."""
+    for attempt in range(1, _MAX_MISSION_ATTEMPTS):
+        try:
+            return await _run_pass(run=run, cache=cache, model=model)
+        except ScannerFailureError as exc:
+            if exc.kind is not FailureKind.VALIDATION_FAILED:
+                raise
+            logger.warning(
+                "replay_vision.call_scanner_provider.mission_retry_after_validation_failure",
+                model=model,
+                attempt=attempt,
+                error=str(exc),
+            )
+    return await _run_pass(run=run, cache=cache, model=model)
+
+
+async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
+    """One mission pass over the cached prefix, falling back to an inline video when the cached request itself fails."""
+    if cache is None:
+        record_mission_pass(model=model, path="inline")
+        return await run(cache_name=None)
+    record_mission_pass(model=model, path="cached")
+    try:
+        return await run(cache_name=cache.name)
+    except ScannerFailureError:
+        raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
+    except Exception as exc:
+        # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
+        # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
+        # still rate-limiting or down, and would multiply with the other retry layers.
+        if classify_gemini_error(exc) is FailureKind.PROVIDER_TRANSIENT:
+            raise
+        # The cached request failed some other way (a stale cache reference, an unrecognized error), so retry
+        # inline once. Capture the cause: this fallback fires often enough that we need to know whether it's
+        # the cached-content + response-schema combination or something new.
+        logger.warning(
+            "replay_vision.video_cache.run_failed_retrying_inline",
+            model=model,
+            error=str(exc),
+            error_type=type(exc).__name__,
+            exc_info=True,
+        )
+        record_mission_pass(model=model, path="inline_fallback")
+        return await run(cache_name=None)
 
 
 async def _run_steps(
@@ -282,7 +341,7 @@ async def _run_steps(
     for step in steps:
         checkpoint = len(convo)
         convo.append(types.Part(text=step.instruction))
-        parsed = await _run_step(
+        result = await _run_step(
             client=client,
             model=model,
             step=step,
@@ -292,18 +351,30 @@ async def _run_steps(
             team_id=team_id,
             metric_labels=metric_labels,
         )
-        if parsed is None:
+        if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
             # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
             del convo[checkpoint:]
             if step.required:
-                raise ScannerFailureError(
-                    f"Required step '{step.name}' rejected after {_MAX_LLM_ATTEMPTS} attempts",
-                    kind=FailureKind.VALIDATION_FAILED,
-                )
+                raise _exhausted_step_error(step, result)
             continue
-        step_outputs[step.name] = parsed
+        step_outputs[step.name] = result.output
     return step_outputs
+
+
+def _exhausted_step_error(step: MissionStep, result: "_StepResult") -> ScannerFailureError:
+    """Why a required step ran out of attempts, kept distinct so the user gets advice that matches the cause."""
+    if result.provider_refused:
+        # An empty candidate list is the provider declining to answer about this video (safety or content policy).
+        # Telling the user to reword their prompt would send them editing something that was never the problem.
+        return ScannerFailureError(
+            f"Provider returned no answer for required step '{step.name}' after {_MAX_LLM_ATTEMPTS} attempts",
+            kind=FailureKind.PROVIDER_REJECTED,
+        )
+    return ScannerFailureError(
+        f"Required step '{step.name}' rejected after {_MAX_LLM_ATTEMPTS} attempts",
+        kind=FailureKind.VALIDATION_FAILED,
+    )
 
 
 async def _run_step(
@@ -316,8 +387,8 @@ async def _run_step(
     dispatch: Any,
     team_id: int,
     metric_labels: dict[str, str],
-) -> BaseModel | None:
-    """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or None when exhausted.
+) -> "_StepResult":
+    """Run one step's tool loop with one re-prompt on failure. Returns the validated output, or why it was exhausted.
 
     On success the model's answer is appended to `convo` so the next step sees it; on failure a correction is
     appended and we retry.
@@ -335,6 +406,9 @@ async def _run_step(
         )
 
     last_error: str | None = None
+    # Whether the final attempt came back with no candidate at all, which reads as a provider refusal rather
+    # than a schema problem. Tracked on the last attempt only: that is the state we ended up reporting.
+    last_was_empty = False
     for attempt in range(_MAX_LLM_ATTEMPTS):
         started = time.monotonic()
         try:
@@ -359,9 +433,11 @@ async def _run_step(
         if not response.candidates:
             # No candidate (safety filter / content policy): record a failed attempt and retry without indexing [0].
             last_error = "model returned no candidates"
+            last_was_empty = True
             record_provider_call(**metric_labels, outcome="validation_failed", seconds=time.monotonic() - started)
             logger.warning("replay_vision.call_scanner_provider.empty_response", step=step.name, attempt=attempt + 1)
             continue
+        last_was_empty = False
 
         text = (response.text or "").strip()
         parsed, error = _parse_and_validate(step, text)
@@ -373,7 +449,7 @@ async def _run_step(
 
         if error is None:
             convo.append(response.candidates[0].content)  # carry the answer into the next turn
-            return parsed
+            return _StepResult(output=parsed)
 
         last_error = error
         logger.warning(
@@ -402,8 +478,9 @@ async def _run_step(
         step=step.name,
         required=step.required,
         error=last_error,
+        provider_refused=last_was_empty,
     )
-    return None
+    return _StepResult(output=None, provider_refused=last_was_empty)
 
 
 _OUT_OF_LOOKUPS_NUDGE = (

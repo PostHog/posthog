@@ -214,6 +214,70 @@ pub async fn run_lease_keepalive(
     }
 }
 
+/// Records how long a handoff phase write took to reach this observer's
+/// watch stream. Only the non-terminal phases are recorded — those are
+/// the writes whose propagation gates protocol progress, while Complete
+/// puts (including cancellation reaffirms) arrive in floods that would
+/// drown the signal. Same-cluster clocks make millisecond skew
+/// negligible for the diagnostic purpose; records stamped by
+/// pre-instrumentation writers (zero) are skipped.
+pub fn record_phase_watch_delivery(
+    observer: &'static str,
+    phase: crate::types::HandoffPhase,
+    phase_entered_at_ms: i64,
+) {
+    if phase == crate::types::HandoffPhase::Complete || phase_entered_at_ms <= 0 {
+        return;
+    }
+    let lag = now_millis().saturating_sub(phase_entered_at_ms).max(0);
+    metrics::histogram!(
+        "personhog_coordination_phase_watch_delivery_ms",
+        "observer" => observer
+    )
+    .record(lag as f64);
+}
+
+/// Records the coordinator's reaction lag: from the newest ack that
+/// satisfied a quorum to the phase advance it triggered. Zero-stamped
+/// acks (pre-instrumentation writers) are excluded.
+pub fn record_ack_to_advance(phase: &'static str, ack_stamps_ms: impl Iterator<Item = i64>) {
+    let Some(latest) = ack_stamps_ms.filter(|&t| t > 0).max() else {
+        return;
+    };
+    let lag = now_millis().saturating_sub(latest).max(0);
+    metrics::histogram!(
+        "personhog_coordination_ack_to_advance_ms",
+        "phase" => phase
+    )
+    .record(lag as f64);
+}
+
+/// Touch the coordinator's deploy-burst counters so their series exist
+/// with zero samples before any burst. metrics registration is lazy: a
+/// counter that first fires between two scrapes materializes with the
+/// burst already inside it, and no rate function can recover a delta
+/// that precedes a series' first sample.
+pub fn preregister_coordinator_metrics() {
+    for kind in ["fresh", "move"] {
+        metrics::counter!("personhog_coordination_handoffs_created_total", "kind" => kind)
+            .increment(0);
+    }
+    metrics::counter!("personhog_coordination_elections_won_total").increment(0);
+    metrics::counter!("personhog_coordination_partition_releases_total").increment(0);
+}
+
+/// Same as [`preregister_coordinator_metrics`], for the counters the
+/// router's coordination layer emits.
+pub fn preregister_router_coordination_metrics() {
+    for outcome in ["revoked", "revoke_failed"] {
+        metrics::counter!(
+            "personhog_coordination_router_deregistered_total",
+            "outcome" => outcome
+        )
+        .increment(0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;

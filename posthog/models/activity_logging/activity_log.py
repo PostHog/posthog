@@ -336,6 +336,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
         "pause_reason": "pause reason",
+        "auto_pause_exempt": "never pause for inactivity",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",

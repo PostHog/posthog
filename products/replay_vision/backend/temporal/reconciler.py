@@ -14,6 +14,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.replay_vision.backend.temporal.constants import (
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
+    REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
     REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
     REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT,
     RECONCILE_SCHEDULE_OP_TIMEOUT,
@@ -57,6 +58,9 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 reap_orphaned_observations_activity,
                 start_to_close_timeout=REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
+                # The activity heartbeats between phases, so a stalled pass is cut loose before it burns
+                # the whole tick budget.
+                heartbeat_timeout=REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except Exception:

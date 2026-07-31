@@ -5,7 +5,7 @@ from typing import Any, cast, get_args
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
@@ -14,7 +14,13 @@ from django.http.response import HttpResponseBase
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -26,10 +32,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 from posthog.utils import relative_date_parse
 
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
@@ -37,9 +45,12 @@ from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
     check_team_in_flight_capacity,
+    claim_apply_scanner_slot,
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
@@ -165,7 +176,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
-        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.",
+        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.",
     )
     triggered_by_user = UserBasicSerializer(
         read_only=True,
@@ -491,6 +502,13 @@ class _ObservationOrderByFilter(OrderByFilter):
         return self._order_nulls_last(qs, "_order_verdict", descending)
 
 
+class _TeamAwareFilterBackend(DjangoFilterBackend):
+    """Passes the viewset's team into the filterset so date bounds can use the project timezone."""
+
+    def get_filterset_kwargs(self, request: Request, queryset: QuerySet, view: Any) -> dict[str, Any]:
+        return {**super().get_filterset_kwargs(request, queryset, view), "team": getattr(view, "team", None)}
+
+
 class ReplayObservationFilter(django_filters.FilterSet):
     status = MultiChoiceFilter(
         field_name="status",
@@ -526,13 +544,16 @@ class ReplayObservationFilter(django_filters.FilterSet):
     )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
-        help_text="Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.",
+        help_text=(
+            "Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; "
+            "values without an explicit offset are interpreted in the project's timezone."
+        ),
     )
     date_to = django_filters.CharFilter(
         method="_filter_date_to",
         help_text=(
             "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; "
-            "date-only values include the whole day."
+            "date-only values include the whole day, interpreted in the project's timezone."
         ),
     )
     labeled = django_filters.BooleanFilter(
@@ -554,6 +575,15 @@ class ReplayObservationFilter(django_filters.FilterSet):
     class Meta:
         model = ReplayObservation
         fields = ["status", "triggered_by", "session_id"]
+
+    def __init__(self, *args: Any, team: Team | None = None, **kwargs: Any) -> None:
+        self._team = team
+        super().__init__(*args, **kwargs)
+
+    @property
+    def _timezone_info(self) -> ZoneInfo:
+        # Date bounds come from UI date pickers, so users mean them in the project timezone, not UTC.
+        return self._team.timezone_info if self._team else ZoneInfo("UTC")
 
     @classmethod
     def schema_parameters(cls) -> list[OpenApiParameter]:
@@ -578,12 +608,12 @@ class ReplayObservationFilter(django_filters.FilterSet):
     def _filter_date_from(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
     ) -> QuerySet[ReplayObservation]:
-        return queryset.filter(created_at__gte=relative_date_parse(value, ZoneInfo("UTC")))
+        return queryset.filter(created_at__gte=relative_date_parse(value, self._timezone_info))
 
     def _filter_date_to(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
     ) -> QuerySet[ReplayObservation]:
-        parsed = relative_date_parse(value, ZoneInfo("UTC"))
+        parsed = relative_date_parse(value, self._timezone_info)
         # Date-only values include the whole day; relative values stay exact.
         if not value.startswith(("-", "+")) and "T" not in value and ":" not in value:
             parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -684,7 +714,7 @@ class ReplayObservationViewSet(
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
-    filter_backends = [DjangoFilterBackend]
+    filter_backends = [_TeamAwareFilterBackend]
     filterset_class = ReplayObservationFilter
 
     def _scanner_for_url(self) -> ReplayScanner:
@@ -749,7 +779,9 @@ class ReplayObservationViewSet(
         # Empty values (`?status=`) are no-ops in the filterset, so they must not opt out of the fast path.
         if not any(self.request.query_params.get(key) for key in ReplayObservationFilter.base_filters):
             return self._unfiltered_neighbors(observation, siblings)
-        filterset = ReplayObservationFilter(self.request.query_params, queryset=siblings, request=self.request)
+        filterset = ReplayObservationFilter(
+            self.request.query_params, queryset=siblings, request=self.request, team=self.team
+        )
         if not filterset.is_valid():
             # Same 400 the list endpoint gives for the identical bad query string.
             raise ValidationError(filterset.errors)
@@ -864,41 +896,96 @@ class ReplayObservationViewSet(
             locked.save(update_fields=["created_task_id"])
         return Response({"task_id": task_id}, status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=None, responses={202: RetryResponseSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            202: RetryResponseSerializer,
+            409: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The previous run is still finishing."
+            ),
+            503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The retry couldn't be started."),
+        },
+    )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def retry(self, request: Request, **kwargs: Any) -> Response:
-        """Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
+        """Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
         observation = self.get_object()
         # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
         # Retry writes to the scanner; the session route's get_object only object-checks the observation row.
         self.check_object_permissions(self.request, scanner)
-        if observation.status != ObservationStatus.FAILED:
-            raise ValidationError("Only failed observations can be retried.")
-        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
-        check_team_in_flight_capacity(self.team.id)
         session_id = observation.session_id
-        # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed attempt stays counted.
         original_pk = observation.pk
         original_created_at = observation.created_at
-        observation.delete()
+        # Ineligible is retryable because some gates are timing artifacts: the recording or its snapshots can
+        # finish ingesting after the scan ran (see IneligibleSessionKind.NO_SNAPSHOTS). Without this, the
+        # UNIQUE(scanner, session_id) row would lock the session out of that scanner forever.
+        if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+            raise ValidationError("Only failed or ineligible observations can be retried.")
+        # Gate consent before deleting the row: the replacement workflow fails closed at create time when
+        # consent is off, and the sweep never revisits past sessions, so the delete would leave nothing behind.
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "AI data processing is turned off for this organization, so the scan can't run. "
+                "An organization admin can turn it on in organization settings."
+            )
+        # Advisory, and deliberately outside the lock below: the atomic claim is the authoritative gate,
+        # and these two read enough to be worth keeping off a held row lock.
+        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        check_team_in_flight_capacity(self.team.id)
+        # Locked so two concurrent retries can't both pass the status check and both delete the row.
+        with transaction.atomic():
+            locked = ReplayObservation.objects.select_for_update().get(pk=original_pk, team_id=self.team_id)
+            if locked.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+                raise ValidationError("Only failed or ineligible observations can be retried.")
+            # Captured before the delete cascades it away: a run that never starts has to put the team's
+            # rating back with the row, not just the row.
+            original_label = ReplayObservationLabel.objects.filter(
+                observation_id=original_pk, team_id=locked.team_id
+            ).first()
+            label_created_at = original_label.created_at if original_label else None
+            label_updated_at = original_label.updated_at if original_label else None
+            # Claimed before the delete so a capped retry never touches the row, and so never cascades
+            # away the observation's shared label for a request that changes nothing.
+            workflow_id, claimed = claim_apply_scanner_slot(scanner, session_id)
+            if not claimed:
+                raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
+            try:
+                # Free the UNIQUE(scanner, session_id) slot; the ledger is immutable, so the failed attempt
+                # stays counted.
+                locked.delete()
+            except Exception:
+                release_enqueue_claim(
+                    team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id, immediately=True
+                )
+                raise
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner,
             session_id,
             triggered_by_user_id=cast(User, request.user).id,
             trigger=ObservationTrigger.RETRY,
+            slot_already_claimed=True,
         )
         if outcome is not WorkflowStartOutcome.STARTED:
-            # The replacement run never started, so restore the failed row (its shared label, if any, is lost
-            # to the cascade) instead of leaving the recording looking unscanned.
-            observation.pk = original_pk
-            observation.save(force_insert=True)
-            ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
-                created_at=original_created_at
-            )
-        if outcome is WorkflowStartOutcome.CAPPED:
-            # The pre-check above passed on a snapshot; the atomic claim is the authoritative gate.
-            raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
+            # The replacement run never started, so restore the original row and its rating instead of leaving
+            # the recording looking unscanned and the team's feedback gone.
+            try:
+                with transaction.atomic():
+                    observation.pk = original_pk
+                    observation.save(force_insert=True)
+                    ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
+                        created_at=original_created_at
+                    )
+                    if original_label is not None:
+                        original_label.save(force_insert=True)
+                        # auto_now_add/auto_now stamp the insert with now; the rating happened earlier.
+                        ReplayObservationLabel.objects.filter(pk=original_label.pk, team_id=observation.team_id).update(
+                            created_at=label_created_at, updated_at=label_updated_at
+                        )
+            except IntegrityError:
+                # A run we couldn't start is already persisting its own row for this (scanner, session);
+                # the recording isn't stranded, so report it as still finishing rather than 500ing.
+                outcome = WorkflowStartOutcome.ALREADY_RUNNING
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
             # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
             return Response(
@@ -948,16 +1035,23 @@ class ReplayObservationViewSet(
             return Response(status=204)
         input_serializer = ReplayObservationLabelSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
-        # team_id in the lookup keeps the query team-scoped.
-        label, _ = ReplayObservationLabel.objects.update_or_create(
-            observation=observation,
-            team_id=observation.team_id,
-            defaults={
-                "is_correct": input_serializer.validated_data["is_correct"],
-                "feedback": input_serializer.validated_data.get("feedback", ""),
-                "created_by": user,
-            },
-        )
+        # Lock the parent row so two concurrent first-time ratings serialize: unlocked, both see no label,
+        # both insert, and the loser hits the OneToOne constraint as a 500.
+        with transaction.atomic():
+            # `only("pk")`: the lock is the point, and the full row drags its JSONB columns along.
+            ReplayObservation.objects.select_for_update().only("pk").filter(
+                pk=observation.pk, team_id=observation.team_id
+            ).first()
+            # team_id in the lookup keeps the query team-scoped.
+            label, _ = ReplayObservationLabel.objects.update_or_create(
+                observation=observation,
+                team_id=observation.team_id,
+                defaults={
+                    "is_correct": input_serializer.validated_data["is_correct"],
+                    "feedback": input_serializer.validated_data.get("feedback", ""),
+                    "created_by": user,
+                },
+            )
         # The core calibration signal: thumbs up/down on whether the scanner got the session right.
         report_user_action(
             user,

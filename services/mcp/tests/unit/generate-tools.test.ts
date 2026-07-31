@@ -360,6 +360,52 @@ describe('generateToolCode with input_schema', () => {
         expect(result.code).toMatchSnapshot()
     })
 
+    it('applies list enrichment without inserting a path slash before a query-string prefix', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            enrich_url: '?tab=alerts&alert_id={id}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('`/things?tab=alerts&alert_id=${item.id}`')
+    })
+
+    it('applies list enrichment without inserting a path slash before a fragment prefix', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            list: true,
+            enrich_url: '#tab-{id}',
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('`/things#tab-${item.id}`')
+    })
+
     it('extends the custom schema with a selectable `fields` param and narrows the response', () => {
         const config: ToolConfig = {
             operation: 'things_list',
