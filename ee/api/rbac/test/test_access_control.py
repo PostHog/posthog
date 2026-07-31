@@ -17,6 +17,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role, RoleMembership
@@ -265,9 +266,8 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             "user_can_edit_access_levels": True,
             "minimum_access_level": "none",
             "maximum_access_level": "manager",
-            "inherited_resource": "notebook",
             # No project-wide rule for notebooks, so the resource's built-in default applies
-            "inherited_access_level": "editor",
+            "inherited_access": {"access_level": "editor", "reason": "Based on the default for notebooks"},
         }
 
     def test_get_access_controls_resolves_the_project_wide_level_it_falls_back_to(self):
@@ -285,8 +285,10 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
 
         res = self._get_access_controls()
         assert res.status_code == status.HTTP_200_OK, res.json()
-        assert res.json()["inherited_resource"] == "notebook"
-        assert res.json()["inherited_access_level"] == "viewer"
+        assert res.json()["inherited_access"] == {
+            "access_level": "viewer",
+            "reason": "Based on the default for notebooks",
+        }
 
     def test_inherited_resource_follows_the_resource_it_actually_inherits_from(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
@@ -297,8 +299,63 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         res = self.client.get(f"/api/projects/@current/session_recording_playlists/{playlist.short_id}/access_controls")
         assert res.status_code == status.HTTP_200_OK, res.json()
         # Playlists are gated by the session_recording rules, so that's what "no override" falls back to
-        assert res.json()["inherited_resource"] == "session_recording"
-        assert res.json()["inherited_access_level"] == "viewer"
+        assert res.json()["inherited_access"] == {
+            "access_level": "viewer",
+            "reason": "Based on the default for session recordings",
+        }
+
+    def test_a_synced_table_inherits_from_its_source_before_any_resource_wide_rule(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="test",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="brands", format="Parquet", team=self.team, external_data_source=source, columns={}
+        )
+        # A resource-wide rule that the source's own default must outrank
+        res = self._put_global_access_control({"resource": "warehouse_objects", "access_level": "editor"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        res = self.client.put(
+            f"/api/projects/@current/external_data_sources/{source.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self.client.get(f"/api/projects/@current/warehouse_tables/{table.id}/access_controls")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["inherited_access"] == {
+            "access_level": "viewer",
+            "reason": "Based on default access to its external data source",
+        }
+
+    def test_a_table_without_a_source_default_falls_back_to_the_resource_wide_rules(self):
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="test",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="brands", format="Parquet", team=self.team, external_data_source=source, columns={}
+        )
+        # No rule on the source itself: the sources-wide rule applies (the tables-wide tier is empty)
+        res = self._put_global_access_control({"resource": "external_data_source", "access_level": "viewer"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        res = self.client.get(f"/api/projects/@current/warehouse_tables/{table.id}/access_controls")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["inherited_access"] == {
+            "access_level": "viewer",
+            "reason": "Based on the default for data warehouse sources",
+        }
 
     def test_project_reports_no_inherited_level(self):
         self._org_membership(OrganizationMembership.Level.ADMIN)
@@ -306,8 +363,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
         # Nothing sits above a project, so it must report no inherited level — that absence is what
         # keeps "No override" an object-default affordance rather than a project-level one
-        assert res.json()["inherited_resource"] is None
-        assert res.json()["inherited_access_level"] is None
+        assert res.json()["inherited_access"] is None
 
     def test_change_rejected_if_not_org_admin(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)

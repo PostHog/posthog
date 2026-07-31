@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { AccessControlUIVersion, captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
+import { AccessControlUIVersion, captureAccessControlEvent } from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -1298,16 +1298,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
         inheritedAccess: [
             (s) => [s.accessControls],
             (accessControls: AccessControlResponseType | null): InheritedAccess | null => {
-                const inheritedResource = accessControls?.inherited_resource
-                const inheritedLevel = accessControls?.inherited_access_level
-                if (!inheritedResource || !inheritedLevel) {
+                const inherited = accessControls?.inherited_access
+                if (!inherited) {
                     return null
                 }
                 return {
-                    label: humanizeAccessControlLevel(inheritedLevel),
-                    // A configured project rule and the built-in fallback are both "the default
-                    // for <resource>", so one reason covers them without claiming someone set it
-                    reason: `Based on the default for ${pluralizeResource(inheritedResource)}`,
+                    label: humanizeAccessControlLevel(inherited.access_level),
+                    reason: inherited.reason,
                 }
             },
         ],

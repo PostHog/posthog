@@ -5898,11 +5898,10 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
-    /** Resource whose project-wide rules apply while the object carries no override of its own. */
-    inherited_resource?: APIScopeObject | null
-    /** The level that applies while the object carries no override: the project-wide rule for
-     * `inherited_resource`, or its built-in default when no rule is set. */
-    inherited_access_level?: AccessControlLevel | null
+    /** What applies while the object carries no default of its own, resolved server-side next to
+     * the runtime access resolution. `reason` is display copy, rendered verbatim. Null means
+     * nothing sits above this object, so there is no "No override" to offer. */
+    inherited_access?: { access_level: AccessControlLevel; reason: string } | null
 }
 
 export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'

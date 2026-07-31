@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, cast
 
 from rest_framework import exceptions, serializers, status
@@ -14,8 +15,6 @@ from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
-    RESOURCE_INHERITANCE_MAP,
-    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
     AccessSource,
     UserAccessControl,
@@ -25,6 +24,7 @@ from posthog.rbac.user_access_control import (
     highest_access_level,
     minimum_access_level,
     ordered_access_levels,
+    resolve_inherited_object_access,
 )
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
 
@@ -300,32 +300,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         if not is_resource_level:
             # The level this object falls back to when it carries no default of its own, so the UI
-            # can spell out what removing the override means. Follows RESOURCE_INHERITANCE_MAP
-            # because that's the resource the runtime check consults — a warehouse view is gated by
-            # the warehouse_objects rules, not by its own.
-            #
-            # None for a project is load-bearing: it is what stops the UI offering "No override" on
-            # a project's own default, which has nothing above it to fall back to. "No override"
-            # belongs to object defaults only — project-level access is configured in its own
-            # panel, which has no inherited tier to fall back to.
-            inherited_resource = (
-                None
-                if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS
-                else RESOURCE_INHERITANCE_MAP.get(resource, resource)
-            )
-            payload["inherited_resource"] = inherited_resource
-            payload["inherited_access_level"] = None
-            if inherited_resource:
-                everyone_rule = AccessControl.objects.filter(
-                    team=team,
-                    resource=inherited_resource,
-                    resource_id=None,
-                    organization_member=None,
-                    role=None,
-                ).first()
-                payload["inherited_access_level"] = (
-                    everyone_rule.access_level if everyone_rule else default_access_level(inherited_resource)
-                )
+            # can spell out what removing the override means. Resolved server-side, next to the
+            # runtime access resolution, so the two cannot drift; None means nothing sits above
+            # this object and the UI must not offer "No override".
+            inherited = resolve_inherited_object_access(team, resource, obj)
+            payload["inherited_access"] = asdict(inherited) if inherited else None
 
         return Response(payload)
 

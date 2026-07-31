@@ -507,6 +507,63 @@ def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Op
     return str(parent_id) if parent_id is not None else None
 
 
+@dataclass(frozen=True)
+class InheritedObjectAccess:
+    access_level: AccessControlLevel
+    # User-facing one-liner naming the rule the level comes from, rendered verbatim by the UI
+    reason: str
+
+
+def resolve_inherited_object_access(
+    team: Team, resource: APIScopeObject, obj: Model
+) -> Optional[InheritedObjectAccess]:
+    """The level `obj` falls back to while it carries no default of its own, and where it comes from.
+
+    This is the everyone perspective of `_object_access_level_from_rows` — the same tier order,
+    restricted to rules that apply to all members: the object's parent default (a table's source),
+    then the resource-wide rule, then the parent's resource-wide rule, then the built-in default.
+    Keep the two in step; the UI renders this next to a "No override" option whose runtime effect
+    is that resolution.
+
+    None means nothing sits above this object to fall back to, and the UI must not offer
+    "No override" — a project's own default is the case that hits.
+    """
+    if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+        return None
+    inherited_resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+
+    def everyone_level(res: APIScopeObject, res_id: Optional[str]) -> Optional[AccessControlLevel]:
+        rule = AccessControl.objects.filter(
+            team=team, resource=res, resource_id=res_id, organization_member=None, role=None
+        ).first()
+        return cast(AccessControlLevel, rule.access_level) if rule else None
+
+    parent = RESOURCE_FALLBACK_MAP.get(resource)
+    parent_id = fallback_parent_object_id(obj, parent) if parent else None
+    if parent and parent_id:
+        parent_level = everyone_level(parent, parent_id)
+        if parent_level:
+            return InheritedObjectAccess(parent_level, f"Based on default access to its {parent.replace('_', ' ')}")
+
+    resource_level = everyone_level(inherited_resource, None)
+    if resource_level:
+        return InheritedObjectAccess(
+            resource_level, f"Based on the default for {resource_to_display_name(inherited_resource)}"
+        )
+
+    if parent and parent_id:
+        parent_resource_level = everyone_level(parent, None)
+        if parent_resource_level:
+            return InheritedObjectAccess(
+                parent_resource_level, f"Based on the default for {resource_to_display_name(parent)}"
+            )
+
+    return InheritedObjectAccess(
+        default_access_level(inherited_resource),
+        f"Based on the default for {resource_to_display_name(inherited_resource)}",
+    )
+
+
 class UserAccessControl:
     """
     UserAccessControl provides functions for checking unified access to all resources and objects from a Project level downwards.
