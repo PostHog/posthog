@@ -2,6 +2,7 @@ import re
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Literal, Optional
+from urllib.parse import urlsplit
 
 from requests import Request, Response
 
@@ -95,9 +96,12 @@ class BaseNextUrlPaginator(BasePaginator):
         the sync instead of looping. Subclasses that consider a repeated link
         hostile (e.g. Baserow's user-controlled hosts) override this to raise.
         """
+        # Log only scheme/host/path: pagination links are echoed by the remote API and
+        # can carry credentials in their query string for query-param-authenticated sources.
+        redacted_url = urlsplit(next_url)._replace(query="", fragment="").geturl()
         logger.warning(
             "Pagination is not advancing (repeated next URL); treating as last page",
-            extra={"paginator": str(self), "next_url": next_url},
+            extra={"paginator": str(self), "next_url": redacted_url},
         )
         self._has_next_page = False
 
