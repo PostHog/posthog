@@ -1501,7 +1501,14 @@ def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_
     recorder.register_pr(REPO, 120, pr_object, _pr_files())
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
 
-    with override_instance_config("GITHUB_APP_SLUG", "posthog-code"):
+    with (
+        override_instance_config("GITHUB_APP_SLUG", "posthog-code"),
+        # An opted-in reviewer for the execution-time re-check (fail-closed when unregistered).
+        patch(
+            "products.stamphog.backend.facade.inbox_hooks._inbox_acting_reviewer_resolver",
+            lambda team_id, report_id, created_by: 777,
+        ),
+    ):
         process_inbox_pr_review(
             team_id=team.id,
             pr_url=f"https://github.com/{REPO}/pull/120",

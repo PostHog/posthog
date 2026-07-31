@@ -929,11 +929,17 @@ def _run_inbox_task(
     pr_url: str = f"https://github.com/{REPO}/pull/42",
     app_slug: str = APP_SLUG,
     repository: str = REPO,
+    resolver=lambda team_id, report_id, created_by: 777,
 ):
-    """Run process_inbox_pr_review with GitHub and Temporal mocked; returns (mock_execute, mock_client)."""
+    """Run process_inbox_pr_review with GitHub and Temporal mocked; returns (mock_execute, mock_client).
+
+    The resolver default models an opted-in reviewer; the execution-time re-check fails closed
+    without one (the process-global registry would otherwise resolve real, empty fixtures).
+    """
     with (
         team_scope(team_id),
         override_instance_config("GITHUB_APP_SLUG", app_slug),
+        patch(_RESOLVER_SLOT, resolver),
         patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),
         patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as mock_execute,
         patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
@@ -996,6 +1002,25 @@ def test_inbox_receiver_leg_reviews_the_draft_pr(team, repo_config):
         "acting_user_id": 777,
     }
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
+
+
+@pytest.mark.parametrize(
+    "resolver",
+    [None, lambda team_id, report_id, created_by: None],
+    ids=["no_resolver_registered", "everyone_opted_out"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_receiver_leg_skips_when_opt_in_is_revoked_before_execution(team, repo_config, resolver):
+    # The toggle is checked when the receiver queues the job, but broker latency and GitHub-fetch
+    # retries can stretch that gap to minutes. A reviewer who opted out in between must not still
+    # get the bot/draft bypass and a real approval — the execution-time re-check through the same
+    # resolver hook the webhook leg uses (fail-closed when unregistered) is what this pins.
+    _sync_repo_config(team.id, repo_config)
+    mock_execute, _ = _run_inbox_task(team.id, _inbox_pr(), resolver=resolver)
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0
+    mock_execute.assert_not_called()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

@@ -1146,7 +1146,8 @@ def process_inbox_pr_review(
     """Run the first hosted review of a self-driving inbox PR.
 
     Queued through the ``queue_inbox_pr_review`` facade after review_hog's TaskRun receiver found an
-    assigned reviewer with the ``stamphog_review_inbox_prs`` toggle on. The webhook path can't do the
+    assigned reviewer with the ``stamphog_review_inbox_prs`` toggle on — re-checked below at
+    execution time through the same resolver hook the webhook leg uses. The webhook path can't do the
     first review, because the PR is a bot-authored draft and that path filters both out, and the
     verdict has to land while the PR is still a draft so it's there at Inbox triage time. Later
     deliveries (synchronize / reopen / base retarget) re-review through the webhook carve-out.
@@ -1221,6 +1222,14 @@ def process_inbox_pr_review(
     # head against GitHub. repo_config.repository has GitHub's casing, which the fork check needs.
     if not _is_self_driving_pr(pr, repo_config.repository):
         logger.warning("stamphog_inbox_pr_not_self_driving", repository=repository, pr_number=pr_number)
+        return
+    # Execution-time opt-in re-check, mirroring the webhook leg: the receiver checked the toggle
+    # when it queued this job, but broker latency and the fetch retries above can stretch that gap
+    # to minutes — the strictest read belongs at the moment of action, so a revoked opt-in must not
+    # still earn the gate bypass. No registered resolver fails closed, same as the webhook leg.
+    resolver = get_inbox_acting_reviewer_resolver()
+    if resolver is None or resolver(team_id, signal_report_id, None) is None:
+        logger.info("stamphog_inbox_pr_opt_out", repository=repository, pr_number=pr_number)
         return
 
     inbox_review = {
