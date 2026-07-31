@@ -105,6 +105,23 @@ class TestSiteFunctions(TestCase):
 
         assert "console.log(inputs.greeting);" in result
 
+    @parameterized.expand(
+        [
+            ("templating_off", False),
+            ("templating_liquid", "liquid"),
+        ]
+    )
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_get_transpiled_function_treats_non_hog_input_as_literal(self, _name, templating, mock_transpile_fn):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs.payload); }"
+        self.hog_function.inputs_schema = [{"key": "payload", "type": "string", "templating": templating}]
+        self.hog_function.inputs = {"payload": {"value": '{"key": "value"}'}}
+
+        result = self.compile_and_run()
+
+        assert '"payload": "{\\"key\\": \\"value\\"}"' in result
+        assert "function getInputsKey" not in result
+
     def test_get_transpiled_function_with_syntax_error_in_source(self):
         self.hog_function.hog = 'export function onLoad() { console.log("Missing closing brace");'
 

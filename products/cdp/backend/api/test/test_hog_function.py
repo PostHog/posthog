@@ -10,6 +10,8 @@ from django.db import connection
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
+
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -1424,6 +1426,38 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["bytecode"] is None
         assert "Hello, site_destination" in response.json()["transpiled"]
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_create_site_destination_with_curly_braces_in_non_templated_input(self, mock_transpile_fn):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site Destination Function",
+                "hog": "export function onLoad() { console.log(inputs.payload); }",
+                "type": "site_destination",
+                "inputs_schema": [{"key": "payload", "type": "string", "templating": False}],
+                "inputs": {"payload": {"value": '{"key": "value"}'}},
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert '{\\"key\\": \\"value\\"}' in response.json()["transpiled"]
+
+    @patch("products.cdp.backend.api.hog_function.get_transpiled_function")
+    def test_site_destination_template_error_returns_400(self, mock_get_transpiled_function):
+        mock_get_transpiled_function.side_effect = HogQLSyntaxError("expected `}` to close template expression")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Site Destination Function",
+                "hog": "export function onLoad() { console.log(inputs.payload); }",
+                "type": "site_destination",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "expected `}` to close template expression" in response.json()["detail"]
 
     def test_cannot_modify_type_of_existing_hog_function(self):
         response = self.client.post(

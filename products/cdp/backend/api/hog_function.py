@@ -16,6 +16,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
+from posthog.hogql.errors import BaseHogQLError
+
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
@@ -418,10 +420,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                             hog=attrs["hog"],
                             filters=attrs["filters"],
                             inputs=attrs["inputs"],
+                            inputs_schema=attrs.get("inputs_schema") or [],
                         )
                     )
                 except TranspilerError:
                     raise serializers.ValidationError({"hog": "Error in TypeScript code"})
+                except BaseHogQLError as e:
+                    # A malformed input value (e.g. stray curly braces) fails here rather than in
+                    # per-input validation, and this error class isn't mapped to a 400 anywhere.
+                    raise serializers.ValidationError({"inputs": f"Invalid template: {e}"})
                 attrs["bytecode"] = None
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)

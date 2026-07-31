@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 
@@ -7,6 +8,21 @@ from posthog.cdp.validation import transpile_template_code
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import transpile
+
+
+def _non_hog_templated_keys(inputs_schema: list[dict] | None) -> set[str]:
+    """Keys the schema explicitly opts out of Hog templating — their values are literals."""
+    return {
+        str(schema["key"])
+        for schema in inputs_schema or []
+        if schema.get("key") is not None and schema.get("templating", True) not in (True, "hog")
+    }
+
+
+def _should_transpile(key: Any, value: Any, non_templated_keys: set[str]) -> bool:
+    if str(key) in non_templated_keys:
+        return False
+    return (isinstance(value, str) and "{" in value) or isinstance(value, dict | list)
 
 
 def get_transpiled_function(hog_function: HogFunction) -> str:
@@ -22,12 +38,14 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     compiler = JavaScriptCompiler()
 
+    non_templated_keys = _non_hog_templated_keys(hog_function.inputs_schema)
+
     all_inputs = hog_function.inputs or {}
     all_inputs = sorted(all_inputs.items(), key=lambda x: x[1].get("order", -1))
     for key, input in all_inputs:
         value = input.get("value")
         key_string = json.dumps(str(key) or "<empty>")
-        if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
+        if _should_transpile(key, value, non_templated_keys):
             base_code = transpile_template_code(value, compiler)
             inputs_switch += f"case {key_string}: return {base_code};\n"
             inputs_append.append(f"inputs[{key_string}] = getInputsKey({json.dumps(key)});")
@@ -69,6 +87,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
         mapping_inputs = mapping.get("inputs", {})
         mapping_inputs_schema = mapping.get("inputs_schema", [])
+        mapping_non_templated_keys = _non_hog_templated_keys(mapping_inputs_schema)
         mapping_filters_expr = hog_function_filters_to_expr(mapping.get("filters", {}) or {}, hog_function.team, {})
         mapping_filters_code = compiler.visit(mapping_filters_expr)
 
@@ -83,7 +102,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
         for key, input in mapping_inputs.items():
             value = input.get("value") if input is not None else schema.get("default", None)
             key_string = json.dumps(str(key) or "<empty>")
-            if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
+            if _should_transpile(key, value, mapping_non_templated_keys):
                 base_code = transpile_template_code(value, compiler)
                 mapping_code += (
                     f"try {{ newInputs[{json.dumps(key)}] = {base_code}; }} catch (e) {{ console.error(e) }}\n"
