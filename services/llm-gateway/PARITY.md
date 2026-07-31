@@ -73,6 +73,8 @@ These are compatibility checks, not automatic blockers:
 
 ## Migration checklist
 
+Run `/migrating-llm-gateway-callers` to inventory and convert a caller.
+
 1. Describe the caller and identify which identity controls its access and spend.
 2. Check every relevant contract above against the real request and response.
 3. Start with a shared Go-capable builder where one exists.
@@ -81,7 +83,7 @@ These are compatibility checks, not automatic blockers:
 
 ## Refreshing this document
 
-Run `/migrating-llm-gateway-callers` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file.
+Run `/auditing-llm-gateway-parity` after either gateway changes auth, attribution, billing, endpoints, providers, models, routing, or event metadata. The skill audits implementation sources in both repositories and updates this file without migrating callers.
 
 Last verified on 2026-07-31 against:
 
