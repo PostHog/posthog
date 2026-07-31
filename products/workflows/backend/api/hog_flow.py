@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
@@ -86,7 +87,6 @@ from products.workflows.backend.api.message_assets import (
     fetch_message_assets,
 )
 from products.workflows.backend.api.publish_impact import build_publish_impact
-from products.workflows.backend.models.email_reputation import EmailReputationSnapshot
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -1139,87 +1139,62 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class EmailReputationSnapshotSerializer(serializers.ModelSerializer):
-    """One email deliverability reputation snapshot (per workflow or per team, per daily evaluation run)."""
+def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, float | int]:
+    # Sends are counted at send time but bounces/complaints at webhook time, so feedback arriving
+    # just inside the window for sends just outside it can push the ratio past 1 (worst case: a
+    # workflow that recently stopped sending, with trailing feedback from a prior blast). Clamp to
+    # 100% — the counter metrics can't attribute feedback to its send date, and past 100% the
+    # number stops meaning anything.
+    return {
+        "bounce_rate": min(1.0, bounced / sent) if sent else 0.0,
+        "complaint_rate": min(1.0, complained / sent) if sent else 0.0,
+        "emails_sent": sent,
+    }
 
-    scope = serializers.ChoiceField(
-        choices=EmailReputationSnapshot.Scope.choices,
-        read_only=True,
-        help_text="'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.",
-    )
-    state = serializers.ChoiceField(
-        choices=EmailReputationSnapshot.State.choices,
-        read_only=True,
-        help_text=(
-            "'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a "
-            "warning threshold), or 'critical' (over a critical threshold)."
-        ),
-    )
+
+class EmailSendingRatesSerializer(serializers.Serializer):
+    """Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics."""
+
     bounce_rate = serializers.FloatField(
         read_only=True,
-        help_text="Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded.",
-    )
-    complaint_rate = serializers.FloatField(
-        read_only=True, help_text="Spam complaints / emails sent over the evaluated volume (0-1)."
-    )
-    emails_sent = serializers.IntegerField(
-        read_only=True,
         help_text=(
-            "Emails in the evaluated window: at least the target's last day of sends and at least "
-            "the configured representative volume (SES-style), whichever covers more. 0 means no "
-            "recent sending."
+            "Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS "
+            "counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. "
+            "Bounces are counted when the feedback arrives, so the ratio is approximate at the "
+            "window boundary and capped at 1."
         ),
     )
-    evaluated_at = serializers.DateTimeField(
-        read_only=True, help_text="When this snapshot was computed; one snapshot exists per target per run."
+    complaint_rate = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted "
+            "when the feedback arrives, so the ratio is approximate at the window boundary and "
+            "capped at 1."
+        ),
     )
-
-    class Meta:
-        model = EmailReputationSnapshot
-        fields = [
-            "scope",
-            "state",
-            "bounce_rate",
-            "complaint_rate",
-            "emails_sent",
-            "evaluated_at",
-        ]
-        read_only_fields = fields
+    emails_sent = serializers.IntegerField(read_only=True, help_text="Emails sent in the last 30 days.")
 
 
-class WorkflowEmailReputationSnapshotSerializer(EmailReputationSnapshotSerializer):
-    """A workflow-scoped reputation snapshot, annotated with the workflow it belongs to."""
-
-    hog_flow_id = serializers.UUIDField(read_only=True, help_text="The workflow this snapshot is for.")
+class WorkflowEmailSendingRatesSerializer(EmailSendingRatesSerializer):
+    hog_flow_id = serializers.UUIDField(read_only=True, help_text="The workflow these rates are for.")
     hog_flow_name = serializers.CharField(
-        read_only=True, source="hog_flow.name", allow_null=True, help_text="Display name of the workflow."
+        read_only=True, allow_blank=True, help_text="Display name of the workflow; empty for unnamed workflows."
     )
-    history = serializers.SerializerMethodField(
-        help_text="This workflow's snapshots from the last 7 days (oldest first, one per daily evaluation run), including the latest."
-    )
-
-    @extend_schema_field(EmailReputationSnapshotSerializer(many=True))
-    def get_history(self, obj: EmailReputationSnapshot) -> list[dict]:
-        rows = self.context.get("workflow_history", {}).get(obj.hog_flow_id, [])
-        return list(EmailReputationSnapshotSerializer(rows, many=True).data)
-
-    class Meta(EmailReputationSnapshotSerializer.Meta):
-        fields = [*EmailReputationSnapshotSerializer.Meta.fields, "hog_flow_id", "hog_flow_name", "history"]
-        read_only_fields = fields
 
 
 class TeamEmailReputationResponseSerializer(serializers.Serializer):
-    reputation = EmailReputationSnapshotSerializer(
+    reputation = EmailSendingRatesSerializer(
         allow_null=True,
         read_only=True,
-        help_text="Latest project-wide email reputation snapshot across all workflows; null until first evaluated.",
+        help_text=(
+            "Project-wide rates across all workflow email in the last 30 days (including sends from "
+            "since-deleted workflows); null when nothing was sent."
+        ),
     )
-    workflows = WorkflowEmailReputationSnapshotSerializer(
+    workflows = WorkflowEmailSendingRatesSerializer(
         many=True,
         read_only=True,
-        help_text=(
-            "Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows."
-        ),
+        help_text="Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50.",
     )
     email_sending_suspended = serializers.BooleanField(
         read_only=True,
@@ -3215,27 +3190,12 @@ class HogFlowViewSet(
 
         return Response({"deleted": deleted_count})
 
-    # Severity order for the worst-offender sort; complaint rate breaks ties first (it's the more
-    # dangerous SES signal, with thresholds ~20x lower than bounce).
-    _REPUTATION_STATE_SEVERITY = {
-        EmailReputationSnapshot.State.CRITICAL: 0,
-        EmailReputationSnapshot.State.WARNING: 1,
-        EmailReputationSnapshot.State.HEALTHY: 2,
-        EmailReputationSnapshot.State.INSUFFICIENT_DATA: 3,
-    }
-
-    # Cap the per-workflow breakdown: without it, hundreds of email workflows each carrying a
-    # week of history make one unbounded response. Worst-first sorting means the cut tail is the
-    # healthiest workflows.
+    # Cap the per-workflow breakdown to bound the response; worst-first sorting means the cut
+    # tail is the healthiest workflows, and search reaches past the cap.
     WORKFLOW_REPUTATION_LIMIT = 50
-    # Workflows drop off the breakdown once the evaluator stops producing snapshots for them
-    # (i.e. no sends within its lookback), so a long-dead sender's last bad rate isn't pinned
-    # to the top of the list forever.
-    WORKFLOW_REPUTATION_RECENCY_DAYS = 7
-    # How far back each listed workflow's per-day history reaches. Deliberately short: history
-    # ships inline on the reputation endpoint (workflows x days rows per response), so widening
-    # this fans out the payload for every workflow listed.
-    WORKFLOW_REPUTATION_HISTORY_DAYS = 7
+    # Window for the on-the-fly rates. 30 days matches how the industry quotes bounce/complaint
+    # thresholds (e.g. "0.1% complaints per 30 days").
+    REPUTATION_WINDOW_DAYS = 30
 
     @extend_schema(
         parameters=[
@@ -3254,71 +3214,107 @@ class HogFlowViewSet(
     @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="reputation")
     def team_reputation(self, request: Request, **kwargs) -> Response:
         """
-        Email deliverability reputation for this project: the latest project-wide snapshot and the
-        latest recent snapshot per workflow (worst first, capped). Written daily by the Node
-        evaluator; everything is null/empty until the first run.
+        Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
+        the fly from app metrics: a project-wide aggregate plus per-workflow rows (worst first,
+        capped). Display only — reputation judgment and enforcement live with AWS SES tenant
+        management, which attributes sends per team.
         """
         # The project-wide aggregate pools ALL workflows' email (that's its point), so it can't be
         # filtered per object grant — only members with project-wide workflow read access get it.
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
         can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
 
-        # for_team(canonical=True): rows are keyed by the raw team_id the Node evaluator writes,
-        # which may be a child environment id that canonical resolution would rewrite and miss.
-        latest = (
-            EmailReputationSnapshot.objects.for_team(self.team_id, canonical=True)
-            .filter(hog_flow__isnull=True)
-            .order_by("-evaluated_at")
-            .first()
-            if can_read_all_workflows
+        # Cached briefly: the UI reloads per search keystroke, but search filters in Python — the
+        # ClickHouse totals are search-independent. Session-authenticated requests bypass the
+        # default (personal-API-key-only) ClickHouse throttles, so without this a member could
+        # re-run the 30-day aggregation on every request.
+        totals_cache_key = f"workflows_email_reputation_totals_{self.team_id}"
+        totals_by_source = cache.get(totals_cache_key)
+        if totals_by_source is None:
+            after = timezone.now() - timedelta(days=self.REPUTATION_WINDOW_DAYS)
+            totals_by_source = fetch_app_metric_totals_by_source(
+                team_id=self.team_id,
+                app_source="hog_flow",
+                after=after,
+                name=["email_sent", "email_bounced_hard", "email_blocked"],
+            )
+            cache.set(totals_cache_key, totals_by_source, 60)
+
+        # email_blocked is how SES complaint events are recorded (see the plugin server's SES
+        # webhook handler), hence "complained".
+        team_sent = sum(counts.get("email_sent", 0) for counts in totals_by_source.values())
+        team_bounced = sum(counts.get("email_bounced_hard", 0) for counts in totals_by_source.values())
+        team_complained = sum(counts.get("email_blocked", 0) for counts in totals_by_source.values())
+        reputation = (
+            _email_sending_rates(team_sent, team_bounced, team_complained)
+            if can_read_all_workflows and team_sent > 0
             else None
         )
 
-        # One row per workflow per run over the history window, grouped in Python so each workflow
-        # entry carries its recent history alongside the latest snapshot.
-        now = timezone.now()
-        workflow_rows = (
-            EmailReputationSnapshot.objects.for_team(self.team_id, canonical=True)
-            .filter(
-                hog_flow__isnull=False,
-                evaluated_at__gte=now - timedelta(days=self.WORKFLOW_REPUTATION_HISTORY_DAYS),
-            )
-            .order_by("hog_flow_id", "evaluated_at")
-            .select_related("hog_flow")
+        # Attribute sources to workflows: metrics are recorded under the workflow id for
+        # event-triggered runs and under the batch job id for batch runs — resolve both and fold
+        # batch-job counts into the parent workflow. Sources matching neither (deleted workflows,
+        # non-UUID ids) still count toward the team aggregate above.
+        source_ids = [source_id for source_id in totals_by_source if _looks_like_uuid(source_id)]
+        team_queryset = self.get_queryset()
+        # Only names are needed and HogFlow rows are wide (full step graphs in edges/actions/draft),
+        # so don't hydrate model instances for an uncapped id list. Unnamed flows serialize as "" to
+        # keep hog_flow_name a plain string in the generated types.
+        names_by_flow_id = {
+            str(flow_id): name or ""
+            for flow_id, name in team_queryset.filter(id__in=source_ids).values_list("id", "name")
+        }
+        unmatched_ids = [source_id for source_id in source_ids if source_id not in names_by_flow_id]
+        batch_job_to_flow = {
+            str(batch_job_id): str(flow_id)
+            for batch_job_id, flow_id in HogFlowBatchJob.objects.filter(
+                team_id=self.team_id, id__in=unmatched_ids
+            ).values_list("id", "hog_flow_id")
+        }
+        missing_flow_ids = set(batch_job_to_flow.values()) - set(names_by_flow_id)
+        names_by_flow_id.update(
+            {
+                str(flow_id): name or ""
+                for flow_id, name in team_queryset.filter(id__in=missing_flow_ids).values_list("id", "name")
+            }
         )
-        # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
-        # client-side could never find a healthy workflow beyond the cap.
-        search = (request.query_params.get("search") or "").strip()
-        if search:
-            workflow_rows = workflow_rows.filter(hog_flow__name__icontains=search)
-        history_by_flow: dict[uuid_mod.UUID, list[EmailReputationSnapshot]] = {}
-        for row in workflow_rows:
-            if row.hog_flow_id is None:  # can't happen (hog_flow__isnull=False); narrows the nullable FK for mypy
+
+        counts_by_flow: dict[str, dict[str, int]] = {}
+        for source_id, counts in totals_by_source.items():
+            flow_id = source_id if source_id in names_by_flow_id else batch_job_to_flow.get(source_id)
+            if flow_id is None or flow_id not in names_by_flow_id:
                 continue
-            history_by_flow.setdefault(row.hog_flow_id, []).append(row)
+            folded = counts_by_flow.setdefault(flow_id, {"sent": 0, "bounced": 0, "complained": 0})
+            folded["sent"] += counts.get("email_sent", 0)
+            folded["bounced"] += counts.get("email_bounced_hard", 0)
+            folded["complained"] += counts.get("email_blocked", 0)
 
         # Mirror metrics_global: only surface workflows the caller can see, so reputation doesn't
         # leak names/volumes of access-controlled workflows the list endpoint hides.
-        accessible_ids = set(
-            self.user_access_control.filter_queryset_by_access_level(self.get_queryset()).values_list("id", flat=True)
-        )
-        recency_cutoff = now - timedelta(days=self.WORKFLOW_REPUTATION_RECENCY_DAYS)
-        workflow_snapshots = [
-            rows[-1]
-            for flow_id, rows in history_by_flow.items()
-            if flow_id in accessible_ids and rows[-1].evaluated_at >= recency_cutoff
-        ]
-        # Sort by raw state string (not the State enum constructor, which raises on values a newer
-        # evaluator may write before this code deploys); unknown states sort last.
-        severity = {state.value: rank for state, rank in self._REPUTATION_STATE_SEVERITY.items()}
-        workflow_snapshots.sort(
-            key=lambda s: (
-                severity.get(s.state, 99),
-                -s.complaint_rate,
-                -s.bounce_rate,
+        accessible_ids = {
+            str(flow_id)
+            for flow_id in self.user_access_control.filter_queryset_by_access_level(team_queryset).values_list(
+                "id", flat=True
             )
-        )
-        workflow_snapshots = workflow_snapshots[: self.WORKFLOW_REPUTATION_LIMIT]
+        }
+        # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
+        # client-side could never find a healthy workflow beyond the cap.
+        search = (request.query_params.get("search") or "").strip().lower()
+        workflow_rows: list[dict[str, Any]] = [
+            {
+                "hog_flow_id": flow_id,
+                "hog_flow_name": names_by_flow_id[flow_id],
+                **_email_sending_rates(counts["sent"], counts["bounced"], counts["complained"]),
+            }
+            for flow_id, counts in counts_by_flow.items()
+            if flow_id in accessible_ids
+            and counts["sent"] > 0
+            and (not search or search in names_by_flow_id[flow_id].lower())
+        ]
+        # Complaint rate breaks ties first: it's the more dangerous SES signal, with thresholds
+        # ~20x lower than bounce.
+        workflow_rows.sort(key=lambda row: (-row["complaint_rate"], -row["bounce_rate"], -row["emails_sent"]))
+        workflow_rows = workflow_rows[: self.WORKFLOW_REPUTATION_LIMIT]
 
         # Shown to every project member regardless of per-object grants: a suspension stops
         # everyone's email, so hiding it would just leave silent send failures unexplained.
@@ -3333,13 +3329,12 @@ class HogFlowViewSet(
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
-                    "reputation": latest,
-                    "workflows": workflow_snapshots,
+                    "reputation": reputation,
+                    "workflows": workflow_rows,
                     "email_sending_suspended": suspended_at is not None,
                     "email_sending_suspended_at": suspended_at,
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
-                },
-                context={"workflow_history": history_by_flow},
+                }
             ).data
         )
 
