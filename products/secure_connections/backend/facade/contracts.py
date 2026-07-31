@@ -14,6 +14,8 @@ class SecureConnection:
     name: str
     connection_type: str
     connection_status: str
+    selector_kind: str
+    selector: str
 
 
 @dataclass(frozen=True)

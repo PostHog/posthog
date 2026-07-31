@@ -314,6 +314,14 @@ const sharedSecureH2Agent = new Agent({
 const sharedInsecureAgent = new InsecureAgent()
 
 /**
+ * Build a dispatcher for a server-authorized transport such as an authenticated CONNECT tunnel.
+ * The caller controls the socket destination; never expose this to user-provided fetch options.
+ */
+export function createTrustedDispatcher(connect: Agent.Options['connect']): Agent {
+    return new Agent({ connect })
+}
+
+/**
  * Reads a response body stream and destroys it immediately after to release
  * the underlying socket and its off-heap buffers. Without explicit destruction,
  * undici holds onto these buffers until GC, and V8 never returns the ~64MB

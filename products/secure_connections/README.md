@@ -55,3 +55,35 @@ Connections are identified by the UUID returned by the control plane.
 Future data warehouse sources, CDP destinations, and MCP server installations can store this UUID as a soft reference on their existing team-owned configuration.
 At execution time, trusted workers should exchange the team ID and connection UUID for a short-lived local forwarder while keeping the integration's existing application credentials and TLS configuration.
 Workers must fail closed if the forwarder cannot be created.
+
+## CDP authorization and magic hostnames
+
+Project admins explicitly approve individual hostname-routed services for CDP on the Secure connections page.
+Approvals are denied by default and stored in the project's `TeamSecureConnectionsConfig` extension.
+
+An approved service can be addressed from destination Hog code with its stable magic hostname:
+
+```text
+<connection-uuid>.secure-connections.internal
+```
+
+The CDP worker recognizes this suffix, checks the project-scoped approval directly in Postgres, and mints a
+short-lived workload grant bound to the project, connection, and `cdp-cyclotron-worker` subject. It then asks the
+Burrow worker for an authenticated TCP tunnel using this contract:
+
+```http
+CONNECT /v1/connections/<connection-uuid>
+Authorization: Bearer <workload-grant>
+```
+
+After the `200 Connection Established` response, HTTP bytes travel through the raw TCP stream. The worker preserves
+the advertised hostname in the HTTP `Host` header. Application credentials still come from the destination
+configuration. Missing approval, revoked approval, worker rejection, and transport failure all fail closed; CDP never
+falls back to a direct request.
+
+This first CDP slice supports hostname-routed HTTP services. End-to-end HTTPS requires a port-routed Connection plus
+explicit TLS server-name metadata, so HTTPS magic URLs are rejected clearly instead of attempting a broken or insecure
+fallback.
+
+The PostHog integration is tested against an in-process mock of this worker contract. Burrow support for the CONNECT
+endpoint is tracked separately.

@@ -29,6 +29,10 @@ export interface SecureConnectionApi {
     connection_type: string
     /** Current status reported by the connection service. */
     connection_status: string
+    /** How requests are selected by the customer-side proxy. */
+    selector_kind: string
+    /** Public routing selector advertised for this connection. */
+    selector: string
 }
 
 export interface SecureConnectionStatusApi {
@@ -56,6 +60,17 @@ export interface SecureConnectionEnrollmentApi {
     tenant_id: string
     /** Control server URL used by the connection proxy. */
     control_url: string
+}
+
+export type SecureConnectionApprovalsApiCdpApprovedConnections = { [key: string]: { [key: string]: unknown } }
+
+export interface SecureConnectionApprovalsApi {
+    cdp_approved_connections: SecureConnectionApprovalsApiCdpApprovedConnections
+}
+
+export interface SecureConnectionApprovalApi {
+    connection_id: string
+    approved: boolean
 }
 
 export interface SecureConnectionTestApi {

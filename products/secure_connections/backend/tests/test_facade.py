@@ -1,11 +1,14 @@
 import json
 
+from posthog.test.base import BaseTest
+
 from django.test import SimpleTestCase, override_settings
 
 import responses
 
 from products.secure_connections.backend.facade import api
-from products.secure_connections.backend.facade.contracts import SecureConnectionState
+from products.secure_connections.backend.facade.contracts import SecureConnection, SecureConnectionState
+from products.secure_connections.backend.models import TeamSecureConnectionsConfig
 
 
 @override_settings(
@@ -43,6 +46,7 @@ class TestSecureConnectionsFacade(SimpleTestCase):
                         "name": "internal-api",
                         "kind": "http",
                         "selector_kind": "hostname",
+                        "selector": "internal-api.local",
                         "status": "active",
                     },
                     {
@@ -50,6 +54,7 @@ class TestSecureConnectionsFacade(SimpleTestCase):
                         "name": "old-api",
                         "kind": "http",
                         "selector_kind": "hostname",
+                        "selector": "old-api.local",
                         "status": "disabled",
                     },
                 ]
@@ -82,6 +87,7 @@ class TestSecureConnectionsFacade(SimpleTestCase):
                         "name": "warehouse",
                         "kind": "",
                         "selector_kind": "port",
+                        "selector": "5432",
                         "status": "active",
                     }
                 ]
@@ -136,3 +142,35 @@ class TestSecureConnectionsFacade(SimpleTestCase):
             "scopes": ["advertise"],
             "ttl_seconds": 31536000,
         }
+
+
+class TestSecureConnectionApprovals(BaseTest):
+    def test_cdp_access_is_denied_by_default_and_can_be_approved_then_revoked(self) -> None:
+        connection = SecureConnection(
+            id="7c18c57e-f1bb-4309-b879-42cb9a8c079e",
+            name="internal-api",
+            connection_type="http",
+            connection_status="active",
+            selector_kind="hostname",
+            selector="api.internal.example",
+        )
+
+        assert api.get_cdp_approved_connections(self.team.id) == {}
+
+        api.set_cdp_connection_approval(self.team.id, connection, approved=True)
+
+        assert api.get_cdp_approved_connections(self.team.id) == {
+            connection.id: {
+                "name": "internal-api",
+                "selector_kind": "hostname",
+                "selector": "api.internal.example",
+            }
+        }
+        assert (
+            TeamSecureConnectionsConfig.objects.get(team=self.team).cdp_approved_connections[connection.id]["selector"]
+            == "api.internal.example"
+        )
+
+        api.set_cdp_connection_approval(self.team.id, connection, approved=False)
+
+        assert api.get_cdp_approved_connections(self.team.id) == {}

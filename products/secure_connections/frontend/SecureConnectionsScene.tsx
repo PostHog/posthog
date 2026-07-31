@@ -32,9 +32,18 @@ function connectionStateLabel(connectionState: string): string {
 
 function SecureConnectionsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { connectionStatus, connectionStatusLoading, enrollment, enrollmentLoading, testResult, testResultLoading } =
-        useValues(secureConnectionsLogic)
-    const { createEnrollment, loadConnectionStatus, testConnection } = useActions(secureConnectionsLogic)
+    const {
+        cdpApprovals,
+        cdpApprovalsLoading,
+        connectionStatus,
+        connectionStatusLoading,
+        enrollment,
+        enrollmentLoading,
+        testResult,
+        testResultLoading,
+    } = useValues(secureConnectionsLogic)
+    const { createEnrollment, loadConnectionStatus, setCdpApproval, testConnection } =
+        useActions(secureConnectionsLogic)
 
     const isLocalDevelopment = !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug
 
@@ -52,6 +61,9 @@ function SecureConnectionsScene(): JSX.Element {
   --set advertise.token=${enrollment.advertisement_token} \\
   --values connections.yaml`
         : ''
+    const unavailableApprovedConnectionIds = Object.keys(cdpApprovals.cdp_approved_connections).filter(
+        (connectionId) => !connectionStatus?.connections.some((connection) => connection.id === connectionId)
+    )
 
     return (
         <SceneContent>
@@ -119,10 +131,90 @@ function SecureConnectionsScene(): JSX.Element {
                                 dataIndex: 'connection_status',
                                 render: (value) => <LemonTag type="success">{value}</LemonTag>,
                             },
+                            {
+                                title: 'Magic hostname',
+                                render: (_, connection) => <code>{connection.id}.secure-connections.internal</code>,
+                            },
+                            {
+                                title: 'CDP access',
+                                render: (_, connection) => {
+                                    const approved = !!cdpApprovals.cdp_approved_connections[connection.id]
+                                    const compatible = connection.selector_kind === 'hostname'
+                                    return (
+                                        <LemonButton
+                                            size="small"
+                                            type={approved ? 'secondary' : 'primary'}
+                                            status={approved ? 'danger' : 'default'}
+                                            loading={cdpApprovalsLoading}
+                                            disabledReason={
+                                                compatible ? undefined : 'CDP currently supports HTTP services only.'
+                                            }
+                                            onClick={() => setCdpApproval(connection.id, !approved)}
+                                        >
+                                            {approved
+                                                ? 'Revoke CDP access'
+                                                : compatible
+                                                  ? 'Allow CDP access'
+                                                  : 'Not compatible'}
+                                        </LemonButton>
+                                    )
+                                },
+                            },
                         ]}
                     />
                 </SceneSection>
             ) : null}
+
+            {unavailableApprovedConnectionIds.length ? (
+                <SceneSection title="Unavailable CDP approvals" titleSize="sm">
+                    <LemonBanner type="warning">
+                        <p>
+                            These approved services are no longer being advertised. CDP cannot use them, but their
+                            approval remains until an admin revokes it.
+                        </p>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                            {unavailableApprovedConnectionIds.map((connectionId) => (
+                                <LemonButton
+                                    key={connectionId}
+                                    size="small"
+                                    type="secondary"
+                                    status="danger"
+                                    loading={cdpApprovalsLoading}
+                                    onClick={() => setCdpApproval(connectionId, false)}
+                                >
+                                    Revoke {connectionId}
+                                </LemonButton>
+                            ))}
+                        </div>
+                    </LemonBanner>
+                </SceneSection>
+            ) : null}
+
+            <SceneSection title="Using Secure connections from CDP" titleSize="sm">
+                <div className="space-y-3 max-w-3xl">
+                    <p>
+                        Project admins must explicitly allow each advertised service before a CDP destination can use
+                        it. Access is denied by default and can be revoked here at any time.
+                    </p>
+                    <p>
+                        In destination code, replace the private hostname with the service's magic hostname shown above.
+                        PostHog recognizes it, checks this project's CDP approval, and opens a short-lived,
+                        authenticated tunnel through the connection worker. Existing request headers and credentials are
+                        still used to authenticate to the private service.
+                    </p>
+                    <CodeSnippet
+                        language={Language.JavaScript}
+                    >{`fetch('http://<connection-id>.secure-connections.internal/path', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer <service-api-key>' },
+  body: JSON.stringify({ event: 'example' })
+})`}</CodeSnippet>
+                    <LemonBanner type="info">
+                        A Secure connection only grants network reachability. It does not give the destination access to
+                        the private service's application credentials.
+                    </LemonBanner>
+                </div>
+            </SceneSection>
 
             <SceneSection title="Set up a connection proxy" titleSize="sm">
                 <div className="space-y-4 max-w-3xl">

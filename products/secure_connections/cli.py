@@ -16,6 +16,8 @@ DEMO_ENVIRONMENT = {
     "SECURE_CONNECTION_PUBLIC_CONTROL_URL": "http://burrow:8080",
     "SECURE_CONNECTION_ADMIN_TOKEN": "demo-admin-token",
     "SECURE_CONNECTION_DEMO_TENANT_SLUG": "acme",
+    "SECURE_CONNECTION_WORKER_URL": "http://127.0.0.1:18090",
+    "SECURE_CONNECTION_WORKLOAD_SECRET": "demo-workload-secret-at-least-32-bytes",
 }
 
 

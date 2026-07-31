@@ -305,6 +305,7 @@ class MprocsGenerator(ConfigGenerator):
                 proc_config = self._add_secure_connections_env(proc_config, resolved)
             if name == "nodejs":
                 proc_config = self._add_personhog_env(proc_config, resolved)
+                proc_config = self._add_secure_connections_env(proc_config, resolved)
 
             # Special handling for temporal-worker - install uv groups when capabilities require them
             if name == "temporal-worker":
@@ -489,6 +490,8 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
                 "SECURE_CONNECTION_PUBLIC_CONTROL_URL": "http://burrow:8080",
                 "SECURE_CONNECTION_ADMIN_TOKEN": "demo-admin-token",
                 "SECURE_CONNECTION_DEMO_TENANT_SLUG": "acme",
+                "SECURE_CONNECTION_WORKER_URL": "http://127.0.0.1:18090",
+                "SECURE_CONNECTION_WORKLOAD_SECRET": "demo-workload-secret-at-least-32-bytes",
             }
             env_exports = " && ".join(f"export {key}='{value}'" for key, value in env.items())
             proc_config["shell"] = f"{env_exports} && {original_shell}"

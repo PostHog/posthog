@@ -8,7 +8,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { SecureConnectionEnrollmentApi, SecureConnectionStatusApi, SecureConnectionTestApi } from './api.schemas'
+import type {
+    SecureConnectionApprovalApi,
+    SecureConnectionApprovalsApi,
+    SecureConnectionEnrollmentApi,
+    SecureConnectionStatusApi,
+    SecureConnectionTestApi,
+} from './api.schemas'
 
 export const getSecureConnectionsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/secure_connections/`
@@ -41,6 +47,43 @@ export const secureConnectionsCreate = async (
     return apiMutator<SecureConnectionEnrollmentApi>(getSecureConnectionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSecureConnectionsCdpApprovalsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/secure_connections/cdp_approvals/`
+}
+
+/**
+ * List or update the secure connections approved for CDP destinations.
+ */
+export const secureConnectionsCdpApprovalsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SecureConnectionApprovalsApi> => {
+    return apiMutator<SecureConnectionApprovalsApi>(getSecureConnectionsCdpApprovalsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSecureConnectionsCdpApprovalsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/secure_connections/cdp_approvals/`
+}
+
+/**
+ * List or update the secure connections approved for CDP destinations.
+ */
+export const secureConnectionsCdpApprovalsCreate = async (
+    projectId: string,
+    secureConnectionApprovalApi: SecureConnectionApprovalApi,
+    options?: RequestInit
+): Promise<SecureConnectionApprovalsApi> => {
+    return apiMutator<SecureConnectionApprovalsApi>(getSecureConnectionsCdpApprovalsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(secureConnectionApprovalApi),
     })
 }
 

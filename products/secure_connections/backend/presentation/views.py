@@ -5,7 +5,7 @@ from django.conf import settings
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,7 +20,10 @@ from products.secure_connections.backend.client import (
     SecureConnectionServiceNotConfigured,
 )
 from products.secure_connections.backend.facade import api
+from products.secure_connections.backend.facade.contracts import SecureConnection
 from products.secure_connections.backend.presentation.serializers import (
+    SecureConnectionApprovalSerializer,
+    SecureConnectionApprovalsSerializer,
     SecureConnectionEnrollmentSerializer,
     SecureConnectionStatusSerializer,
     SecureConnectionTestSerializer,
@@ -111,3 +114,46 @@ class SecureConnectionViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             else "No active connection was found. Start your connection proxy and try again."
         )
         return Response(SecureConnectionTestSerializer({"success": success, "detail": detail}).data)
+
+    @extend_schema(
+        request=SecureConnectionApprovalSerializer,
+        responses={200: SecureConnectionApprovalsSerializer},
+        description="List or update the secure connections approved for CDP destinations.",
+    )
+    @action(methods=["GET", "POST"], detail=False)
+    def cdp_approvals(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.method == "POST":
+            serializer = SecureConnectionApprovalSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            connection_id = str(serializer.validated_data["connection_id"])
+            approved = serializer.validated_data["approved"]
+            if approved:
+                try:
+                    connection_status = api.get_status(self.team_id)
+                except SecureConnectionServiceError as error:
+                    self._handle_service_error(error)
+                connection = next((item for item in connection_status.connections if item.id == connection_id), None)
+                if connection is None:
+                    raise ValidationError({"connection_id": "This active connection is not available to this project."})
+                if connection.selector_kind != "hostname":
+                    raise ValidationError({"connection_id": "CDP can only use hostname-routed HTTP services."})
+            else:
+                approvals = api.get_cdp_approved_connections(self.team_id)
+                existing = approvals.get(connection_id)
+                if existing is None:
+                    raise ValidationError({"connection_id": "This connection is not approved for CDP."})
+                connection = SecureConnection(
+                    id=connection_id,
+                    name=existing["name"],
+                    connection_type="",
+                    connection_status="",
+                    selector_kind=existing["selector_kind"],
+                    selector=existing["selector"],
+                )
+            api.set_cdp_connection_approval(self.team_id, connection, approved=approved)
+
+        return Response(
+            SecureConnectionApprovalsSerializer(
+                {"cdp_approved_connections": api.get_cdp_approved_connections(self.team_id)}
+            ).data
+        )

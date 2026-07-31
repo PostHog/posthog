@@ -39,7 +39,7 @@ jest.mock('~/common/utils/request', () => {
     }
 })
 
-import { fetch } from '~/common/utils/request'
+import { SecureRequestError, fetch } from '~/common/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -1316,6 +1316,60 @@ describe('Hog Executor', () => {
 
             // Now also exposed on the execResult for callers of execute()
             expect(result.execResult).toEqual({ status: 200, body: 'Hello, world!' })
+        })
+
+        it('routes magic hostnames through the secure connections service with team attribution', async () => {
+            const secureConnectionsService = {
+                isSecureConnectionUrl: jest.fn().mockReturnValue(true),
+                fetch: jest.fn().mockResolvedValue({
+                    status: 200,
+                    headers: {},
+                    text: () => Promise.resolve('secure response'),
+                    json: () => Promise.resolve({}),
+                    dump: () => Promise.resolve(),
+                }),
+            }
+            ;(executor as any).secureConnectionsService = secureConnectionsService
+            const url = 'http://fd247df6-cf23-4abc-8ee0-3bce4bbc5be0.secure-connections.internal/orders'
+            const invocation = await createFetchInvocation({ url, method: 'GET' })
+
+            try {
+                const result = await executor.executeFetch(invocation)
+
+                expect(secureConnectionsService.fetch).toHaveBeenCalledWith(
+                    invocation.teamId,
+                    url,
+                    expect.objectContaining({ method: 'GET' })
+                )
+                expect(result.error).toBeUndefined()
+            } finally {
+                ;(executor as any).secureConnectionsService = undefined
+            }
+        })
+
+        it('surfaces a denied secure connection as a non-retriable destination error', async () => {
+            const secureConnectionsService = {
+                isSecureConnectionUrl: jest.fn().mockReturnValue(true),
+                fetch: jest
+                    .fn()
+                    .mockRejectedValue(
+                        new SecureRequestError('Secure connection is not approved for CDP in this project')
+                    ),
+            }
+            ;(executor as any).secureConnectionsService = secureConnectionsService
+            const invocation = await createFetchInvocation({
+                url: 'http://fd247df6-cf23-4abc-8ee0-3bce4bbc5be0.secure-connections.internal/orders',
+                method: 'GET',
+            })
+
+            try {
+                const result = await executor.executeFetch(invocation)
+
+                expect(result.error?.message).toContain('is not approved for CDP')
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+            } finally {
+                ;(executor as any).secureConnectionsService = undefined
+            }
         })
 
         it('handles failure status and retries', async () => {

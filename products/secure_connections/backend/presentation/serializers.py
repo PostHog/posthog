@@ -6,6 +6,17 @@ class SecureConnectionSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name advertised by the connection proxy.")
     connection_type = serializers.CharField(help_text="Type of service exposed by this connection.")
     connection_status = serializers.CharField(help_text="Current status reported by the connection service.")
+    selector_kind = serializers.CharField(help_text="How requests are selected by the customer-side proxy.")
+    selector = serializers.CharField(help_text="Public routing selector advertised for this connection.")
+
+
+class SecureConnectionApprovalSerializer(serializers.Serializer):
+    connection_id = serializers.UUIDField()
+    approved = serializers.BooleanField()
+
+
+class SecureConnectionApprovalsSerializer(serializers.Serializer):
+    cdp_approved_connections = serializers.DictField(child=serializers.DictField())
 
 
 class SecureConnectionStatusSerializer(serializers.Serializer):

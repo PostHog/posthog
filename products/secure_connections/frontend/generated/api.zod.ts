@@ -7,3 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+import * as zod from 'zod'
+
+/**
+ * List or update the secure connections approved for CDP destinations.
+ */
+export const SecureConnectionsCdpApprovalsCreateBody = /* @__PURE__ */ zod.object({
+    connection_id: zod.uuid(),
+    approved: zod.boolean(),
+})
