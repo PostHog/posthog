@@ -357,6 +357,43 @@ class TestOauthIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
+            ("granted", "https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email"),
+            # Google's consent screen lets the user untick the Ads permission; the exchange still
+            # succeeds, so only the granted scopes tell us the integration would be dead on arrival.
+            ("declined", "https://www.googleapis.com/auth/userinfo.email"),
+            ("nothing_granted", ""),
+        ]
+    )
+    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.integration.requests.post")
+    def test_google_ads_oauth_requires_the_adwords_scope(self, _name, granted_scope, mock_post, mock_get):
+        with self.settings(**self.mock_settings):
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "access_token": "FAKE_ACCESS_TOKEN",
+                "refresh_token": "FAKE_REFRESH_TOKEN",
+                "scope": granted_scope,
+                "expires_in": 3600,
+            }
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = {"sub": "google-sub", "email": "someone@posthog.com"}
+
+            def exchange() -> Integration:
+                return OauthIntegration.integration_from_oauth_response(
+                    "google-ads", self.team.id, self.user, {"code": "code", "state": "next=%2Fprojects%2Ftest"}
+                )
+
+            if "adwords" in granted_scope:
+                assert exchange().integration_id == "google-sub"
+                return
+
+            with pytest.raises(ValidationError) as error:
+                exchange()
+            assert "Google Ads" in str(error.value)
+            assert not Integration.objects.filter(team=self.team, kind="google-ads").exists()
+
+    @parameterized.expand(
+        [
             (
                 "json_error_body",
                 400,

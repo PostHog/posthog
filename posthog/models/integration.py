@@ -606,6 +606,18 @@ class OauthConfig:
     pkce: bool = False
     # When set, disconnecting the integration also revokes the grant at the provider
     token_revoke_url: str | None = None
+    # Scopes the provider must report back as granted for the integration to be usable. Consent
+    # screens that let a user untick individual permissions (Google's does) still return a valid
+    # token for the reduced grant, so without this we'd store an integration that fails on its
+    # first real API call while telling the user the connection worked.
+    required_scopes: list[str] | None = None
+    # What those scopes buy, phrased for the reconnect error shown to the user.
+    required_scopes_label: str | None = None
+
+
+def parse_oauth_scopes(raw: str | None) -> frozenset[str]:
+    """Split a granted-scope string into scopes. RFC 6749 uses spaces, Slack uses commas."""
+    return frozenset(scope for scope in re.split(r"[\s,]+", raw or "") if scope)
 
 
 # Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
@@ -691,6 +703,13 @@ class OauthIntegration:
 
     def __init__(self, integration: Integration) -> None:
         self.integration = integration
+
+    def granted_scopes(self) -> frozenset[str]:
+        """Scopes the provider reported as granted, stored on Integration.config["scope"]."""
+        return parse_oauth_scopes(self.integration.config.get("scope"))
+
+    def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
+        return frozenset(required) - self.granted_scopes()
 
     @classmethod
     @cache_for(timedelta(minutes=5))
@@ -810,6 +829,8 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                required_scopes=["https://www.googleapis.com/auth/adwords"],
+                required_scopes_label="your Google Ads account",
                 id_path="sub",
                 name_path="email",
             )
@@ -827,6 +848,8 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ANALYTICS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/userinfo.email",
+                required_scopes=["https://www.googleapis.com/auth/analytics.readonly"],
+                required_scopes_label="your Google Analytics data",
                 id_path="sub",
                 name_path="email",
             )
@@ -843,6 +866,8 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/userinfo.email",
+                required_scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
+                required_scopes_label="your Google Search Console data",
                 id_path="sub",
                 name_path="email",
             )
@@ -860,6 +885,8 @@ class OauthIntegration:
                 client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
                 client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
+                required_scopes=["https://www.googleapis.com/auth/spreadsheets"],
+                required_scopes_label="your Google Sheets",
                 id_path="sub",
                 name_path="email",
             )
@@ -1269,6 +1296,19 @@ class OauthIntegration:
                 # the bare Exception into a generic 500 and the user sees "Something went wrong"
                 # with no actionable detail. ValidationError → 400 with `detail` set.
                 _raise_oauth_validation_error(kind, res)
+
+        if oauth_config.required_scopes and "scope" in config:
+            missing = frozenset(oauth_config.required_scopes) - parse_oauth_scopes(config.get("scope"))
+            if missing:
+                # Fail here rather than storing the integration: a partial grant exchanges fine but
+                # 401s on the first API call, and by then the user is long past the only screen that
+                # could have told them which permission to re-approve.
+                logger.warning("oauth_missing_required_scopes", kind=kind, missing=sorted(missing))
+                label = oauth_config.required_scopes_label or "everything PostHog asked for"
+                raise ValidationError(
+                    f"PostHog wasn't given access to {label}, so the connection wasn't saved. "
+                    "Connect again and leave every permission checked."
+                )
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
@@ -1779,8 +1819,7 @@ class SlackIntegration:
 
     def granted_scopes(self) -> frozenset[str]:
         """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""
-        raw = self.integration.config.get("scope") or ""
-        return frozenset(scope.strip() for scope in raw.split(",") if scope.strip())
+        return parse_oauth_scopes(self.integration.config.get("scope"))
 
     def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
         return frozenset(required) - self.granted_scopes()

@@ -151,7 +151,10 @@ export function IntegrationChoice({
                         integrationKind
                             ? {
                                   onClick: () => {
-                                      deleteIntegration(integrationKind.id)
+                                      // Clear the selection too — otherwise the form keeps the
+                                      // deleted id and downstream pickers go on querying it,
+                                      // erroring right after a disconnect the user just confirmed.
+                                      deleteIntegration(integrationKind.id, () => onChange?.(null))
                                   },
                                   label: 'Disconnect integration',
                                   status: 'danger' as const,

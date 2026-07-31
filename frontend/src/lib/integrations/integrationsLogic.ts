@@ -113,8 +113,12 @@ export interface integrationsLogicActions {
     closeSetupModal: () => {
         value: true
     }
-    deleteIntegration: (id: number) => {
+    deleteIntegration: (
+        id: number,
+        onDeleted?: () => void
+    ) => {
         id: number
+        onDeleted?: () => void
     }
     handleOauthCallback: (
         kind: IntegrationKind,
@@ -672,7 +676,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             key,
             callback,
         }),
-        deleteIntegration: (id: number) => ({ id }),
+        deleteIntegration: (id: number, onDeleted?: () => void) => ({ id, onDeleted }),
         openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
         closeNewIntegrationModal: true,
         openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
@@ -944,7 +948,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
         },
 
-        deleteIntegration: async ({ id }) => {
+        deleteIntegration: async ({ id, onDeleted }) => {
             const integration = values.integrations?.find((x) => x.id === id)
             if (!integration) {
                 return
@@ -961,6 +965,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         try {
                             await api.integrations.delete(id)
                             actions.loadIntegrations()
+                            // Let the caller drop its reference before the reload lands, so a form
+                            // still holding this id doesn't keep querying a connection that's gone.
+                            onDeleted?.()
                         } catch (e) {
                             toastApiError(e)
                         }
