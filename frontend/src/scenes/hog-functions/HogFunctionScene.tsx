@@ -501,7 +501,9 @@ export function HogFunctionScene(): JSX.Element {
                   key: 'metrics',
                   content: <HogFunctionMetrics id={id} />,
               },
-        type === 'site_app' || type === 'site_destination'
+        // Log transformations aggregate outcomes per Kafka message and never write
+        // per-invocation results, so the Invocations tab would always be empty for them.
+        type === 'site_app' || type === 'site_destination' || type === 'transformation_log'
             ? null
             : {
                   label: 'Invocations',
