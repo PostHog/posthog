@@ -1,11 +1,14 @@
 from typing import Any, Never
 
+from django.conf import settings
+
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -30,6 +33,11 @@ class SecureConnectionUnavailable(APIException):
     default_code = "secure_connection_unavailable"
 
 
+class SecureConnectionFeatureFlagPermission(PostHogFeatureFlagPermission):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return settings.DEBUG or super().has_permission(request, view)
+
+
 class SecureConnectionSchema(AutoSchema):
     def _is_list_view(self, serializer: object = None) -> bool:
         return False
@@ -37,7 +45,7 @@ class SecureConnectionSchema(AutoSchema):
 
 class SecureConnectionViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
-    permission_classes = [PostHogFeatureFlagPermission, TeamMemberStrictManagementPermission]
+    permission_classes = [SecureConnectionFeatureFlagPermission, TeamMemberStrictManagementPermission]
     posthog_feature_flag = "secure-connections"
     pagination_class = None
     schema = SecureConnectionSchema()

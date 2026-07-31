@@ -36,7 +36,9 @@ function SecureConnectionsScene(): JSX.Element {
         useValues(secureConnectionsLogic)
     const { createEnrollment, loadConnectionStatus, testConnection } = useActions(secureConnectionsLogic)
 
-    if (!featureFlags[FEATURE_FLAGS.SECURE_CONNECTIONS]) {
+    const isLocalDevelopment = !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug
+
+    if (!isLocalDevelopment && !featureFlags[FEATURE_FLAGS.SECURE_CONNECTIONS]) {
         return <NotFound object="page" />
     }
 
@@ -56,7 +58,12 @@ function SecureConnectionsScene(): JSX.Element {
             <SceneTitleSection
                 name="Secure connections"
                 description="Connect PostHog to services that are only available on your private network."
+                resourceType={{ type: 'secure_connections' }}
             />
+
+            <LemonBanner type="warning">
+                Secure connections is in alpha. It is experimental and currently available for internal testing only.
+            </LemonBanner>
 
             <SceneSection title="Connection status" titleSize="sm">
                 <LemonCard className="p-4">

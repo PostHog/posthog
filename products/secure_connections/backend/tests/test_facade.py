@@ -15,6 +15,14 @@ from products.secure_connections.backend.facade.contracts import SecureConnectio
     SECURE_CONNECTION_ADMIN_TOKEN="operator-secret",
 )
 class TestSecureConnectionsFacade(SimpleTestCase):
+    @override_settings(DEBUG=True, SECURE_CONNECTION_DEMO_TENANT_SLUG="acme")
+    def test_debug_demo_uses_preloaded_tenant(self) -> None:
+        assert api.tenant_slug(team_id=42) == "acme"
+
+    @override_settings(DEBUG=False, SECURE_CONNECTION_DEMO_TENANT_SLUG="acme")
+    def test_deployed_environment_ignores_demo_tenant(self) -> None:
+        assert api.tenant_slug(team_id=42) == "posthog-team-42"
+
     @responses.activate
     def test_status_is_scoped_to_the_team_tenant(self) -> None:
         responses.get(

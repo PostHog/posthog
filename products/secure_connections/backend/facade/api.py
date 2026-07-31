@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from products.secure_connections.backend.client import SecureConnectionServiceClient
 from products.secure_connections.backend.facade.contracts import (
     SecureConnection,
@@ -8,6 +10,8 @@ from products.secure_connections.backend.facade.contracts import (
 
 
 def tenant_slug(team_id: int) -> str:
+    if settings.DEBUG and settings.SECURE_CONNECTION_DEMO_TENANT_SLUG:
+        return settings.SECURE_CONNECTION_DEMO_TENANT_SLUG
     return f"posthog-team-{team_id}"
 
 

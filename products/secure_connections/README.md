@@ -19,6 +19,28 @@ Set these values on the PostHog web deployment:
 
 Enable the `secure-connections` feature flag for projects that should access the page.
 
+## Local demo
+
+Clone `PostHog/burrow` next to this repository, then run:
+
+```bash
+hogli secure-connections:demo
+```
+
+The command starts the sibling repository's full demo and adds a managed block to `.env.local`.
+Restart PostHog, then open `/settings/project/secure-connections`.
+The page uses the demo's preloaded Acme tenant, lists its HTTP and Postgres services, and returns a successful connection check.
+
+Use these commands while iterating:
+
+```bash
+hogli secure-connections:demo test
+hogli secure-connections:demo env
+hogli secure-connections:demo stop
+```
+
+Set `BURROW_REPO` or pass `--burrow-path` if the repositories are not siblings.
+
 ## Integration path
 
 Connections are identified by the UUID returned by the control plane.
