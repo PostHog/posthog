@@ -121,10 +121,7 @@ function DashboardScene({
         return () => abortAnyRunningQuery()
     })
 
-    // Render "not found" only when a load has actually completed as a 404 (`error404`). The
-    // previous absence-based check (`!dashboard && !itemsLoading`) fired during the gap before the
-    // initial load action starts, wrongly flashing "not found" on healthy loads and inflating
-    // `not_found_shown`. While the load is pending we fall through to the empty/loading state.
+    // `error404` only becomes true once a load has settled as a 404, so pending loads fall through to the empty/loading state
     if (error404 && !dashboard && !dashboardFailedToLoad) {
         return (
             <NotFound
