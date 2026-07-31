@@ -2657,4 +2657,57 @@ describe('mergeResponsesByQuestion', () => {
         const merged = mergeResponsesByQuestion({}, openEnded)
         expect(merged['open-q']).toEqual(openEnded['open-q'])
     })
+
+    it('folds a translated predefined choice into its base choice end-to-end and keeps only free-text Other rows', () => {
+        const questions = [
+            {
+                id: 'choice-q1',
+                type: SurveyQuestionType.SingleChoice as const,
+                question: 'Pick one',
+                choices: ['Yes', 'No', 'Other'],
+                hasOpenChoice: true,
+                translations: {
+                    'zh-cn': { choices: ['是', '否', '其他'] },
+                },
+            },
+        ]
+
+        // Aggregate query result: the Chinese "是" answer folds into base "Yes".
+        const aggregateRows: [string, string, number][] = [
+            ['choice-q1', 'Yes', 2],
+            ['choice-q1', '是', 1],
+            ['choice-q1', 'No', 1],
+            ['choice-q1', '__total__', 4],
+        ]
+        const aggregate = processResultsForSurveyQuestions(questions, aggregateRows)
+
+        // Open-ended query result: same rows, used to recover raw "Other" text.
+        const columnMap: OpenEndedColumnMap = {
+            'choice-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.SingleChoice },
+        }
+        const openEndedRows = [
+            ['Yes', 'user1', '2024-01-15T10:00:00Z'],
+            ['是', 'user2', '2024-01-15T11:00:00Z'],
+            ['No', 'user3', '2024-01-15T12:00:00Z'],
+            ['My own reason', 'user4', '2024-01-15T13:00:00Z'],
+        ]
+        const openEnded = processOpenEndedResults(questions, columnMap, openEndedRows)
+
+        const merged = mergeResponsesByQuestion(aggregate, openEnded)
+        const result = merged['choice-q1'] as ChoiceQuestionProcessedResponses
+
+        const predefined = result.data.filter((d) => d.isPredefined)
+        expect(predefined).toEqual(
+            expect.arrayContaining([
+                { label: 'Yes', value: 3, isPredefined: true },
+                { label: 'No', value: 1, isPredefined: true },
+            ])
+        )
+
+        // Only the genuinely free-text answer surfaces as "Other" — the translated "Yes" pick
+        // must not leak in as its own Other row.
+        const other = result.data.filter((d) => !d.isPredefined)
+        expect(other).toHaveLength(1)
+        expect(other[0].label).toBe('My own reason')
+    })
 })

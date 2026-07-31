@@ -119,6 +119,7 @@ import {
     NewSurvey,
     SURVEY_CREATED_SOURCE,
     SURVEY_RATING_SCALE,
+    TRANSLATION_NEEDED_PLACEHOLDER,
     defaultSurveyAppearance,
     defaultSurveyFieldValues,
 } from './constants'
@@ -3423,12 +3424,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             const defaultHasValue =
                                 defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
 
-                            if (value === '[Translation needed]') {
+                            if (value === TRANSLATION_NEEDED_PLACEHOLDER) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: -1,
                                     field: key,
-                                    error: 'Contains placeholder "[Translation needed]"',
+                                    error: `Contains placeholder "${TRANSLATION_NEEDED_PLACEHOLDER}"`,
                                 })
                             }
                             // Only validate empty translation strings if default has a value
@@ -3524,12 +3525,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             const defaultHasValue =
                                 defaultValue && typeof defaultValue === 'string' && defaultValue.trim() !== ''
 
-                            if (value === '[Translation needed]') {
+                            if (value === TRANSLATION_NEEDED_PLACEHOLDER) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: qIndex,
                                     field: key,
-                                    error: 'Contains placeholder "[Translation needed]"',
+                                    error: `Contains placeholder "${TRANSLATION_NEEDED_PLACEHOLDER}"`,
                                 })
                             }
                             // Only validate empty translation strings if default has a value
@@ -3553,12 +3554,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             const linkDefaultHasValue = typeof question.link === 'string' && question.link.trim() !== ''
                             const linkValue = trans.link
 
-                            if (linkValue === '[Translation needed]') {
+                            if (linkValue === TRANSLATION_NEEDED_PLACEHOLDER) {
                                 errors.push({
                                     language: lang,
                                     questionIndex: qIndex,
                                     field: 'link',
-                                    error: 'Contains placeholder "[Translation needed]"',
+                                    error: `Contains placeholder "${TRANSLATION_NEEDED_PLACEHOLDER}"`,
                                 })
                             } else if (typeof linkValue === 'string') {
                                 const trimmedLink = linkValue.trim()
@@ -3584,12 +3585,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         // Check choices array
                         if (isChoiceSurveyQuestion(question) && trans.choices && Array.isArray(trans.choices)) {
                             trans.choices.forEach((choice, choiceIndex) => {
-                                if (choice === '[Translation needed]') {
+                                if (choice === TRANSLATION_NEEDED_PLACEHOLDER) {
                                     errors.push({
                                         language: lang,
                                         questionIndex: qIndex,
                                         field: `choices[${choiceIndex}]`,
-                                        error: 'Contains placeholder "[Translation needed]"',
+                                        error: `Contains placeholder "${TRANSLATION_NEEDED_PLACEHOLDER}"`,
                                     })
                                 }
                                 if (typeof choice === 'string' && choice.trim() === '') {

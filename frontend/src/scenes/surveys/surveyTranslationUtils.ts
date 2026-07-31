@@ -1,6 +1,6 @@
 import { MultipleSurveyQuestion, Survey, SurveyAppearance, SurveyQuestion, SurveyQuestionType } from '~/types'
 
-import { NewSurvey } from './constants'
+import { NewSurvey, TRANSLATION_NEEDED_PLACEHOLDER } from './constants'
 
 // Respondents are shown choices in their own language and submit the translated text, so a
 // translated choice has to map back to its base-language choice (matched by position) to be
@@ -15,17 +15,18 @@ export function buildChoiceTranslationMap(question: MultipleSurveyQuestion): Map
 
     for (const translation of Object.values(question.translations ?? {})) {
         const translatedChoices = translation.choices
-        // Positional mapping is only trustworthy when the arrays line up 1:1. If a choice was
-        // added or removed without updating this translation, the lengths diverge and index i no
-        // longer refers to the same option — skip the language and fall back to base-only matching
-        // (translated answers surface as "Other", the safe pre-fix behavior) rather than risk
-        // folding a response into the wrong choice.
+        // The length guard only catches out-of-band edits (API/Max tool) that change array
+        // length — the editor path preserves length and stamps the placeholder instead (see the
+        // placeholder skip below), which is why that skip is the real guard for that path.
         if (!translatedChoices || translatedChoices.length !== baseChoices.length) {
             continue
         }
         translatedChoices.forEach((choice, index) => {
             const baseChoice = baseChoices[index]
-            if (choice && baseChoice !== undefined) {
+            const isUntranslated = !choice || choice === TRANSLATION_NEEDED_PLACEHOLDER || choice.trim() === ''
+            // Skip untranslated placeholders and blanks — they carry no real mapping and would
+            // otherwise collapse onto whichever base choice the last language lands on.
+            if (!isUntranslated && baseChoice !== undefined) {
                 map.set(choice, baseChoice)
             }
         })

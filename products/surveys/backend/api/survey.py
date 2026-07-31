@@ -2898,14 +2898,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
 
-        # For choice questions, exclude predefined choices to only get open-ended "Other"
-        # responses. Translated choices must be excluded too, otherwise a predefined answer given
-        # in a non-base language leaks into the free-text set fed to the summarizer — the same
-        # translation-aware matching per_question_stats applies to the distribution.
+        # For choice questions, exclude predefined choices (base and translated) to only get
+        # open-ended "Other" responses — otherwise a predefined answer given in a non-base
+        # language leaks into the free-text set fed to the summarizer. Same translation-aware
+        # matching as per_question_stats' distribution.
         exclude_values = None
         if question_dict is not None:
-            question_choices = question_dict.get("choices") or []
-            exclude_values = [*question_choices, *build_choice_translation_map(question_dict)]
+            exclude_values = list(build_choice_translation_map(question_dict).keys()) or None
 
         # Get archived response UUIDs to exclude
         archived_uuids = get_archived_response_uuids(survey_id, self.team.pk)
