@@ -18,18 +18,11 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                             See the complete
                             [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-langgraph) and
                             [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-langgraph)
-                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
-                            the [Node.js
-                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-langgraph)
-                            and [Python
-                            wrapper](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-langgraph)
-                            examples.
+                            examples on GitHub.
                         </Markdown>
                     </CalloutBox>
 
-                    <Markdown>
-                        Install the OpenTelemetry SDK, the LangChain instrumentation, and LangGraph with OpenAI.
-                    </Markdown>
+                    <Markdown>Install the PostHog SDK and LangGraph with OpenAI.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -37,14 +30,14 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install langgraph langchain-core langchain-openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-langchain
+                                    pip install posthog langgraph langchain-core langchain-openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @langchain/langgraph @langchain/openai @langchain/core zod @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-langchain
+                                    npm install posthog-node @posthog/ai @langchain/langgraph @langchain/openai @langchain/core zod
                                 `,
                             },
                         ]}
@@ -53,14 +46,12 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
             ),
         },
         {
-            title: 'Set up OpenTelemetry tracing',
+            title: 'Configure PostHog',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Configure OpenTelemetry to auto-instrument LangChain calls and export traces to PostHog.
-                        LangGraph is built on LangChain, so the same instrumentation captures all LLM calls. PostHog
-                        converts `gen_ai.*` spans into `$ai_generation` events automatically.
+                        Create a PostHog client once, then build a callback handler for each request or conversation.
                     </Markdown>
 
                     <CodeBlock
@@ -69,58 +60,50 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from opentelemetry import trace
-                                    from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from posthog.ai.otel import PostHogSpanProcessor
-                                    from opentelemetry.instrumentation.langchain import LangchainInstrumentor
+                                    from posthog import Posthog
+                                    from posthog.ai.langchain import CallbackHandler
 
-                                    resource = Resource(attributes={
-                                        SERVICE_NAME: "my-app",
-                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
-                                        "foo": "bar", # custom properties are passed through
-                                    })
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(
-                                        PostHogSpanProcessor(
-                                            api_key="<ph_project_token>",
-                                            host="<ph_client_api_host>",
+                                    def create_handler(user_id: str, session_id: str) -> CallbackHandler:
+                                        return CallbackHandler(
+                                            client=posthog,
+                                            distinct_id=user_id,
+                                            properties={"$ai_session_id": session_id},
                                         )
-                                    )
-                                    trace.set_tracer_provider(provider)
-
-                                    LangchainInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK } from '@opentelemetry/sdk-node'
-                                    import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
-                                    import { LangChainInstrumentation } from '@traceloop/instrumentation-langchain'
+                                    import { PostHog } from 'posthog-node'
+                                    import { LangChainCallbackHandler } from '@posthog/ai/langchain'
 
-                                    const sdk = new NodeSDK({
-                                      resource: resourceFromAttributes({
-                                        'service.name': 'my-app',
-                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
-                                        foo: 'bar', // custom properties are passed through
-                                      }),
-                                      spanProcessors: [
-                                        new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
-                                          host: '<ph_client_api_host>',
-                                        }),
-                                      ],
-                                      instrumentations: [new LangChainInstrumentation()],
-                                    })
-                                    sdk.start()
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    function createHandler(userId: string, sessionId: string): LangChainCallbackHandler {
+                                      return new LangChainCallbackHandler({
+                                        client: posthog,
+                                        distinctId: userId,
+                                        properties: { $ai_session_id: sessionId },
+                                      })
+                                    }
                                 `,
                             },
                         ]}
                     />
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Build a new handler for every request">
+                        <Markdown>
+                            {dedent`
+                                A \`CallbackHandler\` holds no state of its own, so \`distinct_id\` and \`$ai_session_id\`
+                                are fixed when you construct it. Build one per request or conversation, as
+                                \`create_handler\`/\`createHandler\` does above. Construct a single handler once at
+                                module scope instead, and every user's conversation collapses into the same session.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },
@@ -130,8 +113,12 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Use LangGraph as normal. The OpenTelemetry instrumentation automatically captures
-                        `$ai_generation` events for each LLM call — no callback handlers needed.
+                        {dedent`
+                            Attach the handler through \`config\` when you invoke the graph. \`create_react_agent\`
+                            already runs the whole turn as a single root run, so PostHog correctly nests each tool
+                            call as an \`$ai_span\` under the trace — no extra wrapping needed, unlike a hand-rolled
+                            tool-calling loop.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -152,8 +139,11 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     model = ChatOpenAI(api_key="your_openai_api_key")
                                     agent = create_react_agent(model, tools=[get_weather])
 
+                                    handler = create_handler(user_id="user_123", session_id="conversation-abc")
+
                                     result = agent.invoke(
-                                        {"messages": [{"role": "user", "content": "What's the weather in Paris?"}]}
+                                        {"messages": [{"role": "user", "content": "What's the weather in Paris?"}]},
+                                        config={"callbacks": [handler]},
                                     )
 
                                     print(result["messages"][-1].content)
@@ -163,10 +153,10 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { createReactAgent } from '@langchain/langgraph/prebuilt';
-                                    import { ChatOpenAI } from '@langchain/openai';
-                                    import { tool } from '@langchain/core/tools';
-                                    import { z } from 'zod';
+                                    import { createReactAgent } from '@langchain/langgraph/prebuilt'
+                                    import { ChatOpenAI } from '@langchain/openai'
+                                    import { tool } from '@langchain/core/tools'
+                                    import { z } from 'zod'
 
                                     const getWeather = tool(
                                       (input) => \`It's always sunny in \${input.city}!\`,
@@ -177,16 +167,19 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                           city: z.string().describe('The city to get the weather for'),
                                         }),
                                       }
-                                    );
+                                    )
 
-                                    const model = new ChatOpenAI({ apiKey: 'your_openai_api_key' });
-                                    const agent = createReactAgent({ llm: model, tools: [getWeather] });
+                                    const model = new ChatOpenAI({ apiKey: 'your_openai_api_key' })
+                                    const agent = createReactAgent({ llm: model, tools: [getWeather] })
+
+                                    const handler = createHandler('user_123', 'conversation-abc')
 
                                     const result = await agent.invoke(
-                                      { messages: [{ role: 'user', content: "What's the weather in Paris?" }] }
-                                    );
+                                      { messages: [{ role: 'user', content: "What's the weather in Paris?" }] },
+                                      { callbacks: [handler] }
+                                    )
 
-                                    console.log(result.messages[result.messages.length - 1].content);
+                                    console.log(result.messages[result.messages.length - 1].content)
                                 `,
                             },
                         ]}
@@ -194,19 +187,30 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, omit `distinct_id`/`distinctId`
+                            when constructing the handler. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
 
                     <Markdown>
                         {dedent`
-                            PostHog automatically captures \`$ai_generation\` events and creates a trace hierarchy based on how LangGraph components are nested. You can expect captured events to have the following properties:
+                            PostHog automatically captures \`$ai_generation\` events for each LLM call and \`$ai_span\`
+                            events for each tool call, and builds a trace hierarchy based on how your LangGraph
+                            components are nested. You can expect captured generation events to have the following
+                            properties:
                         `}
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
+
+                    <Markdown>
+                        {dedent`
+                            Pass the same \`$ai_session_id\` to every handler you construct for a conversation to
+                            group its calls into one session, and \`trace_id\`/\`traceId\` to control the top-level
+                            trace ID instead of letting PostHog generate one.
+                        `}
+                    </Markdown>
                 </>
             ),
         },
