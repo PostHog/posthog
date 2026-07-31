@@ -77,10 +77,11 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             {dedent`
                                 \`$ai_session_id\` is what groups every trace from one conversation into a single
                                 PostHog session, but this integration only exposes it as an attribute on the
-                                \`Resource\` built above — fixed the moment \`TracerProvider\` is created and never
-                                touched again. That's accurate if a process only ever handles one conversation, like a
-                                script, but a long-running AutoGen service ends up stamping every user's conversation
-                                with the same session id. Nothing errors — the events are just grouped wrong.
+                                \`Resource\` built above. That attribute is fixed the moment \`TracerProvider\` is
+                                created and never touched again. That's accurate if a process only ever handles one
+                                conversation, like a script, but a long-running AutoGen service ends up stamping every
+                                user's conversation with the same session id. Nothing errors: the events are grouped
+                                wrong instead.
 
                                 For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events
                                 directly (see
@@ -89,9 +90,9 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 wrappers or the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
 
-                                This setup also only captures the OpenAI calls AutoGen's agents make under the hood —
-                                not the tools those agents invoke. Give a tool call its own \`$ai_span\`, tied to the
-                                same \`$ai_trace_id\`, if you want it to show up in the trace.
+                                This setup also only captures the OpenAI calls AutoGen's agents make under the hood.
+                                It doesn't capture the tools those agents invoke. Give a tool call its own
+                                \`$ai_span\`, tied to the same \`$ai_trace_id\`, if you want it to show up in the trace.
                             `}
                         </Markdown>
                     </CalloutBox>

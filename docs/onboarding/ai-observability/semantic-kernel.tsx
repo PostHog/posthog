@@ -77,7 +77,7 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
                             {dedent`
                                 PostHog ties multiple traces to one conversation through \`$ai_session_id\`, but this
                                 integration can only set it as a \`Resource\` attribute when \`TracerProvider\` is
-                                built — fixed once, for the life of the process. A script that exits after one
+                                built. That's fixed once, for the life of the process. A script that exits after one
                                 conversation is fine; a long-running kernel service handling many users isn't, since
                                 every conversation quietly ends up in the same session with no error to catch it.
 
@@ -87,9 +87,9 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
                                 or use an integration with a per-call channel, such as the PostHog SDK wrappers or the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
 
-                                This also only captures calls to the OpenAI SDK underneath — not the plugins or
-                                functions your kernel invokes. Give those their own \`$ai_span\`, tied to the same
-                                \`$ai_trace_id\`, if you want them to show up.
+                                This also only captures calls to the OpenAI SDK underneath. It doesn't capture the
+                                plugins or functions your kernel invokes. Give those their own \`$ai_span\`, tied to
+                                the same \`$ai_trace_id\`, if you want them to show up.
                             `}
                         </Markdown>
                     </CalloutBox>

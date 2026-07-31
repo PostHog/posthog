@@ -76,8 +76,8 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                         <Markdown>
                             {dedent`
                                 PostHog needs \`$ai_session_id\` to group calls into one session, and the only place
-                                to set it here is a \`Resource\` attribute fixed when \`TracerProvider\` is created —
-                                it doesn't change again for as long as the process runs. That's correct for a script
+                                to set it here is a \`Resource\` attribute fixed when \`TracerProvider\` is created.
+                                It doesn't change again for as long as the process runs. That's correct for a script
                                 that makes one round of calls and exits, but not for a long-lived service: every
                                 caller ends up in the same session, and nothing about the setup will warn you.
 
@@ -126,7 +126,7 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                             `opentelemetry-instrumentation-openai-v2` instruments `chat.completions` and `embeddings`
                             only. Mirascope v2 uses the OpenAI Responses API by default, which produces no spans.
                             `llm.register_provider("openai:completions")` switches it to `chat.completions` so calls are
-                            captured. This page targets Mirascope 2.x — the `mirascope.core` API was v1 and no longer
+                            captured. This page targets Mirascope 2.x. The `mirascope.core` API was v1 and no longer
                             exists.
                         </Markdown>
                     </CalloutBox>

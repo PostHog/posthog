@@ -307,14 +307,14 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        `$ai_span` is a plain trace node — it isn't tied to any LLM provider. Use it for tool calls,
+                        `$ai_span` is a plain trace node. It isn't tied to any LLM provider. Use it for tool calls,
                         database queries, retrieval steps, or any other work you want timed inside a trace. Set
                         `$ai_span_type` to describe the kind of work, for example `tool`, `chain`, `retriever`, or
                         `agent`.
                     </Markdown>
 
                     <Markdown>
-                        Nothing computes duration for you — time your own code and pass the result as `$ai_latency`. The
+                        Nothing computes duration for you. Time your own code and pass the result as `$ai_latency`. The
                         span must also carry the same `$ai_trace_id` as the generation it belongs to, or it won't nest
                         inside the same trace.
                     </Markdown>

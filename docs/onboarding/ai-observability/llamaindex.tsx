@@ -78,7 +78,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             This instruments the OpenAI calls LlamaIndex makes underneath, so you get one
                             `$ai_generation` per LLM call. Retrieval and query-engine steps are not captured as spans.
-                            To record those, capture `$ai_span` events yourself with a shared `$ai_trace_id` — see
+                            To record those, capture `$ai_span` events yourself with a shared `$ai_trace_id`. See
                             [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture).
                         </Markdown>
                     </CalloutBox>
@@ -88,8 +88,8 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             {dedent`
                                 The same fixed-at-startup limitation applies to \`$ai_session_id\`, which groups
                                 traces into one PostHog session. It can only be set as a \`Resource\` attribute when
-                                \`TracerProvider\` is created, so it's locked in for the life of the process —
-                                accurate for a script that runs one query and exits, wrong for a long-lived query
+                                \`TracerProvider\` is created, so it's locked in for the life of the process. That's
+                                accurate for a script that runs one query and exits, but wrong for a long-lived query
                                 service, where every user's questions silently end up in the same session.
 
                                 For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events

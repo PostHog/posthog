@@ -123,7 +123,7 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
                         <Markdown>
                             {dedent`
-                                Multiple traces get grouped into one PostHog session through \`$ai_session_id\` — but
+                                Multiple traces get grouped into one PostHog session through \`$ai_session_id\`, but
                                 this OpenTelemetry setup can only set it as a \`Resource\` attribute at startup, and
                                 that Resource never changes again for the life of the process. That's accurate if a
                                 process handles one conversation end to end, like a script, but run this inside a

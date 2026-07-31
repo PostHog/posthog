@@ -79,8 +79,8 @@ export const getSmolagentsSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 integration the only place to set it is a \`Resource\` attribute fixed when the
                                 OpenTelemetry SDK starts. That works if a process only ever runs one agent
                                 conversation, like a script, but a long-lived smolagents service ends up stamping
-                                every user's run with the same session id — silently, since nothing about the setup
-                                errors.
+                                every user's run with the same session id, and nothing about the setup errors to warn
+                                you.
 
                                 For sessions scoped to one conversation, capture \`$ai_span\` and \`$ai_generation\`
                                 events directly (see
@@ -89,9 +89,9 @@ export const getSmolagentsSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
 
-                                It's also worth knowing this only captures the model calls smolagents makes — not any
-                                tools you add to that \`tools=[]\` list. Give a tool call its own \`$ai_span\`, tied to
-                                the same \`$ai_trace_id\`, if you want it to show up.
+                                It's also worth knowing this only captures the model calls smolagents makes. It
+                                doesn't capture any tools you add to that \`tools=[]\` list. Give a tool call its own
+                                \`$ai_span\`, tied to the same \`$ai_trace_id\`, if you want it to show up.
                             `}
                         </Markdown>
                     </CalloutBox>
