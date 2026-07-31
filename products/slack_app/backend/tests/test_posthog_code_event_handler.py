@@ -1433,16 +1433,15 @@ class TestQueueWorkflowDispatch(TestCase):
         ]
     )
     @patch("products.slack_app.backend.api.SlackIntegration")
-    @patch("products.slack_app.backend.api.is_slack_app_queue_workflow_enabled", return_value=True)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_flag_on_signal_with_starts_conversation_workflow(
-        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_flag, mock_slack
+    def test_signal_with_starts_conversation_workflow(
+        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_slack
     ):
-        # With the flag on, every message in a conversation must land in ONE
-        # per-thread workflow via signal-with-start — the conversation ID
-        # anchors on the thread root so followups reach the same instance.
+        # Every message in a conversation must land in ONE per-thread workflow
+        # via signal-with-start — the conversation ID anchors on the thread
+        # root so followups reach the same instance.
         from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
