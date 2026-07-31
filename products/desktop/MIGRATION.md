@@ -64,6 +64,12 @@ separate project.
   exclude regex (both run repo-wide with `.`).
 - `package.json`: `lint:css` gains `--ignore-pattern "products/desktop/**"` (stylelint's
   glob is `(frontend|products)/**`).
+- `frontend/jest.config.ts`: `/products/desktop/` added to `testPathIgnorePatterns`. The
+  root Jest roots include `../products`, so it would otherwise collect desktop's `*.test.ts`
+  files and fail resolving their workspace-only deps (e.g. `@agentclientprotocol/sdk`).
+  Desktop tests run under Vitest in desktop-* CI.
+- `pytest.ini`: `--ignore=products/desktop` added to `addopts`. Same reason for the Django
+  suite: posthog pytest would otherwise collect desktop's Python tooling tests.
 - `.github/workflows/desktop-*.yml`: ported workflows (mapping below).
 - `.github/scripts/products/desktop/`: scripts the ported workflows need that lived in the source
   repo's `.github/scripts/`.
