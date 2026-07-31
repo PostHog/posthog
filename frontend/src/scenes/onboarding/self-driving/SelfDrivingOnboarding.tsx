@@ -2,7 +2,7 @@ import './SelfDrivingOnboarding.scss'
 
 import { Logo } from 'lib/brand'
 
-import { ContextOnboarding } from './ContextOnboarding'
+import { SelfDrivingOnboardingFlow } from './SelfDrivingOnboardingFlow'
 
 /**
  * Host for the self-driving onboarding experience: dotted backdrop, logo, and a centered card that
@@ -16,9 +16,9 @@ export function SelfDrivingOnboarding(): JSX.Element | null {
             <span className="block mb-6">
                 <Logo size="lg" />
             </span>
-            {/* The card chrome and its per-step width live inside ContextOnboarding (so the width can vary
+            {/* The card chrome and its per-step width live inside the flow (so the width can vary
                 by step); here we just center it under the logo. */}
-            <ContextOnboarding />
+            <SelfDrivingOnboardingFlow />
         </div>
     )
 }
