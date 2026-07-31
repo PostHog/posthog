@@ -8,9 +8,24 @@ use std::{collections::BTreeMap, path::PathBuf};
 
 use crate::{
     api::symbol_sets::SymbolSetUpload,
-    sourcemaps::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE},
+    sourcemaps::constant::{
+        CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE,
+        CODE_SNIPPET_WITH_RELEASE_TEMPLATE, RELEASE_ID_PLACEHOLDER,
+    },
     utils::files::SourceFile,
 };
+
+/// Build the injected IIFE for a chunk. When a release id is present we use the release-carrying
+/// template and fill its placeholder with a JSON-encoded string literal, so quotes/backslashes in
+/// the value can't break out of the snippet.
+fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String> {
+    let Some(release_id) = release_id else {
+        return Ok(CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, chunk_id));
+    };
+    Ok(CODE_SNIPPET_WITH_RELEASE_TEMPLATE
+        .replace(CHUNKID_PLACEHOLDER, chunk_id)
+        .replace(RELEASE_ID_PLACEHOLDER, &serde_json::to_string(release_id)?))
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SourceMapContent {
@@ -176,12 +191,12 @@ impl MinifiedSourceFile {
         self.get_comment_value(&patterns)
     }
 
-    pub fn set_chunk_id(&mut self, chunk_id: &str) -> Result<SourceMap> {
+    pub fn set_chunk_id(&mut self, chunk_id: &str, release_id: Option<&str>) -> Result<SourceMap> {
         let (new_source_content, source_adjustment) = {
             // Update source content with chunk ID
             let source_content = &self.inner.content;
             let mut magic_source = MagicString::new(source_content);
-            let code_snippet = CODE_SNIPPET_TEMPLATE.replace(CHUNKID_PLACEHOLDER, chunk_id);
+            let code_snippet = build_code_snippet(chunk_id, release_id)?;
             magic_source
                 .prepend(&code_snippet)
                 .map_err(|err| anyhow!("Failed to prepend code snippet: {err}"))?;

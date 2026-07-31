@@ -49,16 +49,16 @@ impl SourcePair {
         new_chunk_id: String,
     ) -> Result<()> {
         self.remove_chunk_id(previous_chunk_id)?;
-        self.add_chunk_id(new_chunk_id)?;
+        self.add_chunk_id(new_chunk_id, None)?;
         Ok(())
     }
 
-    pub fn add_chunk_id(&mut self, chunk_id: String) -> Result<()> {
+    pub fn add_chunk_id(&mut self, chunk_id: String, release_id: Option<&str>) -> Result<()> {
         if self.has_chunk_id() {
             return Err(anyhow!("Chunk ID already set"));
         }
 
-        let adjustment = self.source.set_chunk_id(&chunk_id)?;
+        let adjustment = self.source.set_chunk_id(&chunk_id, release_id)?;
         // In cases where sourcemaps are shared across multiple chunks,
         // we should only apply the adjustment if the sourcemap doesn't
         // have a chunk ID set (since otherwise, it's already been adjusted)

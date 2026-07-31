@@ -60,6 +60,21 @@ pub struct Args {
     /// DEPRECATED - this flag is a no-op. Use top-level `--skip-ssl-verification` instead.
     #[arg(long)]
     pub skip_ssl_verification: bool,
+
+    /// EXPERIMENTAL: don't bind the uploaded symbol sets to a release. The chunks carry the release
+    /// id in their injected snippet instead, so the release is resolved per event rather than per
+    /// symbol set. When unset (the default), upload behaves exactly as before. Also settable via
+    /// `POSTHOG_NO_RELEASE_BIND`.
+    #[arg(
+        long,
+        env = "POSTHOG_NO_RELEASE_BIND",
+        value_parser = clap::builder::BoolishValueParser::new(),
+        num_args = 0..=1,
+        require_equals = true,
+        default_value = "false",
+        default_missing_value = "true",
+    )]
+    pub no_release_bind: bool,
 }
 
 pub fn upload_cmd(args: &Args) -> Result<()> {
@@ -86,8 +101,13 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
 
-    // Reuse the pre-resolved release if available, otherwise fetch or create one
-    let created_release_id = if let Some(r) = existing_release {
+    // Reuse the pre-resolved release if available, otherwise fetch or create one. Skipped entirely
+    // under `--no-release-bind`: inject already put the release id inside the chunks, and resolving
+    // one here would only serve to stamp it onto the symbol sets, which is the binding we're
+    // avoiding.
+    let created_release_id = if args.no_release_bind {
+        None
+    } else if let Some(r) = existing_release {
         Some(r.id.to_string())
     } else {
         let cwd = std::env::current_dir()?;
