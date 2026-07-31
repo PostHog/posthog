@@ -1226,6 +1226,23 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardFailedToLoad).toBe(true)
             expect(logic.values.error404).toBe(false)
         })
+
+        // fetchEventSource auto-retries transient failures, so the stream can recover on its own:
+        // metadata arriving after a failure must clear the load-error state, not leave it latched
+        // over a fully loaded dashboard.
+        it('clears the failed state when a stream retry delivers metadata', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+            }).toDispatchActions(['setDashboardStreamFailed'])
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+            }).toFinishAllListeners()
+
+            expect(logic.values.dashboardFailedToLoad).toBe(false)
+            expect(logic.values.dashboard).not.toBeNull()
+        })
     })
 
     describe('when a dashboard item API errors', () => {

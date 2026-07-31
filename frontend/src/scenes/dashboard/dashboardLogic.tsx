@@ -1772,6 +1772,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,
+                // The stream auto-retries after transient errors; delivered metadata means it recovered,
+                // so clear the load-error state instead of leaving it latched over a loaded dashboard.
+                loadDashboardMetadataSuccess: () => false,
                 loadDashboardFailure: () => true,
                 setDashboardStreamFailed: () => true,
             },
