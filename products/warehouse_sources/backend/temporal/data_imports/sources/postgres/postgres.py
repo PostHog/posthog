@@ -392,10 +392,14 @@ def _is_connection_limit_error(error: BaseException) -> bool:
 # database system is starting up"), a server replaying WAL after a crash ("the database system is
 # in recovery mode"), or a hot standby that has accepted the connection attempt but not yet reached
 # a consistent recovery point ("the database system is not yet accepting connections", DETAIL
-# "Consistent recovery state has not been yet reached"). All are transient: the server begins
-# accepting connections within seconds once startup/recovery completes, so a fresh connect after a
-# short backoff succeeds. libpq surfaces these as a bare OperationalError at connect time (no
-# SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
+# "Consistent recovery state has not been yet reached"). The same SQLSTATE also covers the mirror
+# case at the other end of the server's lifecycle: a smart/fast shutdown in progress refuses new
+# connections with "the database system is shutting down" while existing backends are terminated
+# (that termination surfaces separately as "terminating connection due to administrator command",
+# already retried via `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`). All are transient: the server begins
+# accepting connections again within seconds once startup/recovery/restart completes, so a fresh
+# connect after a short backoff succeeds. libpq surfaces these as a bare OperationalError at connect
+# time (no SQLSTATE-mapped subclass), so match on the stable message. Deliberately NOT the permanent
 # hot-standby-disabled refusal — that reads "the database system is not accepting connections"
 # (no "yet") with DETAIL "Hot standby mode is disabled" and stays non-retryable (see source.py's
 # `get_non_retryable_errors`); none of the substrings below appear in it.
@@ -403,6 +407,7 @@ _SERVER_STARTING_UP_ERROR_SUBSTRINGS = (
     "the database system is starting up",
     "the database system is not yet accepting connections",
     "the database system is in recovery mode",
+    "the database system is shutting down",
 )
 
 
