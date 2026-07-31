@@ -179,6 +179,7 @@ export interface RoleLookupResponseApi {
  * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
+ * * `posthog` - Posthog
  * * `reddit-ads` - Reddit Ads
  * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
@@ -225,6 +226,7 @@ export const IntegrationKindEnumApi = {
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
+    Posthog: 'posthog',
     RedditAds: 'reddit-ads',
     Resend: 'resend',
     S3Compatible: 's3-compatible',
@@ -484,6 +486,7 @@ export interface IntegrationAccessRequestApi {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -575,6 +578,7 @@ export type IntegrationsListParams = {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -632,6 +636,7 @@ export const IntegrationsListKind = {
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
+    Posthog: 'posthog',
     RedditAds: 'reddit-ads',
     Resend: 'resend',
     S3Compatible: 's3-compatible',

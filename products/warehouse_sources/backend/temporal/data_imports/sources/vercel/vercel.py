@@ -136,7 +136,10 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
         return True, None
     if response.status_code in (401, 403):
         return False, "Invalid or unauthorized Vercel access token"
-    return False, f"Vercel API error: {response.status_code}"
+    return (
+        False,
+        "Couldn't validate your Vercel access token. Check that it's a valid token from your Vercel account settings, then try again.",
+    )
 
 
 def get_rows(

@@ -18765,6 +18765,10 @@ export namespace Schemas {
      * * `Clay` - Clay
      * * `TradableBits` - TradableBits
      * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20042,6 +20046,10 @@ export namespace Schemas {
       Clay: 'Clay',
       TradableBits: 'TradableBits',
       Swan: 'Swan',
+      Hyros: 'Hyros',
+      Odoo: 'Odoo',
+      Airbridge: 'Airbridge',
+      Snovio: 'Snovio',
     } as const;
 
     /**
@@ -21332,7 +21340,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -23057,7 +23069,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -24029,6 +24045,12 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
+      /**
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
     }
 
     export interface EndpointBreakdownLimitExceededSignalExtra {
@@ -28024,6 +28046,39 @@ export namespace Schemas {
     }
 
     /**
+     * * `explicit` - explicit
+     * * `single_repo` - single_repo
+     * * `ambiguous` - ambiguous
+     * * `no_integration` - no_integration
+     */
+    export type ExperimentFlagCleanupTargetSourceEnum = typeof ExperimentFlagCleanupTargetSourceEnum[keyof typeof ExperimentFlagCleanupTargetSourceEnum];
+
+
+    export const ExperimentFlagCleanupTargetSourceEnum = {
+      Explicit: 'explicit',
+      SingleRepo: 'single_repo',
+      Ambiguous: 'ambiguous',
+      NoIntegration: 'no_integration',
+    } as const;
+
+    export interface ExperimentFlagCleanupTarget {
+      /**
+         * Repository a flag-cleanup pull request would be opened in, or null when none can be determined.
+         * @nullable
+         */
+      repository: string | null;
+      /** How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+       *
+       * * `explicit` - explicit
+       * * `single_repo` - single_repo
+       * * `ambiguous` - ambiguous
+       * * `no_integration` - no_integration */
+      source: ExperimentFlagCleanupTargetSourceEnum;
+      /** Repositories connected to the team's GitHub integration, to choose a target from. */
+      candidates: string[];
+    }
+
+    /**
      * * `not_started` - not_started
      * * `queued` - queued
      * * `in_progress` - in_progress
@@ -30293,7 +30348,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -31602,7 +31661,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -37182,6 +37245,7 @@ export namespace Schemas {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -37229,6 +37293,7 @@ export namespace Schemas {
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
+      Posthog: 'posthog',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
@@ -37276,6 +37341,7 @@ export namespace Schemas {
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
+       * * `posthog` - Posthog
        * * `reddit-ads` - Reddit Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
@@ -40565,7 +40631,7 @@ export namespace Schemas {
       function_name: string;
       /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
       parent_run_id: string;
-      /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoint currently returns only 'email'. */
+      /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
       kind: string;
       /** The recipient's distinct_id. */
       distinct_id: string;
@@ -40728,32 +40794,6 @@ export namespace Schemas {
       metric_name: MetricNameEnum;
       instance_id: string;
     }
-
-    /**
-     * * `user_message` - user_message
-     * * `cancel` - cancel
-     * * `close` - close
-     * * `permission_response` - permission_response
-     * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response
-     * * `pi/rpc` - pi/rpc
-     * * `queue_get` - queue_get
-     * * `queue_clear` - queue_clear
-     */
-    export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
-
-
-    export const MethodEnum = {
-      UserMessage: 'user_message',
-      Cancel: 'cancel',
-      Close: 'close',
-      PermissionResponse: 'permission_response',
-      SetConfigOption: 'set_config_option',
-      McpResponse: 'mcp_response',
-      PiRpc: 'pi/rpc',
-      QueueGet: 'queue_get',
-      QueueClear: 'queue_clear',
-    } as const;
 
     /**
      * * `up` - up
@@ -46548,6 +46588,8 @@ export namespace Schemas {
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
       uploaded_at: string;
+      /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+      url?: string;
     }
 
     /**
@@ -55632,8 +55674,8 @@ export namespace Schemas {
     }
 
     export interface PersonDeletePropertyRequest {
-      /** The property key to remove from this person. */
-      $unset: string;
+      /** A property key, or a list of property keys, to remove from this person. */
+      $unset: string | string[];
     }
 
     /**
@@ -55926,6 +55968,53 @@ export namespace Schemas {
       priority: string | null;
       labels: unknown[];
       createdAt: string | null;
+    }
+
+    /**
+     * Query parameters to send to the target.
+     */
+    export type PostHogConnectionForwardQuery = {[key: string]: string};
+
+    /**
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE
+     */
+    export type PostHogConnectionForwardMethodEnum = typeof PostHogConnectionForwardMethodEnum[keyof typeof PostHogConnectionForwardMethodEnum];
+
+
+    export const PostHogConnectionForwardMethodEnum = {
+      Get: 'GET',
+      Post: 'POST',
+      Put: 'PUT',
+      Patch: 'PATCH',
+      Delete: 'DELETE',
+    } as const;
+
+    export interface PostHogConnectionForward {
+      /** HTTP method to use against the target project's API.
+       *
+       * * `GET` - GET
+       * * `POST` - POST
+       * * `PUT` - PUT
+       * * `PATCH` - PATCH
+       * * `DELETE` - DELETE */
+      method: PostHogConnectionForwardMethodEnum;
+      /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+      path: string;
+      /** Query parameters to send to the target. */
+      query?: PostHogConnectionForwardQuery;
+      /** JSON request body for write methods. */
+      data?: unknown;
+    }
+
+    export interface PostHogConnectionForwardResponse {
+      /** HTTP status the target project returned. */
+      status: number;
+      /** The target project's response body, passed through. */
+      data: unknown;
     }
 
     /**
@@ -63106,6 +63195,12 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
+      /**
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       /** The key of the variant to ship. */
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
@@ -63368,6 +63463,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_run_at: string | null;
+      /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
+      readonly consecutive_failure_count: number;
       readonly created_at: string;
     }
 
@@ -65287,7 +65384,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -66604,7 +66705,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -67913,7 +68018,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -69849,6 +69958,32 @@ export namespace Schemas {
     export type TaskRunCommandRequestParams = { [key: string]: unknown };
 
     /**
+     * * `user_message` - user_message
+     * * `cancel` - cancel
+     * * `close` - close
+     * * `permission_response` - permission_response
+     * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear
+     */
+    export type TaskRunCommandRequestMethodEnum = typeof TaskRunCommandRequestMethodEnum[keyof typeof TaskRunCommandRequestMethodEnum];
+
+
+    export const TaskRunCommandRequestMethodEnum = {
+      UserMessage: 'user_message',
+      Cancel: 'cancel',
+      Close: 'close',
+      PermissionResponse: 'permission_response',
+      SetConfigOption: 'set_config_option',
+      McpResponse: 'mcp_response',
+      PiRpc: 'pi/rpc',
+      QueueGet: 'queue_get',
+      QueueClear: 'queue_clear',
+    } as const;
+
+    /**
      * JSON-RPC request to send a command to the agent server in the sandbox.
      */
     export interface TaskRunCommandRequest {
@@ -69867,7 +70002,7 @@ export namespace Schemas {
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
        * * `queue_clear` - queue_clear */
-      method: MethodEnum;
+      method: TaskRunCommandRequestMethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
       /** Optional JSON-RPC request ID (string or number) */
@@ -79257,6 +79392,7 @@ export namespace Schemas {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -79315,6 +79451,7 @@ export namespace Schemas {
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
+      Posthog: 'posthog',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
@@ -80667,13 +80804,13 @@ export namespace Schemas {
     before?: string;
     format?: PersonsEmailsListFormat;
     /**
-     * Maximum number of emails to return (1-500, default 50).
+     * Maximum number of assets to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
      */
     limit?: number;
     /**
-     * Number of emails to skip, for pagination.
+     * Number of assets to skip, for pagination.
      * @minimum 0
      */
     offset?: number;
@@ -80695,6 +80832,39 @@ export namespace Schemas {
 
 
     export const PersonsPropertiesTimelineRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type PersonsPushNotificationsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    format?: PersonsPushNotificationsListFormat;
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type PersonsPushNotificationsListFormat = typeof PersonsPushNotificationsListFormat[keyof typeof PersonsPushNotificationsListFormat];
+
+
+    export const PersonsPushNotificationsListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

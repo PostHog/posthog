@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
+import { IconExpand45, IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
@@ -307,7 +307,7 @@ export function SidePanelSupport(): JSX.Element {
         isSendSupportRequestSubmitting,
     } = useValues(supportLogic)
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
-    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
     const { tickets, canCreateTicket } = useValues(sidepanelTicketsLogic)
 
@@ -333,7 +333,21 @@ export function SidePanelSupport(): JSX.Element {
     return (
         <div className="SidePanelSupport contents">
             <SidePanelContentContainer>
-                <SidePanelPaneHeader showCloseButton={false} title={isEmailFormOpen ? supportPanelTitle : 'Support'} />
+                <SidePanelPaneHeader showCloseButton={false} title={isEmailFormOpen ? supportPanelTitle : 'Support'}>
+                    {showTickets && (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconExpand45 />}
+                            to={urls.myTickets()}
+                            onClick={() => closeSidePanel()}
+                            tooltip="View your tickets full screen"
+                            // LemonButton's tooltip→aria-label fallback only applies to plain buttons,
+                            // not links (`to` renders a Link), so an icon-only link needs it explicitly
+                            aria-label="View your tickets full screen"
+                            data-attr="support-panel-expand-tickets"
+                        />
+                    )}
+                </SidePanelPaneHeader>
                 <div className="p-0 justify-start flex-none px-1 max-w-160 w-full mx-auto flex flex-col">
                     {isEmailFormOpen && showEmailSupport && isBillingLoaded && !useProductSupportSidePanel ? (
                         <SupportFormBlock

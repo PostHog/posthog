@@ -1949,6 +1949,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="When the coordinator last dispatched this scout. Null if it has never run.",
     )
+    consecutive_failure_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "How many of this scout's runs have failed in a row. Back to 0 after a successful "
+            "run or any config edit. At the failure limit the scout pauses itself (`status` "
+            "becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries "
+            "about once a day; a successful retry resumes it, and so does setting `enabled=true`."
+        ),
+    )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -1979,6 +1988,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "run_cron_schedule",
             "output_destinations",
             "last_run_at",
+            "consecutive_failure_count",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
@@ -2070,6 +2080,14 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         # never resume. Any other non-empty edit still clears a pending pause, since a human
         # tending the config is exactly the signal the warning exists to detect; an empty
         # PATCH is not an edit and must not count as human contact.
+        # A human tending the config resets the breaker's evidence — the failure streak is stale
+        # the moment someone acts on the lane. Lives here rather than in the viewsets so every
+        # human write path (PATCH, and both POST upserts through `_upsert_scout_config`) gets it;
+        # an empty write is not an edit and must not count. The pause itself (if the breaker
+        # tripped) is a status and lifts only through `enabled=true` below or a successful probe,
+        # both of which re-check the enabled-scout cap — an unrelated edit must not sidestep that.
+        if validated_data and instance.consecutive_failure_count:
+            validated_data["consecutive_failure_count"] = 0
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             target = (
                 SignalScoutConfig.Status.ACTIVE
@@ -2086,6 +2104,10 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             validated_data["pause_reason"] = None
             validated_data["status_changed_at"] = timezone.now()
             validated_data["status_changed_by"] = getattr(request, "user", None)
+            if target == SignalScoutConfig.Status.ACTIVE:
+                # Same rule as `transition_status_by_system`: a resume starts with a clean
+                # failure streak, or the next failed run re-trips the breaker off stale evidence.
+                validated_data["consecutive_failure_count"] = 0
         return super().update(instance, validated_data)
 
     class Meta:

@@ -31,6 +31,7 @@ from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
 from stripe import ListObject
 from temporalio.common import RetryPolicy
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -79,6 +80,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     PendingBatch,
+)
+from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+    PostImportWorkflow,
+    build_post_import_workflow_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import get_rows
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
@@ -648,6 +653,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                     CDPProducerJobWorkflow,
                     DuckLakeCopyDataImportsWorkflow,
                     DuckLakeRegisterDataImportsWorkflow,
+                    PostImportWorkflow,
                 ],
                 activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -662,6 +668,23 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                     task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
+
+                # The load-dependent post-import steps run in an abandoned child, so
+                # assertions on its side effects (e.g. storage_delta_mib) would race
+                # worker shutdown — await it before leaving the worker context. Absent
+                # on paths that never start it (V3 consumer-owned, non-completed jobs).
+                job = await sync_to_async(
+                    ExternalDataJob.objects.filter(team_id=inputs.team_id, schema_id=inputs.external_data_schema_id)
+                    .order_by("-created_at")
+                    .first
+                )()
+                if job is not None:
+                    handle = activity_environment.client.get_workflow_handle(build_post_import_workflow_id(str(job.id)))
+                    try:
+                        await handle.result()
+                    except RPCError as e:
+                        if e.status != RPCStatusCode.NOT_FOUND:
+                            raise
 
 
 _STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {

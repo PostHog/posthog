@@ -495,6 +495,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,
         repository: str | None = None,
+        channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         branch: str | None = None,
@@ -599,6 +600,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             github_integration=github_integration,
             github_user_integration=github_user_integration,
             repository=repository,
+            channel=channel,
             internal=internal,
             json_schema=resolve_schema(output_schema) if output_schema else None,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
@@ -768,6 +770,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        channel: Channel | None = None,
         create_pr: bool = True,
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -806,6 +809,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             origin_product=origin_product,
             user_id=user_id,
             repository=repository,
+            channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             branch=branch,
