@@ -201,7 +201,10 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             )
         }
         return {
-            loadObservations: async () => {
+            loadObservations: async (_, breakpoint) => {
+                // Poll, observe, retry, and the SSE hook all call this; without it a slow earlier response
+                // lands last and resurrects a settled card.
+                await breakpoint(1)
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     actions.loadObservationsFailure() // Clear the loading flag; a bare return spins forever.
@@ -209,6 +212,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 }
                 try {
                     const response = await visionObservationsList(String(teamId), { session_id: props.sessionId })
+                    breakpoint()
                     actions.loadObservationsSuccess(response.results ?? [])
                 } catch {
                     metricCount('replay_vision_frontend_observations_load_failures')
@@ -221,6 +225,11 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             loadObservationsFailure: reschedulePoll,
 
             observe: async ({ scannerId }) => {
+                // A cache flag, not `values.observing`: the reducer has already flipped that to true by the
+                // time this listener runs, so it would reject every call.
+                if (cache.observeInFlight) {
+                    return
+                }
                 actions.setScannerPickerOpen(false)
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
@@ -234,6 +243,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     actions.setDockOpen(true)
                     return
                 }
+                cache.observeInFlight = true
                 try {
                     await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
                     lemonToast.success('Observation started')
@@ -247,6 +257,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     metricCount('replay_vision_frontend_observe_failures')
                     lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
                     actions.observeFailure()
+                } finally {
+                    cache.observeInFlight = false
                 }
             },
 
