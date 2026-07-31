@@ -391,6 +391,26 @@ def _build_group_query(
                     right=ast.Constant(value=f"%{value}%"),
                 )
             )
+        elif operator in (
+            PropertyOperator.STARTS_WITH,
+            PropertyOperator.NOT_STARTS_WITH,
+            PropertyOperator.ENDS_WITH,
+            PropertyOperator.NOT_ENDS_WITH,
+        ):
+            if isinstance(value, list):
+                raise ValidationError(
+                    f"Operator '{operator}' does not support list values for $group_key property. "
+                    "Use a single value instead."
+                )
+            is_starts = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH)
+            is_positive = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.ENDS_WITH)
+            where_exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.ILike if is_positive else ast.CompareOperationOp.NotILike,
+                    left=ast.Field(chain=["groups", "key"]),
+                    right=ast.Constant(value=f"{value}%" if is_starts else f"%{value}"),
+                )
+            )
         elif operator == PropertyOperator.REGEX:
             if isinstance(value, list):
                 raise ValidationError(
@@ -429,7 +449,8 @@ def _build_group_query(
             # Unsupported operator for $group_key
             raise ValidationError(
                 f"Operator '{operator}' is not supported for $group_key property. "
-                f"Supported operators: exact, is_not, in, not_in, icontains, not_icontains, regex, not_regex"
+                f"Supported operators: exact, is_not, in, not_in, icontains, not_icontains, "
+                f"starts_with, not_starts_with, ends_with, not_ends_with, regex, not_regex"
             )
 
     # Add regular property filters using property_to_expr (only if there are any)

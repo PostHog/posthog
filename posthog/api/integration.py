@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Q, QuerySet
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -49,6 +50,10 @@ from posthog.models.integration import (
     ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
+    POSTHOG_CONNECT_ALLOWED_REGIONS,
+    POSTHOG_CONNECT_DEFAULT_SCOPES,
+    POSTHOG_CONNECT_GRANTABLE_SCOPES,
+    POSTHOG_CONNECT_KIND,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -980,6 +985,14 @@ class IntegrationViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
 
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        # A `posthog` connection holds the creator's delegated grant into another project plus personal
+        # target metadata (account email, region, scopes) in its config, and is only usable by its
+        # creator. Unlike team-shared integrations, don't expose other members' connections in
+        # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
+        user_id = getattr(self.request.user, "id", None)
+        return queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
+
     def handle_exception(self, exc: Exception) -> Response:
         # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
         # map them to 429 + Retry-After once here instead of per action.
@@ -1095,8 +1108,26 @@ class IntegrationViewSet(
         token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
+            region: str | None = None
+            scopes: list[str] | None = None
+            if kind == "posthog":
+                region = (request.GET.get("region") or "").upper()
+                if region not in POSTHOG_CONNECT_ALLOWED_REGIONS:
+                    raise ValidationError(f"region must be one of {', '.join(POSTHOG_CONNECT_ALLOWED_REGIONS)}")
+                raw_scopes = (request.GET.get("scopes") or "").strip()
+                if raw_scopes == "full":
+                    scopes = sorted(POSTHOG_CONNECT_GRANTABLE_SCOPES)
+                elif raw_scopes == "read_only":
+                    scopes = sorted(s for s in POSTHOG_CONNECT_GRANTABLE_SCOPES if s.endswith(":read"))
+                else:
+                    scopes = [s for s in re.split(r"[,\s]+", raw_scopes) if s] or list(POSTHOG_CONNECT_DEFAULT_SCOPES)
+                    invalid = [s for s in scopes if s not in POSTHOG_CONNECT_GRANTABLE_SCOPES]
+                    if invalid:
+                        raise ValidationError(f"Unsupported connection scopes: {', '.join(invalid)}")
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, team_id=self.team_id)
+                auth_url = OauthIntegration.authorize_url(
+                    kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
+                )
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)

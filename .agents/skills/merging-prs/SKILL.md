@@ -29,7 +29,7 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup
 - **Draft** → it can't be merged. Ask the developer to confirm, then `gh pr ready <n>` before continuing. Don't un-draft silently.
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
-- **Part of a stack** (the PR page shows a stack map, or its base isn't `master`) → land bottom-up: only enqueue a PR whose base is `master`, and never rebase/sync the stack while it's queued. See `/stacking-prs`.
+- **Part of a stack** (the PR page shows a stack map, or its base isn't `master`) → merging it also merges every unmerged layer below it, so those need review and green checks too. Use `/stacking-prs`, not the flow below.
 
 ## 2. Enqueue
 

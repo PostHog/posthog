@@ -91,10 +91,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
-    COUPON_RESOURCE_NAME as STRIPE_COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
-    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME as STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME as STRIPE_DISCOUNT_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
@@ -166,34 +163,7 @@ class TestExternalDataSource(APIBaseTest):
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
                     "schemas": [
-                        {
-                            "name": STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-                            "should_sync": True,
-                            "sync_type": "full_refresh",
-                        },
-                        {"name": STRIPE_SUBSCRIPTION_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_PRODUCT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_PRICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_INVOICE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_CHARGE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_REFUND_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_CREDIT_NOTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_INVOICE_ITEM_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_PAYOUT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_DISPUTE_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {
-                            "name": STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-                            "should_sync": True,
-                            "sync_type": "full_refresh",
-                        },
-                        {
-                            "name": STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
-                            "should_sync": True,
-                            "sync_type": "full_refresh",
-                        },
-                        {"name": STRIPE_COUPON_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
-                        {"name": STRIPE_DISCOUNT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": name, "should_sync": True, "sync_type": "full_refresh"} for name in STRIPE_ENDPOINTS
                     ],
                 },
             },
@@ -201,7 +171,8 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
 
         self.assertEqual(response.status_code, 201)
-        # number of schemas should match default schemas for Stripe
+        # every schema in the request becomes a row, so a source created with the full Stripe
+        # endpoint catalog ends up with one schema per endpoint
         self.assertEqual(
             ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
             len(STRIPE_ENDPOINTS),
@@ -2620,6 +2591,7 @@ class TestExternalDataSource(APIBaseTest):
                     "source": None,
                     "api_version": None,
                     "api_version_deprecation": None,
+                    "user_access_level": "manager",
                 }
             ],
         )

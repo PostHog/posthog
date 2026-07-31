@@ -19,6 +19,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.metrics import POST_LOAD_DURATION_SECONDS
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -42,7 +45,9 @@ LOGGER = get_logger(__name__)
 async def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
     await logger.adebug(f"Updating rows_synced with +{count}")
     await database_sync_to_async_pool(
-        lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+        retry_on_operational_error(
+            lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+        )
     )()
 
 
@@ -377,6 +382,7 @@ async def _publish_queryable_files(
             delete_existing=True,
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
+            refresh_file_uris=delta_table_helper.get_file_uris,
         )
 
 
