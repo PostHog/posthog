@@ -3193,6 +3193,28 @@ class TestTicketAccessControl(APIBaseTest):
         self.assertIn(str(self.ticket.id), returned_ids)
         self.assertNotIn(str(blocked.id), returned_ids)
 
+    @parameterized.expand([("ticket_group",), ("-ticket_group",)])
+    def test_list_hides_tickets_blocked_at_object_level_when_group_sorted(self, order_by: str) -> None:
+        # The ticket-group branch of safely_get_queryset returns early, before the
+        # `_filter_queryset_by_access_level` call further down that method. Two
+        # review bots read that as an authorization bypass, so pin the actual
+        # behaviour: the base get_queryset() in posthog/api/routing.py applies the
+        # access filter AFTER safely_get_queryset returns, so every sort is covered.
+        blocked = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ac-blocked-grouped",
+            distinct_id="user-ac-3",
+            status=Status.OPEN,
+        )
+        self._set_resource_level("viewer")
+        self._grant_object_level(blocked, "none")
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": order_by})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_ids = {r["id"] for r in response.json()["results"]}
+        self.assertIn(str(self.ticket.id), returned_ids)
+        self.assertNotIn(str(blocked.id), returned_ids, f"denied ticket leaked via order_by={order_by}")
+
     def test_retrieve_blocked_at_object_level(self) -> None:
         # Resource-level viewer would normally allow retrieve, but an explicit per-ticket
         # deny must still block the detail route (not just list filtering).
