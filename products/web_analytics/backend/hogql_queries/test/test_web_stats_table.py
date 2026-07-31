@@ -46,9 +46,9 @@ from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.web_analytics.backend.hogql_queries.stats_table import (
-    FIRST_PAGEVIEW_ATTRIBUTION_FEATURE_FLAG,
-    WebStatsTableQueryRunner,
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.test.first_pageview_attribution_test_base import (
+    FirstPageviewAttributionTestMixin,
 )
 from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import can_use_lazy_precompute
 
@@ -89,7 +89,9 @@ class FloatAwareTestCase(unittest.TestCase):
 
 
 @snapshot_clickhouse_queries
-class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareTestCase):
+class TestWebStatsTableQueryRunner(
+    FirstPageviewAttributionTestMixin, ClickhouseTestMixin, APIBaseTest, FloatAwareTestCase
+):
     QUERY_TIMESTAMP = "2025-01-29"
 
     def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
@@ -994,32 +996,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         assert [["google", (1, None), (1, None), 1 / 2, ""], [None, (1, None), (1, None), 1 / 2, ""]] == results
 
-    def _seed_ssr_poisoned_session(self):
-        d1 = "d1"
-        s1 = str(uuid7("2024-06-26"))
-        _create_person(team_id=self.team.pk, distinct_ids=[d1], properties={"name": d1})
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id=d1,
-            timestamp="2024-06-26T10:00:00",
-            properties={"$session_id": s1, "$referring_domain": "$direct"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id=d1,
-            timestamp="2024-06-26T10:00:05",
-            properties={
-                "$session_id": s1,
-                "$current_url": "http://example.com/landing",
-                "$referring_domain": "google.com",
-                "utm_source": "google",
-                "utm_medium": "cpc",
-                "gad_source": "1",
-            },
-        )
-
     def _seed_first_pageview_session(self, properties, distinct_id="d1", day="2024-06-26"):
         session_id = str(uuid7(day))
         _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={"name": distinct_id})
@@ -1031,12 +1007,6 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             properties={"$session_id": session_id, **properties},
         )
         return session_id
-
-    def _patch_first_pageview_flag(self, enabled=True):
-        return patch(
-            "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: enabled and key == FIRST_PAGEVIEW_ATTRIBUTION_FEATURE_FLAG,
-        )
 
     def _breakdown_values(self, breakdown):
         return [row[0] for row in self._run_web_stats_table_query("all", "2024-06-27", breakdown_by=breakdown).results]
@@ -1183,6 +1153,96 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         assert lazy_eligible(flag_on=False) is True
         assert lazy_eligible(flag_on=True) is False
+
+    @parameterized.expand(
+        [
+            ("channel_type", "$channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE, "Paid Search"),
+            ("utm_source", "$entry_utm_source", WebStatsBreakdown.INITIAL_UTM_SOURCE, "google"),
+            ("referring_domain", "$entry_referring_domain", WebStatsBreakdown.INITIAL_REFERRING_DOMAIN, "google.com"),
+        ]
+    )
+    def test_first_pageview_attribution_rewrites_drill_down_filters(self, _name, property_key, breakdown, row_value):
+        # Clicking a breakdown row filters on the stored session property, which
+        # still carries the poisoned entry attribution, so the tile only returns
+        # the clicked row when the filter is rewritten too.
+        self._seed_ssr_poisoned_session()
+
+        def drilled_down_values(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return [
+                    row[0]
+                    for row in self._run_web_stats_table_query(
+                        "all",
+                        "2024-06-27",
+                        breakdown_by=breakdown,
+                        properties=[
+                            SessionPropertyFilter(key=property_key, value=row_value, operator=PropertyOperator.EXACT)
+                        ],
+                    ).results
+                ]
+
+        assert drilled_down_values(flag_on=True) == [row_value]
+        assert drilled_down_values(flag_on=False) == []
+
+    @parameterized.expand([("bounce_rate", False), ("bounce_rate_and_avg_time", True)])
+    def test_first_pageview_attribution_rewrites_drill_down_on_paths_tile(self, _name, include_avg_time_on_page):
+        # The Paths tile splits user filters across three separate events scans
+        # instead of the single `all_properties` clause the Sources tiles use, so
+        # it needs the rewrite wired into each of them.
+        self._seed_ssr_poisoned_session()
+
+        def drilled_down_paths(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return [
+                    row[0]
+                    for row in self._run_web_stats_table_query(
+                        "all",
+                        "2024-06-27",
+                        breakdown_by=WebStatsBreakdown.PAGE,
+                        include_bounce_rate=True,
+                        include_avg_time_on_page=include_avg_time_on_page,
+                        properties=[
+                            SessionPropertyFilter(
+                                key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT
+                            )
+                        ],
+                    ).results
+                ]
+
+        assert drilled_down_paths(flag_on=True) == ["/landing"]
+        assert drilled_down_paths(flag_on=False) == []
+
+    def test_first_pageview_attribution_filter_changes_cache_key(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+            ],
+            breakdownBy=WebStatsBreakdown.PAGE,
+        )
+
+        def cache_key(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return WebStatsTableQueryRunner(team=self.team, query=query).get_cache_key()
+
+        assert cache_key(flag_on=False) != cache_key(flag_on=True)
+
+    def test_first_pageview_attribution_filter_bypasses_preaggregated_tables(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
+            properties=[
+                SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
+            ],
+            breakdownBy=WebStatsBreakdown.PAGE,
+        )
+
+        def preagg_eligible(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                runner = WebStatsTableQueryRunner(team=self.team, query=query)
+                return runner.preaggregated_query_builder.can_use_preaggregated_tables()
+
+        assert preagg_eligible(flag_on=False) is True
+        assert preagg_eligible(flag_on=True) is False
 
     def test_is_not_set_filter(self):
         d1 = "d1"

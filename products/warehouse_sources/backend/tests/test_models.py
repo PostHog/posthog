@@ -1,11 +1,12 @@
 import uuid
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, OperationalError, transaction
 from django.db.models import Model
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -272,6 +273,50 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             schema.update_incremental_field_value(42)
 
         assert not ExternalDataSchema.objects.filter(pk=schema_id).exists()
+
+
+class TestSaveSyncTypeConfigRetriesOnConnectionDrop(BaseTest):
+    """A pgbouncer `query_wait_timeout` (surfaced as `OperationalError`) on this per-batch
+    bookkeeping write used to propagate straight past `record_partition_measurement` and get
+    swallowed by the caller's broad except, silently losing the write for that run."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _create(self, **kwargs) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self.source, name="users", **kwargs)
+
+    def test_retries_once_on_operational_error_then_succeeds(self) -> None:
+        schema = self._create()
+        real_save = ExternalDataSchema.save
+        calls = 0
+
+        def flaky_save(self: ExternalDataSchema, *args: Any, **kwargs: Any) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OperationalError("query_wait_timeout")
+            real_save(self, *args, **kwargs)
+
+        with patch.object(ExternalDataSchema, "save", flaky_save):
+            schema.record_partition_measurement(123)
+
+        assert calls == 2
+        schema.refresh_from_db()
+        assert schema.sync_type_config["max_partition_bytes"] == 123
+
+    def test_second_consecutive_operational_error_propagates(self) -> None:
+        schema = self._create()
+        with patch.object(ExternalDataSchema, "save", side_effect=OperationalError("query_wait_timeout")):
+            with self.assertRaises(OperationalError):
+                schema.record_partition_measurement(123)
 
 
 class TestExternalDataSchemaOOMEvent(BaseTest):

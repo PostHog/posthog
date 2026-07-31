@@ -5153,6 +5153,15 @@ class HogQLQueryModifiers(BaseModel):
         description=("Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"),
     )
     useWebAnalyticsPreAggregatedTables: bool | None = None
+    webAnalyticsFirstPageviewFilters: bool | None = Field(
+        default=None,
+        description=(
+            "Serve filters on the stored session-entry attribution properties"
+            " (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by"
+            " recomputing the value from the session's first pageview. Resolved"
+            " server-side; not intended to be set by clients."
+        ),
+    )
 
 
 class HogQuery(BaseModel):

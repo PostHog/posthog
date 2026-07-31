@@ -383,6 +383,20 @@ def _credit_grant_customer_params(credit_grant: dict[str, Any]) -> dict[str, Any
     return {"customer": credit_grant.get("customer")}
 
 
+def _credit_balance_transaction_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_transactions` requires a `customer` filter — like credit balance
+    summary, it has no unscoped list. Scope it to a single credit grant (also filtering on
+    `credit_grant` so a customer with several grants doesn't return the same transaction once per
+    grant) so each row is a transaction against a grant we already sync."""
+
+    def _list(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        return client.billing.credit_balance_transactions.list(
+            params=cast(Any, {**params, "credit_grant": credit_grant})
+        )
+
+    return _list
+
+
 def _credit_grant_has_customer(credit_grant: dict[str, Any]) -> bool:
     """Credit grants issued to an Account rather than a Customer carry `customer_account` instead of
     `customer`. The summary endpoint takes one or the other, and we scope on `customer`, so skip the
@@ -531,8 +545,14 @@ def _build_resources(
         EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
         BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
         BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
-        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(
-            method=client.billing.credit_balance_transactions.list
+        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_transaction_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
         ),
         ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.entitlements.features.list),
         INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.invoice_payments.list),

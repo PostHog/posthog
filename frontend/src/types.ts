@@ -5784,6 +5784,7 @@ export const API_SCOPE_OBJECTS = [
     'logs',
     'loop',
     'marketing_analytics',
+    'mcp_builtin_agent',
     'mcp_analytics',
     'metrics',
     'notebook',
@@ -7072,6 +7073,7 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
+    | ProductKey.METRICS
     | ProductKey.MCP_ANALYTICS
     | ProductKey.CONVERSATIONS,
     OnboardingProduct
