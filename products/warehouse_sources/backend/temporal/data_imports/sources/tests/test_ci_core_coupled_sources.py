@@ -131,9 +131,17 @@ def _core_consumed_facade_symbols(tree: ast.AST) -> set[str]:
     return found
 
 
-def _contract_covered_sources(root: Path) -> set[str]:
-    turbo = json.loads((root / "products" / "warehouse_sources" / "turbo.json").read_text())
-    inputs = turbo["tasks"]["backend:contract-check"]["inputs"]
+def _contract_covered_sources(root: Path) -> set[str] | None:
+    """Vendor dirs the narrowed contract-check inputs watch, or None when the product has no
+    narrowing override — turbo then falls back to watching all of backend/, so every vendor is
+    covered and there is nothing to enumerate."""
+    turbo_path = root / "products" / "warehouse_sources" / "turbo.json"
+    if not turbo_path.exists():
+        return None
+    turbo = json.loads(turbo_path.read_text())
+    inputs = turbo.get("tasks", {}).get("backend:contract-check", {}).get("inputs")
+    if not inputs:
+        return None
     covered = {
         rest.split("/")[0].removesuffix(".py")
         for entry in inputs
@@ -167,6 +175,8 @@ def test_core_facade_coupled_sources_are_covered_by_contract_check():
 
     coupled_vendors = {symbol_to_vendor[s] for s in consumed if s in symbol_to_vendor}
     covered = _contract_covered_sources(root)
+    if covered is None:
+        return
     missing = coupled_vendors - covered
     assert not missing, (
         f"Core/CorePOE reaches warehouse sources {sorted(missing)} through the facade, but they are "

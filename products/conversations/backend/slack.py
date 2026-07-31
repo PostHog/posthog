@@ -11,6 +11,7 @@ All three converge to create_or_update_slack_ticket().
 
 import re
 import json
+from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
@@ -24,6 +25,7 @@ import posthoganalytics
 from slack_sdk import WebClient
 
 from posthog.event_usage import groups, report_team_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -47,11 +49,18 @@ from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .services.attachments import (
     CONVERSATIONS_MAX_IMAGE_BYTES,
+    MAX_ATTACHMENTS_PER_MESSAGE,
     build_content_with_images,
     is_valid_image,
+    sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
-from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, get_support_slack_bot_token
+from .support_slack import (
+    SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
+    SUPPORT_SLACK_FILE_READ_SCOPE,
+    get_support_slack_bot_token,
+    supporthog_missing_file_scopes,
+)
 
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
@@ -258,7 +267,7 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES)
 
 
-def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
+def _download_slack_image_bytes(url: str, bot_token: str, expected_mimetype: str = "") -> bytes | None:
     if not _is_allowed_slack_file_url(url):
         logger.warning("🖼️ slack_file_download_invalid_host", url=url)
         return None
@@ -285,6 +294,20 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
 
             if status != 200:
                 logger.warning("🖼️ slack_file_download_non_200", url=next_url, status=status)
+                return None
+
+            # A rejected file request (a revoked or downgraded token) lands on a Slack sign-in page
+            # served as a 200. Storing that as the customer's attachment is worse than having none,
+            # and only images get byte validation. Callers skip the request entirely when the
+            # install is known to lack files:read, which is the case this can't catch on its own:
+            # a sign-in page and a genuine text/html attachment look the same here.
+            content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if content_type == "text/html" and expected_mimetype.lower() != "text/html":
+                logger.warning(
+                    "🖼️ slack_file_download_unexpected_html",
+                    url=next_url,
+                    expected_mimetype=expected_mimetype,
+                )
                 return None
 
             content_length_header = response.headers.get("Content-Length")
@@ -319,64 +342,122 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
     return None
 
 
+def _is_inline_image(attachment: dict) -> bool:
+    return (attachment.get("mimetype") or "").startswith("image/") and not attachment.get("unavailable")
+
+
+def split_slack_attachments(attachments: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Partition extracted attachments into (images, non-image files) by mimetype.
+
+    Attachments we couldn't re-host go to the file bucket whatever their mimetype:
+    they point at Slack, so they can only be rendered as a link, not inlined.
+    """
+    images = [a for a in attachments if _is_inline_image(a)]
+    files = [a for a in attachments if not _is_inline_image(a)]
+    return images, files
+
+
+def _rehost_slack_file(f: dict, team: Team, bot_token: str | None) -> dict | None:
+    """Copy one Slack file into UploadedMedia, or None when it can't be read or stored."""
+    mimetype = f.get("mimetype", "")
+    is_image = mimetype.startswith("image/")
+    file_id = f.get("id")
+
+    source_url = f.get("url_private_download") or f.get("url_private")
+    if not source_url or not bot_token:
+        logger.warning(
+            "🖼️ slack_file_missing_download_info",
+            file_id=file_id,
+            has_source_url=bool(source_url),
+            has_bot_token=bool(bot_token),
+        )
+        return None
+
+    try:
+        file_bytes = _download_slack_image_bytes(source_url, bot_token, expected_mimetype=mimetype)
+    except Exception as e:
+        logger.warning("🖼️ slack_file_download_failed", file_id=file_id, error=str(e))
+        return None
+
+    if not file_bytes:
+        logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
+        return None
+
+    # Only images get byte-level validation; other types are stored as-is and
+    # served as opaque downloads by the media endpoint.
+    if is_image and not is_valid_image(file_bytes):
+        logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
+        return None
+
+    safe_name = sanitize_attachment_filename(f.get("name"))
+    stored_url = save_file_to_uploaded_media(team, safe_name, mimetype, file_bytes, validate_images=False)
+    if not stored_url:
+        logger.warning("🖼️ slack_file_copy_save_failed", file_id=file_id)
+        return None
+
+    attachment = {
+        "url": stored_url,
+        "name": safe_name,
+        "mimetype": mimetype,
+    }
+    if is_image:
+        attachment["thumb"] = f.get("thumb_360") or f.get("thumb_160")
+    return attachment
+
+
+def _slack_hosted_fallback(f: dict) -> dict | None:
+    """A link back to the file in Slack, for when re-hosting failed.
+
+    Without this the attachment vanishes from the ticket with no trace, which reads as
+    "the customer sent nothing". Most often this is an install missing files:read.
+    """
+    permalink = f.get("permalink")
+    if not isinstance(permalink, str) or not _is_allowed_slack_file_url(permalink):
+        return None
+    return {
+        "url": permalink,
+        "name": sanitize_attachment_filename(f.get("name")),
+        "mimetype": f.get("mimetype", ""),
+        "unavailable": True,
+    }
+
+
 def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient | None = None) -> list[dict]:
     """
-    Extract image attachments from Slack and re-host them in UploadedMedia.
+    Extract attachments from Slack and re-host them in UploadedMedia.
+
+    Returns a combined list of images and non-image files (PDFs, docs, etc.),
+    each tagged with its ``mimetype``. Callers split with ``split_slack_attachments``.
     """
     if not files:
         return []
 
     team_id = _get_team_id(team)
     bot_token = getattr(client, "token", None) if client else None
+    # Slack answers an unauthorized download with a 200 sign-in page, which is indistinguishable
+    # from a genuine text/html attachment. So don't ask: we've requested files:read for as long as
+    # we've recorded granted scopes, meaning an install with none recorded definitively lacks it.
+    missing_file_scopes = supporthog_missing_file_scopes(team)
+    can_read_files = SUPPORT_SLACK_FILE_READ_SCOPE not in missing_file_scopes
     logger.info("🖼️ slack_file_extract_started", team_id=team_id, total_files=len(files), has_bot_token=bool(bot_token))
-    images = []
-    for f in files:
-        mimetype = f.get("mimetype", "")
-        if not mimetype.startswith("image/"):
-            logger.debug("🖼️ slack_file_extract_skipped_non_image", file_id=f.get("id"), mimetype=mimetype)
-            continue
-
-        file_id = f.get("id")
-        source_url = f.get("url_private_download") or f.get("url_private")
-        if not source_url or not bot_token:
-            logger.warning(
-                "🖼️ slack_file_missing_download_info",
-                file_id=file_id,
-                has_source_url=bool(source_url),
-                has_bot_token=bool(bot_token),
-            )
-            continue
-
-        try:
-            image_bytes = _download_slack_image_bytes(source_url, bot_token)
-        except Exception as e:
-            logger.warning("🖼️ slack_file_download_failed", file_id=file_id, error=str(e))
-            continue
-
-        if not image_bytes:
-            logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
-            continue
-
-        if not is_valid_image(image_bytes):
-            logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
-            continue
-
-        stored_url = save_file_to_uploaded_media(
-            team, f.get("name", "image"), mimetype, image_bytes, validate_images=False
+    attachments: list[dict] = []
+    unavailable_count = 0
+    for f in files[:MAX_ATTACHMENTS_PER_MESSAGE]:
+        attachment = _rehost_slack_file(f, team, bot_token) if can_read_files else None
+        if attachment is None:
+            attachment = _slack_hosted_fallback(f)
+            unavailable_count += 1
+        if attachment:
+            attachments.append(attachment)
+    logger.info("🖼️ slack_file_extract_finished", team_id=team_id, attachment_count=len(attachments))
+    if unavailable_count:
+        logger.warning(
+            "🖼️ slack_file_extract_incomplete",
+            team_id=team_id,
+            unavailable_count=unavailable_count,
+            missing_file_scopes=missing_file_scopes,
         )
-        if stored_url:
-            images.append(
-                {
-                    "url": stored_url,
-                    "name": f.get("name", "image"),
-                    "mimetype": mimetype,
-                    "thumb": f.get("thumb_360") or f.get("thumb_160"),
-                }
-            )
-        else:
-            logger.warning("🖼️ slack_file_copy_save_failed", file_id=file_id)
-    logger.info("🖼️ slack_file_extract_finished", team_id=team_id, image_count=len(images))
-    return images
+    return attachments
 
 
 def create_or_update_slack_ticket(
@@ -416,8 +497,8 @@ def create_or_update_slack_ticket(
         files_count=len(files or []),
     )
 
-    # Extract images from Slack files, making them publicly accessible
-    images = extract_slack_files(files, team, client)
+    # Extract attachments from Slack files, making them publicly accessible
+    images, file_attachments = split_slack_attachments(extract_slack_files(files, team, client))
 
     # Resolve Slack user info for this message author
     user_info = resolve_slack_user(client, slack_user_id)
@@ -457,8 +538,8 @@ def create_or_update_slack_ticket(
         if slack_team_id and not ticket.slack_team_id:
             Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
 
-        # Allow messages with only images (no text)
-        if not cleaned_text and not images:
+        # Allow messages with only attachments (no text)
+        if not cleaned_text and not images and not file_attachments:
             logger.warning(
                 "🧵 slack_support_ticket_ingest_empty_after_processing",
                 team_id=team_id,
@@ -468,7 +549,7 @@ def create_or_update_slack_ticket(
             )
             return ticket
 
-        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
 
         Comment.objects.create(
             team=team,
@@ -486,6 +567,7 @@ def create_or_update_slack_ticket(
                 "slack_author_email": user_info.get("email"),
                 "slack_author_avatar": user_info.get("avatar"),
                 "slack_images": images if images else None,
+                "slack_files": file_attachments if file_attachments else None,
             },
         )
 
@@ -497,8 +579,8 @@ def create_or_update_slack_ticket(
         return ticket
 
     # New ticket from top-level message
-    # Allow messages with only images (no text)
-    if not cleaned_text and not images:
+    # Allow messages with only attachments (no text)
+    if not cleaned_text and not images and not file_attachments:
         logger.warning(
             "🧵 slack_support_ticket_ingest_empty_after_processing",
             team_id=team_id,
@@ -508,7 +590,7 @@ def create_or_update_slack_ticket(
         )
         return None
 
-    content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
+    content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
 
     # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
     # Without this, two reaction_added events from different users race through the
@@ -567,6 +649,7 @@ def create_or_update_slack_ticket(
             "slack_author_email": user_info.get("email"),
             "slack_author_avatar": user_info.get("avatar"),
             "slack_images": images if images else None,
+            "slack_files": file_attachments if file_attachments else None,
         },
     )
 
@@ -616,12 +699,48 @@ def _configured_support_channels(settings: dict) -> set[str]:
     return ids
 
 
+def _record_last_slack_message(
+    team: Team, *, channel: str, slack_user_id: str, message_ts: str | None, is_bot: bool
+) -> None:
+    """Record the message time on the customer analytics account bound to `channel`.
+
+    Bound means the account carries the channel in its ``slack_channel_id`` property, which is
+    independent of ticketing — so this covers every channel the bot can see, not only the
+    configured support channels. Bots and PostHog teammates aren't customers, so their messages
+    don't count. Failures are captured and swallowed: this must not stop the ticket path.
+    """
+    if is_bot or not message_ts:
+        return
+
+    from products.customer_analytics.backend.facade import api as customer_analytics  # noqa: PLC0415
+
+    try:
+        team_id = _get_team_id(team)
+        account = customer_analytics.get_account_ref_by_slack_channel_id(team_id, channel)
+        if account is None:
+            return
+        slack_user = resolve_slack_user(get_slack_client(team), slack_user_id)
+        # An unresolved email may belong to a teammate, so treat it as one.
+        email = slack_user.get("email")
+        if not email or resolve_posthog_user_for_slack(email, team):
+            return
+        customer_analytics.record_last_slack_message_at(
+            team_id=team_id,
+            account_id=account.id,
+            timestamp=datetime.fromtimestamp(float(message_ts), tz=UTC),
+        )
+    except Exception as e:
+        capture_exception(e, {"team_id": getattr(team, "id", None), "slack_channel_id": channel})
+
+
 def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'message' event for configured support channels.
 
     Top-level messages create new tickets.
     Thread replies add messages to existing tickets.
+    Any message from a customer also records the time on the account bound to the channel,
+    whether or not the channel is a support channel.
     """
     channel = event.get("channel")
     if not channel:
@@ -646,6 +765,8 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     configured_channels = _configured_support_channels(settings_dict)
     thread_ts = event.get("thread_ts")
     message_ts = event.get("ts")
+
+    _record_last_slack_message(team, channel=channel, slack_user_id=slack_user_id, message_ts=message_ts, is_bot=is_bot)
 
     if thread_ts:
         if is_bot:
@@ -689,7 +810,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         # click "Open ticket" (handled by the interactivity endpoint). Heuristics
         # keep us from pestering the whole channel.
         if settings_dict.get("slack_nudge_enabled", True):
-            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files)
+            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files, message_ts or "")
             if decision.send:
                 post_ticket_confirmation_prompt(
                     team=team,
@@ -743,6 +864,8 @@ def _is_trivial_message(text: str, files: list[dict] | None) -> bool:
 # package's __init__ pulls in the whole Temporal workflow surface). Must stay in the gateway's
 # `conversations` product allowlist (services/llm-gateway/src/llm_gateway/products/config.py).
 NUDGE_CLASSIFIER_MODEL = "claude-haiku-4-5"
+# Both the feature tag and the $ai_span_name on captured generations — they must stay equal.
+NUDGE_CLASSIFIER_FEATURE = "slack_nudge_classifier"
 # Bound the call so a slow gateway can't stall Slack event processing on the Celery worker.
 NUDGE_CLASSIFIER_TIMEOUT_SECONDS = 10
 # A yes/no read doesn't get better past this much text; cap what we send.
@@ -823,7 +946,9 @@ def _is_nudge_classifier_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -> NudgeClassifierVerdict:
+def _nudge_classifier_verdict(
+    team: Team, text: str, files: list[dict] | None, channel: str, message_ts: str
+) -> NudgeClassifierVerdict:
     """Final nudge gate: ask a cheap LLM whether the message reads like a genuine support
     request rather than channel chatter.
 
@@ -862,7 +987,13 @@ def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -
             temperature=0,
             timeout=NUDGE_CLASSIFIER_TIMEOUT_SECONDS,
             user=f"team-{team_id}",
-            extra_headers={"x-posthog-property-feature": "slack_nudge_classifier"},
+            # slack_* keys mirror nudge_event_properties so a generation joins its funnel outcome.
+            extra_headers={
+                "x-posthog-property-feature": NUDGE_CLASSIFIER_FEATURE,
+                "x-posthog-property-$ai_span_name": NUDGE_CLASSIFIER_FEATURE,
+                "x-posthog-property-slack_channel_id": channel,
+                "x-posthog-property-slack_thread_ts": message_ts,
+            },
             messages=[
                 {"role": "system", "content": NUDGE_CLASSIFIER_SYSTEM_PROMPT},
                 {"role": "user", "content": content},
@@ -889,6 +1020,7 @@ def _should_send_nudge(
     text: str,
     blocks: list[dict] | None,
     files: list[dict] | None,
+    message_ts: str,
 ) -> NudgeDecision:
     """Heuristics to avoid pestering the channel: nudge only external users on substantive
     messages, skipping anyone recently nudged/dismissed or who @mentioned the bot (which
@@ -922,7 +1054,7 @@ def _should_send_nudge(
     # message from a chatty author re-runs the classifier, unbounded; with it, the cadence
     # is what the pre-classifier nudge already established: one evaluation per
     # user/channel per window.
-    verdict = _nudge_classifier_verdict(team, text, files)
+    verdict = _nudge_classifier_verdict(team, text, files, channel, message_ts)
     if verdict == "no":
         suppress_nudge(team_id, channel, slack_user_id, NUDGE_COOLDOWN_TTL)
         return NudgeDecision(send=False, classifier_verdict=verdict)
@@ -1057,7 +1189,9 @@ def create_ticket_from_confirmation(
     Mirrors the emoji-reaction path: re-fetch the source message, create the ticket, then
     backfill any replies posted while the prompt was pending. Idempotent — a duplicate
     click returns the already-open ticket so the caller can confirm rather than error.
-    Returns None only on genuine failure (source message gone, fetch error, empty content).
+    Returns None on genuine failure (source message gone, fetch error, empty content), but
+    also when a concurrent duplicate delivery holds the create lock mid-flight — callers
+    should treat None as retryable, since a re-run resolves to the winner's committed ticket.
     """
     existing = Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=message_ts).first()
     if existing:
@@ -1263,7 +1397,7 @@ def _backfill_thread_replies(
         if not reply_text.strip() and not reply_files:
             continue
 
-        images = extract_slack_files(reply_files, team, client)
+        images, file_attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
 
         if reply_user not in user_cache:
             user_cache[reply_user] = resolve_slack_user(client, reply_user)
@@ -1286,7 +1420,7 @@ def _backfill_thread_replies(
         cleaned_text, rich_content = slack_to_content_and_rich_content(
             reply_text, reply_blocks, user_names=reply_user_names
         )
-        if not cleaned_text and not images:
+        if not cleaned_text and not images and not file_attachments:
             continue
 
         if is_team_member:
@@ -1294,7 +1428,7 @@ def _backfill_thread_replies(
         else:
             customer_message_count += 1
 
-        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images, file_attachments)
 
         comments_to_create.append(
             Comment(
@@ -1313,6 +1447,7 @@ def _backfill_thread_replies(
                     "slack_author_email": user_info.get("email"),
                     "slack_author_avatar": user_info.get("avatar"),
                     "slack_images": images if images else None,
+                    "slack_files": file_attachments if file_attachments else None,
                 },
             )
         )

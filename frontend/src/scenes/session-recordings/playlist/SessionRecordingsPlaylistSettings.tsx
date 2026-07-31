@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -12,7 +13,6 @@ import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
-import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
@@ -25,6 +25,7 @@ import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
+    preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -91,6 +92,7 @@ function SortedBy({
         if (sortChangedEvent) {
             posthog.capture('session recording list sort changed', sortChangedEvent)
         }
+        preferredRecordingsSortStorage.set(sort)
         setFilters(sort)
     }
 

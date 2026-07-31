@@ -3,14 +3,39 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
 
-import type { TicketChannel, TicketChannelDetail } from '../../types'
+import type { Ticket, TicketChannel, TicketChannelDetail } from '../../types'
 
-const channelIcon: Record<TicketChannel, JSX.Element> = {
+// Builds a deep link to the originating Slack thread so the Channel tag can be clickable.
+export function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
+    if (ticket?.channel_source === 'slack' && ticket.slack_channel_id && ticket.slack_thread_ts) {
+        return `https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`
+    }
+    return undefined
+}
+
+export const channelIcon: Record<TicketChannel, JSX.Element> = {
     widget: <IconComment />,
     slack: <IconSlack />,
     teams: <IconMicrosoftTeams />,
     email: <IconLetter />,
     github: <IconGithub />,
+}
+
+// Channels a team member replies back into externally, branded on the composer
+// (placeholder text + send-button logo). Others fall back to the generic composer.
+const replyChannelLabel: Partial<Record<TicketChannel, string>> = {
+    slack: 'Slack',
+    teams: 'Microsoft Teams',
+    github: 'GitHub',
+}
+
+export function getReplyPlaceholder(channel?: TicketChannel): string {
+    const label = channel ? replyChannelLabel[channel] : undefined
+    return label ? `Reply in ${label}...` : 'Type your message...'
+}
+
+export function hasReplyChannelBranding(channel?: TicketChannel): channel is TicketChannel {
+    return !!channel && channel in replyChannelLabel
 }
 
 const channelDetailLabel: Record<TicketChannelDetail, string> = {
@@ -52,7 +77,8 @@ export function ChannelsTag({ channel, detail, to }: ChannelsTagProps): JSX.Elem
         const tooltip = channelOpenLabel[channel] ?? `${channel}${detailText ? ` · ${detailText}` : ''}`
         return (
             <Tooltip title={tooltip}>
-                <Link to={to} target="_blank">
+                {/* Stop propagation so clicking the tag opens Slack without triggering a row/parent click. */}
+                <Link to={to} target="_blank" onClick={(e) => e.stopPropagation()}>
                     {tag}
                 </Link>
             </Tooltip>

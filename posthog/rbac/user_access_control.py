@@ -3,10 +3,10 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from functools import cached_property
+from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
-from django.db.models import Case, CharField, Exists, F, Model, OuterRef, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
 from opentelemetry import trace
@@ -29,6 +29,7 @@ else:
 
 try:
     from ee.models.rbac.access_control import AccessControl
+    from ee.models.rbac.role import RoleMembership
 except ImportError:
     pass
 
@@ -68,42 +69,74 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "external_data_source",
     "warehouse_objects",
     "feature_flag",
+    "heatmap",
     "hog_flow",
     "insight",
     "llm_analytics",
+    "tagger",
+    "llm_skill",
+    "ai_observability_clusters",
     "notebook",
     "revenue_analytics",
     "session_recording",
+    "sharing_configuration",
     "survey",
+    "ticket",
     "web_analytics",
     "activity_log",
     "error_tracking",
     "logs",
+    "mcp_analytics",
+    "metrics",
     "tracing",
+    "replay_scanner",
+    "toolbar",
+    "llm_playground",
 )
+
+# Resources whose access comes from membership rather than resource-level AccessControl rows,
+# so nothing sits above an object of this type to fall back to
+RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS: frozenset[APIScopeObject] = frozenset({"organization", "project", "plugin"})
 
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
-    "external_data_schema": "external_data_source",
     "warehouse_table": "warehouse_objects",
     "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
-    "tagger": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
-    "llm_skill": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
+    # Saved ticket views (the `conversation` scope) share the Support product's
+    # single "ticket" RBAC resource, so admins configure one control instead of two.
+    "conversation": "ticket",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
     # AccessControlResourceType.WebAnalytics).
     "marketing_analytics": "web_analytics",
+    # Vision actions are a second data model of the Replay Vision product (the
+    # scanner's "and then…" automations) — configured via the same single
+    # replay_scanner rule rather than a separate resource.
+    "vision_action": "replay_scanner",
+}
+
+# Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
+# parent's, this checks the child's own access first and falls back to the parent.
+# For example:
+# this table (object) -> this source (object) -> all tables (resource) -> all sources (resource) -> default
+#
+# The parent's id is read off the child's foreign key to it (DataWarehouseTable.external_data_source),
+# so an entry only works when that foreign key exists. A null one means no parent, and the object
+# skips it rather than inheriting: a self-managed table has no source, so no rule about sources
+# may reach it.
+RESOURCE_FALLBACK_MAP: dict[APIScopeObject, APIScopeObject] = {
+    "warehouse_table": "external_data_source",
 }
 
 WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(
@@ -153,11 +186,16 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "organization"  # singular
     if resource == "hog_flow":
         return "workflows"
+    if resource == "ai_observability_clusters":
+        return "AI trace clusters"
     if resource == "external_data_source":
         return "data warehouse sources"
     if resource == "warehouse_objects":
         # Umbrella label for both warehouse tables and views (both children inherit from this)
         return "data warehouse tables & views"
+    if resource == "llm_playground":
+        # The playground is a single page, not a collection of objects
+        return "LLM playground"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -174,7 +212,7 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
         return "admin"
     if resource in ["organization"]:
         return "member"
-    if resource in ["activity_log"]:
+    if resource in ["activity_log", "toolbar"]:
         return "viewer"
     return "editor"
 
@@ -188,7 +226,7 @@ def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
 
 def highest_access_level(resource: APIScopeObject) -> AccessControlLevel:
     """Returns the highest allowed access level for a resource."""
-    if resource in ["activity_log"]:
+    if resource in ["activity_log", "toolbar"]:
         return "viewer"
     return ordered_access_levels(resource)[-1]
 
@@ -284,6 +322,103 @@ def get_effective_access_level_for_member(
     )
 
 
+def get_project_scoped_visible_membership_ids(
+    organization: Organization, requesting_membership: OrganizationMembership
+) -> Optional[set[str]]:
+    """Membership ids a restricted (non-org-admin) member may see: their own, plus members with
+    project-scoped access (explicit grant, role, or project default — no org-admin bypass) to any
+    project the requester has access to. Returns None when every member is visible, so callers can
+    skip filtering without materializing the roster."""
+    # Without the entitlement, stale AccessControl rules in the DB must be ignored, not enforced —
+    # every project falls back to its default access, so every member is visible.
+    if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return None
+
+    team_ids = list(organization.teams.values_list("id", flat=True))
+    role_based_access = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
+
+    default_by_team: dict[int, AccessControlLevel] = {}
+    member_overrides: dict[tuple[int, str], AccessControlLevel] = {}
+    role_overrides: dict[tuple[int, str], AccessControlLevel] = {}
+    for ac in AccessControl.objects.filter(team_id__in=team_ids, resource="project"):
+        if ac.organization_member_id is None and ac.role_id is None:
+            default_by_team[ac.team_id] = ac.access_level
+        elif ac.organization_member_id:
+            member_overrides[(ac.team_id, str(ac.organization_member_id))] = ac.access_level
+        elif ac.role_id and role_based_access:
+            role_overrides[(ac.team_id, str(ac.role_id))] = ac.access_level
+
+    # A member's effective access can differ from the team default only if a rule mentions them —
+    # directly, or via a role they hold. Everyone else has exactly the default outcome, so only
+    # rule-mentioned candidates need individual evaluation.
+    candidate_role_ids: dict[str, list[str]] = defaultdict(list)
+    referenced_role_ids = {role_id for (_, role_id) in role_overrides}
+    if referenced_role_ids:
+        for rm in RoleMembership.objects.filter(role_id__in=referenced_role_ids):
+            if rm.organization_member_id:
+                candidate_role_ids[str(rm.organization_member_id)].append(str(rm.role_id))
+    candidate_ids = {membership_id for (_, membership_id) in member_overrides} | set(candidate_role_ids)
+
+    def has_scoped_access(team_id: int, membership_id: str) -> bool:
+        result = get_effective_access_level_for_member(
+            resource="project",
+            default_level=default_by_team.get(team_id, default_access_level("project")),
+            role_levels=[
+                role_overrides[(team_id, rid)]
+                for rid in candidate_role_ids.get(membership_id, [])
+                if (team_id, rid) in role_overrides
+            ],
+            member_level=member_overrides.get((team_id, membership_id)),
+            is_org_admin=False,
+        )
+        return result.effective_access_level not in (None, NO_ACCESS_LEVEL)
+
+    requester_id = str(requesting_membership.id)
+    accessible_team_ids = [team_id for team_id in team_ids if has_scoped_access(team_id, requester_id)]
+
+    open_team_accessible = any(
+        default_by_team.get(team_id, default_access_level("project")) != NO_ACCESS_LEVEL
+        for team_id in accessible_team_ids
+    )
+    if open_team_accessible:
+        # An open team makes every non-candidate visible; a candidate is hidden only if every
+        # accessible team denies them (dead branch under max-wins, real under more-specific-wins).
+        hidden = {
+            membership_id
+            for membership_id in candidate_ids
+            if all(not has_scoped_access(team_id, membership_id) for team_id in accessible_team_ids)
+        }
+        if not hidden:
+            return None
+        all_ids = {
+            str(membership_id)
+            for membership_id in OrganizationMembership.objects.filter(organization=organization).values_list(
+                "id", flat=True
+            )
+        }
+        return (all_ids - hidden) | {requester_id}
+
+    # Only private teams are accessible: non-candidates have the "none" default everywhere.
+    visible = {requester_id}
+    for membership_id in candidate_ids:
+        if any(has_scoped_access(team_id, membership_id) for team_id in accessible_team_ids):
+            visible.add(membership_id)
+    return visible
+
+
+def restricted_visible_membership_ids(organization: Organization, user: User) -> Optional[set[str]]:
+    """Membership ids `user` may see when the org restricts member list visibility, or None when
+    unrestricted (the setting is enabled, or the user is an org admin)."""
+    if organization.members_can_see_org_members:
+        return None
+    membership = OrganizationMembership.objects.filter(organization=organization, user_id=user.id).first()
+    if membership is None:
+        return set()
+    if membership.level >= OrganizationMembership.Level.ADMIN:
+        return None
+    return get_project_scoped_visible_membership_ids(organization, membership)
+
+
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     """
     Given a model, return the resource type it represents
@@ -304,10 +439,14 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "plugin"
     if name == "sessionrecording":
         return "session_recording"
+    if name == "sharingconfiguration":
+        return "sharing_configuration"
     if name == "exportedasset":
         return "export"
     if name == "sessionrecordingplaylist":
         return "session_recording_playlist"
+    if name == "savedheatmap":
+        return "heatmap"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
     if name == "experimentholdout":
@@ -320,8 +459,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "hog_flow"
     if name == "externaldatasource":
         return "external_data_source"
-    if name == "externaldataschema":
-        return "external_data_schema"
     if name == "datawarehousesavedquery":
         return "warehouse_view"
     if name == "datawarehousesavedqueryfolder":
@@ -339,6 +476,35 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return None
 
     return cast(APIScopeObject, name)
+
+
+@cache
+def _fallback_parent_field(model: type[Model], parent_resource: APIScopeObject) -> Optional[str]:
+    """Attribute holding the id of `model`'s `parent_resource` foreign key, if it has one.
+
+    Found by introspection rather than a declared field map so the relationship is read off the
+    schema that already defines it. Cached because it depends only on the model class.
+    """
+    for field in model._meta.get_fields():
+        # ForeignKey covers OneToOneField too, and excludes the reverse relations get_fields() also returns.
+        if not isinstance(field, ForeignKey) or field.related_model is None:
+            continue
+        if model_to_resource(cast(Model, field.related_model)) == parent_resource:
+            return field.attname
+    return None
+
+
+def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Optional[str]:
+    """Id of the object `obj` falls back to for access, or None when it has no such parent.
+
+    None is what makes a self-managed table skip its source tiers rather than inherit from a
+    source it doesn't have.
+    """
+    field = _fallback_parent_field(type(obj), parent_resource)
+    if field is None:
+        return None
+    parent_id = getattr(obj, field, None)
+    return str(parent_id) if parent_id is not None else None
 
 
 class UserAccessControl:
@@ -792,8 +958,7 @@ class UserAccessControl:
             # Use parent resource for access control checks
             return self.access_level_for_resource(parent_resource)
 
-        # These are resources which we don't have resource level access controls for
-        if resource == "organization" or resource == "project" or resource == "plugin":
+        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return default_access_level(resource)
 
         org_membership = self._organization_membership
@@ -1179,27 +1344,51 @@ class UserAccessControl:
         ).access_level
 
     def _object_access_level_from_rows(
-        self, resource: APIScopeObject, object_access_controls: list[_AccessControl], explicit: bool = False
+        self,
+        resource: APIScopeObject,
+        object_access_controls: list[_AccessControl],
+        explicit: bool = False,
+        fallback_parent_id: Optional[str] = None,
     ) -> Optional[AccessControlLevel]:
-        """Row-based object access resolution: explicit (role/member) object rows win, then
+        """Row-based object access resolution, most specific rule first: explicit (role/member) object
+        rows, then the fallback parent's object rows, then resource-level rows, then the parent's
         resource-level rows, then default object rows, then the resource default. Shared by
         `get_user_access_level` and `bulk_object_access_levels`.
         """
+        parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
+
         explicit_rows = [
             ac for ac in object_access_controls if ac.role_id is not None or ac.organization_member_id is not None
         ]
         if explicit_rows:
             return self._highest_access_level_from_rows(resource, explicit_rows)
 
+        if parent:
+            parent_rows = self._get_access_controls(
+                self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
+            )
+            if parent_rows:
+                return self._highest_access_level_from_rows(parent, parent_rows)
+
         if self.has_access_levels_for_resource(resource):
             access_level_for_resource = self.access_level_for_resource(resource)
             if access_level_for_resource:
                 return access_level_for_resource
 
+        if parent and self.has_access_levels_for_resource(parent):
+            access_level_for_parent = self.access_level_for_resource(parent)
+            if access_level_for_parent:
+                return access_level_for_parent
+
         if object_access_controls:
             return self._highest_access_level_from_rows(resource, object_access_controls)
 
         return None if explicit else default_access_level(resource)
+
+    @staticmethod
+    def _fallback_parent_id(obj: Model, resource: APIScopeObject) -> Optional[str]:
+        parent = RESOURCE_FALLBACK_MAP.get(resource)
+        return fallback_parent_object_id(obj, parent) if parent else None
 
     def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
         resource = model_to_resource(obj)
@@ -1214,7 +1403,12 @@ class UserAccessControl:
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         )
-        return self._object_access_level_from_rows(resource, object_access_controls, explicit=explicit)
+        return self._object_access_level_from_rows(
+            resource,
+            object_access_controls,
+            explicit=explicit,
+            fallback_parent_id=self._fallback_parent_id(obj, resource),
+        )
 
     def bulk_object_access_levels(
         self,
@@ -1227,6 +1421,12 @@ class UserAccessControl:
         `get_user_access_level`, but object rows come from the bulk preload grouped in memory,
         so no per-object queries are issued.
         """
+        # Warehouse tables aren't listed by either caller (search, the file tree). If that changes, load
+        # the parent ids here too, so access is checked against the source and not just the table.
+        parent = RESOURCE_FALLBACK_MAP.get(resource)
+        if parent:
+            raise NotImplementedError(f"bulk_object_access_levels cannot resolve `{resource}` through `{parent}`")
+
         if not objects:
             return {}
 

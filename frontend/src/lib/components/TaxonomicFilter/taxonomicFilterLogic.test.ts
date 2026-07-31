@@ -223,8 +223,14 @@ describe('taxonomicFilterLogic', () => {
         // react-window new rowProps every render, which drives its layout-effect setState past React's
         // update limit (error #185). This locks the reference in so that cascade cannot start.
         const state = getContext().store.getState()
-        const propsA = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
-        const propsB = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
+        const propsA: TaxonomicFilterLogicProps = {
+            ...logic.props,
+            metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        }
+        const propsB: TaxonomicFilterLogicProps = {
+            ...logic.props,
+            metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        }
 
         expect(propsA.metadataSource).not.toBe(propsB.metadataSource)
 
@@ -1106,6 +1112,15 @@ describe('taxonomicFilterLogic', () => {
                 expectedOptions: [{ name: '$pathname', group: TaxonomicFilterGroupType.EventProperties }],
             },
             {
+                description:
+                    "SuggestedFilters surfaces the event's primary property then its MCP suggested properties when eventNames=['$mcp_tool_call']",
+                eventNames: ['$mcp_tool_call'],
+                expectedOptions: [
+                    { name: '$mcp_tool_name', group: TaxonomicFilterGroupType.EventProperties },
+                    { name: '$mcp_is_error', group: TaxonomicFilterGroupType.EventProperties },
+                ],
+            },
+            {
                 description: 'SuggestedFilters has empty options when eventNames is empty',
                 eventNames: [] as string[],
                 expectedOptions: [],
@@ -1452,6 +1467,36 @@ describe('taxonomicFilterLogic', () => {
             }).toDispatchActions(['selectItem'])
 
             expect(onChange).toHaveBeenCalledWith(group, 'properties.$current_url', item)
+        })
+    })
+
+    describe('event feature flag properties are a separate group from event properties', () => {
+        let splitLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            splitLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'eventFeatureFlagsSplit',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                ],
+            })
+            splitLogic.mount()
+        })
+
+        afterEach(() => {
+            splitLogic.unmount()
+        })
+
+        const isFeatureFlagParam = (endpoint: string | undefined): string | null =>
+            new URLSearchParams((endpoint ?? '').split('?')[1] ?? '').get('is_feature_flag')
+
+        it.each([
+            { groupType: TaxonomicFilterGroupType.EventFeatureFlags, expected: 'true' },
+            { groupType: TaxonomicFilterGroupType.EventProperties, expected: 'false' },
+        ])('$groupType endpoint filters is_feature_flag=$expected', ({ groupType, expected }) => {
+            const group = splitLogic.values.taxonomicGroups.find((g) => g.type === groupType)
+            expect(isFeatureFlagParam(group?.endpoint)).toBe(expected)
         })
     })
 })

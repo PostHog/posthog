@@ -22,12 +22,24 @@ permissions:
 
 jobs:
     lint-pr:
-        if: contains(fromJSON('["opened", "edited", "synchronize"]'), github.event.action)
+        # The merge queue opens its own PR per batch, titled after the branch
+        # (trunk-merge/pr-70624/<uuid>), which can never satisfy Conventional
+        # Commits. The title that matters was already validated on the PR being
+        # queued, so checking the queue's copy only fails its run.
+        if: contains(fromJSON('["opened", "edited", "synchronize"]'), github.event.action) && !startsWith(github.head_ref, 'trunk-merge/')
         uses: ./.github/workflows/pr-updated.yml
 
     turbo:
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
         uses: ./.github/workflows/ci-turbo.yml
+
+    trunk-impacted-targets:
+        # Also on ready_for_review: Trunk keys the upload to a head SHA, and a PR
+        # can sit in draft long enough for the queue to have forgotten it.
+        if: contains(fromJSON('["opened", "synchronize", "reopened", "ready_for_review"]'), github.event.action)
+        uses: ./.github/workflows/trunk-impacted-targets.yml
+        secrets:
+            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 
     rate-limit-monitor:
         if: contains(fromJSON('["opened", "synchronize"]'), github.event.action)
@@ -36,6 +48,16 @@ jobs:
             POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
             GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
             GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+            GH_APP_POSTHOG_TESTS_APP_ID: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+            GH_APP_POSTHOG_TESTS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            GH_APP_TELEMETRY_APP_ID: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+            GH_APP_TELEMETRY_PRIVATE_KEY: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
+            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+            GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+            GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+            GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
 
     flags-project-board:
         # No synchronize: board status only transitions on reviewer/draft

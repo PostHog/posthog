@@ -29,6 +29,9 @@ export function signalCardSourceLine(signal: { source_product: string; source_ty
     if (source_product === 'session_replay') {
         return 'Session replay · Problem segment'
     }
+    if (source_product === 'replay_vision') {
+        return 'Replay vision · Scanner finding'
+    }
     if (source_product === 'llm_analytics' && source_type === 'evaluation') {
         return 'AI observability · Evaluation'
     }
@@ -55,6 +58,9 @@ export function signalCardSourceLine(signal: { source_product: string; source_ty
     }
     if (source_product === 'logs' && source_type === 'alert_state_change') {
         return 'Logs · Alert state change'
+    }
+    if (source_product === 'analytics' && source_type === 'anomaly_investigation') {
+        return 'Product analytics · Anomaly investigation'
     }
     if (source_product === 'health_checks') {
         return 'Health checks · Instrumentation issue'

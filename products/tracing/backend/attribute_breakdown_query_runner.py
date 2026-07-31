@@ -14,7 +14,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -34,6 +34,12 @@ _ORDER_COLUMNS: dict[TraceSpanBreakdownOrderBy, str] = {
 # Top-level columns the `span` breakdown type may group by. The allowlist (enforced at both the
 # API and runner level) keeps arbitrary column names out of the generated SQL.
 FACET_COLUMNS: frozenset[str] = frozenset({"service_name", "status_code"})
+
+
+def _ilike_pattern(search: str) -> str:
+    # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
+    escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 class TraceSpansAttributeBreakdownQueryRunner(
@@ -66,8 +72,10 @@ class TraceSpansAttributeBreakdownQueryRunner(
         if self.query.breakdownType == TraceSpanBreakdownType.SPAN:
             self.span_filters = [f for f in self.span_filters if f.key != key]
             if key == "service_name":
-                # The dedicated service filter targets the same column as the breakdown.
-                self.query.serviceNames = None
+                # The dedicated service filter targets the same column as the breakdown. Swap in a
+                # copy rather than mutating in place — the caller's query object must keep
+                # reflecting the request as made.
+                self.query = self.query.model_copy(update={"serviceNames": None})
         elif self.query.breakdownType == TraceSpanBreakdownType.SPAN_ATTRIBUTE:
             # Extraction suffixed the keys with their physical-map type (`__str` / `__float`).
             suffixed = {f"{key}__str", f"{key}__float"}
@@ -96,6 +104,24 @@ class TraceSpansAttributeBreakdownQueryRunner(
             breakdown_field = ast.Field(chain=["attributes", f"{self.query.breakdownKey}__str"])
         order_column = _ORDER_COLUMNS[self.query.orderBy or TraceSpanBreakdownOrderBy.COUNT]
 
+        where: ast.Expr = self._where_without_date_range()
+        facet_search = (self.query.facetSearch or "").strip()
+        if facet_search:
+            # Type-ahead over the facet's own values — filter pre-group so the top-N limit applies
+            # to matching values, letting the search reach past the default row window.
+            where = ast.And(
+                exprs=[
+                    where,
+                    parse_expr(
+                        "{breakdown_field} ILIKE {pattern}",
+                        placeholders={
+                            "breakdown_field": breakdown_field,
+                            "pattern": ast.Constant(value=_ilike_pattern(facet_search)),
+                        },
+                    ),
+                ]
+            )
+
         query = parse_select(
             """
             SELECT
@@ -114,12 +140,12 @@ class TraceSpansAttributeBreakdownQueryRunner(
             GROUP BY value
             ORDER BY """
             + order_column
-            + """ DESC
+            + """ DESC, value ASC
             LIMIT {limit}
             """,
             placeholders={
                 "breakdown_field": breakdown_field,
-                "where": self._where_without_date_range(),
+                "where": where,
                 "limit": ast.Constant(value=_ROW_LIMIT),
                 **query_date_range.to_placeholders(),
             },
@@ -148,6 +174,7 @@ def run_attribute_breakdown_query(
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
     exclude_breakdown_filter: bool = False,
+    facet_search: str | None = None,
 ) -> TraceSpansAttributeBreakdownQueryResponse | CachedTraceSpansAttributeBreakdownQueryResponse:
     """Facade-friendly entry point for running an attribute breakdown query."""
     query = TraceSpansAttributeBreakdownQuery(
@@ -159,6 +186,7 @@ def run_attribute_breakdown_query(
         filterGroup=filter_group,
         serviceNames=service_names,
         excludeBreakdownFilter=exclude_breakdown_filter,
+        facetSearch=facet_search,
     )
     runner = TraceSpansAttributeBreakdownQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

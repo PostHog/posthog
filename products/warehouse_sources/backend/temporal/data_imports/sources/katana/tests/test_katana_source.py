@@ -5,7 +5,7 @@ from parameterized import parameterized
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KatanaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.katana import KatanaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.katana.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -28,7 +28,6 @@ class TestKatanaSourceClass:
         assert config.label == "Katana"
         assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/katana"
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_key"]

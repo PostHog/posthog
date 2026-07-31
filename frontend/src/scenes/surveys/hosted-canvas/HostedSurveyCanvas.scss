@@ -49,6 +49,18 @@
         }
     }
 
+    // Thumbs (2-point) render icon SVGs; center and size them. Scoped so glyph scales keep default layout.
+    .rating-options-emoji-2 .ratings-emoji {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+
+        svg {
+            width: 1.5rem;
+            height: 1.5rem;
+        }
+    }
+
     // Display elements (h1.survey-question, p.survey-question-description,
     // span.form-submit, etc.) keep their natural styling — we ONLY add an edit
     // affordance. No font/padding/background/border-radius reset on these so

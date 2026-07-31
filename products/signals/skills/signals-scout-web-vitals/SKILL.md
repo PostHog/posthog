@@ -32,12 +32,15 @@ four metrics against fixed Google thresholds; your job is to find the pages that
 **slow against those thresholds** — whether they just regressed or have been slow all
 along — and file a report that names the metric, the band, the likely cause, and the fix.
 
-You author reports directly via the report channel (`signals-scout-emit-report` /
-`signals-scout-edit-report`): you've done the research, so you own each report 1:1
+You author reports directly via the report channel (`scout-emit-report` /
+`scout-edit-report`): you've done the research, so you own each report 1:1
 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is
 correspondingly high — file a report only for a volume-gated, band-classified page finding
 you'd stand behind as a standalone inbox item a human will act on. A page the inbox
-already covers (still slow, worsening, or relapsing) is an **edit**, not a new report.
+already covers is an **edit** when the picture moved materially (deepening, recovering,
+re-crossing a band); steady-state "still slow, same level" is a scratchpad
+re-confirmation, not an append every run — and a report that closed or already shipped
+its fix (`ready` with an open or merged implementation PR) is done absorbing appends.
 The harness prompt carries the full report-channel contract (fields, status mapping,
 reviewer routing, dedupe, and the edit rules); this body adds only the web-vitals framing.
 
@@ -126,17 +129,18 @@ Cycle between these moves; skip what's not useful.
 
 Four cheap reads cold-start a run:
 
-- `signals-scout-scratchpad-search` (`text=web vitals` or `text=lcp`) — durable steering
+- `scout-scratchpad-search` (`text=web vitals` or `text=lcp`) — durable steering
   from past runs. `pattern:` entries hold the project's per-page band baselines (which
   pages are chronically slow and already known), `addressed:` what the team has fixed,
   `dedupe:` what's already in the inbox, `noise:` synthetic/bot sources; `report:` /
   `reviewer:` entries point at the open report for a page and who owns it.
-- `signals-scout-runs-list` (last 7d) — what prior vitals runs found and ruled out.
-- `signals-scout-project-profile-get` — confirm `$web_vitals` is in `top_events` and read
+- `scout-runs-list` (last 7d) — what prior vitals runs found and ruled out.
+- `scout-project-profile-get` — confirm `$web_vitals` is in `top_events` and read
   its `count` / `recent_24h_count` to size the surface before querying.
 - `inbox-reports-list` (`search`=a path/metric term, `ordering=-updated_at`) — the reports
-  already in the inbox. A page you've reported before is an **edit**, not a fresh report;
-  pull the closest matches with `inbox-reports-retrieve` before authoring. Your own
+  already in the inbox. A page you've reported before is an edit candidate (see Decide
+  for the material-change bar); pull the closest matches with `inbox-reports-retrieve`
+  before authoring. Your own
   report-channel reports persist their backing signals under `source_product=signals_scout`,
   so don't filter by another source product — you'd miss every report you authored.
 
@@ -358,7 +362,8 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
   don't mint a dated variant.
 - key `report:web_vitals:checkout-inp` — _"Report `019f0a96-…` covers the `/checkout`
   INP finding. Edit it (append_note the fresh p75 + sample count) while the page stays
-  slow and the report is still live; if it was resolved and the page later re-crosses,
+  slow and the report is still live and not scope-frozen; if it closed (or shipped its
+  fix — `ready` with an open or merged implementation PR) and the page later re-crosses,
   that's a fresh report."_
 - key `reviewer:web_vitals:marketing-site` — _"Marketing-site performance reports route
   to `alice` (GitHub login)."_
@@ -376,22 +381,28 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   directly); with no pointer, `inbox-reports-list` by the page's specific terms (the path,
   host, or metric name — `ordering=-updated_at`), never a broad word like `performance`.
   A page with a live report and no material change is a **skip**.
-- **Edit** (`signals-scout-edit-report`) when a still-live report already covers the same
+- **Edit** (`scout-edit-report`) when a still-live report already covers the same
   page+metric problem — the page still standing in `poor`, the regression still holding,
   the p75 deepening or recovering. `append_note` the fresh window's numbers (p75, band,
   sample count), or rewrite the title/summary on a report you authored. This is the
   default when a match exists — a chronically slow page is one report across weeks, not
   one per run. `edit-report` can't change status, so if the matched report is `resolved` /
-  `suppressed` / `failed`, don't append (it won't resurface) — author a fresh report for
-  the relapse and repoint the `report:` key.
-- **Author** (`signals-scout-emit-report`) only when nothing live covers it — one report
+  `suppressed` / `failed`, don't append (it won't resurface) — and a `ready` report whose
+  implementation PR is open or merged is equally done absorbing scope: its fix is already
+  cut, so anything it doesn't cover is genuinely new. (A PR closed without merging never
+  shipped — that report isn't frozen; when you can't tell the PR's state, treat it as
+  frozen: a rare duplicate beats burying new work under a shipped fix.) In both cases
+  author a fresh report and repoint the `report:` key.
+- **Author** (`scout-emit-report`) only when nothing live covers it — one report
   per page+metric problem, never one per query row. A **report-worthy finding**
   (confidence ≥ 0.8): names the **page** (host + path), the **metric**, the **p75 value
   and band**, the **sample count** behind the percentile, whether it's standing-poor or a
   dated regression (with the onset day), a **metric-specific cause hypothesis**, and a
   **concrete remediation** — the last two pulled from
   [`references/remediation.md`](references/remediation.md) — with the numbers in the
-  `evidence`. Below that bar, write memory instead. The fix lives in the team's own
+  `evidence`. Below that bar, write memory instead.
+  Attach the page's daily p75 series via `charts` — for a dated regression show the band crossing and its onset; for a standing-poor page show just the observed window, since a series that starts in the poor band cannot date an onset.
+  The fix lives in the team's own
   frontend code, CDN, or asset pipeline — so default to
   `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops
   `priority`+reviewers from spawning a pointless repo-selection sandbox); reserve
@@ -400,7 +411,7 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   context. Set `priority` + `priority_explanation`: standing-poor or a band-crossing
   regression on a top-3 landing surface P2; any other single-page finding P3; a site-wide
   step P2; an in-band early warning or improvement opportunity P3. Set
-  `suggested_reviewers` via `signals-scout-members-list` (objects — a `{github_login}` or
+  `suggested_reviewers` via `scout-members-list` (objects — a `{github_login}` or
   `{user_uuid}`, not bare strings; cache under `reviewer:web_vitals:<area>`); left empty
   the report reaches no one. After authoring, write the
   `report:web_vitals:<host><path>-<metric>` pointer with the `report_id` so the next run
@@ -431,7 +442,7 @@ per-page metric value against the threshold.
 
 Summarize the run in one paragraph: which metrics/pages you checked, which reports you
 authored or edited, what you remembered and ruled out. The harness saves it as the run summary; future runs read it
-via `signals-scout-runs-list` — don't write a separate "run metadata" scratchpad entry.
+via `scout-runs-list` — don't write a separate "run metadata" scratchpad entry.
 "All gated pages comfortably in the good band" is a real, useful outcome.
 
 ## Disqualifiers (skip these)
@@ -476,17 +487,17 @@ Inbox & reviewer routing:
   check before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `signals-scout-members-list` — this project's members with their resolved
+- `scout-members-list` — this project's members with their resolved
   `github_login`, to route `suggested_reviewers` (wrap as a `{github_login}` object, or
   pass the member's `{user_uuid}` and let the server resolve). The in-run roster; the
   org-scoped resolver tools aren't available in a scout run.
 
 Harness-level:
 
-- `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
-  `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-emit-report` / `signals-scout-edit-report` /
-  `signals-scout-scratchpad-remember` / `signals-scout-scratchpad-forget` — author a
+- `scout-project-profile-get` / `scout-scratchpad-search` /
+  `scout-runs-list` / `scout-runs-retrieve` — orientation + dedupe.
+- `scout-emit-report` / `scout-edit-report` /
+  `scout-scratchpad-remember` / `scout-scratchpad-forget` — author a
   report / edit an existing one / remember / prune stale memory keys.
 
 ## When to stop

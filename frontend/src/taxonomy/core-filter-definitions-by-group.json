@@ -151,6 +151,22 @@
             "label": "AI billable (LLM)",
             "system": true
         },
+        "$ai_cache_creation_1h_input_tokens": {
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_creation_5m_input_tokens": {
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [
@@ -187,6 +203,14 @@
                 true
             ],
             "label": "AI cache reporting exclusive (LLM)"
+        },
+        "$ai_cache_write_1h_token_price": {
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [
+                6e-06
+            ],
+            "label": "AI 1-hour cache write token price (LLM)",
+            "type": "Numeric"
         },
         "$ai_cache_write_token_price": {
             "description": "The price per token written to the prompt cache.",
@@ -384,6 +408,20 @@
                 "openai"
             ],
             "label": "AI framework (LLM)"
+        },
+        "$ai_git_branch": {
+            "description": "The git branch checked out when the AI generation ran.",
+            "examples": [
+                "feat/my-feature"
+            ],
+            "label": "AI git branch"
+        },
+        "$ai_git_repo": {
+            "description": "The repository that AI interacted with, as owner/name.",
+            "examples": [
+                "PostHog/posthog"
+            ],
+            "label": "AI git repository"
         },
         "$ai_http_status": {
             "description": "The HTTP status code of the request made to the LLM API.",
@@ -1454,31 +1492,9 @@
             ],
             "label": "Event type"
         },
-        "$exception_DOMException_code": {
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-            "label": "DOMException code"
-        },
         "$exception_capture_enabled_server_side": {
             "description": "Whether exception autocapture was enabled in remote config.",
             "label": "Exception capture enabled server side"
-        },
-        "$exception_capture_endpoint": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint"
-        },
-        "$exception_capture_endpoint_suffix": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint suffix"
-        },
-        "$exception_colno": {
-            "description": "Which column of the line in the exception source that caused the exception.",
-            "label": "Exception source column number"
         },
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
@@ -1488,6 +1504,11 @@
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
             "label": "Exception fingerprint record"
         },
+        "$exception_fingerprint_version": {
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "label": "Exception fingerprint version",
+            "system": true
+        },
         "$exception_functions": {
             "description": "A function contained in the exception.",
             "label": "Exception function"
@@ -1495,10 +1516,6 @@
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
-        },
-        "$exception_is_synthetic": {
-            "description": "Whether this was detected as a synthetic exception.",
-            "label": "Exception is synthetic"
         },
         "$exception_issue_id": {
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
@@ -1511,26 +1528,10 @@
             ],
             "label": "Exception level"
         },
-        "$exception_lineno": {
-            "description": "Which line in the exception source that caused the exception.",
-            "label": "Exception source line number"
-        },
         "$exception_list": {
             "description": "List of one or more associated exceptions.",
             "label": "Exception list",
             "system": true
-        },
-        "$exception_message": {
-            "description": "The message detected on the error.",
-            "label": "Exception message"
-        },
-        "$exception_personURL": {
-            "description": "The PostHog person that experienced the exception.",
-            "label": "Exception person URL"
-        },
-        "$exception_proposed_fingerprint": {
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
-            "label": "Exception proposed fingerprint"
         },
         "$exception_releases": {
             "description": "The releases in which this exception has been observed.",
@@ -1538,22 +1539,22 @@
             "type": "String"
         },
         "$exception_source": {
-            "description": "The source of the exception.",
+            "description": "The SDK integration or runtime hook that captured the exception.",
             "examples": [
-                "JS file"
+                "panic",
+                "rails",
+                "php_exception_handler"
             ],
-            "label": "Exception source"
+            "label": "Exception capture source"
         },
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_type": {
-            "description": "Exception categorized into types.",
-            "examples": [
-                "Error"
-            ],
-            "label": "Exception type"
+        "$exception_steps": {
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "label": "Exception steps",
+            "system": true
         },
         "$exception_types": {
             "description": "The type of the exception.",
@@ -1599,6 +1600,14 @@
                 "1732051200000"
             ],
             "label": "Feature flag evaluated at"
+        },
+        "$feature_flag_has_experiment": {
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "Feature flag has experiment"
         },
         "$feature_flag_id": {
             "description": "The numeric identifier of the feature flag that was called.",
@@ -2083,7 +2092,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -2104,7 +2113,7 @@
             "type": "Numeric"
         },
         "$mcp_error_message": {
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
             "label": "MCP error message"
         },
         "$mcp_error_status": {
@@ -3789,7 +3798,8 @@
         },
         "$ai_evaluation": {
             "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
-            "label": "AI evaluation (LLM)"
+            "label": "AI evaluation (LLM)",
+            "primary_property": "$ai_evaluation_name"
         },
         "$ai_feedback": {
             "description": "User-provided feedback for a trace of a generative AI model (LLM).",
@@ -3797,15 +3807,18 @@
         },
         "$ai_generation": {
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
-            "label": "AI generation (LLM)"
+            "label": "AI generation (LLM)",
+            "primary_property": "$ai_model"
         },
         "$ai_metric": {
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
-            "label": "AI metric (LLM)"
+            "label": "AI metric (LLM)",
+            "primary_property": "$ai_metric_name"
         },
         "$ai_span": {
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).",
-            "label": "AI span (LLM)"
+            "label": "AI span (LLM)",
+            "primary_property": "$ai_span_name"
         },
         "$ai_tag": {
             "description": "A tag classification of an AI event. Contains the assigned tags, reasoning, and tagger metadata.",
@@ -3813,7 +3826,8 @@
         },
         "$ai_trace": {
             "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.",
-            "label": "AI trace (LLM)"
+            "label": "AI trace (LLM)",
+            "primary_property": "$ai_span_name"
         },
         "$autocapture": {
             "description": "User interactions that were automatically captured.",
@@ -3868,7 +3882,8 @@
                 "Unauthorized inline script",
                 "Trying to load resources from unauthorized domain"
             ],
-            "label": "CSP violation"
+            "label": "CSP violation",
+            "primary_property": "$csp_violated_directive"
         },
         "$dead_click": {
             "description": "A user has clicked on something that is probably not clickable.",
@@ -3893,7 +3908,8 @@
         },
         "$exception": {
             "description": "An unexpected error or unhandled exception in your application.",
-            "label": "Exception"
+            "label": "Exception",
+            "primary_property": "$exception_types"
         },
         "$feature_enrollment_update": {
             "description": "When a user enrolls with a feature.",
@@ -3943,7 +3959,8 @@
         },
         "$mcp_prompt_get": {
             "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
-            "label": "MCP prompt fetched"
+            "label": "MCP prompt fetched",
+            "primary_property": "$mcp_resource_name"
         },
         "$mcp_prompts_list": {
             "description": "Fires when an MCP client requests the list of available prompts.",
@@ -3951,7 +3968,8 @@
         },
         "$mcp_resource_read": {
             "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
-            "label": "MCP resource read"
+            "label": "MCP resource read",
+            "primary_property": "$mcp_resource_name"
         },
         "$mcp_resources_list": {
             "description": "Fires when an MCP client requests the list of available resources.",
@@ -4036,7 +4054,8 @@
         },
         "Deep link opened": {
             "description": "When a user opens the mobile app via a deep link.",
-            "label": "Deep link opened"
+            "label": "Deep link opened",
+            "primary_property": "url"
         },
         "mcp feedback submitted": {
             "description": "Fires when feedback is submitted through the MCP server's feedback tool \u2014 about any PostHog product, the MCP server itself, or the docs.",
@@ -4182,7 +4201,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -4203,7 +4222,7 @@
             "type": "Numeric"
         },
         "$mcp_error_message": {
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
             "label": "MCP error message"
         },
         "$mcp_error_status": {
@@ -4514,6 +4533,22 @@
             "label": "AI billable (LLM)",
             "system": true
         },
+        "$ai_cache_creation_1h_input_tokens": {
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_creation_5m_input_tokens": {
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [
+                23
+            ],
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_creation_input_tokens": {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [
@@ -4550,6 +4585,14 @@
                 true
             ],
             "label": "AI cache reporting exclusive (LLM)"
+        },
+        "$ai_cache_write_1h_token_price": {
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [
+                6e-06
+            ],
+            "label": "AI 1-hour cache write token price (LLM)",
+            "type": "Numeric"
         },
         "$ai_cache_write_token_price": {
             "description": "The price per token written to the prompt cache.",
@@ -4747,6 +4790,20 @@
                 "openai"
             ],
             "label": "AI framework (LLM)"
+        },
+        "$ai_git_branch": {
+            "description": "The git branch checked out when the AI generation ran.",
+            "examples": [
+                "feat/my-feature"
+            ],
+            "label": "AI git branch"
+        },
+        "$ai_git_repo": {
+            "description": "The repository that AI interacted with, as owner/name.",
+            "examples": [
+                "PostHog/posthog"
+            ],
+            "label": "AI git repository"
         },
         "$ai_http_status": {
             "description": "The HTTP status code of the request made to the LLM API.",
@@ -5817,31 +5874,9 @@
             ],
             "label": "Event type"
         },
-        "$exception_DOMException_code": {
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-            "label": "DOMException code"
-        },
         "$exception_capture_enabled_server_side": {
             "description": "Whether exception autocapture was enabled in remote config.",
             "label": "Exception capture enabled server side"
-        },
-        "$exception_capture_endpoint": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint"
-        },
-        "$exception_capture_endpoint_suffix": {
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": [
-                "/e/"
-            ],
-            "label": "Exception capture endpoint suffix"
-        },
-        "$exception_colno": {
-            "description": "Which column of the line in the exception source that caused the exception.",
-            "label": "Exception source column number"
         },
         "$exception_fingerprint": {
             "description": "A fingerprint used to group issues, can be set clientside.",
@@ -5851,6 +5886,11 @@
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
             "label": "Exception fingerprint record"
         },
+        "$exception_fingerprint_version": {
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "label": "Exception fingerprint version",
+            "system": true
+        },
         "$exception_functions": {
             "description": "A function contained in the exception.",
             "label": "Exception function"
@@ -5858,10 +5898,6 @@
         "$exception_handled": {
             "description": "Whether this was a handled or unhandled exception.",
             "label": "Exception was handled"
-        },
-        "$exception_is_synthetic": {
-            "description": "Whether this was detected as a synthetic exception.",
-            "label": "Exception is synthetic"
         },
         "$exception_issue_id": {
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
@@ -5874,26 +5910,10 @@
             ],
             "label": "Exception level"
         },
-        "$exception_lineno": {
-            "description": "Which line in the exception source that caused the exception.",
-            "label": "Exception source line number"
-        },
         "$exception_list": {
             "description": "List of one or more associated exceptions.",
             "label": "Exception list",
             "system": true
-        },
-        "$exception_message": {
-            "description": "The message detected on the error.",
-            "label": "Exception message"
-        },
-        "$exception_personURL": {
-            "description": "The PostHog person that experienced the exception.",
-            "label": "Exception person URL"
-        },
-        "$exception_proposed_fingerprint": {
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
-            "label": "Exception proposed fingerprint"
         },
         "$exception_releases": {
             "description": "The releases in which this exception has been observed.",
@@ -5901,22 +5921,22 @@
             "type": "String"
         },
         "$exception_source": {
-            "description": "The source of the exception.",
+            "description": "The SDK integration or runtime hook that captured the exception.",
             "examples": [
-                "JS file"
+                "panic",
+                "rails",
+                "php_exception_handler"
             ],
-            "label": "Exception source"
+            "label": "Exception capture source"
         },
         "$exception_sources": {
             "description": "A source file included in the exception.",
             "label": "Exception source"
         },
-        "$exception_type": {
-            "description": "Exception categorized into types.",
-            "examples": [
-                "Error"
-            ],
-            "label": "Exception type"
+        "$exception_steps": {
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "label": "Exception steps",
+            "system": true
         },
         "$exception_types": {
             "description": "The type of the exception.",
@@ -5962,6 +5982,14 @@
                 "1732051200000"
             ],
             "label": "Feature flag evaluated at"
+        },
+        "$feature_flag_has_experiment": {
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": [
+                "true",
+                "false"
+            ],
+            "label": "Feature flag has experiment"
         },
         "$feature_flag_id": {
             "description": "The numeric identifier of the feature flag that was called.",
@@ -6863,7 +6891,7 @@
             "label": "MCP client version"
         },
         "$mcp_consumer": {
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
             "examples": [
                 "posthog-code",
                 "slack"
@@ -6884,7 +6912,7 @@
             "type": "Numeric"
         },
         "$mcp_error_message": {
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
             "label": "MCP error message"
         },
         "$mcp_error_status": {

@@ -203,6 +203,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             PreemptDAGRunInputs(
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
+                node_ids=inputs.node_ids,
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(

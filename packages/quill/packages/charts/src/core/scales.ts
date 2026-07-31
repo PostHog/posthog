@@ -10,6 +10,7 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
+import { significantDecimalPlaces } from '../utils/format'
 import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -481,14 +482,18 @@ export function buildSegmentResolveValue(
     }
     return (s, dataIndex) => {
         const band = stackedData.get(s.key)
+        const raw = s.data[dataIndex]
         if (band) {
             const top = band.top[dataIndex]
             const bottom = band.bottom[dataIndex]
             if (Number.isFinite(top) && Number.isFinite(bottom)) {
-                return top - bottom
+                const size = top - bottom
+                // A diverging stack lays a negative segment out as [bottom = cumulative,
+                // top = previous] with top > bottom — the same ordering as a positive segment —
+                // so `top - bottom` alone loses the sign. Restore it from the raw value.
+                return typeof raw === 'number' && raw < 0 && size > 0 ? -size : size
             }
         }
-        const raw = s.data[dataIndex]
         return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
     }
 }
@@ -724,7 +729,12 @@ function padValueRange(
 
 export function autoFormatYTick(value: number, domainMax: number): string {
     if (domainMax < 2) {
-        return value.toFixed(2)
+        // Two decimals only resolve a domain down to ~0.1; below that every tick rounds to the same
+        // label, so scale the precision to the domain instead.
+        return value.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: significantDecimalPlaces(domainMax),
+        })
     }
     if (domainMax < 5) {
         return value.toFixed(1)

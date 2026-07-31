@@ -5,7 +5,10 @@ from typing import TYPE_CHECKING, Optional
 import structlog
 from prometheus_client import Counter
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
@@ -27,8 +30,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     check_common_eligible,
     events_session_id_expr,
     floor_utc_day,
+    is_constant_true,
     test_account_filter_expr,
     user_filter_expr,
+    with_insert_session_id_set_filter,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     handle_stale_served,
@@ -71,7 +76,21 @@ _check_lazy_precompute_eligible = check_common_eligible
 # its events that spill past midnight — the HAVING clause attributes the session
 # to its start hour, but the events scan needs the trailing events to compute
 # correct `$session_duration` / `$pageview_count` / `$is_bounce`.
-INSERT_QUERY_TEMPLATE = """
+# Only UUIDv7 session ids enter the no-join shape (version nibble check on both
+# sides): the events side derives the hour bucket from the v7-embedded timestamp,
+# which is garbage for v4/custom UUIDs — the join shape bucketed those via real
+# session timestamps, so excluding them symmetrically keeps both sides consistent.
+# Filtered cache keys take the two-scan shape too when their filters are
+# events-evaluable (allowlisted teams; see the chooser in
+# `ensure_web_overview_precomputed`): the sessions side is restricted to the
+# session-id set collected from the filtered events scan, pushed below the
+# per-session GROUP BY via the `sessionIdPushdown` modifier. Cohort/session
+# filters keep the join shape — they can't feed the id collection. Unfiltered
+# keys — the overwhelming majority — use the plain no-join template: events self-attribute to the session-start hour via the UUIDv7 timestamp
+# embedded in the session id, and duration/bounce come straight from the sessions
+# table (which also makes the forward-pad hack unnecessary on that side, since
+# raw_sessions already holds complete-session state).
+JOIN_INSERT_QUERY_TEMPLATE = """
 SELECT
     toStartOfHour(start_timestamp) AS time_window_start,
     uniqState(session_person_id) AS uniq_users_state,
@@ -106,6 +125,54 @@ GROUP BY time_window_start
 """
 
 
+NO_JOIN_INSERT_QUERY_TEMPLATE = """
+SELECT
+    e.time_window_start AS time_window_start,
+    e.uniq_users_state AS uniq_users_state,
+    e.uniq_sessions_state AS uniq_sessions_state,
+    e.sum_pageviews_state AS sum_pageviews_state,
+    ifNull(s.avg_duration_state, arrayReduce('avgState', arrayFilter(x -> 0 != 0, [toFloat(0)]))) AS avg_duration_state,
+    ifNull(s.avg_bounce_state, arrayReduce('avgState', arrayFilter(x -> 0 != 0, [assumeNotNull(toInt(0))]))) AS avg_bounce_state
+FROM (
+    SELECT
+        toStartOfHour(fromUnixTimestamp(intDiv(toInt(bitShiftRight(_toUInt128(toUUID({events_session_id})), 80)), 1000))) AS time_window_start,
+        uniqState(events.person_id) AS uniq_users_state,
+        uniqState({events_session_id}) AS uniq_sessions_state,
+        sumState(assumeNotNull(toInt(1))) AS sum_pageviews_state
+    FROM events
+    WHERE and(
+        {events_session_id} IS NOT NULL,
+        events.$session_id_uuid IS NOT NULL,
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+        {event_type_filter},
+        timestamp >= {time_window_min},
+        timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+        {user_filter},
+        {test_account_filter}
+    )
+    GROUP BY time_window_start
+    HAVING and(time_window_start >= {time_window_min}, time_window_start < {time_window_max})
+) AS e
+LEFT JOIN (
+    SELECT
+        toStartOfHour(sessions.$start_timestamp) AS time_window_start,
+        avgState(assumeNotNull(toFloat(sessions.$session_duration))) AS avg_duration_state,
+        avgState(assumeNotNull(toInt(sessions.$is_bounce))) AS avg_bounce_state
+    FROM sessions
+    WHERE and(
+        sessions.$start_timestamp >= {time_window_min},
+        sessions.$start_timestamp < {time_window_max},
+        equals(bitAnd(bitShiftRight(sessions.session_id_v7, 76), 15), 7),
+        or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+    )
+    GROUP BY time_window_start
+) AS s ON e.time_window_start = s.time_window_start
+"""
+
+
+SESSION_ID_SET_INSERT_QUERY_TEMPLATE = with_insert_session_id_set_filter(NO_JOIN_INSERT_QUERY_TEMPLATE)
+
+
 def ensure_web_overview_precomputed(
     runner: "WebOverviewQueryRunner",
     time_range_start: datetime,
@@ -119,15 +186,33 @@ def ensure_web_overview_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
+    is_unfiltered = all(is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter"))
+
+    # Filtered keys whose filters are events-evaluable (allowlisted teams, event
+    # property user filters, event/person test filters) take the two-scan shape
+    # with a session-id-set link; anything else keeps the join template.
+    modifiers: Optional[HogQLQueryModifiers] = None
+    if is_unfiltered:
+        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE
+    elif runner._session_id_set_common_eligibility():
+        insert_query = SESSION_ID_SET_INSERT_QUERY_TEMPLATE
+        modifiers = create_default_modifiers_for_team(runner.team)
+        modifiers.sessionIdPushdown = True
+    else:
+        insert_query = JOIN_INSERT_QUERY_TEMPLATE
+
     return web_ensure_precomputed(
+        runner=runner,
+        family=_FAMILY,
         team=runner.team,
-        insert_query=INSERT_QUERY_TEMPLATE,
+        insert_query=insert_query,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         ttl_seconds=LAZY_TTL_SECONDS,
         table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_overview_lazy_insert",
+        modifiers=modifiers,
     )
 
 

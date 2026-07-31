@@ -9,7 +9,9 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import IntruderSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intruder import (
+    IntruderSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder import IntruderResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import ENDPOINTS
@@ -26,7 +28,6 @@ class TestSourceConfig:
         assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Kept behind the unreleased flag while the source is in alpha — hides it from the wizard.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/intruder"
 
     def test_single_secret_access_token_field(self) -> None:

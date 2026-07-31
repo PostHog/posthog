@@ -59,19 +59,19 @@ describe('ResultHandlingPipeline', () => {
     })
 
     describe('basic functionality', () => {
-        it('should process successful results and return batch pipeline results', async () => {
+        it('should process successful results and return chunk pipeline results', async () => {
             const messages: Message[] = [
                 { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
                 { value: Buffer.from('test2'), topic: 'test', partition: 0, offset: 2 } as Message,
             ]
 
-            // Create batch results directly
-            const batchResults = [
+            // Create chunk results directly
+            const chunkResults = [
                 createContext(ok({ processed: 'test1', message: messages[0] }), { message: messages[0] }),
                 createContext(ok({ processed: 'test2', message: messages[1] }), { message: messages[1] }),
             ]
 
-            const mockPipeline = createMockPipeline(batchResults)
+            const mockPipeline = createMockPipeline(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -82,7 +82,7 @@ describe('ResultHandlingPipeline', () => {
             ])
         })
 
-        it('should handle empty batch', async () => {
+        it('should handle empty chunk', async () => {
             const mockPipeline = createMockPipeline([])
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
@@ -99,14 +99,14 @@ describe('ResultHandlingPipeline', () => {
                 { value: Buffer.from('test3'), topic: 'test', partition: 0, offset: 3 } as Message,
             ]
 
-            // Create batch results directly
-            const batchResults = [
+            // Create chunk results directly
+            const chunkResults = [
                 createContext(ok({ processed: 'test1' }), { message: messages[0] }),
                 createContext(drop('test drop reason'), { message: messages[1] }),
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const mockPipeline = createMockPipeline(batchResults)
+            const mockPipeline = createMockPipeline(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -128,14 +128,14 @@ describe('ResultHandlingPipeline', () => {
                 { value: Buffer.from('test3'), topic: 'test', partition: 0, offset: 3 } as Message,
             ]
 
-            // Create batch results directly
-            const batchResults = [
+            // Create chunk results directly
+            const chunkResults = [
                 createContext(ok({ processed: 'test1' }), { message: messages[0] }),
                 createContext(redirect('test redirect', OVERFLOW_OUTPUT, true, false), { message: messages[1] }),
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(batchResults)
+            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -183,13 +183,13 @@ describe('ResultHandlingPipeline', () => {
                 },
             ]
 
-            const batchResults = [
+            const chunkResults = [
                 createContext(redirect('test redirect', OVERFLOW_OUTPUT, false, true), {
                     message: messagesWithHeaders[0],
                 }),
             ]
 
-            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(batchResults)
+            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -234,14 +234,14 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const testError = new Error('test error')
-            // Create batch results directly
-            const batchResults = [
+            // Create chunk results directly
+            const chunkResults = [
                 createContext(ok({ processed: 'test1' }), { message: messages[0] }),
                 createContext(dlq('test dlq reason', testError), { message: messages[1] }),
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const mockPipeline = createMockPipeline(batchResults)
+            const mockPipeline = createMockPipeline(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -282,9 +282,9 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const testError = new Error('test error')
-            const batchResults = [createContext(dlq('test dlq reason', testError), { message: messagesWithHeaders[0] })]
+            const chunkResults = [createContext(dlq('test dlq reason', testError), { message: messagesWithHeaders[0] })]
 
-            const mockPipeline = createMockPipeline(batchResults)
+            const mockPipeline = createMockPipeline(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -323,10 +323,10 @@ describe('ResultHandlingPipeline', () => {
                 { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 1 } as Message,
             ]
 
-            // Create batch results directly
-            const batchResults = [createContext(dlq('test dlq reason'), { message: messages[0] })]
+            // Create chunk results directly
+            const chunkResults = [createContext(dlq('test dlq reason'), { message: messages[0] })]
 
-            const mockPipeline = createMockPipeline(batchResults)
+            const mockPipeline = createMockPipeline(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -364,8 +364,8 @@ describe('ResultHandlingPipeline', () => {
                 { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 5 } as Message,
             ]
 
-            // Create batch results directly
-            const batchResults = [
+            // Create chunk results directly
+            const chunkResults = [
                 createContext(ok({ processed: 'success1' }), { message: messages[0] }),
                 createContext(drop('dropped item'), { message: messages[1] }),
                 createContext(ok({ processed: 'success2' }), { message: messages[2] }),
@@ -373,7 +373,7 @@ describe('ResultHandlingPipeline', () => {
                 createContext(dlq('dlq item', new Error('processing error')), { message: messages[4] }),
             ]
 
-            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(batchResults)
+            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -422,8 +422,8 @@ describe('ResultHandlingPipeline', () => {
                 { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 4 } as Message,
             ]
 
-            // Create batch results with different lastStep values
-            const batchResults = [
+            // Create chunk results with different lastStep values
+            const chunkResults = [
                 createContext(ok({ processed: 'success' }), { message: messages[0], lastStep: 'validationStep' }),
                 createContext(drop('dropped item'), { message: messages[1], lastStep: 'filterStep' }),
                 createContext(redirect('redirected item', OVERFLOW_OUTPUT), {
@@ -436,7 +436,7 @@ describe('ResultHandlingPipeline', () => {
                 }),
             ]
 
-            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(batchResults)
+            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -472,10 +472,10 @@ describe('ResultHandlingPipeline', () => {
                 { value: Buffer.from('success'), topic: 'test', partition: 0, offset: 1 } as Message,
             ]
 
-            // Create batch results without lastStep
-            const batchResults = [createContext(ok({ processed: 'success' }), { message: messages[0] })]
+            // Create chunk results without lastStep
+            const chunkResults = [createContext(ok({ processed: 'success' }), { message: messages[0] })]
 
-            const mockPipeline = createMockPipeline(batchResults)
+            const mockPipeline = createMockPipeline(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -499,14 +499,14 @@ describe('ResultHandlingPipeline', () => {
                 { value: Buffer.from('3'), topic: 'test', partition: 0, offset: 3 } as Message,
             ]
 
-            // Create batch results directly
-            const batchResults = [
+            // Create chunk results directly
+            const chunkResults = [
                 createContext(ok({ count: 2 }), { message: messages[0] }),
                 createContext(ok({ count: 4 }), { message: messages[1] }),
                 createContext(ok({ count: 6 }), { message: messages[2] }),
             ]
 
-            const mockPipeline = createMockPipeline(batchResults)
+            const mockPipeline = createMockPipeline(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -527,10 +527,10 @@ describe('ResultHandlingPipeline', () => {
                 { value: Buffer.from('redirect'), topic: 'test', partition: 0, offset: 1 } as Message,
             ]
 
-            // Create batch results directly
-            const batchResults = [createContext(redirect('test redirect', OVERFLOW_OUTPUT), { message: messages[0] })]
+            // Create chunk results directly
+            const chunkResults = [createContext(redirect('test redirect', OVERFLOW_OUTPUT), { message: messages[0] })]
 
-            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(batchResults)
+            const mockPipeline = createMockPipeline<any, { message: Message }, OverflowOutput>(chunkResults)
             const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
             const results = await resultPipeline.next()
 
@@ -582,8 +582,8 @@ describe('Integration tests', () => {
             { value: Buffer.from('test-event'), topic: 'test', partition: 0, offset: 1 } as Message,
         ]
 
-        // Create batch results directly
-        const batchResults = [
+        // Create chunk results directly
+        const chunkResults = [
             createContext(
                 ok({
                     eventType: 'pageview',
@@ -595,7 +595,7 @@ describe('Integration tests', () => {
             ),
         ]
 
-        const mockPipeline = createMockPipeline(batchResults)
+        const mockPipeline = createMockPipeline(chunkResults)
         const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
         const results = await resultPipeline.next()
 
@@ -615,12 +615,12 @@ describe('Integration tests', () => {
     it('should handle pipeline failure at different stages', async () => {
         const messages: Message[] = [{ value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message]
 
-        // Create batch results directly
-        const batchResults = [
+        // Create chunk results directly
+        const chunkResults = [
             createContext(dlq('Validation failed', new Error('Invalid data')), { message: messages[0] }),
         ]
 
-        const mockPipeline = createMockPipeline(batchResults)
+        const mockPipeline = createMockPipeline(chunkResults)
         const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
         const results = await resultPipeline.next()
 

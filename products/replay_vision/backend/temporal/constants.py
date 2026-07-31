@@ -18,6 +18,12 @@ REAP_ORPHANED_OBSERVATIONS_TIMEOUT = dt.timedelta(minutes=3)
 PROCESS_VISION_ACTION_WORKFLOW_NAME = "process-vision-action"
 PROCESS_VISION_ACTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
 
+# Running runs older than twice the process execution timeout are provably stuck (the final
+# update activity failed or the workflow was terminated without reaching it).
+VISION_ACTION_RUN_STUCK_CUTOFF = PROCESS_VISION_ACTION_EXECUTION_TIMEOUT * 2
+REAP_STUCK_VISION_ACTION_RUNS_BATCH_SIZE = 500
+REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT = dt.timedelta(minutes=3)
+
 
 def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
     """Deterministic id: a still-running action is skipped (WorkflowAlreadyStartedError), not double-fired."""
@@ -89,6 +95,19 @@ MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
 
 
+def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
+    """Dispatch headroom for a sweep tick: the tighter of the per-scanner and per-team caps.
+
+    The sweep workflow throttles on this and the count activity records the throttled
+    metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
+    inside deterministic workflow code.
+    """
+    return min(
+        MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
+        MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
+    )
+
+
 ESTIMATES_WORKFLOW_NAME = "replay-vision-refresh-scanner-estimates"
 ESTIMATES_WORKFLOW_ID = "replay-vision-estimate-refresher"
 ESTIMATES_SCHEDULE_ID = "replay-vision-estimate-refresher-schedule"
@@ -114,7 +133,6 @@ def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:
 
 
 EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME = "replay-vision-evaluate-prompt-suggestion"
-# The execution timeout lives in prompt_evaluation.py to keep it importable from quota.
 
 
 def build_evaluate_prompt_suggestion_workflow_id(suggestion_id: UUID) -> str:

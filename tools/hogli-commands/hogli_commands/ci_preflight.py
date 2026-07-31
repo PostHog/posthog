@@ -45,6 +45,7 @@ from hogli_commands.build import (
     _match_commands,
 )
 from hogli_commands.change_detection import changed_files, matches_globs
+from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
 
 Requirement = Literal["node", "stack", "clickhouse"]
 
@@ -59,14 +60,15 @@ class DiffCheck:
     triggers: list[str]  # fnmatch globs against changed paths (`*` spans `/`, as in build.py)
     verify: list[str] | None  # advisory command; None = guidance only (no runnable local check)
     fix: list[str] | None = None  # remediation for --fix
+    advice: str | None = None  # nudge-only: preflight never runs this check, it just says what to run
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
     matched: list[str] = field(default_factory=list)
 
 
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
-# broken lockfile blocking all CI, OpenAPI drift, formatting/lint, flag sort,
-# workflow-convention failures, migration conflicts.
+# broken lockfile blocking all CI, OpenAPI drift, formatting/lint/type checking,
+# flag sort, workflow-convention failures, migration conflicts.
 DIFF_CHECKS: list[DiffCheck] = [
     DiffCheck(
         key="lockfile",
@@ -103,6 +105,16 @@ DIFF_CHECKS: list[DiffCheck] = [
         takes_files=True,
     ),
     DiffCheck(
+        key="type-check",
+        label="Python type checking (mypy)",
+        triggers=["*.py", "*.pyi"],
+        # A nudge, not a run: mypy is only meaningful repo-wide (it follows imports, so a
+        # changed-file subset both blames files outside the diff and misses reverse-dependency
+        # breakage), and that costs minutes cold. Naming the command lets the agent judge.
+        verify=None,
+        advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
+    ),
+    DiffCheck(
         key="markdown-format",
         label="markdown formatting (oxfmt)",
         triggers=["*.md", "*.mdx"],
@@ -126,6 +138,17 @@ DIFF_CHECKS: list[DiffCheck] = [
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
         verify=["hogli", "lint:workflows"],
+    ),
+    DiffCheck(
+        key="mprocs",
+        label="bin/mprocs*.yaml docker-compose shell out of sync with generator.py",
+        # From TRACKED_MPROCS_FILES so preflight can't drift on which files need a regen.
+        triggers=[
+            "tools/hogli-commands/hogli_commands/devenv/generator.py",
+            *(t.name for t in TRACKED_MPROCS_FILES),
+        ],
+        verify=["hogli", "dev:regenerate-mprocs", "--check"],
+        fix=["hogli", "dev:regenerate-mprocs"],
     ),
     DiffCheck(
         key="openapi",
@@ -181,6 +204,9 @@ _CHECK_TIMEOUT_SECONDS = 600
 
 
 def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
+    if chk.advice is not None:
+        # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
+        return "advisory", chk.advice
     unmet = _unmet(chk)
     if do_fix and chk.fix is not None and not unmet:
         cmd = list(chk.fix)
@@ -455,7 +481,9 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     for chk in triggered:
         status, detail = _run_diff_check(chk, do_fix)
         failures += status == "fail"
-        advisories += status == "advisory"
+        # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
+        # the footer on every matching push and cost the detected advisories their weight.
+        advisories += status == "advisory" and chk.advice is None
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])

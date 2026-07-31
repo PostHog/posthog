@@ -90,23 +90,6 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
         [
             ("sso-enforcement", "sso_enforcement", "google-oauth2", "SSO enforcement", None, "google-oauth2"),
             (
-                "saml-entity-id",
-                "saml_entity_id",
-                "https://idp.example.com",
-                "SAML entity ID",
-                None,
-                "https://idp.example.com",
-            ),
-            (
-                "saml-acs-url",
-                "saml_acs_url",
-                "https://idp.example.com/acs",
-                "SAML ACS URL",
-                None,
-                "https://idp.example.com/acs",
-            ),
-            ("saml-x509-cert", "saml_x509_cert", "MIID...cert", "SAML X.509 certificate", None, "masked"),
-            (
                 "jit-provisioning",
                 "jit_provisioning_enabled",
                 True,

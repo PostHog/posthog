@@ -305,5 +305,22 @@ describe('propertyFilterLogic', () => {
                 type: PropertyFilterType.Event,
             })
         })
+
+        it('uses the resolved flag label, not the raw flag ID, as the recent item name', async () => {
+            const logic = mountLogic({ propertyFilters: [{}] as AnyPropertyFilter[] })
+            logic.actions.setFilter(0, {
+                key: '2',
+                label: 'test-flag',
+                type: PropertyFilterType.Flag,
+                operator: PropertyOperator.FlagEvaluatesTo,
+                value: true,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            const recents = recentsLogic.values.recentFilters
+            expect(recents).toHaveLength(1)
+            expect(recents[0].value).toBe('2')
+            expect(recents[0].item).toMatchObject({ name: 'test-flag' })
+        })
     })
 })

@@ -1,5 +1,6 @@
 import os
 import time
+import uuid
 from typing import Optional, cast
 
 from django.conf import settings
@@ -542,6 +543,21 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
+    """The teams a scoped token is confined to, or None when the credential carries no team
+    restriction (session auth, or a token scoped to every team in the organization).
+
+    The companion of `get_authenticator_scopes` for the other half of a token's authority, so a
+    check that has to re-derive a credential's reach outside `TeamAndOrgViewSetMixin` reads both
+    legs from one place.
+    """
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return list(authenticator.personal_api_key.scoped_teams or []) or None
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return list(authenticator.access_token.scoped_teams or []) or None
+    return None
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -867,6 +883,43 @@ _raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
 _FORCE_ENABLED_FLAGS: frozenset[str] = frozenset(f.strip() for f in _raw.split(",") if f.strip())
 
 
+def posthog_feature_flag_enabled(
+    flag: str,
+    distinct_id: str,
+    *,
+    organization_id: str | uuid.UUID,
+    team_id: int | None = None,
+) -> bool:
+    """Server-side check of a PostHog-internal gating flag with org/project group context.
+
+    Matches in-app flag evaluation: posthog-js often has project (team) context; server-only org
+    groups miss per-environment rollouts (e.g. logs-settings-drop-rules for project 2 only).
+    Use this wherever a flag gates access outside a DRF view (query runners, tasks) so evaluation
+    can't drift from PostHogFeatureFlagPermission.
+    """
+    if flag in _FORCE_ENABLED_FLAGS:
+        return True
+
+    org_id = str(organization_id)
+    groups: dict[str, str] = {"organization": org_id}
+    group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
+    if team_id is not None:
+        project_id = str(team_id)
+        groups["project"] = project_id
+        group_properties["project"] = {"id": project_id}
+
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            distinct_id,
+            groups=groups,
+            group_properties=group_properties,
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
+
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
@@ -887,30 +940,16 @@ class PostHogFeatureFlagPermission(BasePermission):
 
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
-                if required_flag in _FORCE_ENABLED_FLAGS:
-                    return True
-
-                org_id = str(organization.id)
-                groups: dict[str, str] = {"organization": org_id}
-                group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
-                # Match in-app flag evaluation: posthog-js often has project (team) context; server-only org
-                # groups miss per-environment rollouts (e.g. logs-settings-drop-rules for project 2 only).
                 try:
                     team_for_flag = view.team
                 except (ValueError, KeyError, AttributeError):
                     team_for_flag = None
-                if team_for_flag is not None:
-                    project_id = str(team_for_flag.id)
-                    groups["project"] = project_id
-                    group_properties["project"] = {"id": project_id}
 
-                enabled = posthoganalytics.feature_enabled(
+                enabled = posthog_feature_flag_enabled(
                     required_flag,
                     str(user.distinct_id),
-                    groups=groups,
-                    group_properties=group_properties,
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
+                    organization_id=organization.id,
+                    team_id=team_for_flag.id if team_for_flag is not None else None,
                 )
 
                 if enabled:

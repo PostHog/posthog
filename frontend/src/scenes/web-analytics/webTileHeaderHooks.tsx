@@ -10,25 +10,12 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import {
-    ProductIntentContext,
-    ProductKey,
-    QuerySchema,
-    TrendsQueryResponse,
-    WebStatsTableQueryResponse,
-} from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
 import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID } from './common'
 import { shareNudgeLogic } from './shareNudgeLogic'
-import {
-    CalendarHeatmapAdapter,
-    ExportAdapter,
-    TrendsAdapter,
-    WebAnalyticsTableAdapter,
-    WorldMapAdapter,
-    exportTableData,
-} from './webAnalyticsExportUtils'
+import { ExportAdapter, downloadTableDataAsCsv, exportTableData, getExportAdapter } from './webAnalyticsExportUtils'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 const NO_ACTIVE_TAB_INSIGHT_PROPS: InsightLogicProps = {
@@ -64,18 +51,7 @@ export function useWebTileExportAdapter(
     const builtInsightDataLogic = insightDataLogic(insightProps)
     const { insightDataRaw } = useValues(builtInsightDataLogic)
 
-    return useMemo(() => {
-        if (!insightDataRaw || !query) {
-            return null
-        }
-        const adapters: ExportAdapter[] = [
-            new CalendarHeatmapAdapter(insightDataRaw as TrendsQueryResponse, query),
-            new WorldMapAdapter(insightDataRaw as TrendsQueryResponse, query),
-            new WebAnalyticsTableAdapter(insightDataRaw as WebStatsTableQueryResponse, query),
-            new TrendsAdapter(insightDataRaw as TrendsQueryResponse, query),
-        ]
-        return adapters.find((a) => a.canHandle()) ?? null
-    }, [insightDataRaw, query])
+    return useMemo(() => getExportAdapter(insightDataRaw, query), [insightDataRaw, query])
 }
 
 interface UseWebTileOverflowMenuItemsArgs {
@@ -137,6 +113,19 @@ export function useWebTileOverflowMenuItems({
                 label: 'Copy',
                 items: copyItems,
                 'data-attr': 'web-analytics-copy-dropdown',
+            },
+            {
+                label: 'Download CSV',
+                disabledReason: adapter ? undefined : 'No exportable data yet',
+                'data-attr': `web-analytics-tile-download-csv-${tileId}`,
+                onClick: () => {
+                    if (!adapter) {
+                        return
+                    }
+                    if (downloadTableDataAsCsv(adapter.toTableData(), `web-analytics-${tileId}.csv`)) {
+                        exportTriggered()
+                    }
+                },
             },
         ]
 

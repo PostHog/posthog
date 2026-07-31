@@ -226,6 +226,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$exception": {
             "label": "Exception",
             "description": "An unexpected error or unhandled exception in your application.",
+            "primary_property": "$exception_types",
         },
         "$web_vitals": {
             "label": "Web vitals",
@@ -234,10 +235,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_generation": {
             "label": "AI generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+            "primary_property": "$ai_model",
         },
         "$ai_evaluation": {
             "label": "AI evaluation (LLM)",
             "description": "An evaluation of an AI event. Contains the result of the evaluation, the target event, and the evaluation metadata.",
+            "primary_property": "$ai_evaluation_name",
         },
         "$ai_tag": {
             "label": "AI tag (LLM)",
@@ -246,6 +249,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_metric": {
             "label": "AI metric (LLM)",
             "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
+            "primary_property": "$ai_metric_name",
         },
         "$ai_feedback": {
             "label": "AI feedback (LLM)",
@@ -254,10 +258,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_trace": {
             "label": "AI trace (LLM)",
             "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls.",
+            "primary_property": "$ai_span_name",
         },
         "$ai_span": {
             "label": "AI span (LLM)",
             "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs).",
+            "primary_property": "$ai_span_name",
         },
         "$ai_embedding": {
             "label": "AI embedding (LLM)",
@@ -267,6 +273,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "CSP violation",
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
             "examples": ["Unauthorized inline script", "Trying to load resources from unauthorized domain"],
+            "primary_property": "$csp_violated_directive",
         },
         "Application opened": {
             "label": "Application opened",
@@ -291,6 +298,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "Deep link opened": {
             "label": "Deep link opened",
             "description": "When a user opens the mobile app via a deep link.",
+            "primary_property": "url",
         },
         # Canonical @posthog/mcp SDK events, and the only MCP events to build on. They cover all
         # traffic since 2026-06-16; the legacy non-`$` names below are frozen (older history only).
@@ -314,6 +322,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$mcp_resource_read": {
             "label": "MCP resource read",
             "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
+            "primary_property": "$mcp_resource_name",
         },
         "$mcp_prompts_list": {
             "label": "MCP prompts listed",
@@ -322,6 +331,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$mcp_prompt_get": {
             "label": "MCP prompt fetched",
             "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
+            "primary_property": "$mcp_resource_name",
         },
         "$mcp_custom": {
             "label": "MCP custom event",
@@ -1003,6 +1013,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$exception_values": {"label": "Exception message", "description": "The description of the exception."},
         "$exception_sources": {"label": "Exception source", "description": "A source file included in the exception."},
+        "$exception_steps": {
+            "label": "Exception steps",
+            "description": "Application-defined steps captured before the exception to provide context about the actions leading up to it.",
+            "system": True,
+        },
         "$exception_list": {
             "label": "Exception list",
             "description": "List of one or more associated exceptions.",
@@ -1013,74 +1028,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Exception categorized by severity.",
             "examples": ["error"],
         },
-        "$exception_type": {
-            "label": "Exception type",
-            "description": "Exception categorized into types.",
-            "examples": ["Error"],
-        },
-        "$exception_message": {
-            "label": "Exception message",
-            "description": "The message detected on the error.",
-        },
         "$exception_fingerprint": {
             "label": "Exception fingerprint",
             "description": "A fingerprint used to group issues, can be set clientside.",
         },
+        "$exception_fingerprint_version": {
+            "label": "Exception fingerprint version",
+            "description": "The version of the fingerprinting algorithm used to group the exception.",
+            "system": True,
+        },
         "$exception_fingerprint_record": {
             "label": "Exception fingerprint record",
             "description": "The structured fingerprint pieces used to group issues, captured per exception in a chain. Each entry records the type, id, and contributing pieces.",
-        },
-        "$exception_proposed_fingerprint": {
-            "label": "Exception proposed fingerprint",
-            "description": "The fingerprint used to group issues. Auto generated unless provided clientside.",
         },
         "$exception_issue_id": {
             "label": "Exception issue ID",
             "description": "The id of the issue the fingerprint was associated with at ingest time.",
         },
         "$exception_source": {
-            "label": "Exception source",
-            "description": "The source of the exception.",
-            "examples": ["JS file"],
-        },
-        "$exception_lineno": {
-            "label": "Exception source line number",
-            "description": "Which line in the exception source that caused the exception.",
-        },
-        "$exception_colno": {
-            "label": "Exception source column number",
-            "description": "Which column of the line in the exception source that caused the exception.",
-        },
-        "$exception_DOMException_code": {
-            "label": "DOMException code",
-            "description": "If a DOMException was thrown, it also has a DOMException code.",
-        },
-        "$exception_is_synthetic": {
-            "label": "Exception is synthetic",
-            "description": "Whether this was detected as a synthetic exception.",
+            "label": "Exception capture source",
+            "description": "The SDK integration or runtime hook that captured the exception.",
+            "examples": ["panic", "rails", "php_exception_handler"],
         },
         "$exception_handled": {
             "label": "Exception was handled",
             "description": "Whether this was a handled or unhandled exception.",
         },
-        "$exception_personURL": {
-            "label": "Exception person URL",
-            "description": "The PostHog person that experienced the exception.",
-        },
         "$cymbal_errors": {
             "label": "Exception processing errors",
             "description": "Errors encountered while trying to process exceptions.",
             "system": True,
-        },
-        "$exception_capture_endpoint": {
-            "label": "Exception capture endpoint",
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
-        },
-        "$exception_capture_endpoint_suffix": {
-            "label": "Exception capture endpoint suffix",
-            "description": "Endpoint used by posthog-js exception autocapture.",
-            "examples": ["/e/"],
         },
         "$exception_capture_enabled_server_side": {
             "label": "Exception capture enabled server side",
@@ -1740,6 +1717,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": ["1234"],
         },
+        "$feature_flag_has_experiment": {
+            "label": "Feature flag has experiment",
+            "description": "Whether the feature flag that was called is linked to a live experiment.",
+            "examples": ["true", "false"],
+        },
         "$feature_flag_bootstrapped_response": {
             "label": "Feature flag bootstrapped response",
             "description": "The response value provided to the SDK at initialization via the bootstrap option, before evaluation against PostHog.",
@@ -2236,6 +2218,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
             "examples": [23],
         },
+        "$ai_cache_creation_5m_input_tokens": {
+            "label": "AI 5-minute cache creation input tokens (LLM)",
+            "description": "The number of tokens created in the 5-minute prompt cache (Anthropic only).",
+            "examples": [23],
+            "type": "Numeric",
+        },
+        "$ai_cache_creation_1h_input_tokens": {
+            "label": "AI 1-hour cache creation input tokens (LLM)",
+            "description": "The number of tokens created in the 1-hour prompt cache (Anthropic only).",
+            "examples": [23],
+            "type": "Numeric",
+        },
         "$ai_cache_reporting_exclusive": {
             "label": "AI cache reporting exclusive (LLM)",
             "description": "Whether cache tokens are excluded from the input token count. When true, cache tokens are separate from input tokens (Anthropic-style). When false, input tokens already include cache tokens. Auto-detected from provider when not set explicitly.",
@@ -2581,6 +2575,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The AI framework used to produce this event.",
             "examples": ["langchain", "llamaindex", "openai"],
         },
+        "$ai_git_branch": {
+            "label": "AI git branch",
+            "description": "The git branch checked out when the AI generation ran.",
+            "examples": ["feat/my-feature"],
+        },
+        "$ai_git_repo": {
+            "label": "AI git repository",
+            "description": "The repository that AI interacted with, as owner/name.",
+            "examples": ["PostHog/posthog"],
+        },
         "$ai_lib": {
             "label": "AI library (LLM)",
             "description": "The name of the SDK or library that sent this AI event.",
@@ -2722,7 +2726,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_message": {
             "label": "MCP error message",
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Short, sanitized summary of why a failed MCP tool call errored: a validation code and field, or an HTTP status and path. Never includes caller-supplied input, query text, or upstream response bodies. Truncated to 2048 characters. Only set when $mcp_is_error is true.",
         },
         "$mcp_server_name": {
             "label": "MCP server name",
@@ -2814,7 +2818,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_consumer": {
             "label": "MCP consumer",
-            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Code; 'slack' means it was triggered from Slack.",
+            "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' means the request came through PostHog Desktop; 'slack' means it was triggered from Slack.",
             "examples": ["posthog-code", "slack"],
         },
         "$mcp_mode": {
@@ -3157,6 +3161,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI cache write token price (LLM)",
             "description": "The price per token written to the prompt cache.",
             "examples": [0.00000375],
+            "type": "Numeric",
+        },
+        "$ai_cache_write_1h_token_price": {
+            "label": "AI 1-hour cache write token price (LLM)",
+            "description": "The price per token written to the 1-hour prompt cache. Set this to override PostHog's cost calculation for 1-hour cache writes.",
+            "examples": [0.000006],
             "type": "Numeric",
         },
         "$ai_request_price": {

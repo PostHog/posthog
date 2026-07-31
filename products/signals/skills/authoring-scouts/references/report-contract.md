@@ -6,10 +6,10 @@ This reference is the contract for that channel: the tools, their fields, when t
 The channel is granted via the skill's frontmatter `allowed_tools` — **every scout should list `emit_report` / `edit_report` there**; see [Granting the tools](#granting-the-tools).
 
 > **Tool names vs. opt-in strings.** The callable MCP tools are
-> **`signals-scout-emit-report`** and **`signals-scout-edit-report`** — those are the names you
+> **`scout-emit-report`** and **`scout-edit-report`** — those are the names you
 > invoke. The bare `emit_report` / `edit_report` (underscored) used throughout this doc and below
 > are the **opt-in strings** you list under `allowed_tools`; they are not callable tool names. And
-> like every `signals-scout-*` tool, **both report tools require the current `run_id`** (the run
+> like every `scout-*` tool, **both report tools require the current `run_id`** (the run
 > you're executing in) on every call — omitting it fails validation.
 
 ## Author vs. edit
@@ -29,13 +29,14 @@ Judges the report for safety, then persists it at the judged status.
 
 | Field                       | Type                    | Notes                                                                                                                                                                                                                                                                                                              |
 | --------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `run_id`                    | string, required        | The current run's id — the run you're executing in, same as every `signals-scout-*` tool.                                                                                                                                                                                                                          |
+| `run_id`                    | string, required        | The current run's id — the run you're executing in, same as every `scout-*` tool.                                                                                                                                                                                                                                  |
 | `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line.                                                                                                                                                                                                                                                                 |
 | `summary`                   | string                  | The report body prose — one tight passage a busy human can act on: a **quantified hook** (what's happening, with numbers), the **pattern** that makes it signal rather than noise, the suspected-cause **hypothesis**, and the **recommendation**. Cite entity ids inline so the reader pivots straight to source. |
 | `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report. `source_id` is the citable entity id. Hard cap of **50** — summarize/trim before calling; a longer list fails validation before the report is judged or persisted.                                                                 |
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                                                                                              |
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                    |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                 |
+| `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                       |
 
 **Status is decided for you, from safety × actionability:**
 
@@ -47,6 +48,83 @@ Judges the report for safety, then persists it at the judged status.
 | unsafe       | (any)                    | `SUPPRESSED`     | no                 |
 
 The result tells you what happened: `report_id` (always set when a report was persisted — **even when suppressed**, so you can edit or dedup against it), `report_status` (the birth status — `ready` / `pending_input` / `suppressed` — the field is named `report_status` in the response, not `status`), `emitted` (true only when it actually surfaced — `READY` / `PENDING_INPUT`), `safety_explanation`, and `skipped_reason` (set only when a preflight gate stopped the call before any report was created — the AI-data-processing / source-enabled gates that govern every scout write).
+
+### Attaching charts
+
+`charts` puts the data next to the claim, so a reader sees the move instead of taking the number on trust.
+Worth it when the _shape_ is the point — a trend that broke, a distribution that shifted, a funnel step that collapsed.
+A chart restating one number the summary already gives is noise; just write the number.
+
+| Field      | Type             | Notes                                                                                                                                                                                                  |
+| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `chart_id` | string, required | Your own slug (lowercase letters, numbers, `_`, `-`). How the summary points at the chart, and the key a later edit refreshes it under. Unique within the report.                                      |
+| `title`    | string, required | Heading above the chart.                                                                                                                                                                               |
+| `query`    | object, required | An `InsightVizNode`, `DataVisualizationNode` (a `HogQLQuery` source, plus `display` and `chartSettings` for a graph), or `SavedInsightNode` (by `shortId`). Any other `kind` is refused at write time. |
+| `caption`  | string, optional | One line on what to look at.                                                                                                                                                                           |
+| `size`     | enum, optional   | `small` / `medium` / `large`. Leave it out unless the default looks wrong — the inbox sizes a chart from its query (a big single number gets a short box, a retention grid a tall scrolling one).      |
+
+A trends chart and a graph built from SQL, as they arrive in `charts`:
+
+```json
+[
+  {
+    "chart_id": "exceptions-daily",
+    "title": "Exceptions per day",
+    "caption": "The step up starts on 18 June.",
+    "query": {
+      "kind": "InsightVizNode",
+      "source": {
+        "kind": "TrendsQuery",
+        "dateRange": { "date_from": "2026-06-01", "date_to": "2026-07-02" },
+        "interval": "day",
+        "series": [{ "kind": "EventsNode", "event": "$exception", "math": "total" }],
+        "trendsFilter": { "display": "ActionsLineGraph" }
+      }
+    }
+  },
+  {
+    "chart_id": "exceptions-by-type",
+    "title": "People affected, by exception type",
+    "query": {
+      "kind": "DataVisualizationNode",
+      "source": {
+        "kind": "HogQLQuery",
+        "query": "SELECT exception_type, uniq(distinct_id) AS people FROM ... GROUP BY exception_type ORDER BY people DESC"
+      },
+      "display": "ActionsBar",
+      "chartSettings": { "xAxis": { "column": "exception_type" }, "yAxis": [{ "column": "people" }] }
+    }
+  }
+]
+```
+
+**A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box; `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of the result are which.
+Omit `display` altogether and the node renders the result table, which reads better than a chart for a handful of rows.
+
+**Only the node's `kind` and its serialized size are checked on write.** A well-formed node of an allowed kind carrying a broken query is stored without complaint, then fails to draw when a reader opens the report, and nothing reports that back to the scout.
+So a scout should attach a query it has already run in the same session, or point at an insight that already exists via `SavedInsightNode`, rather than composing a node from memory.
+This is the single most useful thing to reinforce in a scout body that leans on charts.
+
+**A chart query must not carry anything executable.** HogVM `bytecode` (what conditional formatting compiles to), a nested `HogQuery`, and `sendRawQuery` are each refused with a 400 wherever they sit in the node, because a chart renders data rather than running code in the reader's session.
+A nested `SuggestedQuestionsQuery` is refused the same way, for cost rather than execution: its runner calls an LLM, so a chart carrying one buys a completion every time a reader opens the report.
+A query over a warehouse connection is fine as long as it goes through HogQL: keep `connectionId`, drop `sendRawQuery`.
+So a direct-warehouse query you ran with the raw-SQL bypass has to be rewritten before it can be attached.
+
+**Placement comes from the summary.** A markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — draws the chart at that point in the body; a chart you never reference still renders, after the prose.
+Reference each chart once: a repeated reference reads as pointing back at the chart, not as asking for a second copy of it.
+Two references in one paragraph sit side by side, so put a pair you want compared in a paragraph of their own.
+A reference inside a code span, a table cell, or a heading has no room to draw — its chart falls to the end of the report instead.
+
+**The summary has to read without the charts.** A report can also be delivered to Slack, where nothing draws and each reference degrades to the plain label it was given.
+"Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
+
+**Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
+
+**`charts` on an edit is the report's whole set, not an addition.**
+It replaces what the report had, the way `summary` replaces the summary — so send every chart you want kept, and re-send an id under a newer window to refresh that chart.
+Leave `charts` out entirely and the report keeps the ones it has; read the report first (`inbox-reports-retrieve` returns its `charts`) when you mean to add to them.
+Send `charts: []` to take every chart down, for when the finding has moved on and the old chart would now mislead.
+Cap is **20 charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
 
 ### Opening a draft PR (autostart)
 
@@ -91,7 +169,7 @@ Otherwise resolve a `github_login`, cheapest source first:
 3. **CODEOWNERS / git** (only if the scout has a repo checkout).
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
    Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
-4. **`signals-scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
+4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
    It returns this project's members, each with `user_uuid`, `email`, name, and a resolved `github_login` (pass `search=` to narrow); match the owner and route to their `github_login`, or hand the `user_uuid` straight through and let the server resolve it.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
 
@@ -105,7 +183,7 @@ The fleet's reviewer map should compound over time.
 ## `edit_report` — update an existing report
 
 Rewrite `title`/`summary`, append a note, and/or set `suggested_reviewers` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.
@@ -166,5 +244,5 @@ Add a short body section telling the scout what's report-shaped for its surface.
 Keep it lean — the field-level detail lives here (and in the harness prompt), not in the body.
 
 **Rollout posture:** for a chatty or high-stakes new scout, start in **dry-run** (`emit=false` on its `SignalScoutConfig`) so it runs and logs what it _would_ author without writing to the inbox.
-Inspect via `signals-scout-runs-retrieve`, calibrate, then flip `emit=true`.
+Inspect via `scout-runs-retrieve`, calibrate, then flip `emit=true`.
 The channel files a full inbox item on the first hit, so the cautious loop is worth it when in doubt.

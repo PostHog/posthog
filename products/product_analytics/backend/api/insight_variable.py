@@ -1,3 +1,5 @@
+import json
+
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
@@ -9,6 +11,36 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
 from products.product_analytics.backend.models.insight_variable import InsightVariable
+
+
+def _scalar_to_str(value: object) -> str | None:
+    """Coerce a scalar to its string form, or None if it isn't a scalar."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        # bool before int/float: bool is an int subclass, and the UI uses lowercase
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    return None
+
+
+def _coerce_list_value_lenient(value: object) -> str | None:
+    """Mirror the frontend's read-side coercion: option-shaped objects use their
+    value/label, scalars stringify, null drops, anything else renders as JSON. Never
+    raises — used on read so legacy rows round-trip cleanly instead of failing a later
+    write against the stricter validation."""
+    if value is None:
+        return None
+    scalar = _scalar_to_str(value)
+    if scalar is not None:
+        return scalar
+    if isinstance(value, dict):
+        for key in ("value", "label"):
+            inner = _scalar_to_str(value.get(key))
+            if inner is not None:
+                return inner
+    return json.dumps(value)
 
 
 class InsightVariableSerializer(serializers.ModelSerializer):
@@ -34,18 +66,48 @@ class InsightVariableSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         variable_type = attrs.get("type", getattr(self.instance, "type", None))
         if variable_type == InsightVariable.Type.LIST:
-            values = attrs.get("values", getattr(self.instance, "values", None))
-            if not isinstance(values, list):
-                attrs["values"] = []
+            # Only validate `values` when the payload provides it — instance data may hold
+            # legacy shapes that shouldn't block unrelated updates (reads normalize them).
+            if "values" in attrs:
+                values = attrs["values"]
+                attrs["values"] = self._coerce_list_values(values) if isinstance(values, list) else []
+            # `default_value` is a single option; coerce leniently so a legacy shape or a
+            # round-tripped read can't be stored as non-string (the UI treats it as text).
+            if "default_value" in attrs:
+                attrs["default_value"] = _coerce_list_value_lenient(attrs["default_value"]) or ""
 
         return attrs
 
+    def _coerce_list_values(self, values: list) -> list[str]:
+        coerced: list[str] = []
+        for index, value in enumerate(values):
+            if value is None:
+                continue
+            scalar = _scalar_to_str(value)
+            if scalar is None:
+                shape = "an object" if isinstance(value, dict) else "an array"
+                raise ValidationError(
+                    {
+                        "values": f"List variable values must be strings or numbers (got {shape} at index {index}). Enter each value as plain text or a number."
+                    }
+                )
+            coerced.append(scalar)
+        return coerced
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # `values` is a JSONField; older List records may hold null or a non-array
-        # value, which crashes clients that iterate it. Always present an array.
-        if instance.type == InsightVariable.Type.LIST and not isinstance(data.get("values"), list):
-            data["values"] = []
+        # `values` is a JSONField; older List records may hold null, a non-array value, or
+        # non-string elements (e.g. option-shaped objects). Normalize on read so clients
+        # always get a clean string array — and so writing this data back round-trips
+        # instead of tripping the stricter write validation.
+        if instance.type == InsightVariable.Type.LIST:
+            raw_values = data.get("values")
+            data["values"] = (
+                [coerced for value in raw_values if (coerced := _coerce_list_value_lenient(value)) is not None]
+                if isinstance(raw_values, list)
+                else []
+            )
+            data["default_value"] = _coerce_list_value_lenient(data.get("default_value"))
         return data
 
     def create(self, validated_data):

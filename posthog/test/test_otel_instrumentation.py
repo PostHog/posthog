@@ -2,13 +2,17 @@
 import os
 import logging
 
-from posthog.test.base import BaseTest
 from unittest import mock
+
+from django.test import SimpleTestCase
+
+from opentelemetry import trace
+from parameterized import parameterized
 
 from posthog.otel_instrumentation import _otel_django_request_hook, _otel_django_response_hook, initialize_otel
 
 
-class TestOtelInstrumentation(BaseTest):
+class TestOtelInstrumentation(SimpleTestCase):
     def setUp(self):
         super().setUp()
         # Store original levels to restore them after tests
@@ -32,8 +36,6 @@ class TestOtelInstrumentation(BaseTest):
 
         # Clear any potentially set OTel provider to avoid state leakage between tests
         # if initialize_otel was called and set a global provider.
-        from opentelemetry import trace
-
         trace._TRACER_PROVIDER = None
 
         super().tearDown()
@@ -241,16 +243,30 @@ class TestOtelInstrumentation(BaseTest):
 
         mock_span.set_attribute.assert_not_called()
 
-    def test_otel_django_response_hook(self):
+    @parameterized.expand([("GET", "GET api/projects/<int:team_id>/insights/"), ("CUSTOM", "HTTP")])
+    def test_otel_django_response_hook(self, request_method, expected_span_name):
         mock_span = mock.Mock()
         mock_span.is_recording.return_value = True
-        mock_request = mock.Mock()  # Not used by this hook's logic
+        mock_request = mock.Mock(method=request_method)
+        mock_request.resolver_match.route = "api/projects/<int:team_id>/insights/"
         mock_response = mock.Mock()
         mock_response.status_code = 200
 
         _otel_django_response_hook(mock_span, mock_request, mock_response)
 
         mock_span.set_attribute.assert_called_once_with("http.status_code", 200)
+        mock_span.update_name.assert_called_once_with(expected_span_name)
+
+    def test_otel_django_response_hook_without_resolved_route(self):
+        mock_span = mock.Mock()
+        mock_span.is_recording.return_value = True
+        mock_request = mock.Mock(method="GET", resolver_match=object())
+        mock_response = mock.Mock(status_code=404)
+
+        _otel_django_response_hook(mock_span, mock_request, mock_response)
+
+        mock_span.set_attribute.assert_called_once_with("http.status_code", 404)
+        mock_span.update_name.assert_not_called()
 
     def test_otel_django_response_hook_not_recording(self):
         mock_span = mock.Mock()

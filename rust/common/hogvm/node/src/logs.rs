@@ -1,9 +1,9 @@
 //! Per-event capture of `print()` output.
 //!
 //! The `print` host function has no way to reach the result being built for the current event, so
-//! it writes to a thread-local buffer instead. An event executes entirely on one thread (the JS
-//! thread for `executeSync`, a rayon worker for `executeBatch`), so resetting the buffer before
-//! each execution and draining it right after cannot mix events up.
+//! it writes to a thread-local buffer instead. An event executes entirely on the calling thread,
+//! so resetting the buffer before each execution and draining it right after cannot mix events
+//! up.
 
 use std::cell::RefCell;
 

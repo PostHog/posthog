@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::config::Config;
+use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, WorkerHealthSnapshot};
 
 const PASSIVE_WINDOW_MAX_ENTRIES: usize = 10_000;
 
@@ -102,6 +103,13 @@ impl WorkerHealth {
         self.drain_deadline.is_some()
     }
 
+    /// Whether this worker is currently eligible for routing: Healthy or
+    /// Degraded, and not draining. The single definition behind both
+    /// [`WorkerRegistry::healthy_workers`] and the debug snapshot.
+    fn is_routable(&self) -> bool {
+        !self.is_draining() && matches!(self.state, WorkerState::Healthy | WorkerState::Degraded)
+    }
+
     /// Attempt a state transition. Returns true if the transition happened.
     ///
     /// Transitions to the same state are ignored. Transitions within
@@ -112,6 +120,7 @@ impl WorkerHealth {
         new_state: WorkerState,
         min_state_duration: Duration,
         worker_url: &str,
+        recorder: &Option<Arc<DebugRecorder>>,
     ) -> bool {
         if self.state == new_state {
             return false;
@@ -151,6 +160,11 @@ impl WorkerHealth {
         )
         .increment(1);
         set_state_gauge(worker_url, new_state);
+        record_if(recorder, || DebugEventKind::WorkerStateChanged {
+            worker: worker_url.to_string(),
+            from: old_state.as_str(),
+            to: new_state.as_str(),
+        });
 
         true
     }
@@ -238,6 +252,8 @@ pub struct WorkerRegistry {
     workers: DashMap<WorkerId, WorkerHealth>,
     config: WorkerRegistryConfig,
     client: reqwest::Client,
+    /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
+    debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
 impl WorkerRegistry {
@@ -261,7 +277,37 @@ impl WorkerRegistry {
             workers,
             config,
             client,
+            debug_recorder: None,
         }
+    }
+
+    /// Inject the debug UI recorder. Call before the registry is shared.
+    pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
+        self.debug_recorder = Some(recorder);
+    }
+
+    /// Per-worker health snapshot for the debug UI. Prunes each worker's
+    /// passive window as a side effect (same as the metrics path).
+    pub fn health_snapshots(&self) -> Vec<WorkerHealthSnapshot> {
+        let passive_window = self.config.passive_window;
+        self.workers
+            .iter_mut()
+            .map(|mut entry| {
+                let url = entry.key().to_string();
+                let health = entry.value_mut();
+                let (passive_error_rate, passive_samples) =
+                    health.passive_error_rate(passive_window);
+                WorkerHealthSnapshot {
+                    url,
+                    state: health.state.as_str().to_string(),
+                    draining: health.is_draining(),
+                    routable: health.is_routable(),
+                    consecutive_probe_failures: health.consecutive_probe_failures,
+                    passive_error_rate,
+                    passive_samples,
+                }
+            })
+            .collect()
     }
 
     pub fn worker_count(&self) -> usize {
@@ -278,13 +324,7 @@ impl WorkerRegistry {
     pub fn healthy_workers(&self) -> Vec<WorkerId> {
         self.workers
             .iter()
-            .filter(|e| {
-                !e.value().is_draining()
-                    && matches!(
-                        e.value().state,
-                        WorkerState::Healthy | WorkerState::Degraded
-                    )
-            })
+            .filter(|e| e.value().is_routable())
             .map(|e| e.key().clone())
             .collect()
     }
@@ -329,6 +369,10 @@ impl WorkerRegistry {
                 slot.insert(WorkerHealth::new());
                 counter!("ingestion_consumer_worker_membership_total", "action" => "add")
                     .increment(1);
+                record_if(&self.debug_recorder, || DebugEventKind::WorkerMembership {
+                    worker: worker.to_string(),
+                    action: "add",
+                });
             }
         }
     }
@@ -348,6 +392,10 @@ impl WorkerRegistry {
             info!(worker = %worker, "Worker draining (no new work; finishing in-flight)");
             counter!("ingestion_consumer_worker_membership_total", "action" => "drain")
                 .increment(1);
+            record_if(&self.debug_recorder, || DebugEventKind::WorkerMembership {
+                worker: worker.to_string(),
+                action: "drain",
+            });
         }
     }
 
@@ -396,6 +444,10 @@ impl WorkerRegistry {
             info!(worker = %worker, "Worker removed from pool");
             counter!("ingestion_consumer_worker_membership_total", "action" => "remove")
                 .increment(1);
+            record_if(&self.debug_recorder, || DebugEventKind::WorkerMembership {
+                worker: worker.to_string(),
+                action: "remove",
+            });
         }
     }
 
@@ -426,7 +478,12 @@ impl WorkerRegistry {
                 WorkerState::Unhealthy => None,
             };
             if let Some(new_state) = target {
-                health.try_transition(new_state, self.config.min_state_duration, worker);
+                health.try_transition(
+                    new_state,
+                    self.config.min_state_duration,
+                    worker,
+                    &self.debug_recorder,
+                );
             }
         }
     }
@@ -493,7 +550,12 @@ impl WorkerRegistry {
                 WorkerState::Healthy => None,
             };
             if let Some(s) = new_state {
-                health.try_transition(s, self.config.min_state_duration, worker);
+                health.try_transition(
+                    s,
+                    self.config.min_state_duration,
+                    worker,
+                    &self.debug_recorder,
+                );
             }
         } else {
             health.consecutive_probe_failures += 1;
@@ -507,6 +569,7 @@ impl WorkerRegistry {
                     WorkerState::Unhealthy,
                     self.config.min_state_duration,
                     worker,
+                    &self.debug_recorder,
                 );
             }
         }
@@ -634,7 +697,7 @@ mod tests {
         let mut health = registry.workers.get_mut(W1).unwrap();
 
         health.consecutive_probe_failures = 2;
-        let transitioned = health.try_transition(WorkerState::Unhealthy, Duration::ZERO, W1);
+        let transitioned = health.try_transition(WorkerState::Unhealthy, Duration::ZERO, W1, &None);
 
         assert!(transitioned);
         assert_eq!(health.state, WorkerState::Unhealthy);
@@ -646,10 +709,10 @@ mod tests {
         let registry = WorkerRegistry::new(&one_worker(), no_cooldown_config());
         let mut health = registry.workers.get_mut(W1).unwrap();
 
-        health.try_transition(WorkerState::Unhealthy, Duration::ZERO, W1);
+        health.try_transition(WorkerState::Unhealthy, Duration::ZERO, W1, &None);
         assert_eq!(health.state, WorkerState::Unhealthy);
 
-        let transitioned = health.try_transition(WorkerState::Degraded, Duration::ZERO, W1);
+        let transitioned = health.try_transition(WorkerState::Degraded, Duration::ZERO, W1, &None);
 
         assert!(transitioned);
         assert_eq!(health.state, WorkerState::Degraded);
@@ -938,7 +1001,7 @@ mod tests {
         let registry = WorkerRegistry::new(&one_worker(), no_cooldown_config());
         let mut health = registry.workers.get_mut(W1).unwrap();
 
-        let transitioned = health.try_transition(WorkerState::Healthy, Duration::ZERO, W1);
+        let transitioned = health.try_transition(WorkerState::Healthy, Duration::ZERO, W1, &None);
 
         assert!(!transitioned);
         assert_eq!(health.state, WorkerState::Healthy);

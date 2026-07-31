@@ -2,19 +2,20 @@
 // level (SPEC §2): the handle links to the author's PR list (a filter for finding work), never to a
 // per-author metric or ranking. Hidden on the author page itself, where every row is the same author.
 
-import { combineUrl, router } from 'kea-router'
+import { combineUrl } from 'kea-router'
 import { ReactNode } from 'react'
 
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { compactAgeLabel, compactHoursLabel } from '../lib/format'
 import { githubPrUrl } from '../lib/github'
 import { pushRoundFromSample } from '../lib/pushRounds'
+import { rowNavigationProps } from '../lib/rowNavigation'
+import { withCurrentScope } from '../lib/scope'
 import { PullRequestRow, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { CIStatusTag } from './CIStatusTag'
@@ -23,10 +24,7 @@ import { PushHistorySparkline } from './PushHistorySparkline'
 
 /** The PR's detail page, carrying the active source so it opens scoped to the same one. */
 function detailUrlOf(row: PullRequestRow, sourceId: string | null): string {
-    return combineUrl(
-        urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number),
-        sourceId ? { source: sourceId } : {}
-    ).url
+    return withCurrentScope(urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number), sourceId)
 }
 
 /** How long the PR has been (or was) open, in the shared hours/days headline format.
@@ -217,29 +215,7 @@ export function PullRequestTable({
             dataSource={rows}
             rowKey={prKeyOf}
             loading={loading}
-            onRow={(row) => {
-                const detailUrl = detailUrlOf(row, sourceId)
-                return {
-                    // Inner links (#id → GitHub, author → author page) keep their own behavior.
-                    onClick: (e: React.MouseEvent) => {
-                        if ((e.target as HTMLElement).closest('a, button')) {
-                            return
-                        }
-                        if (e.metaKey || e.ctrlKey) {
-                            e.preventDefault()
-                            newInternalTab(detailUrl)
-                        } else {
-                            router.actions.push(detailUrl)
-                        }
-                    },
-                    onAuxClick: (e: React.MouseEvent) => {
-                        if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) {
-                            e.preventDefault()
-                            newInternalTab(detailUrl)
-                        }
-                    },
-                }
-            }}
+            onRow={(row) => rowNavigationProps(detailUrlOf(row, sourceId))}
             useURLForSorting={false}
             defaultSorting={showCreated ? { columnKey: 'created', order: -1 } : null}
             pagination={{ pageSize }}

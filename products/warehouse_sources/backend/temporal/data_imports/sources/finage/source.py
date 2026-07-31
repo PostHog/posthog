@@ -9,16 +9,13 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.finage import (
     DEFAULT_START_DATE,
     FinageConfigError,
@@ -28,7 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finage.fin
     validate_source_config,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import ENDPOINTS, FINAGE_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finage import FinageSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _ENDPOINT_DESCRIPTIONS = {
@@ -43,6 +40,7 @@ class FinageSource(SimpleSource[FinageSourceConfig]):
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to render
     # in public docs without credentials.
     lists_tables_without_credentials = True
+    api_docs_url = "https://finage.co.uk/docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -55,7 +53,6 @@ class FinageSource(SimpleSource[FinageSourceConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finage",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Finage API key and the symbols you want to sync to pull market data into the PostHog Data warehouse.
 
 You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboard) after subscribing to a plan. The key needs access to the **US stocks** endpoints.""",
@@ -115,6 +112,7 @@ You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboa
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = FINAGE_ENDPOINTS[endpoint]
@@ -135,7 +133,11 @@ You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboa
         return schemas
 
     def validate_credentials(
-        self, config: FinageSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FinageSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             validate_source_config(parse_symbols(config.symbols), config.start_date or DEFAULT_START_DATE)

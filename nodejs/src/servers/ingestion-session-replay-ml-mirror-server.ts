@@ -19,7 +19,11 @@ import {
     SessionRecordingIngester,
     SessionRecordingIngesterCollaborators,
 } from '~/ingestion/pipelines/sessionreplay/consumer'
-import { MlMirrorConfig, getDefaultMlMirrorConfig } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
+import {
+    MlMirrorConfig,
+    getDefaultMlMirrorConfig,
+    resolveMlAnonymizeMaxConcurrency,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
 import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
@@ -153,7 +157,22 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             featureStore: new SessionFeatureStore(outputs, false),
             keyStore,
             encryptor: new CleartextRecordingEncryptor(keyStore),
-            createPipeline: (pipelineConfig) => createMlMirrorReplayPipeline(pipelineConfig),
+            createPipeline: (pipelineConfig) =>
+                createMlMirrorReplayPipeline(
+                    pipelineConfig,
+                    {
+                        anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
+                            this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
+                        ),
+                    },
+                    this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
+                        ? {
+                              outputs,
+                              pseudonymSecret,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                          }
+                        : undefined
+                ),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
             // would then fetch a missing key and record cleartext.

@@ -136,9 +136,15 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         updated_at: dayjs().toISOString(),
         created_by: null,
         estimated_monthly_observations: null,
+        feedback_themes: null,
         estimated_monthly_credits: null,
         // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
         credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
+        // An unsaved scanner has no object yet, so there's no effective access level for it —
+        // create-time gating falls back to the resource-level default instead (see getReplayVisionEditDisabledReason).
+        user_access_level: null,
+        credits_this_month: 0,
+        observations_this_month: 0,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)

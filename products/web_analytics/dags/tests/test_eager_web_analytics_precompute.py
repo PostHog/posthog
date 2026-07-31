@@ -67,7 +67,7 @@ class TestResolveEagerAudience:
         team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == [2, 7]
         assert reason == "ok"
-        assert diag == {"teams_configured": 2}
+        assert diag == {"teams_configured": 2, "active_teams_pct": 0, "active_teams": 0}
 
     def test_returns_empty_on_self_hosted(self, _is_cloud):
         _is_cloud.return_value = False
@@ -75,9 +75,7 @@ class TestResolveEagerAudience:
         assert team_ids == []
         assert reason == "not_cloud"
 
-    @override_settings(
-        WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[], WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]
-    )
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     def test_returns_empty_when_no_teams_configured(self, _is_cloud):
         team_ids, reason, _diag = _resolve_eager_audience()
         assert team_ids == []
@@ -85,20 +83,38 @@ class TestResolveEagerAudience:
 
     @parameterized.expand(
         [
-            ("unrestricted_only", [], [5], [5]),
-            ("union_with_overlap", [2, 7], [7, 9], [2, 7, 9]),
-            ("restricted_only", [2, 7], [], [2, 7]),
+            ("single", [5], [5]),
+            ("dedupes_repeats", [2, 7, 7], [2, 7]),
+            ("preserves_order", [7, 2], [7, 2]),
         ]
     )
-    def test_audience_unions_restricted_and_unrestricted(self, _is_cloud, _name, restricted, unrestricted, expected):
-        with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=restricted,
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=unrestricted,
-        ):
+    def test_audience_is_the_enrollment_list(self, _is_cloud, _name, enrolled, expected):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=enrolled):
             team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == expected
         assert reason == "ok"
-        assert diag == {"teams_configured": len(expected)}
+        assert diag == {"teams_configured": len(expected), "active_teams_pct": 0, "active_teams": 0}
+
+    @parameterized.expand(
+        [
+            # pct of the 4 fetched actives: 50% -> top 2, 100% -> all 4; static
+            # lists stay first and overlaps dedupe.
+            ("half", 50, [2, 7, 31], 2),
+            ("all", 100, [2, 7, 31, 42, 55], 4),
+        ]
+    )
+    def test_active_audience_pct_appends_after_static_lists(self, _is_cloud, _name, pct, expected, expected_active):
+        with (
+            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[2, 7]),
+            patch(
+                f"{_EAGER_MODULE}._fetch_active_wa_team_ids",
+                return_value=[7, 31, 42, 55],
+            ),
+        ):
+            team_ids, reason, diag = _resolve_eager_audience(active_teams_pct=pct)
+        assert team_ids == expected
+        assert reason == "ok"
+        assert diag == {"teams_configured": len(expected), "active_teams_pct": pct, "active_teams": expected_active}
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)

@@ -1,45 +1,82 @@
+import json
 import base64
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest import mock
 
 import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo import wufoo
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.settings import ENDPOINTS, WUFOO_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.wufoo import (
     PAGE_SIZE,
     WufooResumeConfig,
-    WufooRetryableError,
     _headers,
-    get_rows,
     validate_credentials,
     wufoo_source,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = wufoo._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the wufoo module.
+WUFOO_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.wufoo.wufoo.make_tracked_session"
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: WufooResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[WufooResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> WufooResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: WufooResumeConfig) -> None:
-        self.saved.append(data)
+def _response(count: int, *, data_key: str = "Forms", status: int = 200, drop_key: bool = False) -> Response:
+    body: dict[str, Any] = {}
+    if not drop_key:
+        body[data_key] = [{"Hash": f"h{i}"} for i in range(count)]
+    resp = Response()
+    resp.status_code = status
+    resp.reason = {401: "Unauthorized", 403: "Forbidden", 404: "Not Found"}.get(status, "OK")
+    resp.url = "https://acme.wufoo.com/api/v3/forms.json"
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-def _page(count: int, data_key: str = "Forms") -> dict[str, Any]:
-    return {data_key: [{"Hash": f"h{i}"} for i in range(count)]}
+def _make_manager(resume_state: WufooResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session, returning a list capturing each request's params AT SEND TIME.
+
+    ``request.params`` is one dict mutated in place across pages, so snapshot a copy per prepare.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _source(manager: mock.MagicMock, endpoint: str = "forms"):
+    return wufoo_source(
+        api_key="wufoo-key",
+        subdomain="acme",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+    )
 
 
 class TestHeaders:
@@ -52,131 +89,126 @@ class TestHeaders:
         assert decoded == "secret-key:footastic"
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager, monkeypatch: Any, pages: dict[int, dict], endpoint: str = "forms"
-    ) -> list[dict]:
-        def fake_fetch(session: Any, url: str, page_start: int, logger: Any) -> dict:
-            return pages[page_start]
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_first_page_yields_and_stops_without_checkpoint(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(2)])
 
-        monkeypatch.setattr(wufoo, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(wufoo, "make_tracked_session", lambda **kwargs: MagicMock())
+        manager = _make_manager()
+        rows = _rows(_source(manager))
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="wufoo-key",
-            subdomain="acme",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
-
-    def test_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: _page(2)})
         assert len(rows) == 2
-        # The first page was short (< PAGE_SIZE), so no further page is requested or checkpointed.
-        assert manager.saved == []
+        # A short (< PAGE_SIZE) first page ends the sync after one request with no checkpoint.
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
 
-    def test_follows_offset_until_short_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {0: _page(PAGE_SIZE), PAGE_SIZE: _page(PAGE_SIZE), 2 * PAGE_SIZE: _page(3)}
-        rows = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_offset_until_short_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(PAGE_SIZE), _response(PAGE_SIZE), _response(3)])
+
+        manager = _make_manager()
+        rows = _rows(_source(manager))
+
         assert len(rows) == 2 * PAGE_SIZE + 3
-        # State advances by PAGE_SIZE after each full page, and is never saved for the final short page.
-        assert [s.page_start for s in manager.saved] == [PAGE_SIZE, 2 * PAGE_SIZE]
+        # pageStart advances by PAGE_SIZE per page; pageSize is pinned on every request.
+        assert [p["pageStart"] for p in params] == [0, PAGE_SIZE, 2 * PAGE_SIZE]
+        assert all(p["pageSize"] == PAGE_SIZE for p in params)
+        # State is checkpointed after each full page (points at the next offset), never for the short one.
+        assert [s.page_start for s in (c.args[0] for c in manager.save_state.call_args_list)] == [
+            PAGE_SIZE,
+            2 * PAGE_SIZE,
+        ]
 
-    def test_resumes_from_saved_offset(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(WufooResumeConfig(page_start=PAGE_SIZE))
-        # Offset 0 must never be fetched on resume.
-        pages = {PAGE_SIZE: _page(2)}
-        rows = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_offset(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response(2)])
+
+        manager = _make_manager(WufooResumeConfig(page_start=PAGE_SIZE))
+        rows = _rows(_source(manager))
+
+        # Offset 0 is never fetched on resume — the first request targets the saved offset.
+        assert params[0]["pageStart"] == PAGE_SIZE
         assert len(rows) == 2
 
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: _page(0)})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(0)])
+
+        rows = _rows(_source(_make_manager()))
         assert rows == []
 
-    def test_uses_endpoint_data_key(self, monkeypatch: Any) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_uses_endpoint_data_key(self, MockSession) -> None:
         # Each endpoint wraps its rows under a distinct key; selecting the wrong one drops all rows.
-        manager = _FakeResumableManager()
-        rows = self._collect(manager, monkeypatch, {0: _page(1, data_key="Users")}, endpoint="users")
+        session = MockSession.return_value
+        _wire(session, [_response(1, data_key="Users")])
+
+        rows = _rows(_source(_make_manager(), endpoint="users"))
         assert len(rows) == 1
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_data_key_raises_loudly(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(0, drop_key=True)])
 
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: dict | None = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body or {}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+        # A 200 body without the expected list key means the shape changed — fail loud, not 0 rows.
+        with pytest.raises(ValueError, match="matched nothing"):
+            _rows(_source(_make_manager()))
 
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(WufooRetryableError):
-            _fetch_page_unwrapped(session, "https://acme.wufoo.com/api/v3/forms.json", 0, MagicMock())
+
+class TestRetryClassification:
+    @parameterized.expand([("server_error", 500), ("bad_gateway", 503), ("rate_limited", 429)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_transient_statuses_are_retried(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(0, status=status), _response(1)])
+
+        with mock.patch("time.sleep"):  # don't actually back off between retries
+            rows = _rows(_source(_make_manager()))
+
+        # The transient status is retried and the sync completes on the follow-up 200.
+        assert session.send.call_count == 2
+        assert len(rows) == 1
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "https://acme.wufoo.com/api/v3/forms.json", 0, MagicMock())
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_fail_loud(self, _name: str, status: int, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response(0, status=status)])
 
-    def test_request_sends_pagestart_and_pagesize(self) -> None:
-        session = self._session_returning(200, _page(0))
-        _fetch_page_unwrapped(session, "https://acme.wufoo.com/api/v3/forms.json", PAGE_SIZE, MagicMock())
-        _, kwargs = session.get.call_args
-        assert kwargs["params"] == {"pageStart": PAGE_SIZE, "pageSize": PAGE_SIZE}
+        # 4xx (other than 429) is a permanent error: it is not retried and surfaces as an HTTPError.
+        with pytest.raises(requests.HTTPError):
+            _rows(_source(_make_manager()))
+        assert session.send.call_count == 1
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected",
-        [(200, 200), (401, 401), (403, 403), (500, 500)],
-    )
-    def test_returns_status_code(self, monkeypatch: Any, status: int, expected: int) -> None:
-        response = MagicMock()
-        response.status_code = status
-        session = MagicMock()
-        session.get.return_value = response
-        monkeypatch.setattr(wufoo, "make_tracked_session", lambda **kwargs: session)
-        assert validate_credentials("wufoo-key", "acme") == expected
+    @pytest.mark.parametrize("status", [200, 401, 403, 500])
+    @mock.patch(WUFOO_SESSION_PATCH)
+    def test_returns_status_code(self, mock_session, status: int) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        assert validate_credentials("wufoo-key", "acme") == status
 
-    def test_invalid_subdomain_short_circuits_without_request(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        monkeypatch.setattr(wufoo, "make_tracked_session", lambda **kwargs: session)
+    @mock.patch(WUFOO_SESSION_PATCH)
+    def test_invalid_subdomain_short_circuits_without_request(self, mock_session) -> None:
         assert validate_credentials("wufoo-key", "bad subdomain!") is None
-        session.get.assert_not_called()
+        mock_session.return_value.get.assert_not_called()
 
-    def test_connection_error_maps_to_none(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        monkeypatch.setattr(wufoo, "make_tracked_session", lambda **kwargs: session)
+    @mock.patch(WUFOO_SESSION_PATCH)
+    def test_connection_error_maps_to_none(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
         assert validate_credentials("wufoo-key", "acme") is None
 
 
 class TestWufooSourceResponse:
     @parameterized.expand([("forms",), ("reports",), ("users",)])
-    def test_uses_hash_primary_key(self, endpoint: str) -> None:
-        response = wufoo_source(
-            api_key="wufoo-key",
-            subdomain="acme",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_uses_hash_primary_key(self, endpoint: str, MockSession) -> None:
+        response = _source(_make_manager(), endpoint=endpoint)
         assert response.name == endpoint
         assert response.primary_keys == ["Hash"]
 

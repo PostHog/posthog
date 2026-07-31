@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconExternal, IconGear } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
@@ -198,14 +198,13 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'pr',
             width: 80,
             render: (_, run) =>
-                run.prNumber > 0 ? (
+                run.prNumber != null ? (
                     <Link
-                        to={
-                            combineUrl(
-                                urls.engineeringAnalyticsPullRequest(run.repoOwner, run.repoName, run.prNumber),
-                                sourceId ? { source: sourceId } : {}
-                            ).url
-                        }
+                        to={withScope(
+                            urls.engineeringAnalyticsPullRequest(run.repoOwner, run.repoName, run.prNumber),
+                            searchParams,
+                            sourceId
+                        )}
                         onClick={(e) => e.stopPropagation()}
                     >
                         #{run.prNumber}

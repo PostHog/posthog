@@ -9,11 +9,11 @@ import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { rowNavigationProps } from '../lib/rowNavigation'
 import { withScope } from '../lib/scope'
 import { WorkflowHealthRow, workflowFailureSeries } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
@@ -301,29 +301,7 @@ export function WorkflowHealthTable({
             rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
             // De-emphasize workflows with nothing settled — no pass/fail signal to read.
             rowClassName={(row) => cn('cursor-pointer', row.successRate === null && 'opacity-60')}
-            onRow={(row) => {
-                const url = rowUrl(row)
-                return {
-                    // Inner links (the workflow name) keep their own behavior.
-                    onClick: (e: React.MouseEvent) => {
-                        if ((e.target as HTMLElement).closest('a, button')) {
-                            return
-                        }
-                        if (e.metaKey || e.ctrlKey) {
-                            e.preventDefault()
-                            newInternalTab(url)
-                        } else {
-                            router.actions.push(url)
-                        }
-                    },
-                    onAuxClick: (e: React.MouseEvent) => {
-                        if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) {
-                            e.preventDefault()
-                            newInternalTab(url)
-                        }
-                    },
-                }
-            }}
+            onRow={(row) => rowNavigationProps(rowUrl(row))}
             loading={loading}
             useURLForSorting={false}
             defaultSorting={defaultSorting}

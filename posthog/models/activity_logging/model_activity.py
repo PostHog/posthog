@@ -170,12 +170,46 @@ class ImpersonatedContext:
         from posthog.helpers.impersonation import is_impersonated  # noqa: PLC0415
 
         self.was_impersonated = is_impersonated(request)
+        self.previous = False
 
     def __enter__(self):
         if self.was_impersonated:
+            # Save and restore rather than clear on exit, so this context can't erase an
+            # impersonation flag set for the whole request (by middleware or bearer auth).
+            self.previous = activity_storage.get_was_impersonated()
             activity_storage.set_was_impersonated(True)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.was_impersonated:
-            activity_storage.clear_was_impersonated()
+            if self.previous:
+                activity_storage.set_was_impersonated(True)
+            else:
+                activity_storage.clear_was_impersonated()
+
+
+class ActingUserContext:
+    """Attributes signal-driven activity logging to an explicit user outside request/middleware
+    context (background jobs, webhook handlers) where activity_storage would otherwise be empty
+    and the resulting log entries would record no actor. A `None` user makes this a no-op.
+    """
+
+    def __init__(self, user):
+        self.user = user
+        self.previous = None
+
+    def __enter__(self):
+        if self.user is not None:
+            # Save and restore rather than clear on exit, so a nested context can't
+            # silently erase an enclosing context's attribution.
+            self.previous = activity_storage.get_user()
+            activity_storage.set_user(self.user)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.user is None:
+            return
+        if self.previous is not None:
+            activity_storage.set_user(self.previous)
+        else:
+            activity_storage.clear_user()

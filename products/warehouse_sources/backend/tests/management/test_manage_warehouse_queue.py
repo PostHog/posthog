@@ -1,15 +1,17 @@
 import json
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import timedelta
 from io import StringIO
 from typing import Any
 from uuid import uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.utils import timezone
 
 import psycopg
 import fakeredis
@@ -21,16 +23,23 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import sync_lock
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BATCH_TABLE,
-    LEASE_TABLE,
-    STATUS_TABLE,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
+    DUCKGRES_LEASE_TABLE,
+    DUCKGRES_STATUS_TABLE,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
+
+# The duckgres test module's DDL is a superset of the delta queue's (both status
+# and lease tables), which the --sink duckgres tests need.
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.test_jobs_db import (
     _BATCH_DEFAULTS,
     _ensure_tables,
     _get_test_database_url,
     _truncate_tables,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BATCH_TABLE,
+    LEASE_TABLE,
+    STATUS_TABLE,
 )
 
 pytestmark = [pytest.mark.django_db]
@@ -108,9 +117,10 @@ def _create_pipeline(
     return source, schema, job
 
 
-def _insert_batch(conn: psycopg.Connection[Any], **overrides: Any) -> str:
+def _insert_batch(conn: psycopg.Connection[Any], *, age_hours: float = 0, **overrides: Any) -> str:
     params = {**_BATCH_DEFAULTS, **overrides}
     params["metadata"] = json.dumps(params["metadata"])
+    params["age_seconds"] = age_hours * 3600
     row = conn.execute(
         f"""
         INSERT INTO {BATCH_TABLE} (
@@ -121,7 +131,8 @@ def _insert_batch(conn: psycopg.Connection[Any], **overrides: Any) -> str:
             gen_random_uuid(), %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
             %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, %(is_final_batch)s,
             %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
-            %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s, now()
+            %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s,
+            now() - make_interval(secs => %(age_seconds)s)
         ) RETURNING id
         """,
         params,
@@ -130,34 +141,38 @@ def _insert_batch(conn: psycopg.Connection[Any], **overrides: Any) -> str:
     return str(row[0])
 
 
-def _set_status(conn: psycopg.Connection[Any], batch_id: str, state: str) -> None:
+def _set_status(
+    conn: psycopg.Connection[Any], batch_id: str, state: str, *, table: str = STATUS_TABLE, age_hours: float = 0
+) -> None:
     conn.execute(
-        f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, created_at) "
-        "VALUES (%s, %s, 0, now(), now())",
-        (batch_id, state),
+        f"INSERT INTO {table} (batch_id, job_state, attempt, exec_time, created_at) "
+        "VALUES (%s, %s, 0, now(), now() - make_interval(secs => %s))",
+        (batch_id, state, age_hours * 3600),
     )
 
 
-def _insert_lease(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str, live: bool) -> None:
+def _insert_lease(
+    conn: psycopg.Connection[Any], *, team_id: int, schema_id: str, live: bool, table: str = LEASE_TABLE
+) -> None:
     interval = "'5 minutes'" if live else "'-5 minutes'"
     conn.execute(
-        f"INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at) "
+        f"INSERT INTO {table} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at) "
         f"VALUES (%s, %s, %s, now() + interval {interval}, now(), now())",
         (team_id, schema_id, str(uuid4())),
     )
 
 
-def _lease_count(conn: psycopg.Connection[Any], schema_id: str) -> int:
-    row = conn.execute(f"SELECT COUNT(*) FROM {LEASE_TABLE} WHERE schema_id = %s", (schema_id,)).fetchone()
+def _lease_count(conn: psycopg.Connection[Any], schema_id: str, *, table: str = LEASE_TABLE) -> int:
+    row = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE schema_id = %s", (schema_id,)).fetchone()
     assert row is not None
     return int(row[0])
 
 
-def _failed_status_counts_by_run(conn: psycopg.Connection[Any]) -> dict[str, int]:
+def _failed_status_counts_by_run(conn: psycopg.Connection[Any], *, table: str = STATUS_TABLE) -> dict[str, int]:
     rows = conn.execute(
         f"""
         SELECT b.run_uuid, COUNT(*)
-        FROM {STATUS_TABLE} s JOIN {BATCH_TABLE} b ON b.id = s.batch_id
+        FROM {table} s JOIN {BATCH_TABLE} b ON b.id = s.batch_id
         WHERE s.job_state = 'failed'
         GROUP BY b.run_uuid
         """
@@ -172,6 +187,7 @@ def _seed_active_run(
     schema: ExternalDataSchema,
     job: ExternalDataJob,
     run_uuid: str,
+    age_hours: float = 0,
 ) -> dict[str, str]:
     """One succeeded batch and two pending ones (unclaimed + executing), like a mid-load run."""
     common = {
@@ -181,11 +197,12 @@ def _seed_active_run(
         "job_id": str(job.id),
         "run_uuid": run_uuid,
         "metadata": {"workflow_run_id": job.workflow_run_id},
+        "age_hours": age_hours,
     }
     succeeded = _insert_batch(conn, **common, batch_index=0)
-    _set_status(conn, succeeded, "succeeded")
+    _set_status(conn, succeeded, "succeeded", age_hours=age_hours)
     executing = _insert_batch(conn, **common, batch_index=1)
-    _set_status(conn, executing, "executing")
+    _set_status(conn, executing, "executing", age_hours=age_hours)
     unclaimed = _insert_batch(conn, **common, batch_index=2)
     return {"succeeded": succeeded, "executing": executing, "unclaimed": unclaimed}
 
@@ -282,6 +299,59 @@ class TestFailRun:
         job.refresh_from_db()
         assert job.status == ExternalDataJob.Status.FAILED
 
+    def test_cancel_workflow_connects_with_overrides_and_cancels(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        _seed_active_run(queue_conn, team=team, schema=schema, job=job, run_uuid=str(uuid4()))
+        handle = MagicMock(cancel=AsyncMock())
+        client = MagicMock(**{"get_workflow_handle.return_value": handle})
+        connect_mock = AsyncMock(return_value=client)
+
+        with patch("posthog.temporal.common.client.connect", connect_mock):
+            out = _call(
+                "fail-run",
+                "--team-id",
+                str(team.pk),
+                "--schema-id",
+                str(schema.id),
+                "--cancel-workflow",
+                "--temporal-host",
+                "temporal-fe.internal",
+                "--live-run",
+                "--yes",
+            )
+
+        assert connect_mock.call_args.args[0] == "temporal-fe.internal"
+        client.get_workflow_handle.assert_called_once_with(job.workflow_id)
+        handle.cancel.assert_awaited_once()
+        assert f"cancellation requested for {job.workflow_id}" in out
+
+    def test_only_stuck_fails_only_inactive_runs_and_allows_unscoped_use(self, team, queue_conn, fake_redis):
+        # a wedged run: last queue activity 8h ago (past the 6h default grace)
+        _, stale_schema, stale_job = _create_pipeline(team)
+        stale_run = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=stale_schema, job=stale_job, run_uuid=stale_run, age_hours=8)
+        # a healthy run: activity just now
+        _, fresh_schema, fresh_job = _create_pipeline(team)
+        fresh_run = str(uuid4())
+        _seed_active_run(queue_conn, team=team, schema=fresh_schema, job=fresh_job, run_uuid=fresh_run)
+        # job-only targets (nothing in the queue): one old, one just started
+        _, _, stale_orphan_job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=stale_orphan_job.id).update(created_at=timezone.now() - timedelta(hours=8))
+        _, _, fresh_orphan_job = _create_pipeline(team)
+
+        out = _call("fail-run", "--only-stuck", "--live-run", "--yes")
+
+        assert _failed_status_counts_by_run(queue_conn) == {stale_run: 2}
+        for job, expected in [
+            (stale_job, ExternalDataJob.Status.FAILED),
+            (stale_orphan_job, ExternalDataJob.Status.FAILED),
+            (fresh_job, ExternalDataJob.Status.RUNNING),
+            (fresh_orphan_job, ExternalDataJob.Status.RUNNING),
+        ]:
+            job.refresh_from_db()
+            assert job.status == expected
+        assert "skipped 2 run(s)" in out
+
 
 class TestTargetingValidation:
     @pytest.mark.parametrize(
@@ -295,6 +365,13 @@ class TestTargetingValidation:
             pytest.param(["release-locks", "--run-uuid", "x"], id="release_locks_run_uuid"),
             pytest.param(
                 ["release-locks", "--team-id", "1", "--leases-only", "--redis-only"], id="release_both_only_flags"
+            ),
+            pytest.param(
+                ["fail-run", "--sink", "duckgres", "--team-id", "1", "--cancel-workflow"],
+                id="cancel_workflow_duckgres",
+            ),
+            pytest.param(
+                ["release-locks", "--sink", "duckgres", "--team-id", "1", "--redis-only"], id="redis_only_duckgres"
             ),
         ],
     )
@@ -341,3 +418,88 @@ class TestStatus:
         assert run_uuid in out
         assert str(schema.id) in out
         assert "unclaimed: 1" in out
+
+
+def _seed_duckgres_run(
+    conn: psycopg.Connection[Any],
+    *,
+    team,
+    schema: ExternalDataSchema,
+    job: ExternalDataJob,
+    run_uuid: str,
+) -> dict[str, str]:
+    """A run mid-way through the duckgres sink: one batch fully applied, one the
+    sink hasn't claimed, one retrying, and one whose delta load isn't done yet."""
+    common = {
+        "team_id": team.pk,
+        "schema_id": str(schema.id),
+        "source_id": str(schema.source_id),
+        "job_id": str(job.id),
+        "run_uuid": run_uuid,
+        "metadata": {"workflow_run_id": job.workflow_run_id},
+    }
+    applied = _insert_batch(conn, **common, batch_index=0)
+    _set_status(conn, applied, "succeeded")
+    _set_status(conn, applied, "succeeded", table=DUCKGRES_STATUS_TABLE)
+    unclaimed = _insert_batch(conn, **common, batch_index=1)
+    _set_status(conn, unclaimed, "succeeded")
+    retrying = _insert_batch(conn, **common, batch_index=2)
+    _set_status(conn, retrying, "succeeded")
+    _set_status(conn, retrying, "waiting_retry", table=DUCKGRES_STATUS_TABLE)
+    delta_pending = _insert_batch(conn, **common, batch_index=3)
+    _set_status(conn, delta_pending, "executing")
+    return {"applied": applied, "unclaimed": unclaimed, "retrying": retrying, "delta_pending": delta_pending}
+
+
+class TestDuckgresSink:
+    def test_fail_run_fails_pending_duckgres_batches_without_touching_delta_or_job(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        run_uuid = str(uuid4())
+        _seed_duckgres_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+
+        out = _call(
+            "fail-run",
+            "--sink",
+            "duckgres",
+            "--team-id",
+            str(team.pk),
+            "--schema-id",
+            str(schema.id),
+            "--live-run",
+            "--yes",
+        )
+
+        # only the duckgres-pending batches (unclaimed + retrying) get duckgres failed rows;
+        # the applied batch and the delta-still-executing batch stay untouched
+        assert _failed_status_counts_by_run(queue_conn, table=DUCKGRES_STATUS_TABLE) == {run_uuid: 2}
+        assert _failed_status_counts_by_run(queue_conn) == {}  # delta statuses untouched
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING  # the duckgres sink doesn't own the job
+        assert _lease_count(queue_conn, str(schema.id), table=DUCKGRES_LEASE_TABLE) == 0
+        assert _lease_count(queue_conn, str(schema.id)) == 1  # delta lease untouched
+        assert "marked 2 pending batch(es) failed" in out
+
+    def test_release_locks_releases_only_duckgres_leases(self, team, queue_conn, fake_redis):
+        _, schema, _ = _create_pipeline(team)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+
+        _call("release-locks", "--sink", "duckgres", "--team-id", str(team.pk), "--live-run", "--yes")
+
+        assert _lease_count(queue_conn, str(schema.id), table=DUCKGRES_LEASE_TABLE) == 0
+        assert _lease_count(queue_conn, str(schema.id)) == 1
+
+    def test_status_reports_duckgres_sections(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        run_uuid = str(uuid4())
+        batches = _seed_duckgres_run(queue_conn, team=team, schema=schema, job=job, run_uuid=run_uuid)
+        _set_status(queue_conn, batches["retrying"], "executing", table=DUCKGRES_STATUS_TABLE)
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False, table=DUCKGRES_LEASE_TABLE)
+
+        out = _call("status", "--sink", "duckgres", "--team-id", str(team.pk), "--stale-grace-seconds", "0")
+
+        assert run_uuid in out
+        assert "unclaimed: 1" in out  # delta-succeeded batch the duckgres sink hasn't claimed
+        assert "Redis pipeline locks" not in out  # delta-only section

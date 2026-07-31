@@ -239,27 +239,27 @@ export function groupLogsAlertDestinations(
 ): LogsAlertDestinationGroup[] {
     const groups = new Map<string, LogsAlertDestinationGroup>()
     for (const hf of hogFunctions) {
-        const slackChannelValue = hf.inputs?.channel?.value
-        // The Microsoft Teams template stores its URL under `webhookUrl`; the generic webhook uses `url`.
-        const teamsUrl = hf.inputs?.webhookUrl?.value
-        const webhookUrl = hf.inputs?.url?.value
+        const templateId = hf.template_id ?? hf.template?.id
+        const slackChannelValue = hf.inputs?.channel?.value as string | undefined
+        const destinationWebhookUrl = hf.inputs?.webhookUrl?.value as string | undefined
+        const webhookUrl = hf.inputs?.url?.value as string | undefined
         let key: string
         let type: LogsAlertNotificationType
         let label: string
 
-        if (typeof slackChannelValue === 'string') {
+        if (templateId === 'template-slack') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_SLACK
-            key = `slack:${slackChannelValue}`
-            const channelName = resolveSlackLabel(slackChannelValue)
+            key = `slack:${slackChannelValue ?? hf.id}`
+            const channelName = slackChannelValue ? resolveSlackLabel(slackChannelValue) : null
             label = channelName ? `Slack #${channelName}` : 'Slack'
-        } else if (typeof teamsUrl === 'string') {
+        } else if (templateId === 'template-microsoft-teams') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_TEAMS
-            key = `teams:${teamsUrl}`
-            label = `Microsoft Teams ${teamsUrl}`
-        } else if (typeof webhookUrl === 'string') {
+            key = `teams:${destinationWebhookUrl ?? hf.id}`
+            label = destinationWebhookUrl ? `Microsoft Teams ${destinationWebhookUrl}` : 'Microsoft Teams'
+        } else if (templateId === 'template-webhook') {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
-            key = `webhook:${webhookUrl}`
-            label = `Webhook ${webhookUrl}`
+            key = `webhook:${webhookUrl ?? hf.id}`
+            label = webhookUrl ? `Webhook ${webhookUrl}` : 'Webhook'
         } else {
             type = LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK
             key = `unknown:${hf.id}`

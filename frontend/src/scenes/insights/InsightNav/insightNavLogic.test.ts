@@ -7,6 +7,7 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
+import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import {
     EventsQuery,
@@ -17,6 +18,7 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -75,15 +77,14 @@ describe('insightNavLogic', () => {
             await expectLogic(builtInsightDataLogic, () => {
                 logic.actions.setActiveView(InsightType.TRENDS)
             }).toMatchValues({
-                query: {
+                query: setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
                         filterTestAccounts: true,
-                        version: 2,
                         tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
-                },
+                }),
             })
         })
 
@@ -91,7 +92,7 @@ describe('insightNavLogic', () => {
             await expectLogic(builtInsightDataLogic, () => {
                 logic.actions.setActiveView(InsightType.FUNNELS)
             }).toMatchValues({
-                query: {
+                query: setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...nodeKindToDefaultQuery[NodeKind.FunnelsQuery],
@@ -105,7 +106,7 @@ describe('insightNavLogic', () => {
                         ],
                         tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
-                },
+                }),
             })
         })
 
@@ -200,13 +201,12 @@ describe('insightNavLogic', () => {
 
             it('is initialized on mount', async () => {
                 await expectLogic(logic).toMatchValues({
-                    queryPropertyCache: {
+                    queryPropertyCache: setLatestVersionsOnQuery({
                         ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
                         commonFilter: {},
                         commonFilterTrendsStickiness: {},
                         filterTestAccounts: true,
-                        version: 2,
-                    },
+                    }),
                 })
             })
 
@@ -281,6 +281,7 @@ describe('insightNavLogic', () => {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.LifecycleQuery],
                             lifecycleFilter: { showValuesOnSeries: true },
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
@@ -484,6 +485,7 @@ describe('insightNavLogic', () => {
                             kind: 'LifecycleQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.LifecycleQuery],
                             interval: 'hour',
                             lifecycleFilter: { showValuesOnSeries: true },
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
@@ -517,6 +519,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             breakdownFilter: {
                                 breakdowns: undefined,
@@ -550,6 +553,8 @@ describe('insightNavLogic', () => {
                 await expectLogic(builtInsightDataLogic, () => {
                     logic.actions.setActiveView(InsightType.TRENDS)
                 }).toDispatchActions([
+                    // can't use setLatestVersionsOnQuery here: toDispatchActions compares actions via
+                    // JSON.stringify, so `version` must sit exactly where the logic inserts it
                     builtInsightDataLogic.actionCreators.setQuery({
                         kind: 'InsightVizNode',
                         source: {
@@ -560,7 +565,7 @@ describe('insightNavLogic', () => {
                             ],
                             trendsFilter: {},
                             filterTestAccounts: true,
-                            version: 2,
+                            version: LATEST_VERSIONS[NodeKind.TrendsQuery],
                             breakdownFilter: {
                                 breakdowns: [
                                     { property: 'num', type: 'person' },
@@ -574,7 +579,7 @@ describe('insightNavLogic', () => {
             })
 
             it('keeps breakdowns when switching between trends and funnels', async () => {
-                trendsQuery.source = {
+                trendsQuery.source = setLatestVersionsOnQuery({
                     ...trendsQuery.source,
                     breakdownFilter: {
                         breakdowns: [
@@ -582,8 +587,7 @@ describe('insightNavLogic', () => {
                             { property: '$device_type', type: 'event' },
                         ],
                     },
-                    version: 2,
-                } as TrendsQuery
+                } as TrendsQuery)
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsQuery)
@@ -599,6 +603,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             breakdownFilter: {
                                 breakdowns: undefined,
@@ -625,7 +630,7 @@ describe('insightNavLogic', () => {
             })
 
             it('does not carry trends-only display settings into funnels', async () => {
-                const trendsQueryWithDisplay: InsightVizNode = {
+                const trendsQueryWithDisplay: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -637,14 +642,13 @@ describe('insightNavLogic', () => {
                             },
                         ],
                         interval: 'hour',
-                        version: 2,
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBar,
                             showPercentStackView: true,
                             showValuesOnSeries: true,
                         },
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsQueryWithDisplay)
@@ -660,6 +664,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: LATEST_VERSIONS[NodeKind.FunnelsQuery],
                             interval: 'hour',
                             tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
@@ -713,7 +718,7 @@ describe('insightNavLogic', () => {
             })
 
             it('preserves multiple breakdowns through round-trip via single-breakdown type', async () => {
-                const trendsWithMultipleBreakdowns: InsightVizNode = {
+                const trendsWithMultipleBreakdowns: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -724,7 +729,6 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
                         breakdownFilter: {
                             breakdowns: [
                                 { property: '$browser', type: 'event' },
@@ -733,7 +737,7 @@ describe('insightNavLogic', () => {
                             ],
                         },
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsWithMultipleBreakdowns)
@@ -760,12 +764,11 @@ describe('insightNavLogic', () => {
             })
 
             it('restores original breakdowns on round-trip even after edits on intermediate type', async () => {
-                const trendsWithMultipleBreakdowns: InsightVizNode = {
+                const trendsWithMultipleBreakdowns: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
                         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
-                        version: 2,
                         breakdownFilter: {
                             breakdowns: [
                                 { property: '$browser', type: 'event' },
@@ -773,7 +776,7 @@ describe('insightNavLogic', () => {
                             ],
                         },
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsWithMultipleBreakdowns)
@@ -808,15 +811,14 @@ describe('insightNavLogic', () => {
             })
 
             it('restores minute interval on round-trip even after edits on intermediate type', async () => {
-                const trendsWithMinute: InsightVizNode = {
+                const trendsWithMinute: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
                         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
                         interval: 'minute',
-                        version: 2,
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsWithMinute)
@@ -844,7 +846,7 @@ describe('insightNavLogic', () => {
             })
 
             it('preserves breakdownFilter through round-trip via unsupported type', async () => {
-                const trendsWithBreakdown: InsightVizNode = {
+                const trendsWithBreakdown: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -855,13 +857,12 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
                         breakdownFilter: {
                             breakdown: '$browser',
                             breakdown_type: 'event',
                         },
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsWithBreakdown)
@@ -891,7 +892,7 @@ describe('insightNavLogic', () => {
             })
 
             it('truncates multi-breakdowns on multi-hop transition through unsupported type back to funnels', async () => {
-                const trendsWithMultipleBreakdowns: InsightVizNode = {
+                const trendsWithMultipleBreakdowns: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -902,7 +903,6 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
                         breakdownFilter: {
                             breakdowns: [
                                 { property: '$browser', type: 'event' },
@@ -910,7 +910,7 @@ describe('insightNavLogic', () => {
                             ],
                         },
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsWithMultipleBreakdowns)
@@ -941,7 +941,7 @@ describe('insightNavLogic', () => {
             })
 
             it('preserves compareFilter through round-trip via unsupported type', async () => {
-                const trendsWithCompare: InsightVizNode = {
+                const trendsWithCompare: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -952,10 +952,9 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
                         compareFilter: { compare: true },
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsWithCompare)
@@ -982,7 +981,7 @@ describe('insightNavLogic', () => {
             })
 
             it('preserves interval through round-trip via type with no interval support', async () => {
-                const trendsWithInterval: InsightVizNode = {
+                const trendsWithInterval: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -993,10 +992,9 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
                         interval: 'week',
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsWithInterval)
@@ -1025,7 +1023,7 @@ describe('insightNavLogic', () => {
             })
 
             it('filters breakdowns to person/event types when switching to retention', async () => {
-                const trendsWithGroupBreakdown: InsightVizNode = {
+                const trendsWithGroupBreakdown: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -1036,7 +1034,6 @@ describe('insightNavLogic', () => {
                                 event: '$pageview',
                             },
                         ],
-                        version: 2,
                         breakdownFilter: {
                             breakdowns: [
                                 { property: '$browser', type: 'event' },
@@ -1045,7 +1042,7 @@ describe('insightNavLogic', () => {
                             ],
                         },
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsWithGroupBreakdown)
@@ -1068,7 +1065,7 @@ describe('insightNavLogic', () => {
             })
 
             it('keeps display when switching from trends to stickiness', async () => {
-                const trendsQueryForStickiness: InsightVizNode = {
+                const trendsQueryForStickiness: InsightVizNode = setLatestVersionsOnQuery({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -1080,13 +1077,12 @@ describe('insightNavLogic', () => {
                             },
                         ],
                         interval: 'hour',
-                        version: 2,
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBar,
                             showValuesOnSeries: true,
                         },
                     },
-                }
+                })
 
                 await expectLogic(logic, () => {
                     builtInsightDataLogic.actions.setQuery(trendsQueryForStickiness)

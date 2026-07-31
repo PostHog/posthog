@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Alerts
 feature: alerts
-url_prefix: /insights?tab=alerts
+url_prefix: /alerts
 ui_apps: {}
 tools:
     alert-create:
@@ -147,6 +147,9 @@ tools:
             detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
     alerts-simulate-create:
         operation: alerts_simulate_create
+        enabled: false
+    alerts-test-delivery-create:
+        operation: alerts_test_delivery_create
         enabled: false
     alerts-update:
         operation: alerts_update

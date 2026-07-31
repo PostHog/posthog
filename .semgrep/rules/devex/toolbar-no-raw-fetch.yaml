@@ -1,0 +1,34 @@
+rules:
+    - id: toolbar-no-raw-fetch
+      message: |
+          Raw `fetch(...)` in toolbar code. The toolbar runs on customer pages, where
+          `window.fetch` may be replaced by wrappers that resolve to non-Response values,
+          and where network failures (offline, ad blockers, CORS, CSP) are everyday
+          outcomes - not bugs. A raw fetch bypasses the layer that normalizes those
+          failures and keeps them out of error tracking.
+
+          Use, in order of preference:
+            • `toolbarApi` (`~/toolbar/toolbarApi`) for authenticated API requests - it
+              returns a `ToolbarApiResult` union and never throws
+            • `toolbarFetch` (`~/toolbar/toolbarFetch`) only when you need the raw
+              `Response` and cannot use `toolbarApi`
+            • `safeFetch` (`~/toolbar/utils`) for unauthenticated requests (auth flows,
+              preloads, local blob URLs)
+
+          If a raw fetch is genuinely unavoidable (e.g. a circular import), add
+          `// nosemgrep: toolbar-no-raw-fetch` with a short reason and make sure a
+          rejection can never escape unhandled.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - frontend/src/toolbar
+          exclude:
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+      pattern-either:
+          - pattern: fetch(...)
+          - pattern: window.fetch(...)
+          - pattern: globalThis.fetch(...)
+      metadata:
+          category: best-practice

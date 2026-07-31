@@ -414,6 +414,10 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             ]
         )
 
+        day_of_week_filter = date_range.day_of_week_filter_expr(ast.Field(chain=["timestamp"]))
+        if day_of_week_filter is not None:
+            filters.append(day_of_week_filter)
+
         # Series
         if isinstance(series, EventsNode) and series.event is not None:
             filters.append(

@@ -7,7 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
 
 import type { AlertType } from '../types'
 import {
@@ -36,16 +36,25 @@ const FUNNEL_QUERY = {
     },
 }
 
+// Metrics insights persist their query as a bare MetricsQuery node — no InsightVizNode wrapper.
+const METRICS_QUERY = {
+    kind: NodeKind.MetricsQuery,
+    clauses: [{ name: 'a', metricName: 'queue.depth', aggregation: 'avg' }],
+}
+
 describe('insightAlertsLogic', () => {
     let listSpy: jest.SpyInstance
+    let hogFunctionsListSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         listSpy = jest.spyOn(api.alerts, 'list').mockResolvedValue({ results: [], count: 0 })
+        hogFunctionsListSpy = jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [], count: 0 })
     })
 
     afterEach(() => {
         listSpy.mockRestore()
+        hogFunctionsListSpy.mockRestore()
     })
 
     function mountInsightStack(insightLogicProps: InsightLogicProps): void {
@@ -212,6 +221,53 @@ describe('insightAlertsLogic', () => {
             alerts: [expect.objectContaining({ id: 'keep' })],
         })
     })
+
+    it('loads destination counts for all alerts in one request', async () => {
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: { ...createEmptyInsight(Insight42), id: 42, query: API_QUERY, alerts: [] },
+        }
+        mountInsightStack(insightLogicProps)
+        hogFunctionsListSpy.mockResolvedValue({
+            count: 3,
+            results: [
+                { filters: { properties: [{ key: 'alert_id', value: 'alert-a' }] } },
+                { filters: { properties: [{ key: 'alert_id', value: 'alert-a' }] } },
+                { filters: { properties: [{ key: 'alert_id', value: 'alert-b' }] } },
+            ] as HogFunctionType[],
+        })
+        const alertsLogic = insightAlertsLogic({ insightId: 42, insightLogicProps, deferInitialAlertsLoad: true })
+        alertsLogic.mount()
+        const alerts = [{ id: 'alert-a' }, { id: 'alert-b' }] as AlertType[]
+
+        await expectLogic(alertsLogic, () => alertsLogic.actions.loadAlertsSuccess(alerts))
+            .toFinishAllListeners()
+            .toMatchValues({ alertDestinationCounts: { 'alert-a': 2, 'alert-b': 1 } })
+
+        expect(hogFunctionsListSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('refreshes destination counts after an alert is saved', async () => {
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: { ...createEmptyInsight(Insight42), id: 42, query: API_QUERY, alerts: [] },
+        }
+        mountInsightStack(insightLogicProps)
+        hogFunctionsListSpy.mockResolvedValue({
+            count: 1,
+            results: [{ filters: { properties: [{ key: 'alert_id', value: 'alert-a' }] } }] as HogFunctionType[],
+        })
+        const alertsLogic = insightAlertsLogic({ insightId: 42, insightLogicProps, deferInitialAlertsLoad: true })
+        alertsLogic.mount()
+
+        await expectLogic(alertsLogic, () => alertsLogic.actions.upsertAlert({ id: 'alert-a' } as AlertType))
+            .toFinishAllListeners()
+            .toMatchValues({ alertDestinationCounts: { 'alert-a': 1 } })
+
+        expect(hogFunctionsListSpy).toHaveBeenCalledTimes(1)
+    })
 })
 
 describe('areAlertsSupportedForInsight', () => {
@@ -246,12 +302,13 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(query)).toBe(true)
     })
 
-    it('returns false for funnel insight viz when the funnel flag is off', () => {
-        expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(false)
+    it('supports funnel insight viz by default', () => {
+        expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(true)
     })
 
-    it('returns true for funnel insight viz when funnelAlertsEnabled', () => {
-        expect(areAlertsSupportedForInsight(FUNNEL_QUERY, { funnelAlertsEnabled: true })).toBe(true)
+    it('supports bare metrics query nodes only when metricsAlertsEnabled', () => {
+        expect(areAlertsSupportedForInsight(METRICS_QUERY, { metricsAlertsEnabled: true })).toBe(true)
+        expect(areAlertsSupportedForInsight(METRICS_QUERY)).toBe(false)
     })
 
     it('supports steps and trends funnels but not time-to-convert or flow', () => {
@@ -259,11 +316,10 @@ describe('areAlertsSupportedForInsight', () => {
             ...FUNNEL_QUERY,
             source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
         })
-        const opts = { funnelAlertsEnabled: true }
-        expect(areAlertsSupportedForInsight(withViz('steps'), opts)).toBe(true)
-        expect(areAlertsSupportedForInsight(withViz('trends'), opts)).toBe(true)
-        expect(areAlertsSupportedForInsight(withViz('time_to_convert'), opts)).toBe(false)
-        expect(areAlertsSupportedForInsight(withViz('flow'), opts)).toBe(false)
+        expect(areAlertsSupportedForInsight(withViz('steps'))).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('trends'))).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('time_to_convert'))).toBe(false)
+        expect(areAlertsSupportedForInsight(withViz('flow'))).toBe(false)
     })
 
     it.each<[string, ChartDisplayType | undefined, boolean]>([
@@ -285,11 +341,9 @@ describe('areAlertsSupportedForInsight', () => {
 
 describe('alertsUnsupportedReason', () => {
     it.each([
-        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel']],
-        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel']],
-        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL']],
-        ['all three', { hogqlAlertsEnabled: true, funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
-    ])('lists only enabled types: %s', (_name, options, included, excluded) => {
+        ['metrics gated off', {}, ['trends', 'SQL', 'funnel'], ['metrics']],
+        ['metrics enabled', { metricsAlertsEnabled: true }, ['trends', 'SQL', 'funnel', 'metrics'], []],
+    ])('always lists trends/SQL/funnel and gates only metrics: %s', (_name, options, included, excluded) => {
         const reason = alertsUnsupportedReason(options)
         expect(included.every((type) => reason.includes(type))).toBe(true)
         expect(excluded.every((type) => !reason.includes(type))).toBe(true)
@@ -302,14 +356,13 @@ describe('alertsUnsupportedReason', () => {
             ...FUNNEL_QUERY,
             source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
         })
-        const options = { funnelAlertsEnabled: true }
         for (const viz of ['time_to_convert', 'flow']) {
-            const reason = alertsUnsupportedReason(options, funnelWithViz(viz))
+            const reason = alertsUnsupportedReason({}, funnelWithViz(viz))
             expect(reason).toContain('conversion rate')
             expect(reason).toContain('steps or trends')
             expect(reason).not.toContain('only available for')
         }
         // No query → backward-compatible generic copy.
-        expect(alertsUnsupportedReason(options)).toContain('only available for')
+        expect(alertsUnsupportedReason({})).toContain('only available for')
     })
 })

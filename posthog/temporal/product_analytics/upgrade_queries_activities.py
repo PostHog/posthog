@@ -7,6 +7,7 @@ from django.db import connection
 from structlog import get_logger
 from temporalio import activity
 
+from posthog.exceptions_capture import capture_exception
 from posthog.schema_migrations import LATEST_VERSIONS, _discover_migrations
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -85,9 +86,12 @@ def migrate_insights_batch(inputs: MigrateInsightsBatchActivityInputs) -> list[i
     for insight in insights:
         try:
             insight.query = upgrade(cast(dict[Any, Any], insight.query))
-            insight.save()
+            # Narrow write: a full save would clobber concurrent user edits to other fields with
+            # the stale values read above. Insight.save() appends query_metadata when regenerated.
+            insight.save(update_fields=["query"])
         except Exception as e:
             logger.exception(f"Error migrating insight {insight.id}: {str(e)}")
+            capture_exception(e, {"insight_id": insight.id, "team_id": insight.team_id})
             failed.append(insight.id)
 
     return failed
