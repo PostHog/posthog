@@ -719,23 +719,18 @@ impl PersonHogLeader for PersonHogLeaderService {
                         partition,
                         "changelog producer fenced; rejecting write as stale owner"
                     );
-                    // The broker has proven a newer owner exists, which
-                    // is earlier and firmer evidence than the lease
-                    // keepalive can offer. Drop the partition so this pod
-                    // stops answering reads out of a cache the real owner
-                    // is already mutating; re-acquiring it goes through a
-                    // handoff, which re-warms.
-                    //
-                    // Unless the fence that failed was this pod's own
-                    // superseded producer — a write in flight across a
-                    // re-acquire is rejected by an epoch this pod
-                    // installed itself, and giving up the partition then
-                    // would take a partition it still owns out of
-                    // service.
-                    if !fenced.holds(partition) {
-                        self.cache.drop_partition(partition);
-                        counter!("personhog_leader_fenced_partition_drops_total").increment(1);
-                    }
+                    // Deliberately no local reaction beyond failing the
+                    // write. A broker fence proves *someone* newer
+                    // initialized the transactional id, not that this pod
+                    // lost the partition: a zombie waking inside its
+                    // lease window re-acquires on the way to noticing it
+                    // is dead, which fences the legitimate owner. Giving
+                    // up the partition here takes it out of service with
+                    // nothing to put it back — convergence sees it warmed
+                    // and unfenced, so no branch re-warms it. Reads stay
+                    // served until the lease machinery settles ownership;
+                    // refusing them needs a lease-validity check on the
+                    // read path, which is where that residual is closed.
                     return Err(Status::failed_precondition(format!(
                         "partition ownership fenced: {e}"
                     )));

@@ -142,3 +142,45 @@ async fn a_cancelled_produce_does_not_wedge_the_partition() {
     .expect("a later write must not hang behind the cancelled one")
     .expect("and must succeed");
 }
+
+/// The drain's promise is that nothing more appends to the partition.
+/// A request cancelled mid-produce takes its handler — and the drain's
+/// in-flight count — with it while its record waits in an open window,
+/// so the drain must also wait for that window to settle. With a long
+/// admission interval the difference is unmistakable: quiescing takes
+/// about the window, and afterwards the changelog is genuinely quiet.
+#[tokio::test]
+async fn quiesce_waits_for_an_abandoned_window_to_settle() {
+    let topic = format!("fence_quiesce_{}", uuid::Uuid::new_v4().simple());
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
+    // A long window so "did it wait?" is measurable rather than inferred.
+    let window = Duration::from_millis(1500);
+    let producers = Arc::new(FencedChangelogProducers::new(
+        kafka,
+        topic.clone(),
+        Duration::from_secs(10),
+        Duration::from_secs(10),
+        window,
+    ));
+    producers.acquire(0).await.expect("acquire");
+
+    {
+        let p = Arc::clone(&producers);
+        let mut inflight = Box::pin(async move { p.produce(0, &test_person(1)).await });
+        tokio::time::timeout(Duration::from_millis(50), &mut inflight)
+            .await
+            .ok();
+    }
+
+    let start = std::time::Instant::now();
+    assert!(
+        producers.quiesce(0).await,
+        "the partition must quiesce within the bound"
+    );
+    assert!(
+        start.elapsed() >= window / 2,
+        "quiesce returned in {:?}, so it did not wait for the abandoned window",
+        start.elapsed()
+    );
+}
