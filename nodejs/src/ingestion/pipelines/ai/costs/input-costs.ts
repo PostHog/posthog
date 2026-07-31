@@ -1,6 +1,7 @@
 import bigDecimal from 'js-big-decimal'
 
 import { logger } from '~/common/utils/logger'
+import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { numericProperty } from './cost-utils'
@@ -57,18 +58,21 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
         return explicit
     }
 
-    if (!matchProvider(event, 'anthropic')) {
-        return false
-    }
-
-    if (!usesInclusiveAnthropicInputTokens(event)) {
+    const anthropicStyle = matchProvider(event, 'anthropic')
+    if (anthropicStyle && !usesInclusiveAnthropicInputTokens(event)) {
         return true
     }
 
     const inputTokens = numericProperty(event, '$ai_input_tokens')
     const cacheReadTokens = numericProperty(event, '$ai_cache_read_input_tokens')
     const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
-    return inputTokens < cacheReadTokens + cacheWriteTokens
+    const provablyExclusive = inputTokens < cacheReadTokens + cacheWriteTokens
+
+    if (provablyExclusive) {
+        aiCacheExclusiveFallbackCounter.labels({ prior: anthropicStyle ? 'anthropic_inclusive' : 'inclusive' }).inc()
+    }
+
+    return provablyExclusive
 }
 
 /**

@@ -2,7 +2,7 @@
 
 Mirrors the frontend "Improve scanner prompt" message: the current prompt plus the rated sessions
 (thumbs down with feedback to fix, thumbs up to keep passing), handed to Gemini for a structured
-rewrite. Suggestions are persisted so the Quality tab can show the current one and its history.
+rewrite. Suggestions are persisted so the calibration tab can show the current one and its history.
 """
 
 import json
@@ -591,7 +591,7 @@ def generate_prompt_suggestion(
     base_config = dict(scanner.scanner_config or {})
     distinct_id = str(user.uuid) if user else f"replay-vision-scanner-{scanner.id}"
     try:
-        # Fresh themes feed the briefing below and the Quality tab's chips; stale ones beat none.
+        # Fresh themes feed the briefing below and the calibration tab's chips; stale ones beat none.
         refresh_feedback_themes_if_stale(scanner, distinct_id=distinct_id)
     except Exception:
         logger.exception("replay_vision.feedback_themes.refresh_failed", scanner_id=str(scanner.id))

@@ -9,6 +9,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureScoutAction } from '../../../inboxAnalytics'
 import type { ScoutCreateInitialValues } from '../../../logics/scoutCreateModalLogic'
 
 const LazyScoutCreateModal = React.lazy(async () => {
@@ -60,7 +61,14 @@ export function ScoutCreateButton({
                     <LazyScoutCreateModal
                         isOpen
                         initialValues={initialValues}
-                        onCreated={onCreated}
+                        onCreated={(scout) => {
+                            captureScoutAction({
+                                actionType: 'create_scout',
+                                surface: 'fleet_list',
+                                skillName: scout.config.skill_name,
+                            })
+                            onCreated?.(scout)
+                        }}
                         onClose={() => setIsModalOpen(false)}
                     />
                 </React.Suspense>
