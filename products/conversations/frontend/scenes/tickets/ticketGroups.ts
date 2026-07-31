@@ -8,18 +8,26 @@
 // Teams define their own groups in Settings → Support → Ticket groups
 // (stored as conversations_settings.ticket_groups). Response-target ladders
 // are one example use — the default below is only a starter example
-// demonstrating the mechanic; every team's real groups are their own. It MUST
-// stay in lockstep with the backend copy in
-// products/conversations/backend/ticket_groups.py.
+// demonstrating the mechanic; every team's real groups are their own.
+//
+// Group MEMBERSHIP is computed SERVER-SIDE (products/conversations/backend/
+// ticket_groups.py) and delivered on every serialized ticket as
+// `ticket_group_rank`, the index of the ticket's group. The UI just looks that
+// rank up in the group list to get a label.
+//
+// There is deliberately NO client-side evaluator here, and please don't add
+// one back: a group filter can be a HogQL SQL expression (TicketSqlFilter),
+// which only the server can compile and run. A browser evaluator would
+// silently disagree with the server for every team using one. So this module
+// holds only the config SHAPE, the config-reading fallback
+// (teamTicketGroups), and the settings editor's pre-save checks.
 //
 // Tag matching is exact (no prefixes): a ticket tagged urgent_billing does
 // NOT match a filter on the tag urgent.
 
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 
 import type { TeamPublicType, TeamType } from '~/types'
-
-import type { Ticket } from '../../types'
 
 export interface TicketTagsFilter {
     type: 'ticket_tags'
@@ -29,7 +37,11 @@ export interface TicketTagsFilter {
 
 export interface TicketPropertyInFilter {
     type: 'ticket_property'
-    key: 'channel_source' | 'status' | 'priority'
+    /** `sla_state` is the same breached / at-risk / on-track vocabulary the ticket
+     *  list's SLA filter uses (defined once in backend/sla.py). It asks a different
+     *  question from `sla_due_at` is_set / is_not_set, which is whether the ticket
+     *  has a deadline at all — all three states require one to exist. */
+    key: 'channel_source' | 'status' | 'priority' | 'sla_state'
     operator: 'in'
     value: string[]
 }
@@ -53,9 +65,17 @@ export interface TicketPropertyDateFilter {
     operator: 'date_before' | 'date_after'
     /** A value in the shared date grammar (see the regexes below): a strict
      *  relative date ("-3d", "-1mStart") or an ISO datetime. Validated at
-     *  write time on both sides; resolved with identical semantics here and in
-     *  the backend's _resolve_date_value. */
+     *  write time on both sides; resolved server-side by the backend's
+     *  _resolve_date_value. */
     value: string
+}
+
+export interface TicketSqlFilter {
+    type: 'sql'
+    /** A HogQL boolean expression over ticket columns, compiled to SQL
+     *  server-side. Validated server-side (authoritative) — the browser can
+     *  only length-check it. */
+    expression: string
 }
 
 export type TicketGroupFilter =
@@ -64,17 +84,16 @@ export type TicketGroupFilter =
     | TicketPropertyContainsFilter
     | TicketPropertySetFilter
     | TicketPropertyDateFilter
+    | TicketSqlFilter
 
 export interface TicketGroup {
     label: string
     filters: TicketGroupFilter[]
 }
 
-/** The ticket fields group filters can match against. */
-export type TicketGroupMatchable = Pick<
-    Ticket,
-    'tags' | 'channel_source' | 'status' | 'priority' | 'email_from' | 'sla_due_at' | 'created_at'
->
+/** Longest SQL expression the editor will submit — the server enforces the
+ *  same cap. */
+export const MAX_TICKET_GROUP_SQL_LENGTH = 1000
 
 export const DEFAULT_TICKET_GROUPS: TicketGroup[] = [
     // 0 (also the unmatched fallback)
@@ -91,6 +110,7 @@ const PROPERTY_OPERATORS: Record<string, readonly string[]> = {
     priority: ['in'],
     email_from: ['icontains'],
     sla_due_at: ['is_set', 'is_not_set'],
+    sla_state: ['in'],
     created_at: ['date_before', 'date_after'],
 }
 
@@ -104,18 +124,15 @@ const PROPERTY_OPERATORS: Record<string, readonly string[]> = {
 //     "-3days", "3d ago", "-3dstart".
 //   - ISO datetime: zero-padded `YYYY-MM-DD`, optionally followed by a time
 //     (`T` or space separator) and a `Z`/`±HH:MM` offset.
-// Resolution (identical to the backend's _resolve_date_value): bare `-Nu` is
-// a ROLLING window (now minus N units, time-of-day kept); `Start`/`End`
-// subtract then snap to the start/end of the unit (weeks start on Sunday,
-// dayjs's default en locale); naive ISO values take the resolving timezone.
-// The one accepted divergence: the backend resolves in the TEAM timezone,
-// this module in the BROWSER timezone.
+// Resolution happens server-side (_resolve_date_value, in the TEAM timezone):
+// bare `-Nu` is a ROLLING window (now minus N units, time-of-day kept);
+// `Start`/`End` subtract then snap to the start/end of the unit (weeks start
+// on Sunday); naive ISO values take the team timezone.
 //
 // These two regexes are duplicated verbatim in ticket_groups.py.
 const RELATIVE_DATE_REGEX = /^-([1-9][0-9]*)([hdwmy])(Start|End)?$/
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})?)?$/
 const MAX_RELATIVE_NUMBER = 1000
-const RELATIVE_UNITS = { h: 'hour', d: 'day', w: 'week', m: 'month', y: 'year' } as const
 
 /** Whether a created_at filter value is in the shared date grammar — the
  *  pre-save check mirroring the serializer's rule. NOTE: impossible calendar
@@ -129,101 +146,22 @@ export function isValidTicketGroupDateValue(value: string): boolean {
     return ISO_DATE_REGEX.test(value) && dayjs(value).isValid()
 }
 
-/** Resolve a date filter value per the shared grammar, relative values
- *  anchored on `now`. Returns null for anything outside the grammar — the
- *  filter then matches nothing (backend parity: _resolve_date_value returns
- *  None). */
-function resolveDateValue(value: string, now: Dayjs): Dayjs | null {
-    const match = RELATIVE_DATE_REGEX.exec(value)
-    if (match) {
-        const number = parseInt(match[1], 10)
-        if (number > MAX_RELATIVE_NUMBER) {
-            return null
-        }
-        const unit = RELATIVE_UNITS[match[2] as keyof typeof RELATIVE_UNITS]
-        const resolved = now.subtract(number, unit)
-        if (match[3] === 'Start') {
-            return resolved.startOf(unit)
-        }
-        if (match[3] === 'End') {
-            return resolved.endOf(unit)
-        }
-        return resolved
-    }
-    if (!ISO_DATE_REGEX.test(value)) {
-        return null
-    }
-    const parsed = dayjs(value)
-    return parsed.isValid() ? parsed : null
-}
-
-export function matchesFilter(ticket: TicketGroupMatchable, filter: TicketGroupFilter, now: Dayjs = dayjs()): boolean {
-    if (filter.type === 'ticket_tags') {
-        const tags = ticket.tags ?? []
-        return filter.value.some((tag) => tags.includes(tag))
-    }
-    switch (filter.operator) {
-        case 'in': {
-            const value = ticket[filter.key]
-            return typeof value === 'string' && filter.value.includes(value)
-        }
-        case 'icontains':
-            return !!ticket.email_from && ticket.email_from.toLowerCase().includes(filter.value.toLowerCase())
-        case 'is_set':
-            return ticket.sla_due_at != null
-        case 'is_not_set':
-            return ticket.sla_due_at == null
-        case 'date_before':
-        case 'date_after': {
-            const threshold = resolveDateValue(filter.value, now)
-            const created = dayjs(ticket.created_at)
-            if (!threshold || !created.isValid()) {
-                return false
-            }
-            return filter.operator === 'date_before' ? created.isBefore(threshold) : created.isAfter(threshold)
-        }
-    }
-}
-
-/** Index into `groups` of the ticket's group — the FIRST group whose filters
- *  ALL match, or the first group (0) when none match. Groups with no filters
- *  match nothing. `now` anchors relative date filters (defaults to now; inject
- *  one to keep a whole walk, or a test, consistent). */
-export function ticketGroupRank(
-    ticket: TicketGroupMatchable,
-    groups: TicketGroup[] = DEFAULT_TICKET_GROUPS,
-    now?: Dayjs
-): number {
-    const anchor = now ?? dayjs()
-    for (let rank = 0; rank < groups.length; rank++) {
-        const { filters } = groups[rank]
-        if (filters.length > 0 && filters.every((filter) => matchesFilter(ticket, filter, anchor))) {
-            return rank
-        }
-    }
-    return 0
-}
-
-export function ticketGroupLabel(
-    ticket: TicketGroupMatchable,
-    groups: TicketGroup[] = DEFAULT_TICKET_GROUPS,
-    now?: Dayjs
-): string {
-    return groups[ticketGroupRank(ticket, groups, now)].label
-}
-
 function isStringList(value: unknown): value is string[] {
     return Array.isArray(value) && value.every((item) => typeof item === 'string')
 }
 
-/** Enough shape to evaluate without erroring — mirrors the backend's
- *  _is_structurally_usable_filter; the write validator is stricter. */
-function isStructurallyUsableFilter(filter: any): filter is TicketGroupFilter {
+/** Enough shape to be a filter we can round-trip and send back — mirrors the
+ *  backend's _is_structurally_usable_filter; the write validator is stricter
+ *  (and is the only thing that can judge a SQL expression's validity). */
+export function isStructurallyUsableFilter(filter: any): filter is TicketGroupFilter {
     if (!filter || typeof filter !== 'object') {
         return false
     }
     if (filter.type === 'ticket_tags') {
         return filter.operator === 'any_of' && isStringList(filter.value)
+    }
+    if (filter.type === 'sql') {
+        return typeof filter.expression === 'string' && filter.expression.trim().length > 0
     }
     if (filter.type === 'ticket_property') {
         if (typeof filter.key !== 'string' || !(PROPERTY_OPERATORS[filter.key] ?? []).includes(filter.operator)) {

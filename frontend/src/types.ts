@@ -801,7 +801,17 @@ export interface ConversationsSettings {
      * products/conversations/frontend/scenes/tickets/ticketGroups.ts
      * (typed loosely here because the settings blob has other writers). */
     ticket_groups?:
-        | { label: string; filters: { type: string; key?: string; operator: string; value?: string | string[] }[] }[]
+        | {
+              label: string
+              filters: {
+                  type: string
+                  key?: string
+                  /** Absent on sql filters, which carry an `expression` instead. */
+                  operator?: string
+                  value?: string | string[]
+                  expression?: string
+              }[]
+          }[]
         | null
 }
 

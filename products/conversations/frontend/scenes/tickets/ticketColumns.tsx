@@ -20,7 +20,7 @@ import {
     aiTriageResultTagType,
     aiTriageTicketTypeLabel,
 } from '../../types'
-import { DEFAULT_TICKET_GROUPS, TicketGroup, ticketGroupLabel } from './ticketGroups'
+import { DEFAULT_TICKET_GROUPS, TicketGroup } from './ticketGroups'
 
 export type TicketColumnKey =
     | 'ticket_number'
@@ -51,7 +51,9 @@ interface TicketColumnDefinition {
 const ticketGroupRender =
     (groups: TicketGroup[]) =>
     (_: unknown, ticket: Ticket): JSX.Element => {
-        const label = ticketGroupLabel(ticket, groups)
+        // The server ranks the ticket against these same groups; index
+        // defensively in case the config changed since the response.
+        const label = groups[ticket.ticket_group_rank ?? 0]?.label ?? groups[0].label
         return (
             // Cap the cell at about the header's width ("Ticket group" +
             // sort arrow) so a long group label can't blow the column out;

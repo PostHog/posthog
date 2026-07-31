@@ -182,6 +182,10 @@ export interface Ticket {
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage
+    /** Server-computed index into the team's configured ticket groups (see
+     *  scenes/tickets/ticketGroups.ts). The server owns this: group filters can
+     *  include HogQL SQL expressions the browser can't evaluate. */
+    ticket_group_rank?: number
     /** The effective access level the current user has for this ticket. */
     user_access_level?: AccessControlLevel
 }

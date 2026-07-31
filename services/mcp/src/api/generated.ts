@@ -46514,6 +46514,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      readonly ticket_group_rank: number;
     }
 
     export interface PaginatedTicketList {
@@ -54534,6 +54535,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      readonly ticket_group_rank?: number;
     }
 
     /**

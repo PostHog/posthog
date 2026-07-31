@@ -1338,7 +1338,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
         if "ticket_groups" in value:
-            value["ticket_groups"] = validate_ticket_groups(value["ticket_groups"])
+            # team/user let the validator compile `sql` filters (ticket_group_sql.py).
+            request = self.context.get("request")
+            value["ticket_groups"] = validate_ticket_groups(
+                value["ticket_groups"], team=self.instance, user=getattr(request, "user", None)
+            )
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

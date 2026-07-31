@@ -15,15 +15,28 @@
 #   {"type": "ticket_property", "key": "email_from", "operator": "icontains",
 #    "value": "@bigcorp.com"}  — case-insensitive substring
 #   {"type": "ticket_property", "key": "sla_due_at",
-#    "operator": "is_set" | "is_not_set"}  — no value field
+#    "operator": "is_set" | "is_not_set"}  — no value field. Whether the ticket
+#       has a deadline AT ALL, which is not the same question as whether it has
+#       been missed — for that use sla_state below.
+#   {"type": "ticket_property", "key": "sla_state", "operator": "in",
+#    "value": ["breached", "at-risk", "on-track"]}  — the same states the list's
+#       SLA filter uses (backend/sla.py). All three require a deadline to exist,
+#       so a ticket with none is in none of them.
 #   {"type": "ticket_property", "key": "created_at",
 #    "operator": "date_before" | "date_after", "value": "-3d" or ISO datetime}
 #       — see the shared date grammar below; relative values resolve at query
 #       time in the team's timezone
+#   {"type": "sql", "expression": "message_count > 5 AND priority = 'high'"}
+#       — a HogQL boolean expression, compiled to Postgres by
+#       ticket_group_sql.py. The escape hatch for conditions this vocabulary
+#       doesn't cover; tags are NOT reachable from it (AND a ticket_tags filter
+#       alongside instead).
 #
-# ## The shared created_at date grammar
+# ## The created_at date grammar
 #
-# Both sides accept EXACTLY the same values (validated at write time here):
+# Accepted values (validated at write time here; the settings editor
+# pre-checks the same grammar in ticketGroups.ts's
+# isValidTicketGroupDateValue, but this side is authoritative):
 #   - Relative: `-N<unit>` with unit in {h, d, w, m, y} (hour/day/week/month/
 #     year), N an integer 1..1000, and an optional case-sensitive `Start` or
 #     `End` suffix — e.g. "-3d", "-12h", "-1mStart", "-1yEnd". FULLMATCH only:
@@ -33,18 +46,23 @@
 #     offset — anything the ISO regex below matches AND
 #     datetime.fromisoformat parses.
 #
-# Resolution semantics (identical on both sides):
+# Resolution semantics:
 #   - bare `-Nu` is a ROLLING window: now minus N units, time-of-day kept;
 #   - `Start`/`End`: subtract N units, then snap to the start/end of the unit
 #     (weeks start on Sunday, matching dayjs's default en locale);
 #   - naive ISO values take the resolving timezone; offsets are respected.
-# The one accepted divergence: the backend resolves in the TEAM timezone,
-# the frontend in the BROWSER timezone (documented in ticketGroups.ts).
+# Resolution happens here, at query-build time, in the TEAM's timezone.
+#
+# ## Group membership is computed here and only here
+#
+# The rank this module computes is serialized onto every listed ticket
+# (`ticket_group_rank`), and the frontend labels its column and section
+# headers from it. There is deliberately NO client-side evaluator to keep in
+# step: a `sql` filter is a HogQL expression, which a browser can't evaluate.
 #
 # Response-target ladders are one example use — the default below is only a
 # starter example demonstrating the mechanic; every team's real groups are
-# their own. This module MUST stay in lockstep with the frontend copy in
-# products/conversations/frontend/scenes/tickets/ticketGroups.ts.
+# their own.
 import re
 import calendar
 from collections.abc import Callable
@@ -52,15 +70,24 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.db.models import Case, Exists, IntegerField, OuterRef, Q, Value, When
+from django.db.models import BooleanField, Case, Exists, IntegerField, OuterRef, Q, Value, When
+from django.db.models.expressions import RawSQL
+from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
 from rest_framework import serializers
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
 from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.sla import SLA_STATES, sla_state_condition
+from products.conversations.backend.ticket_group_sql import (
+    TicketGroupSqlError,
+    build_ticket_group_sql_database,
+    compile_ticket_group_sql,
+)
 
 # rank order; tag matching is exact (no prefixes)
 DEFAULT_TICKET_GROUPS: list[dict[str, Any]] = [
@@ -70,12 +97,17 @@ DEFAULT_TICKET_GROUPS: list[dict[str, Any]] = [
     {"label": "VIP", "filters": [{"type": "ticket_tags", "operator": "any_of", "value": ["vip"]}]},  # 2
 ]
 
+# SQL expression filters are the escape hatch, not the main vocabulary, and each
+# one costs a Postgres round trip to validate on save.
+MAX_SQL_FILTERS = 5
+
 # Enum-valued ticket properties filterable with "in" — mirrors the model's
 # TextChoices so new channels/statuses/priorities are accepted automatically.
 _PROPERTY_IN_VALUES: dict[str, frozenset[str]] = {
     "channel_source": frozenset(Channel.values),
     "status": frozenset(Status.values),
     "priority": frozenset(Priority.values),
+    "sla_state": frozenset(SLA_STATES),
 }
 
 # The full ticket_property vocabulary: valid operators per key.
@@ -85,6 +117,7 @@ _PROPERTY_OPERATORS: dict[str, frozenset[str]] = {
     "priority": frozenset({"in"}),
     "email_from": frozenset({"icontains"}),
     "sla_due_at": frozenset({"is_set", "is_not_set"}),
+    "sla_state": frozenset({"in"}),
     "created_at": frozenset({"date_before", "date_after"}),
 }
 
@@ -178,6 +211,11 @@ def _is_structurally_usable_filter(filter_config: Any) -> bool:
         return False
     if filter_config.get("type") == "ticket_tags":
         return filter_config.get("operator") == "any_of" and _is_string_list(filter_config.get("value"))
+    if filter_config.get("type") == "sql":
+        expression = filter_config.get("expression")
+        # Compilability is the write validator's business; a stored expression
+        # that no longer compiles matches nothing rather than 500ing the list.
+        return isinstance(expression, str) and bool(expression.strip())
     if filter_config.get("type") == "ticket_property":
         key = filter_config.get("key")
         operator = filter_config.get("operator")
@@ -240,11 +278,45 @@ def _validate_string_list_value(filter_config: dict[str, Any], label: str, what:
     return cleaned
 
 
-def _validate_filter(filter_config: Any, label: str) -> dict[str, Any]:
+def _validate_sql_filter(
+    filter_config: dict[str, Any], label: str, sql_database: Any, team_id: int | None
+) -> dict[str, Any]:
+    """Validate a `sql` filter by actually compiling it, so a bad expression is
+    rejected in the settings editor rather than breaking the tickets list."""
+    expression = filter_config.get("expression")
+    if not isinstance(expression, str) or not expression.strip():
+        raise serializers.ValidationError(
+            {"ticket_groups": f"The SQL expression filter in “{label}” needs a non-empty expression."}
+        )
+    expression = expression.strip()
+    if sql_database is None or team_id is None:
+        # No team to compile against — the project is being created, so there's
+        # no schema to resolve the expression yet. Refuse rather than store an
+        # expression nobody has checked.
+        raise serializers.ValidationError(
+            {
+                "ticket_groups": (
+                    f"The SQL expression filter in “{label}” can only be added to an existing project — "
+                    "create the project first, then add it in Settings → Support → Ticket groups."
+                )
+            }
+        )
+    try:
+        compile_ticket_group_sql(expression, sql_database, team_id)
+    except TicketGroupSqlError as error:
+        raise serializers.ValidationError({"ticket_groups": f"SQL expression in “{label}”: {error}"})
+    return {"type": "sql", "expression": expression}
+
+
+def _validate_filter(
+    filter_config: Any, label: str, sql_database: Any = None, team_id: int | None = None
+) -> dict[str, Any]:
     """Validate and normalize one group filter; returns the cleaned filter."""
     if not isinstance(filter_config, dict):
         raise serializers.ValidationError({"ticket_groups": f"Each filter in “{label}” must be an object with a type."})
     filter_type = filter_config.get("type")
+    if filter_type == "sql":
+        return _validate_sql_filter(filter_config, label, sql_database, team_id)
     if filter_type == "ticket_tags":
         operator = filter_config.get("operator")
         if operator != "any_of":
@@ -259,7 +331,7 @@ def _validate_filter(filter_config: Any, label: str) -> dict[str, Any]:
     if filter_type != "ticket_property":
         raise serializers.ValidationError(
             {
-                "ticket_groups": f'Unknown filter type in “{label}”: {filter_type!r} (use "ticket_tags" or "ticket_property").'
+                "ticket_groups": f'Unknown filter type in “{label}”: {filter_type!r} (use "ticket_tags", "ticket_property" or "sql").'
             }
         )
     key = filter_config.get("key")
@@ -332,13 +404,34 @@ def _validate_filter(filter_config: Any, label: str) -> dict[str, Any]:
     return {"type": "ticket_property", "key": key, "operator": operator, "value": value}
 
 
-def validate_ticket_groups(groups: Any) -> list[dict[str, Any]] | None:
+def groups_use_sql(groups: Any) -> bool:
+    """Whether any group uses a `sql` filter — the gate for building the HogQL
+    database, which is far too expensive to do on every tickets list.
+
+    Runs on unvalidated input (the write path calls it before the per-group shape
+    checks), so every level is type-checked: a non-list `filters` must not raise
+    here, or a malformed write would 500 instead of getting its 400.
+    """
+    if not isinstance(groups, list):
+        return False
+    return any(
+        isinstance(filter_config, dict) and filter_config.get("type") == "sql"
+        for group in groups
+        if isinstance(group, dict) and isinstance(group.get("filters"), list)
+        for filter_config in group["filters"]
+    )
+
+
+def validate_ticket_groups(groups: Any, team: Team | None = None, user: Any = None) -> list[dict[str, Any]] | None:
     """Validate and normalize a conversations_settings.ticket_groups
     write: an ordered [{label, filters}] list of groups, or null to use the
     default. Called from the team and project serializers'
     conversations_settings validators. Rejects rather than coerces — the value
     is hand-edited in settings, and a silently dropped group or filter would
     reorder the support queue.
+
+    `team`/`user` are only needed to compile `sql` filters (see
+    ticket_group_sql.py); pass the team being edited and the requesting user.
     """
     if groups is None:
         return None
@@ -350,6 +443,28 @@ def validate_ticket_groups(groups: Any) -> list[dict[str, Any]] | None:
         )
     if len(groups) > 50:
         raise serializers.ValidationError({"ticket_groups": "At most 50 groups are allowed."})
+    # Each `sql` filter costs a Postgres planning round trip to validate, and the
+    # group/filter caps alone would allow 500 of them per save. They're an escape
+    # hatch for what the declarative filters can't express, so a handful is
+    # plenty — and this bounds the work one settings save can ask for.
+    sql_filter_count = sum(
+        1
+        for group in groups
+        if isinstance(group, dict) and isinstance(group.get("filters"), list)
+        for filter_config in group["filters"]
+        if isinstance(filter_config, dict) and filter_config.get("type") == "sql"
+    )
+    if sql_filter_count > MAX_SQL_FILTERS:
+        raise serializers.ValidationError(
+            {
+                "ticket_groups": (
+                    f"At most {MAX_SQL_FILTERS} SQL expression filters are allowed ({sql_filter_count} given)."
+                )
+            }
+        )
+    # Only pay for the HogQL database when an expression actually needs compiling.
+    sql_database = build_ticket_group_sql_database(team, user) if team is not None and groups_use_sql(groups) else None
+    team_id = team.pk if team is not None else None
     cleaned_groups: list[dict[str, Any]] = []
     seen_labels: set[str] = set()
     for group in groups:
@@ -376,7 +491,10 @@ def validate_ticket_groups(groups: Any) -> list[dict[str, Any]] | None:
                 {"ticket_groups": f"At most 10 filters per group (“{label}” has {len(filters)})."}
             )
         cleaned_groups.append(
-            {"label": label, "filters": [_validate_filter(filter_config, label) for filter_config in filters]}
+            {
+                "label": label,
+                "filters": [_validate_filter(filter_config, label, sql_database, team_id) for filter_config in filters],
+            }
         )
     return cleaned_groups
 
@@ -385,10 +503,21 @@ def validate_ticket_groups(groups: Any) -> list[dict[str, Any]] | None:
 # config value is ever interpolated into a lookup path (defense in depth on
 # top of the write validator and _is_structurally_usable_filter, and it keeps
 # static analysis honest about ORM field injection).
+def _sla_state_condition(states: Any) -> Q:
+    """Any-of over the shared SLA states (backend/sla.py). `now` is read here, at
+    query-build time, so one query ranks every ticket against one instant."""
+    now = timezone.now()
+    condition = Q()
+    for state in states:
+        condition |= sla_state_condition(state, now)
+    return condition
+
+
 _PROPERTY_CONDITIONS: dict[tuple[str, str], Callable[[Any], Q]] = {
     ("channel_source", "in"): lambda value: Q(channel_source__in=value),
     ("status", "in"): lambda value: Q(status__in=value),
     ("priority", "in"): lambda value: Q(priority__in=value),
+    ("sla_state", "in"): _sla_state_condition,
     ("email_from", "icontains"): lambda value: Q(email_from__icontains=value),
     ("sla_due_at", "is_set"): lambda _value: Q(sla_due_at__isnull=False),
     ("sla_due_at", "is_not_set"): lambda _value: Q(sla_due_at__isnull=True),
@@ -397,10 +526,39 @@ _PROPERTY_CONDITIONS: dict[tuple[str, str], Callable[[Any], Q]] = {
 }
 
 
-def _filter_condition(filter_config: dict[str, Any], timezone_info: ZoneInfo) -> Q:
+def _filter_condition(
+    filter_config: dict[str, Any],
+    timezone_info: ZoneInfo,
+    sql_database: Any = None,
+    team_id: int | None = None,
+) -> Q:
     """One filter's SQL condition, for ANDing into the group's WHEN."""
     if filter_config["type"] == "ticket_tags":
         return Q(Exists(TaggedItem.objects.filter(ticket=OuterRef("pk"), tag__name__in=filter_config["value"])))
+    if filter_config["type"] == "sql":
+        if sql_database is None or team_id is None:
+            # No compile context — match nothing rather than mis-rank.
+            return Q(pk__in=[])
+        try:
+            # verify_executable=False: the write validator already planned this
+            # against Postgres, and a round trip per filter per request isn't
+            # affordable on the list path. list() catches the runtime failures
+            # that leaves possible and degrades instead of 500ing.
+            sql, params = compile_ticket_group_sql(
+                filter_config["expression"], sql_database, team_id, verify_executable=False
+            )
+        except TicketGroupSqlError:
+            # Validated at write time, so reaching here means the config predates
+            # a validation change or the ticket schema moved under it. Match
+            # nothing (consistent with the other unusable-filter paths) and
+            # report it rather than failing every tickets list.
+            capture_exception()
+            return Q(pk__in=[])
+        # The fragment is printer output from ticket_group_sql.py, never user text:
+        # every literal the customer wrote is in `params`, bound by psycopg. See
+        # that module's docstring for the full guard list.
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
+        return Q(RawSQL(sql, params, output_field=BooleanField()))
     key = filter_config["key"]
     operator = filter_config["operator"]
     condition = _PROPERTY_CONDITIONS.get((key, operator))
@@ -417,7 +575,12 @@ def _filter_condition(filter_config: dict[str, Any], timezone_info: ZoneInfo) ->
     return condition(filter_config.get("value"))
 
 
-def ticket_group_rank_annotation(groups: list[dict[str, Any]], timezone_info: ZoneInfo | None = None) -> Case | Value:
+def ticket_group_rank_annotation(
+    groups: list[dict[str, Any]],
+    timezone_info: ZoneInfo | None = None,
+    sql_database: Any = None,
+    team_id: int | None = None,
+) -> Case | Value:
     """A per-ticket group rank for ORDER BY: the first (highest-priority)
     group whose filters ALL match wins, courtesy of Case evaluating Whens in
     order. Groups with no filters emit no When (they match nothing).
@@ -426,6 +589,10 @@ def ticket_group_rank_annotation(groups: list[dict[str, Any]], timezone_info: Zo
     Relative date values ("-3d") resolve here, at query-build time, in
     timezone_info — pass the team's timezone (tickets.py does); defaults
     to UTC.
+
+    `sql_database`/`team_id` are only needed when a group uses a `sql` filter
+    (gate on groups_use_sql before paying to build the database). Without them
+    such a filter matches nothing.
 
     Perf note: each ticket_tags filter is one correlated EXISTS (max 50
     groups × 10 filters per the write validation). Each is served by
@@ -440,7 +607,7 @@ def ticket_group_rank_annotation(groups: list[dict[str, Any]], timezone_info: Zo
             continue
         condition = Q()
         for filter_config in group["filters"]:
-            condition &= _filter_condition(filter_config, timezone_info)
+            condition &= _filter_condition(filter_config, timezone_info, sql_database, team_id)
         whens.append(When(condition, then=Value(rank)))
     if not whens:
         # Every configured group is filter-less (valid config) — CASE needs at

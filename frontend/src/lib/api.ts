@@ -7109,7 +7109,15 @@ const api = {
             // ticket_group_counts: per-group totals over the filtered result
             // set, present only on `order_by=ticket_group`/`-ticket_group`
             // responses.
-        ): Promise<CountedPaginatedResponse<any> & { ticket_group_counts?: Record<string, number> }> {
+            // ticket_group_config_error: the server had to ignore a SQL
+            // expression filter that failed against real ticket data, so some
+            // groups are under-populated.
+        ): Promise<
+            CountedPaginatedResponse<any> & {
+                ticket_group_counts?: Record<string, number>
+                ticket_group_config_error?: boolean
+            }
+        > {
             return await new ApiRequest().conversationsTickets().withQueryString(params).get()
         },
 

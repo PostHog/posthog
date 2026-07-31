@@ -610,7 +610,13 @@ class ProjectBackwardCompatSerializer(
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
         if "ticket_groups" in value:
-            value["ticket_groups"] = validate_ticket_groups(value["ticket_groups"])
+            # team/user let the validator compile `sql` filters (ticket_group_sql.py).
+            request = self.context.get("request")
+            value["ticket_groups"] = validate_ticket_groups(
+                value["ticket_groups"],
+                team=self.instance.passthrough_team if self.instance else None,
+                user=getattr(request, "user", None),
+            )
         return value
 
     class Meta:

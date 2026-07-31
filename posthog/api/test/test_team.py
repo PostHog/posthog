@@ -1663,6 +1663,12 @@ def team_api_test_factory():
                         },
                         {"type": "ticket_property", "key": "sla_due_at", "operator": "is_set"},
                         {"type": "ticket_property", "key": "sla_due_at", "operator": "is_not_set"},
+                        {
+                            "type": "ticket_property",
+                            "key": "sla_state",
+                            "operator": "in",
+                            "value": ["breached", "at-risk"],
+                        },
                         {"type": "ticket_property", "key": "created_at", "operator": "date_before", "value": "-3d"},
                         {
                             "type": "ticket_property",
@@ -1672,6 +1678,25 @@ def team_api_test_factory():
                         },
                         {"type": "ticket_property", "key": "status", "operator": "in", "value": ["new", "open"]},
                         {"type": "ticket_property", "key": "priority", "operator": "in", "value": ["critical"]},
+                    ],
+                },
+            ]
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ticket_groups": groups}},
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["conversations_settings"]["ticket_groups"] == groups
+
+        def test_conversations_settings_accepts_a_sql_expression_filter(self):
+            # The escape hatch for conditions the declarative vocabulary doesn't
+            # cover; compiled by products/conversations/backend/ticket_group_sql.py.
+            groups = [
+                {"label": "Everything else", "filters": []},
+                {
+                    "label": "Chatty",
+                    "filters": [
+                        {"type": "sql", "expression": "message_count > 5 AND priority = 'high'"},
                     ],
                 },
             ]
@@ -2108,6 +2133,64 @@ def team_api_test_factory():
                     [{"label": "A", "filters": []}, {"label": "A", "filters": []}],
                 ),
                 ("too_many_groups", [{"label": f"g{i}", "filters": []} for i in range(51)]),
+                # A non-iterable `filters` must 400 like any other bad shape. The
+                # filters_not_a_list case above uses a string, which IS iterable,
+                # so it can't catch a crash while scanning filters for sql ones.
+                ("filters_not_iterable", [{"label": "A", "filters": 5}]),
+                (
+                    "sla_state_unknown_value",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [
+                                {"type": "ticket_property", "key": "sla_state", "operator": "in", "value": ["nope"]}
+                            ],
+                        }
+                    ],
+                ),
+                (
+                    "sla_state_wrong_operator",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [{"type": "ticket_property", "key": "sla_state", "operator": "is_set"}],
+                        }
+                    ],
+                ),
+                # Each sql filter costs a Postgres planning round trip to check,
+                # so their number is capped well below groups × filters.
+                (
+                    "too_many_sql_filters",
+                    [
+                        {"label": f"g{i}", "filters": [{"type": "sql", "expression": "status = 'open'"}]}
+                        for i in range(6)
+                    ],
+                ),
+                # `sql` filters compile at write time, so a broken expression is
+                # caught in the settings editor and never on the tickets list.
+                ("sql_empty", [{"label": "A", "filters": [{"type": "sql", "expression": "  "}]}]),
+                ("sql_missing_expression", [{"label": "A", "filters": [{"type": "sql"}]}]),
+                ("sql_syntax_error", [{"label": "A", "filters": [{"type": "sql", "expression": "status ="}]}]),
+                ("sql_unknown_column", [{"label": "A", "filters": [{"type": "sql", "expression": "nope = 1"}]}]),
+                ("sql_not_boolean", [{"label": "A", "filters": [{"type": "sql", "expression": "message_count"}]}]),
+                ("sql_aggregate", [{"label": "A", "filters": [{"type": "sql", "expression": "count() > 1"}]}]),
+                (
+                    "sql_subquery",
+                    [
+                        {
+                            "label": "A",
+                            "filters": [{"type": "sql", "expression": "id IN (SELECT id FROM system.support_tickets)"}],
+                        }
+                    ],
+                ),
+                (
+                    "sql_tags_are_not_reachable",
+                    [{"label": "A", "filters": [{"type": "sql", "expression": "has(tags.names, 'vip')"}]}],
+                ),
+                (
+                    "sql_too_long",
+                    [{"label": "A", "filters": [{"type": "sql", "expression": "status = 'open' OR " * 200 + "true"}]}],
+                ),
                 (
                     "too_many_filters_in_group",
                     [

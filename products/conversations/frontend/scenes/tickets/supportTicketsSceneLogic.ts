@@ -225,6 +225,7 @@ export interface supportTicketsSceneLogicValues {
     tagsExcludeFilter: string[]
     tagsFilter: string[]
     tagsMatch: TicketTagsMatch
+    ticketGroupConfigError: boolean
     ticketGroupCounts: Record<string, number> | null
     tickets: Ticket[]
     ticketsLoading: boolean
@@ -332,6 +333,9 @@ export interface supportTicketsSceneLogicActions {
     setTagsMatch: (match: TicketTagsMatch) => {
         match: TicketTagsMatch
     }
+    setTicketGroupConfigError: (hasError: boolean) => {
+        hasError: boolean
+    }
     setTicketGroupCounts: (counts: Record<string, number> | null) => {
         counts: Record<string, number> | null
     }
@@ -414,6 +418,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTotalCount: (count: number) => ({ count }),
         setTicketGroupCounts: (counts: Record<string, number> | null) => ({ counts }),
+        setTicketGroupConfigError: (hasError: boolean) => ({ hasError }),
         setLoadedOrderBy: (orderBy: string) => ({ orderBy }),
         setLoadedPage: (page: number) => ({ page }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
@@ -459,6 +464,15 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             null as Record<string, number> | null,
             {
                 setTicketGroupCounts: (_, { counts }) => counts,
+            },
+        ],
+        // True when the server had to ignore a SQL expression filter because it
+        // failed against real ticket data. Surfaced as a banner: whoever is
+        // looking at the list is rarely whoever broke the config.
+        ticketGroupConfigError: [
+            false,
+            {
+                setTicketGroupConfigError: (_, { hasError }) => hasError,
             },
         ],
         // The order_by the CURRENT tickets array was fetched with — updated in
@@ -802,6 +816,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.setTickets(response.results || [])
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
                 actions.setTicketGroupCounts(response.ticket_group_counts ?? null)
+                actions.setTicketGroupConfigError(!!response.ticket_group_config_error)
                 actions.setLoadedOrderBy(params.order_by as string)
                 actions.setLoadedPage(Math.floor((params.offset as number) / SUPPORT_TICKETS_PAGE_SIZE) + 1)
             } catch (error: any) {

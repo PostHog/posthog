@@ -8,19 +8,21 @@ import {
     withTicketGroupHeaderRows,
 } from './ticketGroupedRows'
 
-const ticket = (id: string, tags: string[]): Ticket => ({ id, tags }) as unknown as Ticket
+/** Grouping reads the SERVER-computed rank off the ticket — nothing here is
+ *  re-derived from tags or filters. */
+const ticket = (id: string, ticket_group_rank: number): Ticket => ({ id, ticket_group_rank }) as unknown as Ticket
 
 const tagGroup = (label: string, ...tags: string[]): { label: string; filters: any[] } => ({
     label,
     filters: [{ type: 'ticket_tags', operator: 'any_of', value: tags }],
 })
 
-const triage = ticket('t', [])
-const churn = ticket('ch', ['churn_risk'])
-const top20 = ticket('t20', ['top_20'])
-const enterprise = ticket('e', ['plan_enterprise'])
-const free = ticket('f', ['plan_free'])
-const community = ticket('co', ['community'])
+const triage = ticket('t', 0)
+const churn = ticket('ch', 1)
+const top20 = ticket('t20', 2)
+const enterprise = ticket('e', 3)
+const free = ticket('f', 4)
+const community = ticket('co', 5)
 
 // A six-tier fixture ladder — enough groups to exercise leading/inner/trailing
 // gaps, independent of the example default ladder.
@@ -60,7 +62,7 @@ describe('buildTicketGroupedRows', () => {
     })
 
     it('emits one header for a run of same-group tickets', () => {
-        const rows = buildTicketGroupedRows([ticket('a', ['plan_free']), ticket('b', ['plan_free'])], SINGLE_PAGE)
+        const rows = buildTicketGroupedRows([ticket('a', 4), ticket('b', 4)], SINGLE_PAGE)
         expect(rows.filter((r) => isTicketGroupHeaderRow(r) && !r.empty)).toHaveLength(1)
     })
 
@@ -130,14 +132,27 @@ describe('buildTicketGroupedRows', () => {
 
     it('groups against a custom ladder', () => {
         const groups = [tagGroup('VIPs', 'vip'), tagGroup('Everyone else', 'plan_free')]
-        const vip = ticket('v', ['vip'])
-        const rows = buildTicketGroupedRows([vip, free], { ...SINGLE_PAGE, groups })
-        expect(rows).toEqual([{ ticketGroupHeader: 'VIPs' }, vip, { ticketGroupHeader: 'Everyone else' }, free])
+        const vip = ticket('v', 0)
+        const other = ticket('o', 1)
+        const rows = buildTicketGroupedRows([vip, other], { ...SINGLE_PAGE, groups })
+        expect(rows).toEqual([{ ticketGroupHeader: 'VIPs' }, vip, { ticketGroupHeader: 'Everyone else' }, other])
+    })
+
+    it('falls back to the first group for a rank past the end of the ladder', () => {
+        // Possible when the team edits its groups between the list request and
+        // the render — index defensively rather than crashing.
+        const groups = [tagGroup('VIPs', 'vip'), tagGroup('Everyone else', 'plan_free')]
+        const stale = ticket('s', 9)
+        expect(buildTicketGroupedRows([stale], { ...SINGLE_PAGE, groups })).toEqual([
+            { ticketGroupHeader: 'VIPs' },
+            stale,
+            { ticketGroupHeader: 'Everyone else', empty: true },
+        ])
     })
 
     it('does not mutate the caller-owned groups array when descending', () => {
         const groups = [tagGroup('VIPs', 'vip'), tagGroup('Everyone else', 'plan_free')]
-        buildTicketGroupedRows([free], { ...SINGLE_PAGE, groups, desc: true })
+        buildTicketGroupedRows([ticket('x', 1)], { ...SINGLE_PAGE, groups, desc: true })
         expect(groups.map((g) => g.label)).toEqual(['VIPs', 'Everyone else'])
     })
 })

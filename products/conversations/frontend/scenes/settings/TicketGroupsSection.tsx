@@ -20,7 +20,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconTrash, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
@@ -31,8 +31,17 @@ import { DEFAULT_TICKET_GROUPS, TicketGroup, TicketGroupFilter } from '../ticket
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 /** What the property dropdown picks between — 'tags' is the ticket_tags
- *  filter type; the rest are ticket_property keys. */
-type FilterProperty = 'tags' | 'channel_source' | 'status' | 'priority' | 'email_from' | 'sla_due_at' | 'created_at'
+ *  filter type, 'sql' the sql filter type; the rest are ticket_property keys. */
+type FilterProperty =
+    | 'tags'
+    | 'channel_source'
+    | 'status'
+    | 'priority'
+    | 'email_from'
+    | 'sla_due_at'
+    | 'sla_state'
+    | 'created_at'
+    | 'sql'
 
 const PROPERTY_OPTIONS: { value: FilterProperty; label: string }[] = [
     { value: 'tags', label: 'Tags' },
@@ -40,15 +49,19 @@ const PROPERTY_OPTIONS: { value: FilterProperty; label: string }[] = [
     { value: 'status', label: 'Status' },
     { value: 'priority', label: 'Priority' },
     { value: 'email_from', label: 'Email from' },
-    { value: 'sla_due_at', label: 'SLA' },
+    { value: 'sla_due_at', label: 'SLA deadline' },
+    { value: 'sla_state', label: 'SLA state' },
     { value: 'created_at', label: 'Created' },
+    { value: 'sql', label: 'SQL expression' },
 ]
 
 const OPERATOR_OPTIONS: Record<FilterProperty, { value: string; label: string }[]> = {
     tags: [{ value: 'any_of', label: 'include any of' }],
+    sql: [{ value: 'sql', label: 'is true' }],
     channel_source: [{ value: 'in', label: 'is any of' }],
     status: [{ value: 'in', label: 'is any of' }],
     priority: [{ value: 'in', label: 'is any of' }],
+    sla_state: [{ value: 'in', label: 'is any of' }],
     email_from: [{ value: 'icontains', label: 'contains' }],
     sla_due_at: [
         { value: 'is_set', label: 'is set' },
@@ -60,25 +73,43 @@ const OPERATOR_OPTIONS: Record<FilterProperty, { value: string; label: string }[
     ],
 }
 
-const IN_VALUE_OPTIONS: Record<'channel_source' | 'status' | 'priority', { key: string; label: string }[]> = {
+const IN_VALUE_OPTIONS: Record<
+    'channel_source' | 'status' | 'priority' | 'sla_state',
+    { key: string; label: string }[]
+> = {
     channel_source: channelOptions
         .filter((option) => option.value !== 'all')
         .map((option) => ({ key: option.value, label: option.label })),
     status: statusMultiselectOptions,
     priority: priorityMultiselectOptions,
+    // Mirrors the tickets list's SLA filter (backend/sla.py owns the definitions).
+    sla_state: [
+        { key: 'breached', label: 'Breached' },
+        { key: 'at-risk', label: 'At risk (due within an hour)' },
+        { key: 'on-track', label: 'On track' },
+    ],
 }
 
 function filterProperty(filter: TicketGroupFilter): FilterProperty {
-    return filter.type === 'ticket_tags' ? 'tags' : filter.key
+    if (filter.type === 'ticket_tags') {
+        return 'tags'
+    }
+    if (filter.type === 'sql') {
+        return 'sql'
+    }
+    return filter.key
 }
 
 function emptyFilterForProperty(property: FilterProperty): TicketGroupFilter {
     switch (property) {
         case 'tags':
             return { type: 'ticket_tags', operator: 'any_of', value: [] }
+        case 'sql':
+            return { type: 'sql', expression: '' }
         case 'channel_source':
         case 'status':
         case 'priority':
+        case 'sla_state':
             return { type: 'ticket_property', key: property, operator: 'in', value: [] }
         case 'email_from':
             return { type: 'ticket_property', key: 'email_from', operator: 'icontains', value: '' }
@@ -109,7 +140,25 @@ function FilterRow({ filter, onChange, onRemove }: FilterRowProps): JSX.Element 
     }
 
     let valueControl: JSX.Element | null = null
-    if (filter.type === 'ticket_tags') {
+    if (filter.type === 'sql') {
+        valueControl = (
+            <div className="flex flex-col flex-1 min-w-0">
+                <LemonTextArea
+                    className="font-mono"
+                    minRows={2}
+                    value={filter.expression}
+                    onChange={(expression) => onChange({ ...filter, expression })}
+                    placeholder="message_count > 5 AND priority = 'high'"
+                    data-attr="ticket-group-sql-expression"
+                />
+                <span className="text-xxs text-muted">
+                    A HogQL boolean expression over this ticket's columns, for example{' '}
+                    <code>message_count &gt; 5 AND priority = 'high'</code>. Tags aren't available here — use a Ticket
+                    tags filter alongside instead. Validated when you save.
+                </span>
+            </div>
+        )
+    } else if (filter.type === 'ticket_tags') {
         valueControl = (
             <LemonInputSelect
                 mode="multiple"
@@ -169,7 +218,7 @@ function FilterRow({ filter, onChange, onRemove }: FilterRowProps): JSX.Element 
                 data-attr="ticket-group-filter-property"
             />
             <LemonSelect
-                value={filter.type === 'ticket_tags' ? 'any_of' : filter.operator}
+                value={filter.type === 'ticket_tags' ? 'any_of' : filter.type === 'sql' ? 'sql' : filter.operator}
                 onChange={setOperator}
                 options={OPERATOR_OPTIONS[property]}
                 className="shrink-0"
