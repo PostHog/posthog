@@ -627,7 +627,7 @@ class TestIncrementalBatchDeduplication:
             ("keep_last", "last", ["a2", "b1"]),
         ]
     )
-    def testfirst_per_pk_table_keep_modes(self, _name, keep, expected_names):
+    def test_first_per_pk_table_keep_modes(self, _name, keep, expected_names):
         table = pa.table({"id": [1, 1, 2], "name": ["a1", "a2", "b1"]})
 
         result = first_per_pk_table(table, ["id"], keep=keep).sort_by("id")
