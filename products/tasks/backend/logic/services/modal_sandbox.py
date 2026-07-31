@@ -426,9 +426,10 @@ def _attach_local_package_mounts(
         )
         image = image.run_commands(install_command)
 
-    bin_link_commands = _local_package_bin_link_commands(packages)
-    if bin_link_commands:
-        image = image.run_commands(*bin_link_commands)
+    if install_dependencies:
+        bin_link_commands = _local_package_bin_link_commands(packages)
+        if bin_link_commands:
+            image = image.run_commands(*bin_link_commands)
 
     for package in packages:
         image = image.add_local_dir(

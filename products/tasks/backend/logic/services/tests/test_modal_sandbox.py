@@ -387,7 +387,12 @@ class TestAttachLocalPackageMounts:
         build_output_path = source_path / "dist"
         build_output_path.mkdir(parents=True)
         (source_path / "package.json").write_text(
-            json.dumps({"dependencies": {"@openai/codex": "0.140.0", "zod": "^4.2.0"}})
+            json.dumps(
+                {
+                    "bin": {"agent-server": "./dist/server/bin.js"},
+                    "dependencies": {"@openai/codex": "0.140.0", "zod": "^4.2.0"},
+                }
+            )
         )
         package = LocalPackage(
             name="agent",
