@@ -544,6 +544,10 @@ urlpatterns = [
         "api/reset_2fa/<str:user_uuid>/",
         two_factor_reset.TwoFactorResetViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
+    path(
+        "api/reset_2fa/<str:user_uuid>/resend/",
+        two_factor_reset.TwoFactorResetViewSet.as_view({"post": "resend"}),
+    ),
     opt_slash_path(
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),

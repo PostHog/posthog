@@ -166,6 +166,51 @@ def report_user_password_reset(user: User) -> None:
     )
 
 
+def report_two_factor_reset_requested(user: User, initiated_by: str) -> None:
+    """
+    Reports a 2FA reset email being sent, either by an admin from Django admin
+    or by the user themselves re-requesting a link after theirs expired.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="two factor reset requested",
+        properties={"initiated_by": initiated_by},
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_two_factor_reset_link_expired(user: User, reason: str) -> None:
+    """
+    Reports a user hitting an expired or otherwise invalid 2FA reset link.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="two factor reset link expired",
+        properties={"reason": reason},
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_two_factor_reset_completed(user: User) -> None:
+    """
+    Reports a user completing a 2FA reset.
+    """
+    if not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="two factor reset completed",
+        groups=groups(user.current_organization, user.current_team),
+    )
+
+
 def report_team_member_invited(
     inviting_user: User,
     invite_id: str,

@@ -19,6 +19,7 @@ from posthog.admin.inlines.user_social_auth_inline import UserSocialAuthInline
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
+from posthog.event_usage import report_two_factor_reset_requested
 from posthog.models import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.session.activity import revoke_other_sessions
@@ -261,6 +262,7 @@ class UserAdmin(DjangoUserAdmin):
                         # Generate token and send email
                         token = TwoFactorResetVerifier.create_token(user)
                         send_two_factor_reset_email.delay(user.pk, token)
+                        report_two_factor_reset_requested(user, initiated_by="admin")
 
                         self.log_change(request, user, "Sent 2FA reset email.")
                         messages.success(request, f"2FA reset email sent to {user.email}")

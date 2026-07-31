@@ -10,10 +10,17 @@ export interface ValidatedTokenResponse {
     success: boolean
     token?: string
     error?: string
+    error_code?: 'expired' | 'invalid'
     requires_login?: boolean
 }
 
 export interface ResetResponse {
+    success: boolean
+    error?: string
+    requires_login?: boolean
+}
+
+export interface ResendLinkResponse {
     success: boolean
     error?: string
     requires_login?: boolean
@@ -25,6 +32,10 @@ export interface twoFactorResetLogicValues {
     currentUuid: string
     loginRedirectUrl: string
     requiresLogin: boolean
+    resendLinkError: string | null
+    resendLinkResult: ResendLinkResponse | null
+    resendLinkResultLoading: boolean
+    resendLinkSent: boolean
     resetComplete: boolean
     resetError: string | null
     resetLoading: boolean
@@ -63,6 +74,23 @@ export interface twoFactorResetLogicActions {
             token: string
         }
     }
+    resendLink: () => {
+        value: true
+    }
+    resendLinkFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    resendLinkSuccess: (
+        resendLinkResult: ResendLinkResponse,
+        payload?: null
+    ) => {
+        resendLinkResult: ResendLinkResponse
+        payload?: null
+    }
     resetState: () => {
         value: true
     }
@@ -73,6 +101,9 @@ export interface twoFactorResetLogicActions {
         complete: boolean
     }
     setResetError: (error: string | null) => {
+        error: string | null
+    }
+    setResendLinkError: (error: string | null) => {
         error: string | null
     }
     validateResetToken: ({ uuid, token }: { token: string; uuid: string }) => {
@@ -133,10 +164,11 @@ export const twoFactorResetLogic = kea<twoFactorResetLogicType>([
         confirmReset: (token: string) => ({ token }),
         setResetComplete: (complete: boolean) => ({ complete }),
         setResetError: (error: string | null) => ({ error }),
+        setResendLinkError: (error: string | null) => ({ error }),
         setRequiresLogin: (requires: boolean) => ({ requires }),
         resetState: true,
     }),
-    loaders(({ actions }) => ({
+    loaders(({ actions, values }) => ({
         validatedResetToken: [
             null as ValidatedTokenResponse | null,
             {
@@ -164,6 +196,29 @@ export const twoFactorResetLogic = kea<twoFactorResetLogicType>([
                 executeReset: async ({ uuid, token }: { uuid: string; token: string }) => {
                     const response = await api.create<ResetResponse>(`api/reset_2fa/${uuid}/`, { token })
                     return response
+                },
+            },
+        ],
+        resendLinkResult: [
+            null as ResendLinkResponse | null,
+            {
+                resendLink: async () => {
+                    try {
+                        const response = await api.create<ResendLinkResponse>(
+                            `api/reset_2fa/${values.currentUuid}/resend/`
+                        )
+                        return response
+                    } catch (e: any) {
+                        const requiresLogin = e.data?.requires_login === true
+                        if (requiresLogin) {
+                            actions.setRequiresLogin(true)
+                        }
+                        return {
+                            success: false,
+                            error: e.data?.error || e.detail || 'Failed to send a new link. Please try again.',
+                            requires_login: requiresLogin,
+                        }
+                    }
                 },
             },
         ],
@@ -216,6 +271,22 @@ export const twoFactorResetLogic = kea<twoFactorResetLogicType>([
                 resetState: () => false,
             },
         ],
+        resendLinkSent: [
+            false,
+            {
+                resendLink: () => false,
+                resendLinkSuccess: (_, { resendLinkResult }) => resendLinkResult?.success ?? false,
+                resetState: () => false,
+            },
+        ],
+        resendLinkError: [
+            null as string | null,
+            {
+                setResendLinkError: (_, { error }) => error,
+                resendLink: () => null,
+                resetState: () => null,
+            },
+        ],
     }),
     selectors({
         loginRedirectUrl: [
@@ -248,6 +319,14 @@ export const twoFactorResetLogic = kea<twoFactorResetLogicType>([
         },
         executeResetFailure: ({ error }) => {
             actions.setResetError(error || 'Failed to reset 2FA. Please try again.')
+        },
+        resendLinkSuccess: ({ resendLinkResult }) => {
+            if (!resendLinkResult?.success && !resendLinkResult?.requires_login) {
+                actions.setResendLinkError(resendLinkResult?.error || 'Failed to send a new link. Please try again.')
+            }
+        },
+        resendLinkFailure: ({ error }) => {
+            actions.setResendLinkError(error || 'Failed to send a new link. Please try again.')
         },
     })),
     urlToAction(({ actions }) => ({

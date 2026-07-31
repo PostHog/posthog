@@ -848,6 +848,24 @@ class TwoFactorThrottle(UserOrEmailRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class TwoFactorResetResendThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limiting for self-service 2FA reset link re-sends, keyed on the half-authed
+    session user rather than request data, matching TwoFactorThrottle above.
+    """
+
+    scope = "two_factor_reset_resend"
+    rate = "3/hour"
+
+    def get_cache_key(self, request, view):
+        user_id = request.session.get("user_authenticated_but_no_2fa") or getattr(request.user, "pk", None)
+        if user_id:
+            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+            return self.cache_format % {"scope": self.scope, "ident": ident}
+
+        return super().get_cache_key(request, view)
+
+
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):
     scope = "user_authentication"
     rate = "5/minute"

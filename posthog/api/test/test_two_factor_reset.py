@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import SESSION_KEY
+from django.core.cache import cache
 from django.utils import timezone
 
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
@@ -25,6 +26,8 @@ class TestTwoFactorReset(APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        # Prevent the resend throttle counter from leaking between tests
+        cache.clear()
         # Log out the default user - we'll use half-auth session instead
         self.client.logout()
 
@@ -111,17 +114,22 @@ class TestTwoFactorReset(APIBaseTest):
         self.assertEqual(response.json()["error"], "Your login session has expired. Please log in again.")
 
     def test_cannot_validate_invalid_token(self):
-        """Test that validation fails with an invalid token."""
+        """A malformed/tampered token is reported as 'invalid', not conflated with 'expired' —
+        the two need different UI treatment (see test_cannot_validate_expired_token)."""
         self._setup_2fa_reset()
         self._setup_half_auth_session()
 
         response = self.client.get(f"/api/reset_2fa/{self.user.uuid}/?token=invalid_token")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "This reset link is invalid or has expired.")
+        self.assertEqual(response.json()["error_code"], "invalid")
+        self.assertIn("security settings changed", response.json()["error"])
 
-    def test_cannot_validate_expired_token(self):
-        """Test that tokens expire after 24 hours."""
+    @patch("posthoganalytics.capture")
+    def test_cannot_validate_expired_token(self, mock_capture):
+        """A token past its 24-hour window is reported as 'expired', distinct from a token
+        invalidated by an account change (test_cannot_validate_invalid_token) — conflating the
+        two previously left users unable to tell whether a fresh link would even help."""
         token = self._setup_2fa_reset()
 
         # Move time forward by more than 24 hours
@@ -130,7 +138,12 @@ class TestTwoFactorReset(APIBaseTest):
             response = self.client.get(f"/api/reset_2fa/{self.user.uuid}/?token={token}")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "This reset link is invalid or has expired.")
+        self.assertEqual(response.json()["error_code"], "expired")
+        self.assertIn("expired", response.json()["error"])
+
+        # This lapse used to be invisible — nothing recorded a reset link ever expiring.
+        captured_events = [call.kwargs["event"] for call in mock_capture.call_args_list]
+        self.assertIn("two factor reset link expired", captured_events)
 
     def test_cannot_validate_with_invalid_user(self):
         """Test that validation fails with an invalid user UUID."""
@@ -161,8 +174,9 @@ class TestTwoFactorReset(APIBaseTest):
 
     # 2FA reset execution tests
 
+    @patch("posthoganalytics.capture")
     @patch("posthog.tasks.email.send_two_factor_auth_disabled_email.delay")
-    def test_can_reset_2fa(self, mock_send_email):
+    def test_can_reset_2fa(self, mock_send_email, mock_capture):
         """Test that a half-authed user can reset their own 2FA."""
         token = self._setup_2fa_reset()
         self._setup_half_auth_session()
@@ -175,6 +189,10 @@ class TestTwoFactorReset(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["success"])
+
+        # A completed reset used to leave no trace anywhere except the confirmation email.
+        captured_events = [call.kwargs["event"] for call in mock_capture.call_args_list]
+        self.assertIn("two factor reset completed", captured_events)
 
         # Verify TOTP device was deleted
         self.assertFalse(TOTPDevice.objects.filter(user=self.user).exists())
@@ -238,7 +256,7 @@ class TestTwoFactorReset(APIBaseTest):
         response = self.client.post(f"/api/reset_2fa/{self.user.uuid}/", {"token": "invalid_token"})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "This reset link is invalid or has expired.")
+        self.assertEqual(response.json()["error_code"], "invalid")
 
     def test_cannot_reset_2fa_without_half_auth_session(self):
         """Test that unauthenticated users cannot reset 2FA."""
@@ -288,6 +306,71 @@ class TestTwoFactorReset(APIBaseTest):
             # Second token should be valid
             response = self.client.get(f"/api/reset_2fa/{self.user.uuid}/?token={token2}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    # Self-service resend tests
+
+    @patch("posthoganalytics.capture")
+    @patch("posthog.tasks.email.send_two_factor_reset_email.delay")
+    def test_resend_link_mints_a_fresh_usable_token(self, mock_send_email, mock_capture):
+        """An expired link used to dead-end with no way to get a working one without an admin.
+        Resend must issue a token that actually completes the reset."""
+        expired_token = self._setup_2fa_reset()
+        with freeze_time(timezone.now() + datetime.timedelta(hours=24, minutes=1)):
+            self._setup_half_auth_session()
+
+            response = self.client.post(f"/api/reset_2fa/{self.user.uuid}/resend/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertTrue(response.json()["success"])
+
+            mock_send_email.assert_called_once()
+            new_token = mock_send_email.call_args[0][1]
+            self.assertNotEqual(new_token, expired_token)
+
+            # The expired token must stay dead even after the resend
+            stale_response = self.client.get(f"/api/reset_2fa/{self.user.uuid}/?token={expired_token}")
+            self.assertEqual(stale_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+            # ...but the new one works end to end
+            valid_response = self.client.get(f"/api/reset_2fa/{self.user.uuid}/?token={new_token}")
+            self.assertEqual(valid_response.status_code, status.HTTP_200_OK)
+
+        captured_events = [call.kwargs["event"] for call in mock_capture.call_args_list]
+        self.assertIn("two factor reset requested", captured_events)
+
+    def test_resend_link_requires_half_auth_session(self):
+        """Resend must not let a caller mint a token for an arbitrary account without being
+        the half-authed user who owns it — same guard as retrieve/create."""
+        response = self.client.post(f"/api/reset_2fa/{self.user.uuid}/resend/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(response.json()["requires_login"])
+
+    def test_resend_link_for_different_account_returns_403(self):
+        other_user = User.objects.create_user(
+            email="other@posthog.com",
+            password="other-password",
+            first_name="Other",
+        )
+        self._setup_half_auth_session(user=other_user)
+
+        response = self.client.post(f"/api/reset_2fa/{self.user.uuid}/resend/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthog.tasks.email.send_two_factor_reset_email.delay")
+    def test_resend_link_is_rate_limited(self, mock_send_email):
+        """Without a cap, resend would let anyone with a half-authed session email-bomb the
+        account holder by re-triggering the send repeatedly."""
+        self._setup_half_auth_session()
+
+        for i in range(4):
+            response = self.client.post(f"/api/reset_2fa/{self.user.uuid}/resend/")
+            if i < 3:
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+            else:
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        self.assertEqual(mock_send_email.call_count, 3)
 
 
 class TestTwoFactorResetWithPasskeys(APIBaseTest):

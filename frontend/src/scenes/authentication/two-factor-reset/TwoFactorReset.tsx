@@ -23,8 +23,11 @@ export function TwoFactorReset(): JSX.Element {
         resetLoading,
         requiresLogin,
         loginRedirectUrl,
+        resendLinkResultLoading,
+        resendLinkSent,
+        resendLinkError,
     } = useValues(twoFactorResetLogic)
-    const { confirmReset } = useActions(twoFactorResetLogic)
+    const { confirmReset, resendLink } = useActions(twoFactorResetLogic)
 
     // Show loading while validating
     if (validatedResetTokenLoading) {
@@ -74,6 +77,7 @@ export function TwoFactorReset(): JSX.Element {
 
     // Invalid or expired link
     const invalidLink = !validatedResetToken?.success
+    const canResend = Boolean(validatedResetToken?.error_code)
 
     return (
         <BridgePage view="login">
@@ -85,6 +89,31 @@ export function TwoFactorReset(): JSX.Element {
                             {validatedResetToken?.error ||
                                 'This reset link is invalid or has expired. Please contact your administrator to request a new link.'}
                         </LemonBanner>
+
+                        {canResend && (
+                            <>
+                                {resendLinkSent ? (
+                                    <LemonBanner type="success">
+                                        We've emailed you a new link. It's valid for the next 24 hours.
+                                    </LemonBanner>
+                                ) : (
+                                    <>
+                                        {resendLinkError && <LemonBanner type="error">{resendLinkError}</LemonBanner>}
+                                        <LemonButton
+                                            fullWidth
+                                            type="secondary"
+                                            center
+                                            data-attr="resend-2fa-reset-link"
+                                            loading={resendLinkResultLoading}
+                                            onClick={() => resendLink()}
+                                        >
+                                            Send me a new link
+                                        </LemonButton>
+                                    </>
+                                )}
+                            </>
+                        )}
+
                         <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={urls.login()}>
                             Back to login
                         </LemonButton>
