@@ -52,7 +52,7 @@ class TestCrossReference:
 
     def test_campaign_with_source_mismatch(self):
         campaigns = [Campaign("Brand Campaign", "789", "google", 200.0, 80, 2000)]
-        utm_events = {("brand campaign", "adwords"): 30}
+        utm_events = {("brand campaign", "newsletter"): 30}
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
@@ -61,6 +61,48 @@ class TestCrossReference:
         assert len(results[0].issues) == 1
         assert results[0].issues[0].field == "utm_source"
         assert results[0].issues[0].severity == UtmIssueSeverity.WARNING
+
+    @pytest.mark.parametrize(
+        "campaign_source,utm_source",
+        [
+            ("meta", "facebook"),
+            ("meta", "fb"),
+            ("meta", "instagram"),
+            ("google", "adwords"),
+            ("google", "google_maps"),
+        ],
+    )
+    def test_default_alias_counts_as_exact_match(self, campaign_source, utm_source):
+        campaigns = [Campaign("Spring Sale", "123", campaign_source, 100.0, 50, 1000)]
+        utm_events = {("spring sale", utm_source): 42}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        assert len(results) == 1
+        assert results[0].has_utm_events is True
+        assert results[0].event_count == 42
+        assert len(results[0].issues) == 0
+
+    def test_custom_mapping_wins_over_default_alias(self):
+        # Team remapped 'facebook' to google, so it must not count for the meta campaign.
+        campaigns = [
+            Campaign("Spring Sale", "1", "meta", 100.0, 50, 1000),
+            Campaign("Spring Sale", "2", "google", 100.0, 50, 1000),
+        ]
+        utm_events = {("spring sale", "facebook"): 42}
+        mappings = TeamMappings(
+            source_to_integration={"facebook": "google"},
+            campaign_aliases={},
+            field_preferences={},
+        )
+
+        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+
+        google = next(r for r in results if r.source_name == "google")
+        meta = next(r for r in results if r.source_name == "meta")
+        assert google.has_utm_events is True
+        assert google.event_count == 42
+        assert meta.has_utm_events is False
 
     def test_case_insensitive_matching(self):
         campaigns = [Campaign("WINTER Sale", "101", "Google", 150.0, 60, 1500)]
@@ -209,6 +251,47 @@ class TestCrossReferenceIssueKinds:
         assert issue.suggested_actions == [SuggestedAction.FIX_PLATFORM_URLS, SuggestedAction.ADD_SOURCE_MAPPING]
         assert len(issue.alternative_sources) == 1
         assert issue.alternative_sources[0].utm_source == "partner_xyz"
+
+    def test_missing_source_when_events_have_no_utm_source(self):
+        # Pageviews match the campaign name but carry no utm_source (e.g. auto-tagged Performance Max).
+        # Must not be classified as UNKNOWN_SOURCE, and must not suggest mapping an empty source.
+        campaigns = [Campaign("Performance Max - Generic", "1", "google", 500.0, 100, 5000)]
+        utm_events = {("performance max - generic", ""): 222}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        issue = results[0].issues[0]
+        assert issue.kind == UtmIssueKind.MISSING_SOURCE
+        assert issue.severity == UtmIssueSeverity.WARNING
+        assert issue.alternative_sources == []
+        assert issue.missing_source_count == 222
+        assert issue.suggested_actions == [SuggestedAction.FIX_PLATFORM_URLS]
+
+    def test_partly_tagged_campaign_keeps_both_the_wrong_source_and_the_untagged_count(self):
+        # The shape that motivated MISSING_SOURCE, but only half the pageviews are untagged. The wrong
+        # source is the actionable classification, so it wins the kind — the untagged ones must still
+        # be reported rather than dropped, since fixing the URLs has to cover both.
+        campaigns = [Campaign("Performance Max - Generic", "1", "google", 500.0, 100, 5000)]
+        utm_events = {
+            ("performance max - generic", ""): 222,
+            ("performance max - generic", "partner_xyz"): 30,
+        }
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        issue = results[0].issues[0]
+        assert issue.kind == UtmIssueKind.UNKNOWN_SOURCE
+        assert [alt.utm_source for alt in issue.alternative_sources] == ["partner_xyz"]
+        assert issue.missing_source_count == 222
+
+    def test_untagged_count_is_zero_when_every_pageview_carries_a_source(self):
+        # Guards the other direction: the count must not leak in from unrelated events.
+        campaigns = [Campaign("Brand", "1", "google", 500.0, 100, 5000)]
+        utm_events = {("brand", "facebook"): 40}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        assert results[0].issues[0].missing_source_count == 0
 
     def test_name_collision_when_another_platform_matches_same_name(self):
         # Both Bing and Google have "Survey". Events only tag google.
@@ -418,7 +501,7 @@ class TestBuildAllUtmEvents:
 
     def test_campaign_auto_source_none(self):
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
-        utm_events = {("brand", "adwords"): 30}
+        utm_events = {("brand", "newsletter"): 30}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
 
@@ -426,6 +509,16 @@ class TestBuildAllUtmEvents:
         assert result[0].campaign_match == "auto"
         assert result[0].source_match == "none"
         assert result[0].matched_campaign == "brand"
+
+    def test_default_alias_source_auto(self):
+        campaigns = [Campaign("brand", "1", "meta", 0, 0, 0)]
+        utm_events = {("brand", "facebook"): 30}
+
+        result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
+
+        assert len(result) == 1
+        assert result[0].campaign_match == "auto"
+        assert result[0].source_match == "auto"
 
     def test_source_auto_campaign_none(self):
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]

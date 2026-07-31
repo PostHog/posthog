@@ -385,8 +385,12 @@ impl Stack {
     }
 
     /// SIGCONT the paused zombie. It wakes believing it still owns its
-    /// partitions; whatever it does next (self-fence, exit, re-register)
-    /// must not corrupt state that has moved to the new owner.
+    /// partitions; the contract is that it detects the revoked lease,
+    /// self-fences locally, and rejoins with a fresh session — at which
+    /// point the rebalancer may legitimately assign it partitions again.
+    /// It therefore returns to the live set: convergence counts it as a
+    /// valid owner, verification reads data it serves, and check_alive
+    /// fails the run if the self-fence path crashes it instead.
     pub fn resume_zombie(&mut self) -> Result<String> {
         let (pod_name, proc) = self
             .paused
@@ -394,7 +398,7 @@ impl Stack {
             .context("no paused zombie leader to resume")?;
         proc.sigcont();
         tracing::info!(pod = %pod_name, "SIGCONTed zombie leader");
-        self.retired.push(proc);
+        self.leaders.push((pod_name.clone(), proc));
         Ok(pod_name)
     }
 
@@ -410,12 +414,12 @@ impl Stack {
     /// wiring.
     async fn coordinator_router_index(&self) -> Result<usize> {
         let traffic_router = format!("harness-router-{}", self.config.routers - 1);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(5);
         let holder = loop {
             if let Some(leader) = self.store.get_leader().await? {
                 break leader.holder;
             }
-            if std::time::Instant::now() >= deadline {
+            if Instant::now() >= deadline {
                 bail!("no coordinator elected within 5s; cannot target coordinator chaos");
             }
             tokio::time::sleep(Duration::from_millis(100)).await;

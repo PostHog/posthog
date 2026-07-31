@@ -12,6 +12,7 @@ class TestApplePushIntegration(BaseTest):
         key_id: str = "ABC123KEY",
         team_id_apple: str = "TEAM123",
         bundle_id: str = "com.example.app",
+        push_identity_verification: str | None = None,
     ) -> Integration:
         return ApplePushIntegration.integration_from_key(
             signing_key=signing_key,
@@ -19,6 +20,7 @@ class TestApplePushIntegration(BaseTest):
             team_id_apple=team_id_apple,
             bundle_id=bundle_id,
             team_id=self.team.id,
+            push_identity_verification=push_identity_verification,
         )
 
     def test_creates_integration(self):
@@ -38,6 +40,18 @@ class TestApplePushIntegration(BaseTest):
         assert first.id == second.id
         second.refresh_from_db()
         assert second.config["key_id"] == "NEW_KEY_ID"
+
+    def test_reconnecting_preserves_identity_verification(self):
+        # Rotating the .p8 signing key is a routine action that re-upserts the integration. It must
+        # not silently reset the verification policy, which would reopen device takeover.
+        self._create_apple_push_integration(push_identity_verification="required")
+        reconnected = self._create_apple_push_integration(key_id="ROTATED_KEY")
+
+        assert reconnected.config["push_identity_verification"] == "required"
+
+    def test_rejects_an_unknown_identity_verification_mode(self):
+        with self.assertRaises(ValidationError):
+            self._create_apple_push_integration(push_identity_verification="enabled")
 
     def test_separate_integrations_for_different_bundles(self):
         first = self._create_apple_push_integration(bundle_id="com.example.app1")
