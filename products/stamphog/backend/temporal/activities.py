@@ -232,7 +232,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
 
     author = (pr.get("user") or {}).get("login") or pull_request.author_login
     # Self-driving runs skip this fetch: the author is the App machine user, so blame familiarity
-    # from its merged PRs would read to the engine as human trust. An empty list drops the signal.
+    # from its merged PRs would read to the engine as human trust. An empty list only omits the
+    # familiarity section from the reviewer prompt; the review itself proceeds normally.
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
 
