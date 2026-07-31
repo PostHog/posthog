@@ -93,6 +93,11 @@ TICKET_TABLE_ALIAS = "posthog_conversations_ticket"
 # MAX_TICKET_GROUP_SQL_LENGTH.
 MAX_SQL_EXPRESSION_LENGTH = 1000
 
+# The host SELECT that supplies the resolution scope. Built once at import from
+# this module's own constant, so no user data is interpolated into a parsed query
+# — the customer's expression is parsed separately, by parse_expr.
+_HOST_SELECT_SQL = f"SELECT 1 FROM system.support_tickets AS {TICKET_TABLE_ALIAS}"
+
 # Django's RawSQL takes positional params; the HogQL printer emits named ones.
 _NAMED_PARAM_REGEX = re.compile(r"%\((?P<name>[^)]+)\)s")
 
@@ -302,10 +307,7 @@ def compile_ticket_group_sql(
         host = cast(
             ast.SelectQuery,
             prepare_ast_for_printing(
-                # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
-                # (HogQL's parser, not a database cursor; the only interpolation is
-                # this module's own TICKET_TABLE_ALIAS constant)
-                parse_select(f"SELECT 1 FROM system.support_tickets AS {TICKET_TABLE_ALIAS}"),
+                parse_select(_HOST_SELECT_SQL),
                 context=context,
                 dialect="postgres",
             ),
