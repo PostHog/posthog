@@ -5,7 +5,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import transaction
@@ -28,6 +27,7 @@ from products.tasks.backend.constants import (
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
@@ -695,7 +695,7 @@ def get_sandbox_ph_mcp_configs(
     - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
     - Other hosts → empty list (MCP not available)
     """
-    url = _resolve_mcp_url()
+    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL)
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
@@ -709,31 +709,6 @@ def get_sandbox_ph_mcp_configs(
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
-
-
-def _resolve_mcp_url() -> str | None:
-    if settings.SANDBOX_MCP_URL:
-        return settings.SANDBOX_MCP_URL
-
-    site_url = settings.SITE_URL
-    if not site_url:
-        return None
-
-    hostname = urlparse(site_url).hostname or ""
-    if hostname in ("app.posthog.com", "us.posthog.com"):
-        return "https://mcp.posthog.com/mcp"
-    if hostname == "eu.posthog.com":
-        return "https://mcp-eu.posthog.com/mcp"
-    if hostname == "app.dev.posthog.dev":
-        return "https://mcp.dev.posthog.dev/mcp"
-
-    # Local dev: point to the local wrangler dev MCP server via
-    # host.docker.internal, since the sandbox runs in Docker.
-    # On Linux without Docker Desktop, set SANDBOX_MCP_URL instead.
-    if hostname in ("localhost", "127.0.0.1"):
-        return "http://host.docker.internal:8787/mcp"
-
-    return None
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:
