@@ -100,6 +100,7 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
     return contracts.WorkflowHealthItem(
         repo=contracts.RepoRef(provider="github", owner="PostHog", name="posthog"),
         workflow_name="CI",
+        workflow_path=".github/workflows/ci.yml",
         run_count=10,
         successful_run_count=9,
         conclusive_run_count=9,

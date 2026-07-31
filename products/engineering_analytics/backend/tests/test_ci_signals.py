@@ -94,11 +94,13 @@ def _run_row(
     head_branch: str = "main",
     status: str = "completed",
     default_branch: str = "main",
+    path: str | None = ".github/workflows/ci.yml",
 ) -> dict[str, Any]:
     started_s = _ts(started)
     return {
         "id": run_id,
         "name": name,
+        "path": path,
         "head_sha": head_sha,
         "head_branch": head_branch,
         "status": status,
@@ -797,3 +799,73 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         # percentile_run_count is 1 < 2, so no regression fires despite the 10s→120s p95 jump.
         findings = detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2)
         assert findings == []
+
+    def test_duration_regression_ignores_github_hosted_app_workflows(self) -> None:
+        # A GitHub-hosted app workflow (Copilot code review, Dependabot) runs under a synthetic
+        # 'dynamic/...' path: no checked-in YAML, steps, cache, or runner config in this repo, so a
+        # duration jump there has no fix anyone here can make. Same jump as the passing "slow-ci"
+        # case above; only the path differs.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        current = now - timedelta(days=1)
+        baseline = now - timedelta(days=8)
+        rows = [
+            _run_row(
+                1,
+                "Copilot Code Review",
+                "c1",
+                "success",
+                current,
+                120,
+                path="dynamic/agents/copilot-pull-request-reviewer",
+            ),
+            _run_row(
+                2,
+                "Copilot Code Review",
+                "c2",
+                "success",
+                current - timedelta(hours=1),
+                120,
+                path="dynamic/agents/copilot-pull-request-reviewer",
+            ),
+            _run_row(
+                3,
+                "Copilot Code Review",
+                "b1",
+                "success",
+                baseline,
+                10,
+                path="dynamic/agents/copilot-pull-request-reviewer",
+            ),
+            _run_row(
+                4,
+                "Copilot Code Review",
+                "b2",
+                "success",
+                baseline - timedelta(hours=1),
+                10,
+                path="dynamic/agents/copilot-pull-request-reviewer",
+            ),
+        ]
+        assert detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=2) == []
+
+    def test_duration_regression_requires_p50_to_corroborate_p95(self) -> None:
+        # A handful of slow outliers can swing p95 past the threshold while p50 barely moves — the
+        # rest of the distribution didn't actually get slower. Require p50 to move too, at a softer
+        # bar, before trusting the p95 jump as a real regression.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        current = now - timedelta(days=1)
+        baseline = now - timedelta(days=8)
+        rows = [
+            # 4 normal-speed runs + 1 slow outlier: p95 jumps hugely, p50 barely moves.
+            _run_row(1, "tail-ci", "c1", "success", current, 100),
+            _run_row(2, "tail-ci", "c2", "success", current - timedelta(hours=1), 100),
+            _run_row(3, "tail-ci", "c3", "success", current - timedelta(hours=2), 100),
+            _run_row(4, "tail-ci", "c4", "success", current - timedelta(hours=3), 100),
+            _run_row(5, "tail-ci", "c5", "success", current - timedelta(hours=4), 700),
+            _run_row(6, "tail-ci", "b1", "success", baseline, 90),
+            _run_row(7, "tail-ci", "b2", "success", baseline - timedelta(hours=1), 90),
+            _run_row(8, "tail-ci", "b3", "success", baseline - timedelta(hours=2), 90),
+            _run_row(9, "tail-ci", "b4", "success", baseline - timedelta(hours=3), 90),
+            _run_row(10, "tail-ci", "b5", "success", baseline - timedelta(hours=4), 90),
+        ]
+        assert detect_ci_duration_regressions(self._curated_over_runs(rows), min_runs=5) == []

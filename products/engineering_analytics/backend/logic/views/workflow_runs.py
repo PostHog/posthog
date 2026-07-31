@@ -120,6 +120,7 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
         SELECT
             id,
             workflow_name,
+            path,
             head_sha,
             head_branch,
             status,
@@ -138,6 +139,7 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
             SELECT
                 id,
                 name AS workflow_name,
+                path,
                 head_sha,
                 head_branch,
                 status,

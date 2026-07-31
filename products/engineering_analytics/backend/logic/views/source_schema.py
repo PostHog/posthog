@@ -43,6 +43,10 @@ PULL_REQUESTS_COLUMNS: dict[str, dict[str, str]] = {
 WORKFLOW_RUNS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    # The workflow file path, e.g. '.github/workflows/ci.yml'. GitHub-hosted app workflows (Copilot
+    # code review, Dependabot) report a synthetic 'dynamic/...' path instead of a checked-in file —
+    # the signal for "the repo does not control this workflow's runtime" (see detect_ci_duration_regressions).
+    "path": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "head_sha": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "head_branch": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "status": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},

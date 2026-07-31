@@ -919,6 +919,10 @@ class WorkflowHealthItem:
 
     repo: RepoRef
     workflow_name: str
+    # The workflow file path, e.g. '.github/workflows/ci.yml'. A GitHub-hosted app workflow (Copilot
+    # code review, Dependabot) reports a synthetic 'dynamic/...' path instead — the repo owns no YAML,
+    # steps, or runner config for it. None when the run's path column hasn't landed.
+    workflow_path: str | None
     run_count: int
     successful_run_count: int
     # Completed runs that reached a verdict (success / failure / timed_out). Cancelled and skipped

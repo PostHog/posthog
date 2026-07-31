@@ -184,6 +184,12 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
         dataclass = WorkflowHealthItem
         extra_kwargs = {
             "workflow_name": {"help_text": "GitHub Actions workflow name."},
+            "workflow_path": {
+                "help_text": "Workflow file path, e.g. '.github/workflows/ci.yml'. A GitHub-hosted app workflow "
+                "(Copilot code review, Dependabot) reports a synthetic 'dynamic/...' path instead. Null when the "
+                "run's path hasn't landed.",
+                "allow_null": True,
+            },
             "run_count": {"help_text": "Total runs started in the window."},
             "success_rate": {
                 "help_text": "Fraction of completed runs that succeeded (0-1). Null if no completed runs.",

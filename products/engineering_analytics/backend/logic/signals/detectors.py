@@ -54,6 +54,16 @@ DURATION_WINDOW_DAYS = 7
 DURATION_MIN_RUNS = 20
 DURATION_MIN_PCT_INCREASE = 0.5
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
+# p95 alone can be a 2-3 sample tail wobble even past DURATION_MIN_RUNS (see module docstring on
+# detect_ci_duration_regressions); requiring p50 to also move, at a softer bar, corroborates that the
+# whole distribution shifted rather than just its tail.
+DURATION_MIN_P50_PCT_INCREASE = DURATION_MIN_PCT_INCREASE / 2
+DURATION_MIN_P50_ABS_INCREASE_SECONDS = DURATION_MIN_ABS_INCREASE_SECONDS / 2
+
+# GitHub-hosted app workflows (Copilot code review, Dependabot) run under a synthetic
+# 'dynamic/...' path: no checked-in YAML, steps, cache, or runner config, so a duration
+# regression there has nothing an agent (or anyone) in this repo can act on.
+_DYNAMIC_WORKFLOW_PATH_PREFIX = "dynamic/"
 
 
 def _job_key(row: FlakyJobRun) -> tuple[str, str, str, str]:
@@ -258,6 +268,10 @@ def detect_ci_duration_regressions(
     findings: list[CISignalFinding] = []
     for key, cur in current.items():
         base = baseline.get(key)
+        # The repo controls none of a GitHub-hosted app workflow's runtime (no YAML, steps, cache, or
+        # runner config), so a duration regression there has no fix an agent — or anyone here — can make.
+        if (cur.workflow_path or "").startswith(_DYNAMIC_WORKFLOW_PATH_PREFIX):
+            continue
         # Gate on the population p95 is actually computed over: real (non-no-op) successful runs.
         # successful_run_count counts no-op gate successes too, so gating on it would let a window of
         # mostly no-ops with a handful of real runs pass min_runs while the p95 is a 3-sample figure a
@@ -269,6 +283,14 @@ def detect_ci_duration_regressions(
         increase = cur.p95_seconds - base.p95_seconds
         pct_increase = increase / base.p95_seconds
         if pct_increase < min_pct_increase or increase < min_abs_increase_seconds:
+            continue
+        # p95 alone can be a thin tail sample even past min_runs; require p50 to corroborate that the
+        # whole distribution shifted, not just its slowest few runs.
+        if cur.p50_seconds is None or base.p50_seconds is None or base.p50_seconds <= 0:
+            continue
+        p50_increase = cur.p50_seconds - base.p50_seconds
+        p50_pct_increase = p50_increase / base.p50_seconds
+        if p50_pct_increase < DURATION_MIN_P50_PCT_INCREASE or p50_increase < DURATION_MIN_P50_ABS_INCREASE_SECONDS:
             continue
         owner, repo_name, workflow_name = key
         repo = f"{owner}/{repo_name}"

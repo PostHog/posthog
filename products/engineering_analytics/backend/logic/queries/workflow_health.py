@@ -57,6 +57,7 @@ _SELECT = f"""
         repo_owner,
         repo_name,
         workflow_name,
+        any(path) AS workflow_path,
         count() AS run_count,
         countIf(status = 'completed' AND conclusion = 'success') AS successful_run_count,
         countIf(status = 'completed' AND conclusion IN ('success', 'failure', 'timed_out')) AS conclusive_run_count,
@@ -234,6 +235,7 @@ def query_workflow_health(
         WorkflowHealthItem(
             repo=RepoRef(provider="github", owner=repo_owner, name=repo_name),
             workflow_name=workflow_name,
+            workflow_path=workflow_path or None,
             run_count=run_count,
             successful_run_count=successful_run_count,
             conclusive_run_count=conclusive_run_count,
@@ -266,5 +268,5 @@ def query_workflow_health(
             rerun_cycles=rerun_cycles,
             success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
         )
-        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
+        for repo_owner, repo_name, workflow_name, workflow_path, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles in response.results
     ]
