@@ -80,6 +80,7 @@ function makeStash(): { stash: PayloadStash; store: Map<string, string>; quotas:
             return next
         },
         expire: async () => 1,
+        ttl: async () => 60,
     })
     return { stash, store, quotas }
 }

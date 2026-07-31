@@ -31,6 +31,7 @@ export interface PayloadStashRedis {
     del(...keys: string[]): Promise<number>
     incrby(key: string, increment: number): Promise<number>
     expire(key: string, seconds: number): Promise<number>
+    ttl(key: string): Promise<number>
 }
 
 export class PayloadStash {
@@ -68,6 +69,22 @@ export class PayloadStash {
             await this.redis.expire(key, Math.max(1, Math.ceil(windowSeconds)))
         }
         return total
+    }
+
+    /**
+     * Re-arm the quota window's expiry if it was lost. A crash between the
+     * first INCRBY and its EXPIRE leaves the counter immortal, which would
+     * refuse the user forever once it crosses the quota. Called on the
+     * refusal path only (mirrors the rate limiter's stuck-key repair) so
+     * the happy path stays at one round-trip. A live TTL is left alone —
+     * re-arming it would extend the window.
+     */
+    async repairQuotaExpiry(sub: string, windowSeconds: number): Promise<void> {
+        const key = `${PAYLOAD_QUOTA_KEY_PREFIX}:${sub}`
+        const ttl = await this.redis.ttl(key)
+        if (ttl < 0) {
+            await this.redis.expire(key, Math.max(1, Math.ceil(windowSeconds)))
+        }
     }
 
     /**

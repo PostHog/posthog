@@ -186,6 +186,7 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     const stashWindowSeconds = options.codec.ttlSeconds + PAYLOAD_STASH_TTL_MARGIN_SECONDS
     const quotaTotal = await options.stash.charge(sub, serializedBytes, stashWindowSeconds)
     if (quotaTotal > STASH_QUOTA_BYTES_PER_WINDOW) {
+        await options.stash.repairQuotaExpiry(sub, stashWindowSeconds)
         confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'refused' })
         confirmedActionRefusalsTotal.inc({ tool: options.purpose, reason: 'stash_quota_exceeded' })
         throw new ToolInputValidationError(

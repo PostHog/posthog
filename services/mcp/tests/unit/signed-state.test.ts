@@ -201,11 +201,37 @@ describe('PayloadStash', () => {
             },
             incrby: async (_key: string, increment: number) => increment,
             expire: async () => 1,
+            ttl: async () => 60,
         })
         const winner = await stash.take('nonce-1')
         stored.set('mcp:signed-state:payload:nonce-1', '{"args":{}}')
         const loser = await stash.take('nonce-1')
         expect(winner).toBe('{"args":{}}')
         expect(loser).toBeNull()
+    })
+
+    it('re-arms a quota key that lost its expiry, and leaves a live one alone', async () => {
+        // A crash between the first INCRBY and its EXPIRE leaves the quota
+        // counter immortal; without the repair, a user crossing the quota is
+        // refused forever. Re-arming a live TTL would be wrong too — it
+        // extends the window on every refusal.
+        const expireCalls: Array<[string, number]> = []
+        let ttlValue = -1
+        const stash = new PayloadStash({
+            set: async () => 'OK',
+            get: async () => null,
+            del: async () => 0,
+            incrby: async (_key: string, increment: number) => increment,
+            expire: async (key: string, seconds: number) => {
+                expireCalls.push([key, seconds])
+                return 1
+            },
+            ttl: async () => ttlValue,
+        })
+        await stash.repairQuotaExpiry('user-1', 930)
+        expect(expireCalls).toEqual([['mcp:signed-state:payload-quota:user-1', 930]])
+        ttlValue = 500
+        await stash.repairQuotaExpiry('user-1', 930)
+        expect(expireCalls).toHaveLength(1)
     })
 })
