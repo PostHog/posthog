@@ -108,7 +108,16 @@ class SESProvider:
         # reference — an attributed send fails unless EVERY resource it uses is associated.
         self._associate_tenant_resource(expected_tenant, self._identity_arn(domain))
         for config_set in settings.SES_TENANT_CONFIGURATION_SETS:
-            self._associate_tenant_resource(expected_tenant, self._configuration_set_arn(config_set))
+            # Unlike the identity (created moments ago in this same call), config sets are
+            # provisioned externally — a missing or drifted one must not fail the customer's
+            # add-domain request. The gap is caught by migrate_ses_tenants / at attributed send
+            # time instead.
+            try:
+                self._associate_tenant_resource(expected_tenant, self._configuration_set_arn(config_set))
+            except (ClientError, BotoCoreError):
+                logger.exception(
+                    "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
+                )
 
     def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int):
         # Validate the domain contains valid characters for a domain name

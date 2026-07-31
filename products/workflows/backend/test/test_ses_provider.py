@@ -9,6 +9,7 @@ from django.test import override_settings
 import boto3
 import dns.name
 import dns.resolver
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 
 from products.workflows.backend.providers.ses import SESProvider
@@ -102,6 +103,16 @@ class TestSESProvider(TestCase):
             assert any(arn.endswith(f"identity/{TEST_DOMAIN}") for arn in associated)
             assert any(arn.endswith("configuration-set/posthog-messaging") for arn in associated)
             assert any(arn.endswith("configuration-set/posthog-messaging-untracked") for arn in associated)
+
+            # An unprovisioned config set must not fail the customer's add-domain request —
+            # only the identity association (self-created above) is allowed to raise.
+            def fail_config_set_associations(TenantName: str, ResourceArn: str) -> dict:
+                if "configuration-set" in ResourceArn:
+                    raise ClientError({"Error": {"Code": "NotFoundException"}}, "CreateTenantResourceAssociation")
+                return {}
+
+            mock_ses_v2_client.create_tenant_resource_association.side_effect = fail_config_set_associations
+            provider.create_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
