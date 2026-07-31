@@ -241,10 +241,13 @@ ports from source using these rules.
   already-committed too-new transitive that blocks re-resolution), run
   `pnpm install --lockfile-only`, then revert that one exclude. simple-git 3.36 (RCE fix)
   needs the `packages/git/src/{client.ts,queries.ts}` source patches below. The agent sub-package ships its own publish lockfile (`packages/agent/pnpm-lock.yaml`); patch it by
-  adding `@modelcontextprotocol/sdk` 1.29.0, `@isaacs/brace-expansion` 5.0.1, `path-to-regexp` 8.4.0,
-  `fast-uri` 3.1.4 as overrides in a temp `packages/agent/pnpm-workspace.yaml` (copy the catalog +
-  age-exclude the `@earendil-works/pi-*` deps), strip the `workspace:*` devDeps from a temp
-  package.json, `pnpm install --lockfile-only`, then restore. The remaining
+  adding `@modelcontextprotocol/sdk` 1.29.0, `@isaacs/brace-expansion` 5.0.1, `path-to-regexp` 8.4.2,
+  `fast-uri` 3.1.4, `@hono/node-server` 1.19.13, `qs` 6.15.3 as overrides in a temp
+  `packages/agent/pnpm-workspace.yaml` (copy the catalog +
+  age-exclude the `@earendil-works/pi-*` deps and `@expo-google-fonts/material-symbols`), strip the
+  `workspace:*` devDeps from a temp package.json, `pnpm install --lockfile-only`, then restore.
+  This file is byte-identical to PostHog/code's `packages/agent/pnpm-lock.yaml`; regenerate once
+  and copy rather than generating it twice. The remaining
   transitive high/moderate tail (minimatch, picomatch, js-yaml, form-data, svgo, etc.) is
   left for a dedicated dependency-hygiene sweep.
 - **Visual Review baseline**: the committed `apps/code/snapshots.yml` is signed for the
