@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventbrite.eventbrite import (
     EventbriteResumeConfig,
 )
@@ -53,11 +54,14 @@ class TestEventbriteSource:
         assert expected_key in self.source.get_non_retryable_errors()
 
     def test_non_retryable_errors_matches_observed_error_message(self):
+        # Eventbrite's API sends the HTTP reason phrase in all caps, not the title-case wording
+        # `requests.raise_for_status()` generates for other vendors — the dict key above must still
+        # match it.
         observed_error = (
-            "401 Client Error: Unauthorized for url: https://www.eventbriteapi.com/v3/users/me/organizations/"
+            "401 Client Error: UNAUTHORIZED for url: https://www.eventbriteapi.com/v3/users/me/organizations/"
         )
         non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
+        assert error_message_matches(observed_error, non_retryable_errors)
 
     @pytest.mark.parametrize(
         "other_vendor_error",

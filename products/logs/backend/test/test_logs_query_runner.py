@@ -1122,6 +1122,17 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("boundary-log-dec17-afternoon", bodies)
         self.assertNotIn("boundary-log-dec18-early", bodies)
 
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_relative_date_from_keeps_exact_window(self):
+        # "-1d" must mean exactly 24 hours back, not "since midnight yesterday": the count and
+        # sparkline runners resolve day-level presets exactly, so a midnight-snapped list would
+        # show logs the sparkline and header count say don't exist
+        bodies = self._boundary_bodies(self._boundary_query("-1d"))
+        self.assertIn("boundary-log-dec17-afternoon", bodies)
+        self.assertIn("boundary-log-dec18-early", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-exact", bodies)
+        self.assertNotIn("boundary-log-dec17-midnight-plus1us", bodies)
+
     # ── _normalize_filter_group tests ──────────────────────────────────
 
     _FLAT_FILTERS = [
