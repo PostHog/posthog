@@ -14,7 +14,7 @@ import {
     IconUpload,
     IconX,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonFileInput, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -44,6 +44,7 @@ import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
+import { collectFilesFromDrop } from './skillFileUpload'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
@@ -673,10 +674,6 @@ function SkillFileViewer({
     )
 }
 
-// Stable reference so LemonFileInput never re-syncs its internal selection from the prop;
-// uploads flow one-way into the skill form via addUploadedFiles.
-const NO_UPLOADED_FILES: File[] = []
-
 const COMMON_CONTENT_TYPES = [
     { value: 'text/plain', label: 'text/plain' },
     { value: 'text/markdown', label: 'text/markdown' },
@@ -697,7 +694,40 @@ function SkillEditForm({
 }): JSX.Element {
     const { isNewSkill, skillForm } = useValues(llmSkillLogic)
     const { setSkillFormValues, addUploadedFiles } = useActions(llmSkillLogic)
-    const filesDropTargetRef = useRef<HTMLDivElement | null>(null)
+    const uploadInputRef = useRef<HTMLInputElement | null>(null)
+    // Depth counter instead of a boolean: dragenter/dragleave also fire for child elements,
+    // so a plain boolean would flicker off while moving across the section.
+    const dragDepthRef = useRef(0)
+    const [dropActive, setDropActive] = useState(false)
+
+    const onDragEnter = (e: React.DragEvent): void => {
+        e.preventDefault()
+        dragDepthRef.current += 1
+        setDropActive(true)
+    }
+
+    const onDragOver = (e: React.DragEvent): void => {
+        e.preventDefault()
+    }
+
+    const onDragLeave = (e: React.DragEvent): void => {
+        e.preventDefault()
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+        if (dragDepthRef.current === 0) {
+            setDropActive(false)
+        }
+    }
+
+    const onDrop = (e: React.DragEvent): void => {
+        e.preventDefault()
+        dragDepthRef.current = 0
+        setDropActive(false)
+        void collectFilesFromDrop(e.dataTransfer).then((files) => {
+            if (files.length > 0) {
+                addUploadedFiles(files)
+            }
+        })
+    }
 
     const addFile = (): void => {
         setSkillFormValues({
@@ -787,7 +817,13 @@ function SkillEditForm({
                 />
             </LemonField>
 
-            <div ref={filesDropTargetRef}>
+            <div
+                onDragEnter={onDragEnter}
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDrop}
+                className={dropActive ? 'rounded outline-2 outline-dashed outline-accent outline-offset-4' : undefined}
+            >
                 <div className="mb-2 flex items-center justify-between gap-2">
                     <div>
                         <label className="text-sm font-semibold">Bundled files</label>
@@ -797,24 +833,28 @@ function SkillEditForm({
                         </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                        <LemonFileInput
+                        <input
+                            ref={uploadInputRef}
+                            type="file"
                             multiple
-                            accept=""
-                            value={NO_UPLOADED_FILES}
-                            onChange={addUploadedFiles}
-                            showUploadedFiles={false}
-                            alternativeDropTargetRef={filesDropTargetRef}
-                            callToAction={
-                                <LemonButton
-                                    type="secondary"
-                                    icon={<IconUpload />}
-                                    size="small"
-                                    data-attr="llma-skill-upload-files-button"
-                                >
-                                    Upload files
-                                </LemonButton>
-                            }
+                            className="hidden"
+                            onChange={(e) => {
+                                const files = Array.from(e.target.files ?? [])
+                                if (files.length > 0) {
+                                    addUploadedFiles(files.map((file) => ({ path: file.name, file })))
+                                }
+                                e.target.value = ''
+                            }}
                         />
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconUpload />}
+                            size="small"
+                            onClick={() => uploadInputRef.current?.click()}
+                            data-attr="llma-skill-upload-files-button"
+                        >
+                            Upload files
+                        </LemonButton>
                         <LemonButton
                             type="secondary"
                             icon={<IconPlus />}
@@ -835,8 +875,8 @@ function SkillEditForm({
                     </div>
                 ) : skillForm.files.length === 0 ? (
                     <div className="rounded border border-dashed p-4 text-center text-sm text-secondary">
-                        No bundled files. Upload files, drag and drop them here, or click "Add file" to write one from
-                        scratch.
+                        No bundled files. Upload files, drag and drop files or folders here, or click "Add file" to
+                        write one from scratch.
                     </div>
                 ) : (
                     <div className="space-y-3">
