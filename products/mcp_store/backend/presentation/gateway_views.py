@@ -1525,7 +1525,7 @@ class MCPGatewayMemberViewSet(GatewayAdminMixin, TeamAndOrgViewSetMixin, viewset
         if data["enabled"]:
             MCPMemberServerRevocation.objects.filter(gateway_server=server, user_id=user_id).delete()
         else:
-            MCPMemberServerRevocation.objects.get_or_create(
+            MCPMemberServerRevocation.objects.for_team(self.team_id).get_or_create(
                 gateway_server=server,
                 user_id=user_id,
                 defaults={"team_id": self.team_id, "revoked_by": cast(User, request.user)},

@@ -18,9 +18,53 @@ from products.mcp_store.backend.agents import (
     is_builtin_agent_enforcement_enabled,
 )
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServiceAccountServerAccess
+from products.mcp_store.backend.models import (
+    MCPServerInstallation,
+    MCPServerInstallationTool,
+    MCPServiceAccountServerAccess,
+)
+from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
 
 logger = structlog.get_logger(__name__)
+
+
+def resolve_member_tool_states(
+    installation_id: str,
+    team_id: int,
+    gateway_server_id: uuid.UUID | None,
+    user_id: int | None = None,
+) -> dict[str, str]:
+    """Return a {tool_name: effective_state} map for an installation.
+
+    States resolve through the gateway policy engine when the installation is
+    registered with a gateway (org rules → team default → the user's scope);
+    unregistered installations fall back to the cached per-tool approval state.
+    Rows with `removed_at` set surface as `"do_not_use"` so the agent can't
+    call them even if the cached approval state was previously `approved` —
+    if the tool is gone upstream, it's gone. Anything not in the map is
+    treated as `needs_approval` by the caller (explicit opt-in for freshly
+    discovered tools)."""
+    rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
+        "tool_name", "annotations", "approval_state", "removed_at"
+    )
+    legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
+
+    if gateway_server_id is None or user_id is None:
+        return legacy
+
+    context = PolicyContext(
+        team_id=team_id,
+        caller=GatewayCaller(kind="member", user_id=user_id),
+        gateway_server_id=gateway_server_id,
+        legacy_rows={row["tool_name"]: row["approval_state"] for row in rows if row["removed_at"] is None},
+    )
+    resolved: dict[str, str] = {}
+    for row in rows:
+        if row["removed_at"]:
+            resolved[row["tool_name"]] = "do_not_use"
+        else:
+            resolved[row["tool_name"]] = context.resolve(row["tool_name"], row["annotations"]).state
+    return resolved
 
 
 def unauthorized_installation_ids(team_id: int, user_id: int, candidate_ids: Iterable[str]) -> list[str]:

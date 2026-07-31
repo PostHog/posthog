@@ -6,9 +6,9 @@ from django.db.models import Q
 
 from posthog.models import Team, User
 
+from products.mcp_store.backend.facade.api import resolve_member_tool_states
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.mcp_store.backend.oauth import refresh_installation_token
-from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
 
 
 def _is_row_ready(row: dict) -> bool:
@@ -88,35 +88,14 @@ def _get_tool_approval_states(
 ) -> dict[str, str]:
     """Return a {tool_name: effective_state} map for an installation.
 
-    States resolve through the gateway policy engine when the installation is
-    registered with a gateway (org rules → team default → the user's scope);
-    unregistered installations fall back to the cached per-tool approval state.
-    Rows with `removed_at` set surface as `"do_not_use"` so the agent can't
-    call them even if the cached approval state was previously `approved` —
-    if the tool is gone upstream, it's gone. Anything not in the map is
-    treated as `needs_approval` by the caller (explicit opt-in for freshly
-    discovered tools)."""
-    rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id).values(
-        "tool_name", "annotations", "approval_state", "removed_at"
+    See `resolve_member_tool_states` on the mcp_store facade for the resolution
+    semantics (gateway policy engine vs. cached per-tool approval state)."""
+    return resolve_member_tool_states(
+        installation_id,
+        team_id,
+        gateway_server_id,
+        user_id=user.id if user is not None else None,
     )
-    legacy = {row["tool_name"]: ("do_not_use" if row["removed_at"] else row["approval_state"]) for row in rows}
-
-    if gateway_server_id is None or user is None:
-        return legacy
-
-    context = PolicyContext(
-        team_id=team_id,
-        caller=GatewayCaller(kind="member", user_id=user.id),
-        gateway_server_id=gateway_server_id,
-        legacy_rows={row["tool_name"]: row["approval_state"] for row in rows if row["removed_at"] is None},
-    )
-    resolved: dict[str, str] = {}
-    for row in rows:
-        if row["removed_at"]:
-            resolved[row["tool_name"]] = "do_not_use"
-        else:
-            resolved[row["tool_name"]] = context.resolve(row["tool_name"], row["annotations"]).state
-    return resolved
 
 
 def _mark_needs_reauth_sync(installation_id: str) -> None:
