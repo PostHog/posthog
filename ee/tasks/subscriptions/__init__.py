@@ -1,10 +1,16 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import structlog
 import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 
 from products.exports.backend.models.subscription import Subscription
-from products.exports.backend.temporal.subscriptions.types import NoExportableInsightsContext
+
+if TYPE_CHECKING:
+    from products.exports.backend.temporal.subscriptions.types import NoExportableInsightsContext
 
 logger = structlog.get_logger(__name__)
 
