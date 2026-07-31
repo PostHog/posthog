@@ -49,7 +49,7 @@ from posthog.rate_limit import (
     HeatmapPreflightSustainedRateThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -1126,24 +1126,33 @@ class HeatmapPreflightResponseSerializer(serializers.Serializer):
     )
 
 
-class HeatmapPrewarmResourceAccessPermission(BasePermission):
-    message = "You do not have editor access to this resource."
+# AccessControlPermission lets a collection action through on a grant over any single heatmap, which
+# for an action that spends something on a caller-supplied URL rather than reading one heatmap is not
+# the boundary we want. These two need resource-level access to the whole kind instead.
+_RESOURCE_LEVEL_ACTIONS: dict[str, AccessControlLevel] = {"prewarm": "editor", "preflight": "viewer"}
 
+
+class HeatmapResourceAccessPermission(BasePermission):
     def has_permission(self, request: request.Request, view: APIView) -> bool:
         saved_heatmap_view = cast("SavedHeatmapViewSet", view)
-        if saved_heatmap_view.action != "prewarm" or is_service_auth(request):
+        required_level = _RESOURCE_LEVEL_ACTIONS.get(saved_heatmap_view.action or "")
+        if required_level is None or is_service_auth(request):
             return True
 
-        return saved_heatmap_view.user_access_control.check_access_level_for_resource(
-            "heatmap", required_level="editor"
-        )
+        if not saved_heatmap_view.user_access_control.check_access_level_for_resource(
+            "heatmap", required_level=required_level
+        ):
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
+
+        return True
 
 
 class SavedHeatmapViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet
 ):
     scope_object = "heatmap"
-    permission_classes = [HeatmapPrewarmResourceAccessPermission]
+    permission_classes = [HeatmapResourceAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
     queryset = SavedHeatmap.objects.all()
