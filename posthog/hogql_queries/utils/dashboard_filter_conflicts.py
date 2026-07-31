@@ -9,6 +9,8 @@ _NEGATIVE_EXACT_OPERATORS = {PropertyOperator.IS_NOT, PropertyOperator.NOT_IN}
 # values there, so they are compatible with is_not_set and must not be listed here.
 _MATCHES_ONLY_SET_VALUES = _POSITIVE_EXACT_OPERATORS | {
     PropertyOperator.ICONTAINS,
+    PropertyOperator.STARTS_WITH,
+    PropertyOperator.ENDS_WITH,
     PropertyOperator.REGEX,
     PropertyOperator.IS_SET,
 }
@@ -65,6 +67,16 @@ def _contradicts_one_way(
         positive_needles = [v.casefold() for v in values_a]
         negative_needles = [v.casefold() for v in values_b]
         return all(any(negative in positive for negative in negative_needles) for positive in positive_needles)
+    if (op_a, op_b) in (
+        (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH),
+        (PropertyOperator.ENDS_WITH, PropertyOperator.NOT_ENDS_WITH),
+    ):
+        # Same shape as icontains: unsatisfiable when every positive prefix/suffix is itself
+        # anchored by an excluded one (e.g. starts_with "/docs/api" vs not_starts_with "/docs").
+        anchored = str.startswith if op_a == PropertyOperator.STARTS_WITH else str.endswith
+        positive_anchors = [v.casefold() for v in values_a]
+        negative_anchors = [v.casefold() for v in values_b]
+        return all(any(anchored(positive, negative) for negative in negative_anchors) for positive in positive_anchors)
     if op_a == PropertyOperator.REGEX and op_b == PropertyOperator.NOT_REGEX:
         return len(values_a) == 1 and len(values_b) == 1 and values_a[0] == values_b[0]
     return False

@@ -448,7 +448,7 @@ the row lists both.
 | outbrain                         | HTTP                        | requests                                                        | ✅                          |
 | pabbly_subscriptions_billing     | HTTP                        | requests                                                        | ✅                          |
 | packagist                        | HTTP                        | requests                                                        | ✅                          |
-| paddle                           | HTTP                        | requests                                                        | ✅                          |
+| paddle                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | optimizely                       | HTTP                        | requests                                                        | ✅                          |
 | pagerduty                        | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                         | HTTP                        | requests                                                        | ✅                          |
@@ -717,6 +717,7 @@ doesn't conflict with concurrent PRs.
 - aftership
 - ahrefs
 - aikido_security
+- airbridge
 - airbyte
 - airops
 - aiven
@@ -1036,6 +1037,7 @@ doesn't conflict with concurrent PRs.
 - hubplanner
 - humanitec
 - humanitix
+- hyros
 - ikas
 - illumina_basespace
 - imf_data
@@ -1154,6 +1156,7 @@ doesn't conflict with concurrent PRs.
 - nutshell
 - nylas
 - octolens
+- odoo
 - oecd
 - okendo
 - onedrive
@@ -1311,6 +1314,7 @@ doesn't conflict with concurrent PRs.
 - smartrecruiters
 - smartwaiver
 - smokeball
+- snovio
 - soda_cloud
 - solarwinds_service_desk
 - sonar_cloud

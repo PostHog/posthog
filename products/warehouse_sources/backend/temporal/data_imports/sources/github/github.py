@@ -78,6 +78,15 @@ class GithubOrgNotFoundError(Exception):
     pass
 
 
+class GithubRepositoryTooLargeError(Exception):
+    """GitHub's /stats/code_frequency permanently 422s once a repository passes 10,000 commits — a
+    documented limit of that specific endpoint (other stats endpoints keep working, just with
+    zeroed addition/deletion counts for large repos). Retrying can never succeed, so `_fetch_page`
+    raises this and the caller syncs zero rows instead of failing the schema forever."""
+
+    pass
+
+
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
@@ -243,6 +252,20 @@ def _is_empty_repository_response(response: requests.Response) -> bool:
     except (ValueError, TypeError):
         message = response.text or ""
     return isinstance(message, str) and "repository is empty" in message.lower()
+
+
+def _is_repository_too_large_for_code_frequency(response: requests.Response) -> bool:
+    """GitHub returns 422 on /stats/code_frequency with a stable "must have fewer than 10000
+    commits" message once a repository crosses that commit count — a hard, permanent limit of this
+    one endpoint, not a transient or credential problem."""
+    if response.status_code != 422:
+        return False
+    try:
+        body = response.json()
+        message = body.get("message", "") if isinstance(body, dict) else ""
+    except (ValueError, TypeError):
+        message = response.text or ""
+    return isinstance(message, str) and "fewer than 10000 commits" in message.lower()
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -676,6 +699,9 @@ def _fetch_page(
     if _is_empty_repository_response(response):
         raise GithubEmptyRepositoryError()
 
+    if _is_repository_too_large_for_code_frequency(response):
+        raise GithubRepositoryTooLargeError()
+
     # An org-scoped endpoint 404s when the repo owner is a user (no org) or the token lacks org
     # access. Signal it so the caller syncs zero rows rather than failing the schema — a benign skip
     # like an empty repository, not a real "repository not found".
@@ -995,6 +1021,9 @@ def get_rows(
             break
         except GithubOrgNotFoundError:
             logger.debug(f"Github: no accessible org teams for {endpoint}, syncing zero rows: url={url}")
+            break
+        except GithubRepositoryTooLargeError:
+            logger.debug(f"Github: repository too large for code frequency stats, syncing zero rows: url={url}")
             break
 
         # The /stats/* aggregates are computed asynchronously: GitHub answers 202 with no body
