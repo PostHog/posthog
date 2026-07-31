@@ -2080,6 +2080,14 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         # never resume. Any other non-empty edit still clears a pending pause, since a human
         # tending the config is exactly the signal the warning exists to detect; an empty
         # PATCH is not an edit and must not count as human contact.
+        # A human tending the config resets the breaker's evidence — the failure streak is stale
+        # the moment someone acts on the lane. Lives here rather than in the viewsets so every
+        # human write path (PATCH, and both POST upserts through `_upsert_scout_config`) gets it;
+        # an empty write is not an edit and must not count. The pause itself (if the breaker
+        # tripped) is a status and lifts only through `enabled=true` below or a successful probe,
+        # both of which re-check the enabled-scout cap — an unrelated edit must not sidestep that.
+        if validated_data and instance.consecutive_failure_count:
+            validated_data["consecutive_failure_count"] = 0
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             target = (
                 SignalScoutConfig.Status.ACTIVE
