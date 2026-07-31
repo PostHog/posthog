@@ -387,7 +387,7 @@ def _has_live_reviewer(
     login_weights: Counter[str],
     activity_by_login: dict[str, _AreaContributor],
 ) -> bool:
-    """Whether a weighted candidate is still committing in the report's areas.
+    """Whether a candidate with a blame or agent-proposed weight is still committing in the report's areas.
 
     Recency decides, not membership in the cached map: it is served while a rebuild is
     scheduled, so an entry can have aged past the window.
@@ -423,6 +423,7 @@ def _score_candidates(
     if _has_live_reviewer(login_weights, activity_by_login):
         return scores
 
+    # If not, nobody the report points at is around to review, so fall back to area contributors.
     max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
     for login, activity in activity_by_login.items():
         if login in scores or not activity.is_likely_owner_of_area:
