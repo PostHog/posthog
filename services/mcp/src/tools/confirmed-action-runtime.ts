@@ -141,7 +141,9 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
             `Surface the message above to the user. Wait for them to reply with the literal word "${CONFIRMATION_WORD}". ` +
             `Then call the matching \`-execute\` tool with \`${CONFIRMATION_HASH_ARG}\` set to the confirmation_hash from this result, ` +
             `and \`${CONFIRMATION_WORD_ARG}\` set to the user's literal reply. The signed hash already contains the action arguments. ` +
-            `If the user does not reply with "${CONFIRMATION_WORD}", do not call the execute tool.`,
+            `If the user does not reply with "${CONFIRMATION_WORD}", do not call the execute tool. ` +
+            `The confirmation expires ${Math.round(options.codec.ttlSeconds / 60)} minutes after this call — ` +
+            `if the user confirms later than that, call this prepare tool again with the same arguments to get a fresh hash.`,
     }
 }
 

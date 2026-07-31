@@ -7,12 +7,13 @@
  */
 
 /**
- * Default TTL on a signed state token, in seconds. 5 minutes is long enough
- * for a model to surface the prepare result to the user and for the user to
- * reply with "confirm", short enough to bound the window a leaked or guessed
- * token is usable.
+ * Default TTL on a signed state token, in seconds. 15 minutes gives the user
+ * time to review a large prepared payload (a full scout definition, say)
+ * before typing "confirm" — 5 minutes proved too short for that in practice —
+ * while still bounding the window a leaked or guessed token is usable. Matches
+ * the 15-minute expiry of the workflows blast-radius confirm token.
  */
-export const DEFAULT_STATE_TTL_SECONDS = 300
+export const DEFAULT_STATE_TTL_SECONDS = 900
 
 /** Minimum acceptable length of the signing key, in bytes (HMAC-SHA256 output size). */
 export const SIGNING_KEY_MIN_BYTES = 32
