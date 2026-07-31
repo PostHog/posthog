@@ -62,6 +62,23 @@ pub struct WarmState {
     pub accepted: u8,
 }
 
+/// A warm in progress under `Variant::EpochFenced`, between its two
+/// steps. Which value is already frozen is exactly what distinguishes
+/// the two orderings of `warm_partition`: acquiring the fence first
+/// leaves the cutoff open (writes landing before the read are still
+/// captured), while reading first freezes the cutoff before the fence
+/// exists (a still-unfenced zombie can commit an acked write the warm
+/// will never see).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum PendingWarm {
+    /// `init_transactions` done, changelog read not yet taken (the
+    /// shipped ordering).
+    FenceAcquired { epoch: u8 },
+    /// Changelog read taken, fence not yet acquired (the rejected
+    /// ordering, kept checkable).
+    CutoffCaptured { cutoff: u8 },
+}
+
 /// One leader pod. `registered` is the etcd lease-bound registration key;
 /// everything else is process memory and dies with the process.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -73,6 +90,10 @@ pub struct Pod {
     /// Partitions warmed by this process incarnation (production:
     /// `warmed_partitions` on the pod handle).
     pub warmed: BTreeMap<Partition, WarmState>,
+    /// Warms mid-flight under `EpochFenced` — one step of
+    /// `warm_partition` done, the other not (empty under `Current`,
+    /// whose warm has no broker step to separate from the read).
+    pub pending_warm: BTreeMap<Partition, PendingWarm>,
     /// Write-fenced partitions (production: `InflightTracker` fences +
     /// the pod handle's `fenced_partitions`).
     pub fenced: BTreeSet<Partition>,
