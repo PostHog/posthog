@@ -95,6 +95,7 @@ class TestRecomputeTask(BaseTest):
         self.assertEqual(mock_notify.call_count, 1)
         data = mock_notify.call_args[0][0]
         self.assertEqual(data.resource_type, "web_analytics")
+        self.assertEqual(data.resource_id, "loyalty")
         self.assertIn("achievements=open", data.source_url)
         self.assertEqual(
             data.metadata,
