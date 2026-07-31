@@ -52,7 +52,12 @@ from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_e
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
+from products.feature_flags.backend.api.feature_flag import (
+    FLAG_FILTERS_VIOLATION_COUNTER,
+    FLAG_FILTERS_WRITE_COUNTER,
+    FeatureFlagSerializer,
+    parse_created_by_ids,
+)
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     flag_payload_codec,
@@ -14036,3 +14041,38 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn("error", response.json())
+
+
+class TestFeatureFlagFiltersMetrics(APIBaseTest):
+    def _write_count(self, operation: str, outcome: str) -> float:
+        return FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source="ui")._value.get()
+
+    def test_write_outcomes_and_violations_are_counted(self) -> None:
+        accepted_before = self._write_count("create", "accepted")
+        rejected_before = self._write_count("create", "rejected")
+        violation_before = FLAG_FILTERS_VIOLATION_COUNTER.labels(
+            stage="incoming_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+        )._value.get()
+
+        ok = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "metrics-ok", "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
+
+        bad = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "metrics-bad", "filters": {"groups": [{"properties": [], "rollout_percentage": 150}]}},
+            format="json",
+        )
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(self._write_count("create", "accepted"), accepted_before + 1)
+        self.assertEqual(self._write_count("create", "rejected"), rejected_before + 1)
+        self.assertEqual(
+            FLAG_FILTERS_VIOLATION_COUNTER.labels(
+                stage="incoming_structural", rule="structural.groups[].rollout_percentage.max_value", operation="create"
+            )._value.get(),
+            violation_before + 1,
+        )

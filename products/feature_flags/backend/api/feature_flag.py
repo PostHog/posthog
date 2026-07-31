@@ -6,7 +6,7 @@ import json
 import math
 import logging
 import functools
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, NoReturn, Optional, cast
@@ -27,6 +27,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_serializer,
 )
+from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.fields import empty
@@ -101,11 +102,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from products.feature_flags.backend.filters_validation import (
-    collect_cross_field_violations,
-    flatten_structural_errors,
-    validate_cross_field_or_raise,
-)
+from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatusChecker,
@@ -139,6 +136,61 @@ scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 # Dedicated name for the same startup-ordering reason as scope_audit_logger above. Emits
 # the violations that would have been 400s while the #50084 enforcement kill switch is off.
 filters_enforcement_logger = structlog.get_logger("posthog.feature_flag_filters_enforcement")
+
+# Rollout observability for #50084 enforcement. Writes counted once per flag write that
+# carries `filters`; `bypassed` is the series to watch during the log-only window (would
+# have been rejected with enforcement on). Labels are bounded: rule ids come from the
+# fixed rule set in filters_validation.py / flatten_structural_errors.
+FLAG_FILTERS_WRITE_COUNTER = Counter(
+    "posthog_feature_flag_filters_write_total",
+    "Feature flag writes carrying filters, by validation outcome",
+    labelnames=["operation", "outcome", "source"],
+)
+
+FLAG_FILTERS_VIOLATION_COUNTER = Counter(
+    "posthog_feature_flag_filters_violation_total",
+    "Filters validation violations, by tier and rule",
+    labelnames=["stage", "rule", "operation"],
+)
+
+
+def _flag_write_source(request: Any) -> str:
+    """Coarse write-source attribution for metrics. Never returns unbounded values."""
+    if request is None:
+        return "internal"
+    headers = getattr(request, "headers", None) or {}
+    if headers.get("x-posthog-mcp-user-agent") or "posthog-mcp" in (headers.get("User-Agent") or ""):
+        return "mcp"
+    authenticator = getattr(request, "successful_authenticator", None)
+    auth_class = type(authenticator).__name__ if authenticator is not None else ""
+    if auth_class == "SessionAuthentication":
+        return "ui"
+    if auth_class in (
+        "PersonalAPIKeyAuthentication",
+        "ProjectSecretAPIKeyAuthentication",
+        "OAuthAccessTokenAuthentication",
+    ):
+        return "api"
+    return "other"
+
+
+def _count_filters_write(operation: str, outcome: str, request: Any) -> None:
+    FLAG_FILTERS_WRITE_COUNTER.labels(operation=operation, outcome=outcome, source=_flag_write_source(request)).inc()
+
+
+def _count_filters_violations(stage: str, operation: str, rule_ids: Iterable[str]) -> None:
+    for rule_id in rule_ids:
+        FLAG_FILTERS_VIOLATION_COUNTER.labels(stage=stage, rule=rule_id or "unknown", operation=operation).inc()
+
+
+def _count_filters_bypass_once(serializer: serializers.Serializer, operation: str, request: Any) -> None:
+    """A single write can bypass several tiers in log-only mode; count it once."""
+    root = serializer.root if serializer.root is not None else serializer
+    if getattr(root, "_filters_bypass_counted", False):
+        return
+    root._filters_bypass_counted = True  # type: ignore[attr-defined]
+    _count_filters_write(operation, "bypassed", request)
+
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -794,7 +846,7 @@ def _reject_serde_unsafe_filters(filters: dict[str, Any]) -> None:
                 raise serializers.ValidationError(f"{path} must be a number, got null")
             return
         # Check bool before int/float because bool is a subclass of int
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, int | float):
             expected = "a number or null" if allow_null else "a number"
             raise serializers.ValidationError(f"{path} must be {expected}, got {type(value).__name__}")
         if not math.isfinite(value):
@@ -921,13 +973,18 @@ class FeatureFlagFiltersField(FeatureFlagFiltersSerializer):
                 ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
                 for violation in flatten_structural_errors(exc.detail)
             ]
+            operation = "create" if getattr(self.root, "instance", None) is None else "update"
+            request = self.context.get("request")
+            _count_filters_violations("incoming_structural", operation, [detail.code for detail in details])
             if not settings.FEATURE_FLAG_FILTERS_ENFORCEMENT and isinstance(data, dict):
+                _count_filters_bypass_once(self, operation, request)
                 filters_enforcement_logger.warning(
                     "feature_flag_filters_enforcement_bypassed",
                     stage="incoming_structural",
                     errors=[str(detail) for detail in details],
                 )
                 return copy.deepcopy(data)
+            _count_filters_write(operation, "rejected", request)
             raise serializers.ValidationError(details) from exc
 
 
@@ -1374,6 +1431,16 @@ class FeatureFlagSerializer(
         return _is_realtime_cohort_flag_targeting_enabled(self.context["request"])
 
     def validate_filters(self, filters):
+        # Metrics wrapper: one `rejected` increment per write, regardless of which tier
+        # inside raised. `accepted` is counted at save time in create()/update().
+        operation = "create" if self.instance is None else "update"
+        try:
+            return self._validate_filters_inner(filters, operation)
+        except serializers.ValidationError:
+            _count_filters_write(operation, "rejected", self.context.get("request"))
+            raise
+
+    def _validate_filters_inner(self, filters, operation: str):
         # Incoming `filters` was already structurally validated by FeatureFlagFiltersField
         # (types trusted, operator aliases canonical, payload values JSON-encoded strings),
         # unless the enforcement kill switch is off, in which case it can be any raw dict.
@@ -1381,7 +1448,11 @@ class FeatureFlagSerializer(
 
         # Cache-poisoning inputs are rejected regardless of the switch — log-only mode must
         # never accept what the pre-enforcement validator rejected.
-        _reject_serde_unsafe_filters(filters)
+        try:
+            _reject_serde_unsafe_filters(filters)
+        except serializers.ValidationError:
+            _count_filters_violations("serde_fidelity", operation, ["serde_fidelity"])
+            raise
 
         # Updates validate and store the merged final state (#50084): incoming top-level keys
         # replace stored ones atomically, so `filters: {}` is a validated no-op and
@@ -1424,8 +1495,10 @@ class FeatureFlagSerializer(
                 ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
                 for violation in flatten_structural_errors(structural.errors)
             ]
+            _count_filters_violations("merged_structural", operation, [detail.code for detail in details])
             if enforcement:
                 raise serializers.ValidationError(details)
+            _count_filters_bypass_once(self, operation, self.context.get("request"))
             filters_enforcement_logger.warning(
                 "feature_flag_filters_enforcement_bypassed",
                 stage="merged_structural",
@@ -1494,17 +1567,25 @@ class FeatureFlagSerializer(
 
             # Cross-field tier (#50084): variant sums, key uniqueness, payload/variant
             # agreement, operator/value compatibility — see filters_validation.py.
-            if enforcement:
-                validate_cross_field_or_raise(merged)
-            else:
-                cross_field_violations = collect_cross_field_violations(merged)
-                if cross_field_violations:
-                    filters_enforcement_logger.warning(
-                        "feature_flag_filters_enforcement_bypassed",
-                        stage="cross_field",
-                        flag_id=getattr(self.instance, "id", None),
-                        errors=[f"{violation.path}: {violation.message}" for violation in cross_field_violations],
+            cross_field_violations = collect_cross_field_violations(merged)
+            if cross_field_violations:
+                _count_filters_violations(
+                    "cross_field", operation, [violation.rule_id for violation in cross_field_violations]
+                )
+                if enforcement:
+                    raise serializers.ValidationError(
+                        [
+                            ErrorDetail(f"{violation.path}: {violation.message}", code=violation.rule_id)
+                            for violation in cross_field_violations
+                        ]
                     )
+                _count_filters_bypass_once(self, operation, self.context.get("request"))
+                filters_enforcement_logger.warning(
+                    "feature_flag_filters_enforcement_bypassed",
+                    stage="cross_field",
+                    flag_id=getattr(self.instance, "id", None),
+                    errors=[f"{violation.path}: {violation.message}" for violation in cross_field_violations],
+                )
 
         # Collect existing regex patterns so we don't reject unchanged patterns on
         # PATCH — flags may contain regexes valid in fancy_regex/PG ARE but not Python re.
@@ -1799,6 +1880,9 @@ class FeatureFlagSerializer(
             request=request,
         )
 
+        if isinstance(self.initial_data, dict) and "filters" in self.initial_data:
+            _count_filters_write("create", "accepted", request)
+
         return instance
 
     @approval_gate(["feature_flag.enable", "feature_flag.disable", "feature_flag.update"])
@@ -2031,6 +2115,9 @@ class FeatureFlagSerializer(
             instance.filters["payloads"] = get_decrypted_flag_payloads_protected(
                 request, instance.filters.get("payloads", {})
             )
+
+        if isinstance(self.initial_data, dict) and "filters" in self.initial_data:
+            _count_filters_write("update", "accepted", request)
 
         return instance
 
