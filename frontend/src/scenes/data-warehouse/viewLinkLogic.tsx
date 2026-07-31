@@ -672,8 +672,14 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             },
         ],
     }),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         isJoinTableModalOpen: (isOpen) => {
+            if (isOpen && values.allTables.length === 0) {
+                // Not every surface that opens this modal mounts a logic that loads the
+                // database schema (the data catalog doesn't); without it the table and
+                // key pickers render empty.
+                actions.loadDatabase()
+            }
             if (!isOpen) {
                 actions.clearModalFields()
                 actions.resetViewLink()

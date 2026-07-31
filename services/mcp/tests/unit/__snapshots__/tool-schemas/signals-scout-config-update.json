@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "auto_pause_exempt": {
+            "description": "Exempt this scout from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste.",
+            "type": "boolean"
+        },
         "emit": {
             "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
             "type": "boolean"

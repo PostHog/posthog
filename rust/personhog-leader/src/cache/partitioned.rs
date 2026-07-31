@@ -3,6 +3,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use metrics::counter;
 
+#[cfg(test)]
+use super::persons::approx_person_bytes;
 use super::persons::{CachedPerson, PersonCache, PersonCacheKey};
 
 /// Result of a cache lookup that distinguishes partition ownership from person existence.
@@ -57,6 +59,11 @@ impl PartitionedCache {
     /// Drop the cache for the given partition, evicting all entries.
     pub fn drop_partition(&self, partition: u32) {
         self.partitions.remove(&partition);
+    }
+
+    /// Total resident weight in bytes across all owned partitions.
+    pub fn usage_bytes(&self) -> usize {
+        self.partitions.iter().map(|c| c.usage_bytes()).sum()
     }
 
     /// Check if a partition cache exists (i.e., the partition is owned).
@@ -117,12 +124,13 @@ mod tests {
             created_at: 1700000000,
             version: 1,
             is_identified: false,
+            approx_bytes: approx_person_bytes(64),
         }
     }
 
     #[test]
     fn get_returns_partition_not_owned_for_unknown_partition() {
-        let cache = PartitionedCache::new(100);
+        let cache = PartitionedCache::new(1 << 20);
         assert!(matches!(
             cache.get(0, &test_key()),
             CacheLookup::PartitionNotOwned
@@ -131,7 +139,7 @@ mod tests {
 
     #[test]
     fn create_and_use_partition() {
-        let cache = PartitionedCache::new(100);
+        let cache = PartitionedCache::new(1 << 20);
         cache.create_partition(0);
         assert!(cache.has_partition(0));
 
@@ -144,7 +152,7 @@ mod tests {
 
     #[test]
     fn drop_partition_evicts_all_entries() {
-        let cache = PartitionedCache::new(100);
+        let cache = PartitionedCache::new(1 << 20);
         cache.create_partition(0);
         cache.put(0, test_key(), test_person());
 
@@ -158,7 +166,7 @@ mod tests {
 
     #[test]
     fn partitions_are_isolated() {
-        let cache = PartitionedCache::new(100);
+        let cache = PartitionedCache::new(1 << 20);
         cache.create_partition(0);
         cache.create_partition(1);
 
@@ -173,7 +181,7 @@ mod tests {
 
     #[test]
     fn put_to_unknown_partition_is_noop() {
-        let cache = PartitionedCache::new(100);
+        let cache = PartitionedCache::new(1 << 20);
         cache.put(99, test_key(), test_person());
         assert!(matches!(
             cache.get(99, &test_key()),

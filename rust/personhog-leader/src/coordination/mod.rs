@@ -157,7 +157,7 @@ mod tests {
         };
         let pools = Arc::new(WarmClientPools::new(&kafka, "test", "personhog-writer"));
         LeaderHandoffHandler::new(
-            Arc::new(PartitionedCache::new(100)),
+            Arc::new(PartitionedCache::new(1 << 20)),
             Arc::new(InflightTracker::new()),
             Arc::new(DirtyIndex::new(1_000_000)),
             WarmingConfig {

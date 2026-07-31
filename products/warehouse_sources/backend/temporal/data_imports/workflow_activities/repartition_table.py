@@ -27,10 +27,14 @@ from temporalio.exceptions import ApplicationError
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    DeltaTableHelper,
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
     RepartitionTarget,
@@ -158,9 +162,15 @@ def _maybe_flag_pre_extraction(
             return None
         async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger, enabled=enabled)
     except Exception as e:
-        # Detection is best-effort; a failure here must not block the sync.
-        logger.warning("repartition: pre-extraction detection failed", exc_info=True)
-        capture_exception(e)
+        # Detection is best-effort; a failure here must not block the sync. `get_delta_table` re-raises
+        # transient object-store blips (S3/credential-provider timeouts) rather than swallowing them —
+        # see its own docstring — so this is the layer that must apply is_transient_object_store_error
+        # before reporting, same as the other best-effort call sites around this table.
+        if is_transient_object_store_error(e):
+            logger.warning("repartition: pre-extraction detection failed with a transient object-store error")
+        else:
+            logger.warning("repartition: pre-extraction detection failed", exc_info=True)
+            capture_exception(e)
         return None
     return schema.repartition_pending
 
@@ -189,7 +199,9 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
 
 def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: FilteringBoundLogger) -> None:
     try:
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        schema = retry_on_db_connection_drop(
+            lambda: ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        )
     except ExternalDataSchema.DoesNotExist:
         logger.warning(
             f"repartition: schema not found, skipping activity schema_id={inputs.schema_id}",
@@ -236,7 +248,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         return
 
     try:
-        job = ExternalDataJob.objects.get(id=inputs.job_id)
+        job = retry_on_db_connection_drop(lambda: ExternalDataJob.objects.get(id=inputs.job_id))
     except ExternalDataJob.DoesNotExist:
         logger.warning(
             f"repartition: job not found, skipping activity job_id={inputs.job_id}",
