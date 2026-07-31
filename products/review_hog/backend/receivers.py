@@ -47,12 +47,14 @@ from django.db import transaction
 from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
-from products.review_hog.backend.temporal.client import start_review_pr_workflow
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
-from products.stamphog.backend.facade.tasks import queue_inbox_pr_review
+
+# This module loads during django.setup() (AppConfig.ready() wires the receiver), and
+# posthog/test/test_startup_import_budget.py forbids temporalio/modal/openai/anthropic at setup —
+# the temporal client and the stamphog task module reach all four, so those two imports stay
+# function-local in _start_review / _start_stamphog_review per the budget test's own prescription.
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +237,10 @@ def _start_stamphog_review(
     toggle-gated dispatch. `repository` is the task's own repo, which the queued task requires the
     PR to be in; `output.pr_url` is writable through the task-run API, so the PR alone isn't trusted.
     """
+    # Function-local: pulls the stamphog task module (temporalio via its workflow client), which
+    # the startup-import-budget test forbids at django.setup() — see the module-top comment.
+    from products.stamphog.backend.facade.tasks import queue_inbox_pr_review  # noqa: PLC0415
+
     try:
         queue_inbox_pr_review(
             team_id=team_id,
@@ -263,6 +269,12 @@ def _start_review(
     The PR leg wins when both targets are present — the client accepts exactly one, and a PR is the
     strictly better target (publishable, and its head IS the pushed branch).
     """
+    # Function-local: importing the temporal client executes the review_hog temporal package, whose
+    # activity registration reaches temporalio, modal, openai, and anthropic — all four forbidden at
+    # django.setup() by the startup-import-budget test. See the module-top comment.
+    from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
+    from products.review_hog.backend.temporal.types import TRIGGER_INBOX  # noqa: PLC0415
+
     if pr_url is not None:
         target_kwargs: dict[str, str] = {"pr_url": pr_url}
     else:

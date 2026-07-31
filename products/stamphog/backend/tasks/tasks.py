@@ -18,7 +18,6 @@ from django.utils.dateparse import parse_datetime
 
 import structlog
 from celery import shared_task
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
@@ -402,6 +401,10 @@ def _start_review_workflow(review_run_id: str, team_id: int) -> None:
     already running raises ``WorkflowAlreadyStartedError`` — safe to swallow. Any other
     failure (Temporal unreachable) propagates so the caller can retry the Celery task.
     """
+    # Function-local: this module sits on the webhook view's import path (every web boot), and the
+    # startup-import-budget test's policy is that only workers and call-time paths load temporalio.
+    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415
+
     try:
         execute_stamphog_review_workflow(review_run_id=review_run_id, team_id=team_id)
     except WorkflowAlreadyStartedError:

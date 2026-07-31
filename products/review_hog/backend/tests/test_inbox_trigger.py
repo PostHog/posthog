@@ -9,14 +9,19 @@ from social_django.models import UserSocialAuth
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+# Imported at module scope so the heavy temporal package loads at collection time (like every other
+# temporal test module); letting patch() import it mid-test would run the tasks sandbox-class
+# resolution under test settings, where a local SANDBOX_PROVIDER env rejects DEBUG=False.
+import products.review_hog.backend.temporal.client  # noqa: F401
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.receivers import resolve_stamphog_acting_reviewer
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.tasks.backend.models import Task, TaskRun
 
-# receivers.py imports both names at module top, so the use site is the patch target.
-_START = "products.review_hog.backend.receivers.start_review_pr_workflow"
-_STAMPHOG_QUEUE = "products.review_hog.backend.receivers.queue_inbox_pr_review"
+# receivers.py imports both at call time (startup-import-budget), so the defining modules are the
+# patch targets.
+_START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+_STAMPHOG_QUEUE = "products.stamphog.backend.facade.tasks.queue_inbox_pr_review"
 # GitHub's own casing, as a real `output.pr_url` carries it. The task row lowercases its slug, so
 # this is what lets an assertion tell the task's repository apart from the PR URL's own claim.
 _PR_URL = "https://github.com/PostHog/posthog/pull/9"
