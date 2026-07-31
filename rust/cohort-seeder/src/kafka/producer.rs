@@ -12,7 +12,9 @@ use common_liveness::SyncLivenessReporter;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 
-use crate::domain::{MembershipPartition, NextOffset, ReconcileTile, SeedTile, WatchPositions};
+use crate::domain::{
+    MembershipPartition, NextOffset, PersonSeed, ReconcileTile, SeedTile, WatchPositions,
+};
 
 pub use crate::domain::partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 
@@ -88,6 +90,15 @@ impl SeedTileProducer {
     pub fn enqueue(&self, tile: &SeedTile) -> Result<DeliveryFuture, EnqueueError> {
         let payload = serde_json::to_vec(tile).expect("SeedTile serialization cannot fail");
         let key = tile.partition_key();
+        let record = FutureRecord::to(&self.topic).key(&key).payload(&payload);
+        self.producer
+            .send_result(record)
+            .map_err(|(error, _)| error.into())
+    }
+
+    pub fn enqueue_person(&self, seed: &PersonSeed) -> Result<DeliveryFuture, EnqueueError> {
+        let payload = serde_json::to_vec(seed).expect("PersonSeed serialization cannot fail");
+        let key = seed.partition_key();
         let record = FutureRecord::to(&self.topic).key(&key).payload(&payload);
         self.producer
             .send_result(record)

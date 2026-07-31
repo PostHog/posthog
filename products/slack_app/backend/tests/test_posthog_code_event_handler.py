@@ -1,16 +1,17 @@
 import json
-from typing import Any
+from typing import Any, cast
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
+from structlog.testing import capture_logs
 
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -19,7 +20,7 @@ from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
-class TestPostHogCodeEventHandler(TestCase):
+class TestPostHogCodeEventHandler(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()
         self.signing_secret = "posthog-code-test-secret"
@@ -101,6 +102,46 @@ class TestPostHogCodeEventHandler(TestCase):
             mock_route.assert_called_once()
         else:
             mock_route.assert_not_called()
+
+    @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_link_shared_logs_unfurl_context(self, mock_config, mock_route):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_route.return_value = "handled_locally"
+        payload = {
+            "type": "event_callback",
+            "team_id": "T12345",
+            "event_id": "Ev12345",
+            "is_ext_shared_channel": True,
+            "event": {
+                "type": "link_shared",
+                "channel": "C001",
+                "message_ts": "1234.5678",
+                "user": "U123",
+                "links": [
+                    {"url": "https://us.posthog.com/project/2/insights/abc123"},
+                    {"url": "https://us.posthog.com/project/2/dashboard/456"},
+                    {"url": "https://example.com/project/2/insights/not-posthog"},
+                ],
+            },
+        }
+
+        with capture_logs() as logs:
+            response = self._post_event(payload)
+
+        assert response.status_code == 202
+        unfurl_log = next(log for log in logs if log["event"] == "slack_link_unfurl_received")
+        assert unfurl_log == {
+            "event": "slack_link_unfurl_received",
+            "slack_team_id": "T12345",
+            "event_id": "Ev12345",
+            "channel": "C001",
+            "message_ts": "1234.5678",
+            "is_ext_shared_channel": True,
+            "is_ext_shared_channel_type": "bool",
+            "resources": [{"type": "insight", "ref": "abc123"}, {"type": "dashboard", "ref": "456"}],
+            "log_level": "info",
+        }
 
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
@@ -270,15 +311,18 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @parameterized.expand(
         [
-            ("edited_field", {"edited": {"user": "U123", "ts": "1234.7777"}}),
-            ("message_changed_subtype", {"subtype": "message_changed"}),
-            ("bot_id", {"bot_id": "B0ALERT"}),
-            ("bot_profile", {"bot_profile": {"name": "Mendral", "id": "B0ALERT"}}),
-            ("app_id", {"app_id": "A0ALERT"}),
-            ("bot_message_subtype", {"subtype": "bot_message"}),
-            ("slackbot_user", {"user": "USLACKBOT"}),
+            ("edited_field", {"edited": {"user": "U123", "ts": "1234.7777"}}, "ignored:edit"),
+            ("message_changed_subtype", {"subtype": "message_changed"}, "ignored:edit"),
+            ("bot_id", {"bot_id": "B0ALERT"}, "ignored:bot_author"),
+            ("bot_profile", {"bot_profile": {"name": "Mendral", "id": "B0ALERT"}}, "ignored:bot_author"),
+            # Still dropped, but under its own reason so the volume of app-posted-as-a-human
+            # mentions is measurable rather than hidden inside the bot bucket.
+            ("app_id", {"app_id": "A0ALERT"}, "ignored:app_authored"),
+            ("bot_message_subtype", {"subtype": "bot_message"}, "ignored:bot_author"),
+            ("slackbot_user", {"user": "USLACKBOT"}, "ignored:bot_author"),
         ]
     )
+    @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
@@ -286,19 +330,32 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         self,
         _name,
         ignore_marker: dict,
+        expected_drop_reason: str,
         mock_sync_connect,
         mock_asyncio_run,
+        mock_capture,
     ):
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
         ignored_event = {**self.event, **ignore_marker}
 
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.api import (
+            ROUTE_HANDLED_LOCALLY,
+            SLACK_MENTION_DROPPED_EVENT,
+            route_posthog_code_event_to_relevant_region,
+        )
 
         result = route_posthog_code_event_to_relevant_region(request, ignored_event, "T12345")
 
         assert result == ROUTE_HANDLED_LOCALLY
         mock_sync_connect.assert_not_called()
         mock_asyncio_run.assert_not_called()
+
+        # Slack gets a 200 either way, so the drop is only visible if we capture it.
+        mock_capture.assert_called_once()
+        capture_kwargs = mock_capture.call_args.kwargs
+        assert capture_kwargs["event"] == SLACK_MENTION_DROPPED_EVENT
+        assert capture_kwargs["properties"]["drop_reason"] == expected_drop_reason
+        assert capture_kwargs["properties"]["replied"] is False
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
@@ -315,8 +372,13 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        mock_post_feedback.return_value = True
 
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.api import (
+            ROUTE_HANDLED_LOCALLY,
+            SLACK_MENTION_DROPPED_EVENT,
+            route_posthog_code_event_to_relevant_region,
+        )
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
         result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
@@ -333,29 +395,35 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert mock_post_feedback.call_args.kwargs.get("prefer_thread_message") is True
 
         # The mention is still reported to analytics with ``posthog_user_identified=False``
-        # so the unknown-user volume stays comparable to the known-user funnel.
-        mock_capture.assert_called_once()
-        capture_kwargs = mock_capture.call_args.kwargs
-        assert capture_kwargs.get("event") == "posthog code slack mention received"
-        assert capture_kwargs.get("properties", {}).get("posthog_user_identified") is False
+        # so the unknown-user volume stays comparable to the known-user funnel, and the
+        # drop itself is captured so the unanswered mention is queryable.
+        captured = {call.kwargs["event"]: call.kwargs["properties"] for call in mock_capture.call_args_list}
+        assert captured["posthog code slack mention received"]["posthog_user_identified"] is False
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["drop_reason"] == "user_unresolved:user_not_found"
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["replied"] is True
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
+    @patch("products.slack_app.backend.api._post_slack_user_ephemeral")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_unknown_user_in_unapproved_ext_shared_channel_suppresses_failure_reply(
-        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_capture
+    def test_unknown_user_in_unapproved_ext_shared_channel_replies_ephemerally(
+        self, mock_sync_connect, mock_asyncio_run, mock_post_feedback, mock_post_ephemeral, mock_capture
     ):
         # Externally-shared channels that haven't been approved must not receive a
-        # public "Sorry, I couldn't find <email>" post — that leaks the integration's
-        # existence (and the user's email) to non-org members. The approval prompt
-        # itself requires a resolved user, so we stay completely silent in this case.
-        # Analytics still records the event for funnel coverage.
+        # channel-visible "Sorry, I couldn't find <email>" post, which would expose the
+        # integration's existence (and the user's email) to non-org members. The
+        # mentioner still gets the reason as an ephemeral instead of silence.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        mock_post_ephemeral.return_value = True
 
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.api import (
+            ROUTE_HANDLED_LOCALLY,
+            SLACK_MENTION_DROPPED_EVENT,
+            route_posthog_code_event_to_relevant_region,
+        )
 
         request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
         result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345", is_ext_shared_channel=True)
@@ -363,8 +431,18 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_sync_connect.assert_not_called()
         mock_asyncio_run.assert_not_called()
+        # ``_post_slack_user_feedback`` falls back to a channel post, so it must stay out
+        # of this path entirely.
         mock_post_feedback.assert_not_called()
-        mock_capture.assert_called_once()
+        mock_post_ephemeral.assert_called_once()
+        # ``self.event`` is a top-level mention, so the ephemeral must not be anchored to
+        # a thread: Slack wouldn't render it on the channel view the mentioner is on.
+        assert mock_post_ephemeral.call_args.args[3] is None
+        assert "stranger@example.com" in mock_post_ephemeral.call_args.args[4]
+
+        captured = {call.kwargs["event"]: call.kwargs["properties"] for call in mock_capture.call_args_list}
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["drop_reason"] == "user_unresolved:user_not_found"
+        assert captured[SLACK_MENTION_DROPPED_EVENT]["replied"] is True
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
@@ -1327,3 +1405,37 @@ class TestQueueWorkflowDispatch(TestCase):
         # Dispatch adds no reaction — the queue workflow reacts only on
         # messages that actually wait behind another one.
         mock_slack.return_value.client.reactions_add.assert_not_called()
+
+
+class TestPostSlackUserEphemeral(SimpleTestCase):
+    def test_request_timeout_applies_to_the_client_that_makes_the_call(self):
+        # ``SlackIntegration.client`` builds a fresh WebClient on every access, so setting
+        # the timeout on one access and calling on another leaves the request on the SDK
+        # default. Nothing about the app's behavior changes when that happens, so only an
+        # assertion on the client instance catches it.
+        from products.slack_app.backend.api import SLACK_FEEDBACK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+
+        built_clients: list[MagicMock] = []
+
+        class _NewClientPerAccess:
+            @property
+            def client(self) -> MagicMock:
+                built_clients.append(MagicMock())
+                return built_clients[-1]
+
+        posted = _post_slack_user_ephemeral(cast(SlackIntegration, _NewClientPerAccess()), "C001", "U123", None, "nope")
+
+        assert posted is True
+        assert len(built_clients) == 1
+        assert built_clients[0].timeout == SLACK_FEEDBACK_TIMEOUT_SECONDS
+        built_clients[0].chat_postEphemeral.assert_called_once()
+
+    def test_failed_delivery_is_reported_as_not_replied(self):
+        # The drop analytics distinguish "we told them why" from silence, so a Slack
+        # rejection must not be reported as a reply.
+        from products.slack_app.backend.api import _post_slack_user_ephemeral
+
+        slack = MagicMock()
+        slack.client.chat_postEphemeral.side_effect = Exception("ratelimited")
+
+        assert _post_slack_user_ephemeral(slack, "C001", "U123", None, "nope") is False

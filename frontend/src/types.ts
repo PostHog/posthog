@@ -81,6 +81,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -1042,6 +1043,10 @@ export enum PropertyOperator {
     IsNot = 'is_not',
     IContains = 'icontains',
     NotIContains = 'not_icontains',
+    StartsWith = 'starts_with',
+    NotStartsWith = 'not_starts_with',
+    EndsWith = 'ends_with',
+    NotEndsWith = 'not_ends_with',
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
@@ -5893,6 +5898,11 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
+    /** Resource whose project-wide rules apply while the object carries no override of its own. */
+    inherited_resource?: APIScopeObject | null
+    /** The level that applies while the object carries no override: the project-wide rule for
+     * `inherited_resource`, or its built-in default when no rule is set. */
+    inherited_access_level?: AccessControlLevel | null
 }
 
 export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
@@ -6150,6 +6160,8 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
+    suspended?: DataWarehouseSavedQueryApiSuspended
     upstream_dependency_count?: number
     downstream_dependency_count?: number
     created_at?: string
@@ -6453,6 +6465,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor */
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    /** The requesting user's effective access level for this table (inherits the source). */
+    user_access_level?: AccessControlLevel
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */

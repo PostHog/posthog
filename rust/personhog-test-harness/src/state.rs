@@ -47,6 +47,11 @@ impl PersonState {
         }
     }
 
+    /// Journal an ack that applied a change. Only these acks claim their
+    /// version: the leader assigns each applied update a fresh version
+    /// under the per-person lock, so two applied acks sharing one version
+    /// means two writes served from the same base state — the split-brain
+    /// signature the duplicate check exists to catch.
     pub async fn record_write(
         &self,
         person_id: i64,
@@ -74,6 +79,32 @@ impl PersonState {
                 expected: serde_json::json!("each version acked at most once"),
                 actual: serde_json::json!(version),
             });
+        }
+    }
+
+    /// Journal an ack whose response reported no change applied. The data
+    /// is durable — the keys were already present, so they verify like any
+    /// other write — but the echoed version belongs to whichever earlier
+    /// write set it, not to this one, so no version is claimed. This is
+    /// the at-least-once replay shape: a redelivered write whose first
+    /// application succeeded echoes the person's current version, which a
+    /// concurrent writer may legitimately own.
+    pub async fn record_write_no_change(
+        &self,
+        person_id: i64,
+        properties: HashMap<String, serde_json::Value>,
+    ) {
+        let mut journal = self.inner.write().await;
+        let entry = journal
+            .persons
+            .entry(person_id)
+            .or_insert_with(|| ExpectedPerson {
+                written_properties: HashMap::new(),
+                last_version: 0,
+                acked_versions: HashSet::new(),
+            });
+        for (k, v) in properties {
+            entry.written_properties.insert(k, v);
         }
     }
 
@@ -222,6 +253,35 @@ mod tests {
             let got = violation_keys(verify_properties(1, &expected, actual));
             assert_eq!(got, *expected_keys, "actual={actual}");
         }
+    }
+
+    /// A no-change ack (an at-least-once replay echo) must journal its
+    /// keys without claiming the echoed version — otherwise a replay
+    /// racing a concurrent writer manufactures a false duplicate-version
+    /// violation. A real duplicate (two applied acks, one version) must
+    /// still be flagged.
+    #[tokio::test]
+    async fn no_change_acks_journal_keys_without_claiming_versions() {
+        let state = PersonState::new();
+        state.record_write(1, 41, props(&[("k1", "v1")])).await;
+        // The replay echo: version 41 is current, but this ack applied
+        // nothing. No violation, keys merged.
+        state
+            .record_write_no_change(1, props(&[("k2", "v2")]))
+            .await;
+        assert!(state.take_anomalies().await.is_empty());
+        let snapshot = state.snapshot().await;
+        let entry = &snapshot[&1];
+        assert_eq!(entry.written_properties.len(), 2);
+        assert_eq!(entry.last_version, 41);
+
+        // Two applied acks sharing a version stay a violation.
+        let state = PersonState::new();
+        state.record_write(2, 41, props(&[("a", "1")])).await;
+        state.record_write(2, 41, props(&[("b", "2")])).await;
+        let anomalies = state.take_anomalies().await;
+        assert_eq!(anomalies.len(), 1);
+        assert_eq!(anomalies[0].key, "__ack_version_duplicate");
     }
 
     #[tokio::test]
