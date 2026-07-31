@@ -16,6 +16,7 @@ from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 
+from products.signals.backend.models import SignalReport
 from products.stamphog.backend.facade.enums import (
     ChannelResolutionSource,
     DigestRunStatus,
@@ -41,6 +42,7 @@ from products.stamphog.backend.temporal.activities import (
 from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_CONTEXT_PATH, STAMPHOG_SANDBOX_REPO_DIR
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogChain, _run_activity
+from products.tasks.backend.models import Task, TaskRun
 
 REPO = "acme/widgets"
 INSTALLATION_ID = "2001"
@@ -1485,21 +1487,45 @@ def test_label_mode_synchronize_without_label_dismisses_stale_approval(team, sta
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_chain: StamphogChain) -> None:
-    # The receiver-leg chain, no webhook involved: process_inbox_pr_review -> run stamped with inbox
-    # provenance -> real activities -> sandbox context carries self_driving_review -> a real APPROVE
-    # posted on the bot-authored DRAFT PR, pinned to its head. This is where the provenance-to-engine
-    # threading is verified end to end — drop any link (provenance not stamped, flag not passed into
-    # the invocation) and the engine refuses the bot author instead of approving.
+    # The receiver-leg chain, no webhook involved: process_inbox_pr_review -> real branch-linkage
+    # match against the run's server-stamped state -> run stamped with inbox provenance -> real
+    # activities -> sandbox context carries self_driving_review -> a real APPROVE posted on the
+    # bot-authored DRAFT PR, pinned to its head. This is where the provenance-to-engine threading
+    # is verified end to end — drop any link (branch not stamped, provenance not stamped, flag not
+    # passed into the invocation) and the engine refuses the bot author instead of approving. The
+    # linked run is COMPLETED, the normal end state right after the PR opens.
     _repo_config(team.id)
     recorder = stamphog_chain.recorder
+    head_branch = "posthog-self-driving/fix-the-thing-3f9a2c"
     pr_object = _pr_object(120, "posthog-code[bot]", "sha120a")
     pr_object["draft"] = True
     pr_object["state"] = "open"
     pr_object["user"]["type"] = "Bot"
-    # Server-attested identity: the receiver requires a repo-native head authored by the App bot.
+    # Server-attested identity: the receiver requires a repo-native head authored by the App bot,
+    # on the head branch the server pre-assigned to the implementation run.
     pr_object["head"]["repo"] = {"full_name": REPO}
+    pr_object["head"]["ref"] = head_branch
     recorder.register_pr(REPO, 120, pr_object, _pr_files())
     recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
+    )
+    task = Task.objects.create(
+        team=team,
+        title="Implementation: fix the thing",
+        description="",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        repository=REPO,
+        signal_report=report,
+        internal=True,
+    )
+    task_run = TaskRun.objects.create(
+        task=task,
+        team=team,
+        status=TaskRun.Status.COMPLETED,
+        state={"ai_stage": "implementation", "self_driving_head_branch": head_branch},
+    )
 
     with (
         override_instance_config("GITHUB_APP_SLUG", "posthog-code"),
@@ -1514,8 +1540,8 @@ def test_inbox_review_approves_a_selfdriving_draft_pr_end_to_end(team, stamphog_
             pr_url=f"https://github.com/{REPO}/pull/120",
             repository=REPO,
             acting_user_id=777,
-            signal_report_id="rep-1",
-            task_run_id="run-1",
+            signal_report_id=str(report.id),
+            task_run_id=str(task_run.id),
         )
 
     run = ReviewRun.objects.for_team(team.id).latest("created_at")

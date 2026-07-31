@@ -820,10 +820,9 @@ def test_inbox_carve_out_rereviews_a_selfdriving_pr_past_every_gate(team, repo_c
         "acting_user_id": 777,
     }
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
-    # Fork-safety feeds the lookup the base repo and both PR locators; the config's team scopes it.
-    mock_find.assert_called_once_with(
-        team_id=team.id, repository=REPO, pr_url=f"https://github.com/{REPO}/pull/42", head_branch="feature-branch"
-    )
+    # Fork-safety feeds the lookup the base repo and GitHub's head ref (matched against the run's
+    # server-stamped branch); the config's team scopes it.
+    mock_find.assert_called_once_with(team_id=team.id, repository=REPO, head_branch="feature-branch")
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -923,6 +922,22 @@ def test_inbox_carve_out_requires_task_linkage(team, repo_config):
     mock_execute.assert_not_called()
 
 
+# Deterministic linkage ids so provenance assertions can name the exact run and report the
+# patched facade lookup attests.
+_LINKED_RUN_ID = uuid.UUID("00000000-0000-0000-0000-00000000aaaa")
+_LINKED_REPORT_ID = uuid.UUID("00000000-0000-0000-0000-00000000bbbb")
+
+
+def _linked_run_dto(team_id: int) -> SignalImplementationRunDTO:
+    return SignalImplementationRunDTO(
+        run_id=_LINKED_RUN_ID,
+        task_id=uuid.uuid4(),
+        team_id=team_id,
+        signal_report_id=_LINKED_REPORT_ID,
+        task_created_by_id=None,
+    )
+
+
 def _run_inbox_task(
     team_id: int,
     pr: dict[str, Any] | None,
@@ -930,6 +945,7 @@ def _run_inbox_task(
     app_slug: str = APP_SLUG,
     repository: str = REPO,
     resolver=lambda team_id, report_id, preferred: (preferred or 0) + 111,
+    linked: SignalImplementationRunDTO | None | str = "match",
 ):
     """Run process_inbox_pr_review with GitHub and Temporal mocked; returns (mock_execute, mock_client).
 
@@ -937,12 +953,16 @@ def _run_inbox_task(
     without one (the process-global registry would otherwise resolve real, empty fixtures). It
     derives its pick from the preferred id (777 -> 888) so one provenance assertion proves both
     halves of the contract: the queued id is passed through as the preferred pick, and the
-    resolver's return, not the queued id, is what gets stamped.
+    resolver's return, not the queued id, is what gets stamped. ``linked`` is what the patched
+    branch-linkage lookup returns: the default "match" models the queued run owning the PR's head
+    branch; pass None or a foreign DTO to model a PR no stamped run (or a different run) owns.
     """
+    find_result = _linked_run_dto(team_id) if linked == "match" else linked
     with (
         team_scope(team_id),
         override_instance_config("GITHUB_APP_SLUG", app_slug),
         patch(_RESOLVER_SLOT, resolver),
+        patch(_FIND_RUN, return_value=find_result),
         patch("products.stamphog.backend.tasks.tasks.transaction.on_commit", side_effect=lambda fn, using=None: fn()),
         patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow") as mock_execute,
         patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
@@ -953,8 +973,8 @@ def _run_inbox_task(
             pr_url=pr_url,
             repository=repository,
             acting_user_id=777,
-            signal_report_id="report-1",
-            task_run_id="run-1",
+            signal_report_id=str(_LINKED_REPORT_ID),
+            task_run_id=str(_LINKED_RUN_ID),
         )
     return mock_execute, mock_client
 
@@ -1000,8 +1020,8 @@ def test_inbox_receiver_leg_reviews_the_draft_pr(team, repo_config):
     assert run.pull_request.pr_number == 42
     assert run.output["inbox_review"] == {
         "trigger": "inbox",
-        "signal_report_id": "report-1",
-        "task_run_id": "run-1",
+        "signal_report_id": str(_LINKED_REPORT_ID),
+        "task_run_id": str(_LINKED_RUN_ID),
         "acting_user_id": 888,
     }
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
@@ -1020,6 +1040,25 @@ def test_inbox_receiver_leg_skips_when_opt_in_is_revoked_before_execution(team, 
     # resolver hook the webhook leg uses (fail-closed when unregistered) is what this pins.
     _sync_repo_config(team.id, repo_config)
     mock_execute, _ = _run_inbox_task(team.id, _inbox_pr(), resolver=resolver)
+
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0
+    mock_execute.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "linked_factory",
+    [lambda team_id: None, _signal_run_dto],
+    ids=["no_stamped_run_owns_the_head_branch", "head_branch_belongs_to_a_different_run"],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_inbox_receiver_leg_requires_the_server_stamped_branch_linkage(team, repo_config, linked_factory):
+    # The Celery args only queued this job; output.pr_url that produced them is API-writable. The
+    # authorization is GitHub's head ref matching the branch the server stamped at run creation —
+    # a PR no stamped run owns, or one owned by a different run than the one that queued the job,
+    # must be refused, or a rewritten pr_url could aim the approve-first bypass at any App PR.
+    _sync_repo_config(team.id, repo_config)
+    mock_execute, _ = _run_inbox_task(team.id, _inbox_pr(), linked=linked_factory(team.id))
 
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0

@@ -144,13 +144,14 @@ def _self_driving_pr_author_login() -> str | None:
 def _is_self_driving_pr(pr: dict[str, Any], repo: str) -> bool:
     """Check that a PR really is a self-driving inbox PR, using facts only GitHub can attest.
 
-    ``TaskRun.output.pr_url``, the task->PR link the carve-out relies on, is writable by any team
-    member through the task-run APIs. So before granting the bot/fork/mode/write bypass, confirm two
-    things no member can forge: the PR was opened by this instance's PostHog GitHub App machine user,
-    and its head is in the base repo, never a fork (a fork's head.ref is attacker-controlled while
-    ``repository.full_name`` stays the base repo). Otherwise a member could aim a signal-report run
-    at any bot-authored PR and get an approve-first review past every gate. Returns False when the
-    App slug is unconfigured, because the identity can't be established then.
+    Before granting the bot/fork/mode/write bypass, confirm two things no team member can forge:
+    the PR was opened by this instance's PostHog GitHub App machine user, and its head is in the
+    base repo, never a fork (a fork's head.ref is attacker-controlled while
+    ``repository.full_name`` stays the base repo). The repo-native requirement is also what makes
+    the run->PR binding sound: ``find_signal_implementation_run`` matches the head ref against the
+    branch name the server stamped into protected run state at creation, and that ref is only
+    GitHub's word when the head lives in the base repo. Returns False when the App slug is
+    unconfigured, because the identity can't be established then.
     """
     user = pr.get("user") or {}
     if user.get("type") != "Bot":
@@ -188,8 +189,9 @@ def _inbox_rereview_carve_out(
     write permission, review mode). Their real gate is the acting reviewer's
     ``stamphog_review_inbox_prs`` toggle. A carve-out comes back only when everything is identified:
     a head branch in the base repo rather than a fork, a synced and enabled config, a tasks-facade
-    match for this exact repo scoped to the config's team carrying a signal report on an undeleted
-    task whose run didn't fail (COMPLETED counts: success ends the run right after the PR opens) at
+    match binding the PR's head ref to the branch the server stamped at run creation, for this
+    exact repo scoped to the config's team, carrying a signal report on an undeleted task whose
+    run didn't fail (COMPLETED counts: success ends the run right after the PR opens) at
     ``ai_stage="implementation"``, and an assigned reviewer who is opted in. Anything else returns an
     empty carve-out and the caller behaves exactly as before, so dependabot, renovate, posthog-bot
     and foreign Apps stay refused. An identified PR with no opted-in reviewer returns ``opted_out``.
@@ -211,8 +213,8 @@ def _inbox_rereview_carve_out(
     resolver = get_inbox_acting_reviewer_resolver()
     if resolver is None:
         return _InboxCarveOut()
-    # The facade match keys on output.pr_url, which any team member can write, so this App-identity
-    # and fork check is what stops a member aiming a signal-report run at an unrelated bot PR.
+    # The facade match keys on the PR's head ref, so the fork check here is load-bearing: only a
+    # repo-native head ref is GitHub's word rather than an attacker-controlled fork branch name.
     if not _is_self_driving_pr(pr, repo):
         return _InboxCarveOut()
     repo_config = _resolve_repo_config(installation_id, repo)
@@ -226,7 +228,6 @@ def _inbox_rereview_carve_out(
     run = find_signal_implementation_run(
         team_id=repo_config.team_id,
         repository=repo,
-        pr_url=pr.get("html_url") or None,
         head_branch=(pr.get("head") or {}).get("ref") or None,
     )
     # The facade already enforces the team scope. Rechecking here keeps a compromised or refactored
@@ -1162,10 +1163,12 @@ def process_inbox_pr_review(
     QUEUED run's workflow), while a refire after a head the webhook never delivered, such as a lost
     synchronize, still reviews the new commits.
 
-    ``repository`` is the linked task's own repo and the PR must be in it. The task->PR link that
-    routes us here (``TaskRun.output.pr_url``) is writable through the task-run API, so without that
-    pin a run in one repo could aim an approve-first review at a PR in another. The webhook path
-    scopes its own task lookup by repository too.
+    ``repository`` is the linked task's own repo and the PR must be in it — a cheap early refusal
+    that also selects the repo config. The binding that authorizes the review happens after the
+    fetch: the PR's head ref must match the branch the server stamped into the run's protected
+    state at creation (``find_signal_implementation_run``), so the API-writable ``output.pr_url``
+    that queued this job never decides what gets reviewed. The webhook path scopes its own task
+    lookup by repository too.
     """
     parsed = _parse_pr_url(pr_url)
     if parsed is None:
@@ -1224,6 +1227,18 @@ def process_inbox_pr_review(
     if not _is_self_driving_pr(pr, repo_config.repository):
         logger.warning("stamphog_inbox_pr_not_self_driving", repository=repository, pr_number=pr_number)
         return
+    # The binding that counts: GitHub's head ref against the branch the server stamped into
+    # protected run state at creation. The Celery args only queued this job; a PR whose head ref
+    # matches no stamped run, or a different run than the one that queued it, is not this run's
+    # work — refuse rather than review it. Safe to match by ref because _is_self_driving_pr just
+    # established the head is repo-native.
+    head_ref = ((pr.get("head") or {}).get("ref") or "").strip()
+    linked = find_signal_implementation_run(
+        team_id=team_id, repository=repo_config.repository, head_branch=head_ref or None
+    )
+    if linked is None or str(linked.run_id) != task_run_id:
+        logger.warning("stamphog_inbox_pr_not_linked", repository=repository, pr_number=pr_number)
+        return
     # Execution-time opt-in re-check, mirroring the webhook leg: the receiver checked the toggle
     # when it queued this job, but broker latency and the fetch retries above can stretch that gap
     # to minutes — the strictest read belongs at the moment of action, so a revoked opt-in must not
@@ -1232,15 +1247,19 @@ def process_inbox_pr_review(
     # and someone else's opt-in is what keeps the run alive, attribution must follow that toggle.
     # Passing the queued id as the preferred pick keeps attribution stable while they stay opted in.
     resolver = get_inbox_acting_reviewer_resolver()
-    acting_reviewer_id = resolver(team_id, signal_report_id, acting_user_id) if resolver is not None else None
+    acting_reviewer_id = (
+        resolver(team_id, str(linked.signal_report_id), acting_user_id) if resolver is not None else None
+    )
     if acting_reviewer_id is None:
         logger.info("stamphog_inbox_pr_opt_out", repository=repository, pr_number=pr_number)
         return
 
+    # Server-derived values from the verified linkage, not the Celery args, so both legs stamp
+    # identically sourced provenance.
     inbox_review = {
         "trigger": "inbox",
-        "signal_report_id": signal_report_id,
-        "task_run_id": task_run_id,
+        "signal_report_id": str(linked.signal_report_id),
+        "task_run_id": str(linked.run_id),
         "acting_user_id": acting_reviewer_id,
     }
     # Same transaction/on_commit shape as the webhook path (see process_pull_request_event).

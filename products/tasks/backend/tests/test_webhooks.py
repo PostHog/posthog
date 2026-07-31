@@ -20,8 +20,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
-from products.tasks.backend.run_matching import find_task_run
-from products.tasks.backend.webhooks import _account_type
+from products.tasks.backend.webhooks import _account_type, find_task_run
 
 
 class TestAccountType(TestCase):
@@ -1361,7 +1360,7 @@ class TestGitHubWebhookFanout(TestCase):
 class TestFindSignalImplementationRun(TestCase):
     """The tasks-facade linkage other products gate automation on (stamphog's inbox carve-out)."""
 
-    PR_URL = "https://github.com/posthog/posthog/pull/9"
+    STAMPED_BRANCH = "posthog-self-driving/fix-the-thing-3f9a2c"
 
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -1383,6 +1382,7 @@ class TestFindSignalImplementationRun(TestCase):
         with_report: bool = True,
         internal: bool = True,
         ai_stage: str | None = "implementation",
+        stamped_branch: str | None = STAMPED_BRANCH,
         output: dict | None = None,
         branch=None,
         team: Team | None = None,
@@ -1401,23 +1401,31 @@ class TestFindSignalImplementationRun(TestCase):
             internal=internal,
             deleted=task_deleted,
         )
-        # Production stamps the PR-opening run ai_stage="implementation" (auto_start), and internal=True;
-        # the facade keys on ai_stage, so the fixture carries it to reflect the real self-driving shape.
+        # Production stamps ai_stage="implementation" and the server-generated head branch at run
+        # creation (signals' auto_start); the facade matches on the branch stamp and gates on
+        # ai_stage, so the fixture carries both to reflect the real self-driving shape.
+        state: dict = {}
+        if ai_stage:
+            state["ai_stage"] = ai_stage
+        if stamped_branch:
+            state["self_driving_head_branch"] = stamped_branch
         return TaskRun.objects.create(
             task=task,
             team=team,
             status=status,
             output=output or {},
             branch=branch,
-            state={"ai_stage": ai_stage} if ai_stage else {},
+            state=state,
         )
 
-    def test_pr_url_match_returns_the_run(self):
-        run = self._make_run(output={"pr_url": self.PR_URL})
+    def test_head_branch_match_returns_the_run(self):
+        run = self._make_run()
 
         # Repository passed with GitHub's casing: task rows lowercase the slug, so the match must
         # be case-insensitive or every real webhook misses.
-        found = find_signal_implementation_run(team_id=self.team.id, repository="PostHog/posthog", pr_url=self.PR_URL)
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="PostHog/posthog", head_branch=self.STAMPED_BRANCH
+        )
 
         assert found is not None
         assert found.run_id == run.id
@@ -1429,25 +1437,30 @@ class TestFindSignalImplementationRun(TestCase):
         # Success flips the run to COMPLETED right after the PR opens, so treating COMPLETED as
         # dead would end webhook re-reviews for every successful implementation the moment it
         # finishes, dismissing the standing approval on the next push with no replacement.
-        run = self._make_run(output={"pr_url": self.PR_URL}, status=TaskRun.Status.COMPLETED)
-
-        found = find_signal_implementation_run(team_id=self.team.id, repository="posthog/posthog", pr_url=self.PR_URL)
-
-        assert found is not None
-        assert found.run_id == run.id
-
-    def test_branch_match_covers_runs_without_a_recorded_pr_url(self):
-        run = self._make_run(branch="posthog-code/sd-fix")
+        run = self._make_run(status=TaskRun.Status.COMPLETED)
 
         found = find_signal_implementation_run(
-            team_id=self.team.id,
-            repository="posthog/posthog",
-            pr_url="https://github.com/posthog/posthog/pull/77",
-            head_branch="posthog-code/sd-fix",
+            team_id=self.team.id, repository="posthog/posthog", head_branch=self.STAMPED_BRANCH
         )
 
         assert found is not None
         assert found.run_id == run.id
+
+    def test_caller_writable_fields_never_match(self):
+        # The security property the stamp exists for: a run whose API-writable fields (output.pr_url,
+        # output.head_branch, the branch column) all point at the PR must still NOT match without the
+        # server-side stamp — reintroducing a fallback on any of them reopens the forgeable link.
+        self._make_run(
+            stamped_branch=None,
+            branch="posthog-code/sd-fix",
+            output={"pr_url": "https://github.com/posthog/posthog/pull/9", "head_branch": "posthog-code/sd-fix"},
+        )
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="posthog/posthog", head_branch="posthog-code/sd-fix"
+        )
+
+        assert found is None
 
     @parameterized.expand(
         [
@@ -1458,7 +1471,9 @@ class TestFindSignalImplementationRun(TestCase):
             ("non_implementation_stage_run", {"ai_stage": "research"}, {}),
             ("task_without_signal_report", {"with_report": False}, {}),
             ("other_team", {}, {"team_id_offset": 1}),
-            ("fork_pr_branch_not_consulted", {"output": {}, "branch": "posthog-code/sd-fix"}, {"head_branch": None}),
+            ("wrong_repository", {}, {"repository": "posthog/other-repo"}),
+            # The caller contract for forks: an attacker-controlled fork head ref is never passed.
+            ("fork_pr_branch_not_consulted", {}, {"head_branch": None}),
             # A disowned or dead run must not keep the carve-out alive on later pushes.
             ("cancelled_run", {"status": TaskRun.Status.CANCELLED}, {}),
             ("failed_run", {"status": TaskRun.Status.FAILED}, {}),
@@ -1466,33 +1481,30 @@ class TestFindSignalImplementationRun(TestCase):
         ]
     )
     def test_non_qualifying_runs_return_none(self, _name, run_kwargs, call_overrides):
-        defaults = {"output": {"pr_url": self.PR_URL}, "branch": "posthog-code/sd-fix"}
-        self._make_run(**{**defaults, **run_kwargs})
+        self._make_run(**run_kwargs)
 
-        team_id = self.team.id + call_overrides.pop("team_id_offset", 0)
-        # The fork case matches neither leg: no recorded pr_url and (per the caller contract for
-        # attacker-controlled fork head refs) no head_branch passed.
-        pr_url = self.PR_URL if "output" not in run_kwargs else "https://github.com/posthog/posthog/pull/77"
         found = find_signal_implementation_run(
-            team_id=team_id,
-            repository="posthog/posthog",
-            pr_url=pr_url,
-            head_branch=call_overrides.pop("head_branch", None),
+            team_id=self.team.id + call_overrides.pop("team_id_offset", 0),
+            repository=call_overrides.pop("repository", "posthog/posthog"),
+            head_branch=call_overrides.pop("head_branch", self.STAMPED_BRANCH),
         )
 
         assert found is None
 
     def test_cross_team_run_does_not_shadow_the_teams_own_run(self):
-        # find_task_run spans every team, so without scoping the query to the team a newer run in
-        # another tenant carrying the same repo + pr_url wins the pick, and the team-mismatch check
-        # then returns None — silently suppressing the legitimate team's self-driving re-review.
-        # Scoping the query keeps the tenant's own run findable.
-        legitimate = self._make_run(output={"pr_url": self.PR_URL})
+        # Without the in-query team scope, a newer run in another tenant carrying the same stamped
+        # branch would win the pick and the team-mismatch check would return None — silently
+        # suppressing the legitimate team's self-driving re-review. Scoping the query keeps the
+        # tenant's own run findable. (Branch names carry a random suffix, so a genuine collision is
+        # unlikely; this pins the tenant boundary, not a probable event.)
+        legitimate = self._make_run()
         other_team = Team.objects.create(organization=self.organization, name="Shadow Team")
-        # Created after the legitimate run, so it is the newer one find_task_run would prefer.
-        self._make_run(output={"pr_url": self.PR_URL}, with_report=False, team=other_team)
+        # Created after the legitimate run, so it is the newer one an unscoped query would prefer.
+        self._make_run(with_report=False, team=other_team)
 
-        found = find_signal_implementation_run(team_id=self.team.id, repository="posthog/posthog", pr_url=self.PR_URL)
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="posthog/posthog", head_branch=self.STAMPED_BRANCH
+        )
 
         assert found is not None
         assert found.run_id == legitimate.id

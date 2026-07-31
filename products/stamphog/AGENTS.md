@@ -87,27 +87,27 @@ self-driving Inbox implementation run (a signal-report-carrying TaskRun at
 opted in via ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception
 narrow:
 
-- Identification is **task linkage plus server-attested PR identity** — both required, neither
-  trusted alone. The task link is a signal-report `TaskRun` at `ai_stage="implementation"`, matched
-  through the tasks facade (the pipeline's research and repo-selection runs share
-  `signal_report_id` and `internal=True`, so stage is what selects the PR-opening run). The
-  identity half, `_is_self_driving_pr`, requires two facts only GitHub attests — the PR is authored
+- Identification is **server-attested task linkage plus server-attested PR identity** — both
+  required, neither trusted alone. The task link is unforgeable by construction: signals'
+  auto_start generates the head branch name (`posthog-self-driving/<slug>-<hex>`) before the
+  agent runs and stamps it into PATCH-protected run state (`state.self_driving_head_branch`),
+  and `find_signal_implementation_run` matches the PR's GitHub-attested head ref against that
+  stamp — never against the API-writable `output.pr_url` / `output.head_branch`. The identity
+  half, `_is_self_driving_pr`, requires two facts only GitHub attests — the PR is authored
   by this instance's PostHog GitHub App machine user (`<GITHUB_APP_SLUG>[bot]`) on a repo-native head
   (never a fork) — enforced on **both** the receiver leg (`process_inbox_pr_review`) and the
   webhook leg (`_inbox_rereview_carve_out`), failing closed when the App slug is unconfigured.
-  This is a positive App-identity match, not the general "any bot" rule: `github.py::is_bot_author`
-  must not be weakened, and dependabot / renovate / posthog-bot / any foreign App fail it even if a
-  forged `output.pr_url` fakes the task link.
-- **Known residual risk, not closed here.** `<GITHUB_APP_SLUG>[bot]` is the core PostHog GitHub App and
-  opens every agent-authored PR (wizard and manual tasks included), so the identity check proves
-  "an App-authored PR in this repo", not
-  "the PR this run produced". Anyone with `task:write` on the team's signal-report tasks can rewrite
-  `output.pr_url`, `TaskRun.branch`, `Task.repository`, and `suggested_reviewers`, so they can aim a
-  genuine live run at a different same-App PR and pick whose toggle gates it. Both legs pin the
-  repository, which costs them a second call but does not stop them. They cannot forge the run
-  (`ai_stage` and `signal_report_id` are not PATCHable) and nothing outside the team reaches this.
-  The real fix is a server-attested task->PR link; until then the per-user toggle is the gate, so
-  re-assess before defaulting it on for a whole team.
+  The fork exclusion is load-bearing for the linkage too: a head ref is only GitHub's word when
+  the head lives in the base repo. This is a positive App-identity match, not the general "any
+  bot" rule: `github.py::is_bot_author` must not be weakened, and dependabot / renovate /
+  posthog-bot / any foreign App fail it.
+- **What a malicious teammate can still do, and what they can't.** Rewriting `output.pr_url`,
+  `TaskRun.branch`, `Task.repository`, or `suggested_reviewers` no longer aims the carve-out at a
+  different PR: matching reads none of them, and the stamped branch plus `ai_stage` and
+  `signal_report_id` are not PATCHable. What remains team-internal and accepted: an opted-in
+  assigned reviewer's existence is still the gate (see the reviewer-authorization discussion on
+  PR #72680), and a teammate who can edit the _report_ before auto-start still influences what
+  the implementation agent builds — that is the product working as designed, reviewed as any PR.
 - The engine flag (`self_driving_review` in the hosted context JSON →
   `Pipeline(self_driving=...)`) defaults closed and the Action never sets it, so Action
   behavior is unchanged by construction. It relaxes exactly two gates — the bot-author

@@ -72,7 +72,6 @@ from products.tasks.backend.models import (
     TaskThreadMessageMention,
 )
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
-from products.tasks.backend.run_matching import find_task_run
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -485,32 +484,44 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
 
 
 def find_signal_implementation_run(
-    *, team_id: int, repository: str, pr_url: str | None = None, head_branch: str | None = None
+    *, team_id: int, repository: str, head_branch: str | None
 ) -> contracts.SignalImplementationRunDTO | None:
     """The signals-origin implementation run that produced this PR, if any.
 
-    Matches the same way the GitHub webhook does (``pr_url`` first, then repository plus branch;
-    see ``webhooks.find_task_run``), then keeps only a signal-report run whose state carries
-    ``ai_stage="implementation"``. Wizard tasks, manual tasks, and unlinked PRs return ``None``.
+    Matches the PR's head branch against ``state.self_driving_head_branch``, the branch name the
+    server generated at run creation (signals' auto_start) and stamped into PATCH-protected run
+    state. That stamp is the only end of the run->PR link no caller can write: ``output.pr_url``
+    and ``output.head_branch`` are settable by any team member with task access, so matching on
+    them would let one member aim the approve-first review carve-out at an App-authored PR whose
+    contents they chose. The head branch itself comes from GitHub (webhook payload or REST fetch),
+    so both ends of the join are attested.
 
-    Callers (stamphog's inbox carve-out) use this to confirm a bot-authored PR really is a PostHog
-    Code self-driving implementation, so the match is narrowed inside the query. Applying
-    ``team_id`` before the lookup orders and picks a winner stops a newer run in another team with
-    the same repo or pr_url from shadowing the real one and forcing a ``None``. Dropping failed
-    and cancelled runs and soft-deleted tasks stops a dead or disowned run from keeping the
-    carve-out alive on later pushes. A COMPLETED run still matches: success flips the run to
-    COMPLETED right after it opens the PR, so excluding it would end re-reviews the moment the
-    implementation finishes.
-
-    The caller passes the repository the PR event came from and owns fork safety: match on branch
-    only when the PR's head repo is that repository.
+    Callers (stamphog's inbox carve-out) pass the repository the PR event came from and own fork
+    safety: pass ``head_branch`` only for a repo-native head, never a fork's (a fork's head ref is
+    attacker-controlled). Dropping failed and cancelled runs and soft-deleted tasks stops a dead
+    or disowned run from keeping the carve-out alive on later pushes. A COMPLETED run still
+    matches: success flips the run to COMPLETED right after it opens the PR, so excluding it
+    would end re-reviews the moment the implementation finishes.
     """
-    run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository, team_id=team_id, exclude_dead=True)
+    if not head_branch:
+        return None
+    run = (
+        TaskRun.objects.filter(
+            team_id=team_id,
+            state__self_driving_head_branch=head_branch,
+            task__repository__iexact=repository.strip(),
+            task__deleted=False,
+        )
+        .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+        .order_by("-created_at")
+        .select_related("task")
+        .first()
+    )
     if run is None or run.team_id != team_id:
         return None
     task = run.task
-    # The other signal tasks (research, repo_selection) share signal_report_id and internal=True, so
-    # only ai_stage="implementation" (stamped by signals' auto_start) picks out the PR-opening run.
+    # Belt and braces: only signals' auto_start stamps the branch key today, but the ai_stage and
+    # signal-report checks keep a future writer of the key from silently widening the carve-out.
     if task.signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
         return None
     return contracts.SignalImplementationRunDTO(
@@ -1836,6 +1847,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
         "ai_stage",
+        # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
+        # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
+        # PR, which is the exact forgery the stamp exists to prevent.
+        "self_driving_head_branch",
         # The run's model posture, chosen at creation by the server-owned caller and read back out
         # of state when the run dispatches. It decides what the run costs, and for a run routed to
         # an unbilled gateway product (create_wizard_cloud_run pins claude-sonnet-5 for the
