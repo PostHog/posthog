@@ -168,3 +168,19 @@ class TestPostHogConnectionForward:
                 )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_request.assert_not_called()
+
+    def test_forward_refuses_scoped_caller_when_granted_scopes_unknown(self, client: HttpClient):
+        # If the target's token response omitted `scope`, `granted_scopes` is empty and we can't bound
+        # what the connection can do — a scoped key must be refused rather than passing by default.
+        self.integration.config["granted_scopes"] = []
+        self.integration.save()
+        client.force_login(self.user)
+        with patch("posthog.api.posthog_connection.get_authenticator_scopes", return_value=["integration:write"]):
+            with patch(FORWARD_PATH) as mock_request:
+                response = client.post(
+                    self._forward_url(),
+                    {"method": "GET", "path": "api/projects/2/insights/"},
+                    content_type="application/json",
+                )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_request.assert_not_called()

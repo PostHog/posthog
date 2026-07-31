@@ -673,7 +673,13 @@ SALESFORCE_OAUTH_KINDS = ("salesforce", "pardot")
 # /oauth/revoke already exist). `openid`+`email` are always requested on top of the user-selected
 # scopes so /oauth/userinfo can identify the connected account (`sub`/`email`).
 POSTHOG_CONNECT_KIND = "posthog"
-POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", "DEV")
+# `DEV` points at a local/self-hosted cell (`POSTHOG_CONNECT_BASE_URL_DEV` defaults to
+# http://localhost:8000) and the token exchange is a server-side POST, so a production instance must
+# never treat `DEV` as a real, connectable region — otherwise an org member could point the backend
+# at a URL of their choosing. Gate it behind an explicit dev/test context rather than relying on the
+# client id/secret env vars being unset.
+_POSTHOG_CONNECT_ALLOW_DEV = bool(settings.DEBUG or settings.TEST or settings.E2E_TESTING)
+POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", *(("DEV",) if _POSTHOG_CONNECT_ALLOW_DEV else ()))
 POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write")
 POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
 # A connection can proxy any request the granted scopes allow, so the user may pick from the full set
@@ -692,6 +698,10 @@ def _posthog_connect_target(region: str | None) -> tuple[str, str, str]:
     the wrong cell.
     """
     normalized = (region or "").upper()
+    if normalized == "DEV" and not _POSTHOG_CONNECT_ALLOW_DEV:
+        # Defense in depth: even if a `DEV` region row somehow reaches here in production, refuse to
+        # resolve it so the backend never POSTs a token exchange to the dev base URL.
+        raise NotImplementedError("PostHog connect DEV region is only available in dev/test")
     targets = {
         "US": (
             settings.POSTHOG_CONNECT_BASE_URL_US,

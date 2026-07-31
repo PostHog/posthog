@@ -22,11 +22,13 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
 from posthog.permissions import get_authenticator_scopes
+from posthog.rate_limit import PostHogConnectionForwardThrottle
 
 logger = structlog.get_logger(__name__)
 
@@ -65,6 +67,14 @@ def _enforce_caller_covers_connection_scopes(request: Request, integration: Inte
     if caller_scopes is None or "*" in caller_scopes:
         return
     granted = set(integration.config.get("granted_scopes") or [])
+    if not granted:
+        # We don't know what this connection can do — `granted_scopes` is only ever populated from the
+        # target's token-response `scope`, which is OPTIONAL per RFC 6749 §5.1. If the target omitted
+        # it, fail closed: a scoped (or leaked) key must not wield a grant whose reach we can't bound.
+        raise PermissionDenied(
+            "This PostHog connection's granted scopes are unknown, so it can only be used with a "
+            "full-access API key or a session. Reconnect it to record its scopes."
+        )
     missing = granted - set(caller_scopes)
     if missing:
         raise PermissionDenied(
@@ -107,6 +117,11 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     scope_object = "integration"
     serializer_class = PostHogConnectionForwardSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "forward":
+            return [PostHogConnectionForwardThrottle(), *super().get_throttles()]
+        return super().get_throttles()
 
     def _get_connection(self, pk: str) -> Integration:
         try:
