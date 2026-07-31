@@ -605,6 +605,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Ebay` - Ebay
  * * `Commercetools` - Commercetools
  * * `LightspeedRetail` - LightspeedRetail
+ * * `Shipmail` - Shipmail
  * * `ShipStation` - ShipStation
  * * `ConstantContact` - ConstantContact
  * * `Mailgun` - Mailgun
@@ -1887,6 +1888,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ebay: 'Ebay',
     Commercetools: 'Commercetools',
     LightspeedRetail: 'LightspeedRetail',
+    Shipmail: 'Shipmail',
     ShipStation: 'ShipStation',
     ConstantContact: 'ConstantContact',
     Mailgun: 'Mailgun',
@@ -3309,6 +3311,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -4805,6 +4808,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -6114,6 +6118,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -7400,6 +7405,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -8771,6 +8777,7 @@ export interface SourcePreviewRequestApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -10092,6 +10099,7 @@ export interface SourceSetupApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
@@ -11420,6 +11428,7 @@ export interface SourceCredentialCreateApi {
      * * `Ebay` - Ebay
      * * `Commercetools` - Commercetools
      * * `LightspeedRetail` - LightspeedRetail
+     * * `Shipmail` - Shipmail
      * * `ShipStation` - ShipStation
      * * `ConstantContact` - ConstantContact
      * * `Mailgun` - Mailgun
