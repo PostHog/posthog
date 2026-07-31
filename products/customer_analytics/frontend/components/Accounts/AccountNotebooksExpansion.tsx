@@ -1,7 +1,16 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconCloud, IconCopy, IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import {
+    IconCloud,
+    IconCopy,
+    IconDatabase,
+    IconGraph,
+    IconPencil,
+    IconPeople,
+    IconPiggyBank,
+    IconReceipt,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -59,6 +68,7 @@ const LINK_ICONS: Record<string, JSX.Element> = {
     organization: <IconPeople />,
     revenue: <IconPiggyBank />,
     'usage-dashboard': <IconGraph />,
+    metabase: <IconDatabase />,
     slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
     salesforce: <IconCloud />,

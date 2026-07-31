@@ -34,6 +34,7 @@ class AccountProperties(BaseModel):
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
     @classmethod
     def from_input(cls, data: "dict | AccountProperties") -> "AccountProperties":

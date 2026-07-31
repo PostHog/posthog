@@ -25,7 +25,13 @@ export interface AccountLinksLogicProps {
     accountId: string
 }
 
-export type AccountLinkFieldKey = 'external_id' | 'billing_id' | 'slack_channel_id' | 'usage_dashboard_link' | 'sfdc_id'
+export type AccountLinkFieldKey =
+    | 'external_id'
+    | 'billing_id'
+    | 'slack_channel_id'
+    | 'usage_dashboard_link'
+    | 'metabase_link'
+    | 'sfdc_id'
 
 export interface AccountLinkFieldDef {
     key: AccountLinkFieldKey
@@ -40,6 +46,7 @@ export const ACCOUNT_LINK_FIELDS: AccountLinkFieldDef[] = [
     { key: 'billing_id', label: 'Billing ID', placeholder: 'e.g. cus_acme_123' },
     { key: 'slack_channel_id', label: 'Slack channel ID', placeholder: 'e.g. C0123456789' },
     { key: 'usage_dashboard_link', label: 'Usage dashboard link', placeholder: 'https://…' },
+    { key: 'metabase_link', label: 'Metabase link', placeholder: 'https://…' },
     { key: 'sfdc_id', label: 'Salesforce ID', placeholder: 'e.g. 0011t00000AbCdEfGhI' },
 ]
 
@@ -48,6 +55,7 @@ const EMPTY_FIELDS: AccountLinkFieldValues = {
     billing_id: '',
     slack_channel_id: '',
     usage_dashboard_link: '',
+    metabase_link: '',
     sfdc_id: '',
 }
 
@@ -208,6 +216,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                 billing_id: account?.properties?.billing_id ?? '',
                 slack_channel_id: account?.properties?.slack_channel_id ?? '',
                 usage_dashboard_link: account?.properties?.usage_dashboard_link ?? '',
+                metabase_link: account?.properties?.metabase_link ?? '',
                 sfdc_id: account?.properties?.sfdc_id ?? '',
             }),
         ],
@@ -228,6 +237,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                 const billingId = account?.properties?.billing_id ?? null
                 const slackChannelId = account?.properties?.slack_channel_id ?? null
                 const usageDashboardLink = account?.properties?.usage_dashboard_link ?? null
+                const metabaseLink = account?.properties?.metabase_link ?? null
                 const sfdcId = account?.properties?.sfdc_id ?? null
                 const backUrl =
                     removeProjectIdIfPresent(currentLocation.pathname) + currentLocation.search + currentLocation.hash
@@ -257,6 +267,13 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         to: usageDashboardLink,
                         targetBlank: true,
                         disabledReason: usageDashboardLink ? null : 'No usage dashboard link set',
+                    },
+                    {
+                        key: 'metabase',
+                        label: 'Metabase',
+                        to: metabaseLink,
+                        targetBlank: true,
+                        disabledReason: metabaseLink ? null : 'No Metabase link set',
                     },
                     {
                         key: 'slack',
@@ -304,6 +321,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                         billing_id: orNull(form.billing_id),
                         slack_channel_id: orNull(form.slack_channel_id),
                         usage_dashboard_link: orNull(form.usage_dashboard_link),
+                        metabase_link: orNull(form.metabase_link),
                         sfdc_id: orNull(form.sfdc_id),
                     } as PatchedAccountApiProperties,
                 })

@@ -142,6 +142,7 @@ def _to_account_properties(properties: _ModelAccountProperties) -> contracts.Acc
         zendesk_id=properties.zendesk_id,
         slack_channel_id=properties.slack_channel_id,
         usage_dashboard_link=properties.usage_dashboard_link,
+        metabase_link=properties.metabase_link,
     )
 
 
