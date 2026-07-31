@@ -60,12 +60,15 @@ RUNS_FINALIZED_COUNTER = Counter(
     ["status", "kind"],  # status: "completed", "superseded"; kind: the CohortBackfillKind
 )
 
-# Split by reason: a shortfall is routine backpressure, an error is a crashed pass. Summing them
+# Split by reason: a shortfall is routine backpressure, an error is a crashed pass, and a gated run
+# is an expected backlog waiting on `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED`. Summing them
 # would leave an alert unable to tell which one is happening.
 HELD_RUNS_GAUGE = Gauge(
     "posthog_cohort_backfill_finalizer_held_runs",
     "Observed backfill runs the finalizer left in reconciling, by reason",
-    ["reason"],  # labels: "shortfall" (an outcome was missing), "error" (the pass raised)
+    # labels: "shortfall" (an outcome was missing), "error" (the pass raised), "gated" (a person
+    # run parked behind the readiness gate)
+    ["reason"],
     multiprocess_mode="max",
 )
 
@@ -77,6 +80,7 @@ class FinalizerPass:
     superseded: int = 0
     held: int = 0
     errored: int = 0
+    gated: int = 0
     stamped_participations: int = 0
     invalidated_teams: int = 0
 
@@ -122,22 +126,45 @@ def finalize_backfill_runs() -> FinalizerPass:
         _publish_held_runs(result)
         return result
 
+    if not settings.BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED:
+        # The kind filter below holds these runs invisibly: discovery never surfaces them, so
+        # `result.held` stays 0 and nothing else reports how much is waiting behind the gate.
+        result.gated = (
+            CohortBackfillRun.objects.unscoped()
+            .filter(
+                backfill_kind=CohortBackfillKind.PERSON_PROPERTY,
+                status=CohortBackfillRunStatus.RECONCILING,
+                reconcile_observed_at__isnull=False,
+            )
+            .count()
+        )
+
     # Deliberate, documented cross-team scan: the finalizer serves all teams. Each row is re-locked
     # per team inside the loop, so the unscoped read is discovery only. Oldest-observed first, which
     # `cohort_bfr_observed_idx` serves ordered, so the cap terminates the walk instead of bounding a
-    # sort. The kind predicate is a recheck along that walk, not a leading column: it excludes
-    # nothing today, and keeping it is what makes "a kind with no stamp is never discovered" —
-    # rather than "is discovered and then raises" — the mechanism that protects `_STAMP_BY_KIND`.
-    observed = list(
-        CohortBackfillRun.objects.unscoped()
+    # sort. The kind predicate is a recheck along that walk, not a leading column, and it does two
+    # jobs: while `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` is off it holds person runs in
+    # `reconciling` rather than stamping them, and it is what makes "a kind with no stamp is never
+    # discovered", rather than "is discovered and then raises", protect `_STAMP_BY_KIND`.
+    #
+    # One query per kind, each with its own slice of the budget: the person backlog parked while
+    # the readiness gate was off all sorts ahead of live behavioral runs under
+    # `reconcile_observed_at`, so a single shared cap would hand it the entire budget for the first
+    # passes after the gate opens.
+    kinds = _finalizable_kinds()
+    per_kind = max(1, settings.BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS // len(kinds))
+    observed = [
+        row
+        for kind in kinds
+        for row in CohortBackfillRun.objects.unscoped()
         .filter(
-            backfill_kind__in=_finalizable_kinds(),
+            backfill_kind=kind,
             status=CohortBackfillRunStatus.RECONCILING,
             reconcile_observed_at__isnull=False,
         )
         .order_by("reconcile_observed_at")
-        .values_list("id", "team_id")[: settings.BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS]
-    )
+        .values_list("id", "team_id")[:per_kind]
+    ]
 
     teams_to_invalidate: set[int] = set()
     for run_id, team_id in observed:
@@ -170,6 +197,7 @@ def finalize_backfill_runs() -> FinalizerPass:
 def _publish_held_runs(result: FinalizerPass) -> None:
     HELD_RUNS_GAUGE.labels(reason="shortfall").set(result.held)
     HELD_RUNS_GAUGE.labels(reason="error").set(result.errored)
+    HELD_RUNS_GAUGE.labels(reason="gated").set(result.gated)
 
 
 def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool:

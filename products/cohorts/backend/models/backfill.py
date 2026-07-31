@@ -100,12 +100,14 @@ class CohortBackfillRun(TeamScopedRootMixin, UUIDTModel):
             # team-prefixed indexes above. Partial on status keeps that scan proportional to the
             # live run set instead of to the table's ever-growing terminal history.
             #
-            # Led by `reconcile_observed_at` alone, which is what the finalizer orders by: leading
-            # with `backfill_kind` cost the ordering the moment discovery widened from one kind to
-            # an `IN`, because a `ScalarArrayOpExpr` on the first column yields no pathkeys and the
-            # planner falls back to sorting. The kind is a cheap recheck during the ordered walk.
+            # Led by `reconcile_observed_at`, which is what the finalizer orders by: leading with
+            # `backfill_kind` cost the ordering the moment discovery widened from one kind to an
+            # `IN`, because a `ScalarArrayOpExpr` on the first column yields no pathkeys and the
+            # planner falls back to sorting. The kind trails instead, so the walk's recheck reads
+            # it from the index — held person runs parked by the readiness gate would otherwise
+            # cost a heap fetch each per pass just to be discarded.
             models.Index(
-                fields=["reconcile_observed_at"],
+                fields=["reconcile_observed_at", "backfill_kind"],
                 condition=Q(status=CohortBackfillRunStatus.RECONCILING),
                 name="cohort_bfr_observed_idx",
             ),

@@ -13,6 +13,7 @@ use super::ids::RunId;
 
 pub(super) const RECONCILE_SCHEMA_VERSION: u32 = 1;
 pub(super) const RECONCILE_KIND: &str = "reconcile";
+pub(super) const RECONCILE_PERSON_KIND: &str = "reconcile_person";
 
 /// The bounds every persisted shape-hash column shares: non-empty, ASCII, at most 64 bytes.
 fn validate_shape_hash(value: &str) -> Result<(), ShapeHashError> {
@@ -108,18 +109,20 @@ impl FromStr for ScopeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown reconcile guard {0:?}")]
+#[error("unknown scope kind {0:?}")]
 pub struct UnknownScopeKind(pub String);
 
 /// Which definition fingerprint fences a reconcile from edits. On the wire the hash rides the
-/// original `filters_hash` field and the variant rides an optional `guard` field, emitted only for
-/// [`ScopeKind::PersonProperty`] — an absent `guard` decodes as behavioral, which keeps the bytes a
-/// pre-person seeder produces valid.
+/// original `filters_hash` field and the variant rides the top-level `kind`: a behavioral tile
+/// keeps the pre-person `"reconcile"` bytes, a person tile is `"reconcile_person"`. Riding the
+/// kind rather than a body field is what protects a mixed-deploy fleet: a consumer predating the
+/// split routes a person tile to `UnknownKind` and skip-commits it before the tile can reach its
+/// reconcile queue — where, parsed as behavioral, it would evict a queued behavioral job for the
+/// same cohort and leave that run permanently short a marker.
 ///
-/// The reverse ordering is the one that costs: a consumer predating `guard` ignores the field, looks
-/// a person hash up in its behavioral map, and discards the tile without a marker. Fail-closed, but
-/// the run then settles as a shortfall an operator has to re-dispatch, so every consumer must carry
-/// this type before any producer emits a person-property guard.
+/// The skip is still a loss: the person run settles as a shortfall an operator re-dispatches after
+/// the fleet upgrade, so every consumer must carry this decode before any producer emits a person
+/// tile.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReconcileScope {
     Behavioral(BehavioralShapeHash),
@@ -192,8 +195,8 @@ impl ReconcileTile {
     }
 }
 
-/// The wire projection. Field order here is the wire order, and `guard` is skipped for a behavioral
-/// scope so the bytes stay identical to the pre-person contract.
+/// The wire projection. Field order here is the wire order; the scope's kind picks the top-level
+/// `kind` string, so a behavioral tile's bytes stay identical to the pre-person contract.
 #[derive(Serialize)]
 struct ReconcileTileOut<'a> {
     schema_version: u32,
@@ -201,8 +204,6 @@ struct ReconcileTileOut<'a> {
     team_id: i32,
     cohort_id: i32,
     filters_hash: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    guard: Option<&'static str>,
     run_id: RunId,
 }
 
@@ -210,37 +211,30 @@ impl Serialize for ReconcileTile {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         ReconcileTileOut {
             schema_version: RECONCILE_SCHEMA_VERSION,
-            kind: RECONCILE_KIND,
+            kind: match self.scope.kind() {
+                ScopeKind::Behavioral => RECONCILE_KIND,
+                ScopeKind::PersonProperty => RECONCILE_PERSON_KIND,
+            },
             team_id: self.team_id.0,
             cohort_id: self.cohort_id.0,
             filters_hash: self.scope.hash_str(),
-            // Behavioral is the implicit default, so omitting it keeps the pre-person bytes.
-            guard: match self.scope.kind() {
-                ScopeKind::Behavioral => None,
-                ScopeKind::PersonProperty => Some(ScopeKind::PersonProperty.as_str()),
-            },
             run_id: self.run_id,
         }
         .serialize(serializer)
     }
 }
 
-/// The raw wire fields, funneled through [`TryFrom`] so an unparseable hash or an unknown guard
+/// The raw wire fields, funneled through [`TryFrom`] so an unparseable hash or an unrecognized kind
 /// fails the decode rather than half-building a tile.
 #[derive(Deserialize)]
 struct ReconcileTileWire {
     #[serde(deserialize_with = "deserialize_schema_version")]
     #[allow(dead_code)] // Validated by its deserializer, never read.
     schema_version: u32,
-    #[allow(dead_code)] // Validated by its deserializer, never read.
     kind: ReconcileKind,
     team_id: i32,
     cohort_id: i32,
     filters_hash: String,
-    /// Absent means behavioral. An explicit `null` is not the same statement and is rejected, so a
-    /// producer that normalizes missing keys can never silently downgrade a person guard.
-    #[serde(default, deserialize_with = "deserialize_guard")]
-    guard: Option<ScopeKind>,
     run_id: RunId,
 }
 
@@ -248,7 +242,7 @@ impl TryFrom<ReconcileTileWire> for ReconcileTile {
     type Error = ReconcileTileError;
 
     fn try_from(wire: ReconcileTileWire) -> Result<Self, Self::Error> {
-        let kind = wire.guard.unwrap_or(ScopeKind::Behavioral);
+        let kind = wire.kind.scope_kind();
         let scope = ReconcileScope::parse(kind, &wire.filters_hash).map_err(|source| {
             ReconcileTileError {
                 kind,
@@ -276,32 +270,28 @@ pub struct ReconcileTileError {
     source: ShapeHashError,
 }
 
-fn deserialize_guard<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<ScopeKind>, D::Error> {
-    let value = String::deserialize(deserializer)?;
-    value.parse::<ScopeKind>().map(Some).map_err(|_| {
-        DeError::invalid_value(
-            Unexpected::Str(&value),
-            &"reconcile guard \"behavioral\" or \"person_property\"",
-        )
-    })
-}
-
-/// A zero-sized discriminant proven to be [`RECONCILE_KIND`] during deserialization.
+/// The wire `kind` discriminant, proven to be [`RECONCILE_KIND`] or [`RECONCILE_PERSON_KIND`]
+/// during deserialization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ReconcileKind;
+struct ReconcileKind(ScopeKind);
+
+impl ReconcileKind {
+    const fn scope_kind(self) -> ScopeKind {
+        self.0
+    }
+}
 
 impl<'de> Deserialize<'de> for ReconcileKind {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
-        if value != RECONCILE_KIND {
-            return Err(DeError::invalid_value(
+        match value.as_str() {
+            RECONCILE_KIND => Ok(Self(ScopeKind::Behavioral)),
+            RECONCILE_PERSON_KIND => Ok(Self(ScopeKind::PersonProperty)),
+            _ => Err(DeError::invalid_value(
                 Unexpected::Str(&value),
-                &"seed kind \"reconcile\"",
-            ));
+                &"seed kind \"reconcile\" or \"reconcile_person\"",
+            )),
         }
-        Ok(Self)
     }
 }
 
@@ -479,11 +469,13 @@ mod tests {
     }
 
     #[test]
-    fn person_guard_rides_an_additive_field_and_legacy_bytes_stay_behavioral() {
+    fn a_person_tile_rides_its_own_kind_and_legacy_bytes_stay_behavioral() {
+        // The distinct kind is what routes a person tile to `UnknownKind` on a consumer predating
+        // the split, instead of parsing as behavioral and evicting a queued behavioral job.
         let person = scoped_tile(ScopeKind::PersonProperty);
         assert_eq!(
             serde_json::to_string(&person).unwrap(),
-            r#"{"schema_version":1,"kind":"reconcile","team_id":2,"cohort_id":42,"filters_hash":"9efcd8a99c5334a19b52f6a7b990e3b862ad116031a0b47481f8bbb09e54a7de","guard":"person_property","run_id":"00000000-0000-0000-0000-000000000000"}"#
+            r#"{"schema_version":1,"kind":"reconcile_person","team_id":2,"cohort_id":42,"filters_hash":"9efcd8a99c5334a19b52f6a7b990e3b862ad116031a0b47481f8bbb09e54a7de","run_id":"00000000-0000-0000-0000-000000000000"}"#
         );
         assert_eq!(
             serde_json::from_str::<ReconcileTile>(&serde_json::to_string(&person).unwrap())
@@ -491,33 +483,15 @@ mod tests {
             person,
         );
 
-        // A pre-person seeder emits no `guard` at all; an explicit "behavioral" decodes the same way.
-        let behavioral = serde_json::to_value(tile()).unwrap();
-        assert!(behavioral.get("guard").is_none());
-        let mut explicit = behavioral;
-        explicit["guard"] = serde_json::json!("behavioral");
+        // Bytes a pre-person seeder produced decode as the behavioral scope.
         assert_eq!(
-            serde_json::from_value::<ReconcileTile>(explicit).unwrap(),
+            serde_json::from_value::<ReconcileTile>(serde_json::to_value(tile()).unwrap()).unwrap(),
             tile(),
         );
     }
 
     #[test]
-    fn only_an_absent_guard_means_behavioral() {
-        // An explicit null and an unknown kind are both rejected: silently reading either as
-        // behavioral would look a person hash up in the behavioral map and strand the run.
-        for guard in [serde_json::json!(null), serde_json::json!("group_property")] {
-            let mut broken = serde_json::to_value(tile()).unwrap();
-            broken["guard"] = guard.clone();
-            assert!(
-                serde_json::from_value::<ReconcileTile>(broken).is_err(),
-                "accepted guard {guard}",
-            );
-        }
-    }
-
-    #[test]
-    fn a_decode_failure_names_the_guard_and_the_offending_hash() {
+    fn a_decode_failure_names_the_kind_and_the_offending_hash() {
         let mut broken = serde_json::to_value(scoped_tile(ScopeKind::PersonProperty)).unwrap();
         broken["filters_hash"] = serde_json::json!("non-ascii-é");
         let error = serde_json::from_value::<ReconcileTile>(broken)
@@ -529,8 +503,9 @@ mod tests {
     }
 
     #[test]
-    fn the_guard_token_round_trips() {
-        // The same string is the wire guard, the queue-supersession key, and a metric label.
+    fn the_scope_kind_token_round_trips() {
+        // The same string is the persisted `backfill_kind` value, the queue-supersession key, and
+        // a metric label.
         for kind in [ScopeKind::Behavioral, ScopeKind::PersonProperty] {
             assert_eq!(kind.as_str().parse::<ScopeKind>().unwrap(), kind);
         }

@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
             model_name="cohortbackfillrun",
             index=models.Index(
                 condition=models.Q(("status", "reconciling")),
-                fields=["reconcile_observed_at"],
+                fields=["reconcile_observed_at", "backfill_kind"],
                 name="cohort_bfr_observed_idx",
             ),
         ),

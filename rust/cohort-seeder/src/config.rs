@@ -189,11 +189,16 @@ pub struct Config {
     /// control tiles. Requires `SEEDER_PERSON_SEEDS_ENABLED`; on its own it does nothing.
     ///
     /// Deploy order, in this order, no overlap:
-    ///   1. Roll the processor fleet-wide with the person reconcile guard (this PR's `ReconcileScope`
-    ///      decode + the loader's person shape-hash map). A processor without it ignores the tile's
-    ///      `guard`, looks the person hash up in the behavioral map, and discards without a marker.
+    ///   1. Roll the processor fleet-wide with a build that decodes `reconcile_person` tiles and
+    ///      loads the person shape-hash map. An older processor routes the person kind to
+    ///      `UnknownKind` and skip-commits it without a marker, stranding the run as a shortfall.
     ///   2. Flip `SEEDER_PERSON_SEEDS_ENABLED` and let person runs seed.
     ///   3. Flip this once step 1 is confirmed everywhere.
+    ///   4. Flip Django's `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` once the flags service
+    ///      stops reading `last_backfill_person_properties_at` as proof `cohort_membership` is
+    ///      populated. Until then the finalizer skips person runs, so they stay `reconciling`
+    ///      after step 3 and `seeder_runs_reconciling{kind="person_property"}` climbs. That is
+    ///      expected, not a stalled dispatch.
     ///
     /// Flipping this back off does not undo a bad rollout: a run already in `reconciling` stops
     /// being discovered, so it never reaches `reconcile_observed_at` and never finalizes. Recovery

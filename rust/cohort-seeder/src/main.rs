@@ -120,7 +120,7 @@ async fn async_main(config: Config) -> Result<()> {
     });
     let completion = build_completion(
         &config,
-        settings.discovery_kinds(),
+        settings.completion_kinds(),
         &pool,
         &producer,
         observe_policy,

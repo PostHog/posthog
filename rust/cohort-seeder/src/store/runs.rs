@@ -175,7 +175,7 @@ impl RunKind {
     }
 
     /// The definition fingerprint this kind's reconcile is fenced by. The two vocabularies are the
-    /// same strings by construction: the column and the wire guard name one concept.
+    /// same strings by construction: the column and the metric label name one concept.
     pub const fn scope(self) -> ScopeKind {
         match self {
             Self::Behavioral => ScopeKind::Behavioral,

@@ -82,14 +82,17 @@ class TestBackfillFinalizer(BaseTest):
             }
         }
 
-    def _make_participation(self, run: CohortBackfillRun, outcome: str) -> tuple[Cohort, CohortBackfillRunCohort]:
-        cohort = Cohort.objects.create(
-            team=self.team,
-            cohort_type=CohortType.REALTIME,
-            filters=self._behavioral_filters(),
-        )
-        ensure_filters_shape_hash(cohort)
-        cohort.refresh_from_db()
+    def _make_participation(
+        self, run: CohortBackfillRun, outcome: str, cohort: Cohort | None = None
+    ) -> tuple[Cohort, CohortBackfillRunCohort]:
+        if cohort is None:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                cohort_type=CohortType.REALTIME,
+                filters=self._behavioral_filters(),
+            )
+            ensure_filters_shape_hash(cohort)
+            cohort.refresh_from_db()
         participation = CohortBackfillRunCohort.objects.for_team(self.team.id).create(
             run=run,
             team_id=self.team.id,
@@ -128,6 +131,7 @@ class TestBackfillFinalizer(BaseTest):
         observed: bool = True,
         scope: str = CohortBackfillScope.TEAM,
         kind: str = CohortBackfillKind.BEHAVIORAL,
+        cohorts: list[Cohort] | None = None,
     ) -> tuple[CohortBackfillRun, list[Cohort]]:
         cohort_scoped = scope == CohortBackfillScope.COHORT
         run = CohortBackfillRun.objects.for_team(self.team.id).create(
@@ -141,7 +145,11 @@ class TestBackfillFinalizer(BaseTest):
             reconcile_observed_at=timezone.now() if observed else None,
             timezone="UTC",
         )
-        cohorts = [self._make_participation(run, outcome)[0] for outcome in outcomes]
+        shared = cohorts if cohorts is not None else [None] * len(outcomes)
+        cohorts = [
+            self._make_participation(run, outcome, cohort=cohort)[0]
+            for outcome, cohort in zip(outcomes, shared, strict=True)
+        ]
         if cohort_scoped:
             run.cohort = cohorts[0]
             run.save(update_fields=["cohort"])
@@ -212,6 +220,25 @@ class TestBackfillFinalizer(BaseTest):
         self.assertFalse(behavioral_cohorts[0].is_flag_compatible)
         self.assertFalse(person_cohorts[0].is_flag_compatible)
 
+    def test_mixed_cohort_earns_both_stamps_from_two_runs_on_one_cohort(self) -> None:
+        # The production shape `cohort_bfr_active_cohort_kind_uq` permits: one mixed cohort, one
+        # active run per kind. The second stamp must neither be blocked by nor clobber the first —
+        # only with both columns does the cohort become flag-compatible.
+        behavioral, cohorts = self._make_run(["completed"])
+        person, _ = self._make_run(["completed"], kind=CohortBackfillKind.PERSON_PROPERTY, cohorts=cohorts)
+
+        result = finalize_backfill_runs()
+
+        behavioral.refresh_from_db()
+        person.refresh_from_db()
+        cohorts[0].refresh_from_db()
+        self.assertEqual(result.completed, 2)
+        self.assertEqual(behavioral.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertEqual(person.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertIsNotNone(cohorts[0].last_backfill_events_at)
+        self.assertIsNotNone(cohorts[0].last_backfill_person_properties_at)
+        self.assertTrue(cohorts[0].is_flag_compatible)
+
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED=False)
     def test_person_run_is_held_not_superseded_while_the_readiness_gate_is_off(self) -> None:
         behavioral, behavioral_cohorts = self._make_run(["completed"])
@@ -235,6 +262,25 @@ class TestBackfillFinalizer(BaseTest):
         self.assertIsNone(person_participation.superseded_at)
         self.assertIsNone(person_participation.stamped_at)
         self.assertEqual(result.completed, 1)
+        # The backlog behind the gate is otherwise invisible: discovery never surfaces these runs,
+        # so `held` stays 0.
+        self.assertEqual(result.gated, 1)
+        self.assertEqual(result.held, 0)
+
+    @override_settings(BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS=1)
+    def test_budget_is_sliced_per_kind_so_a_person_backlog_cannot_starve_behavioral_runs(self) -> None:
+        # The person run is older, so under one shared cap it would take the entire budget and the
+        # behavioral run would wait behind the whole parked-person backlog draining first.
+        person, _ = self._make_run(["completed"], kind=CohortBackfillKind.PERSON_PROPERTY)
+        behavioral, _ = self._make_run(["completed"])
+
+        result = finalize_backfill_runs()
+
+        behavioral.refresh_from_db()
+        person.refresh_from_db()
+        self.assertEqual(result.completed, 2)
+        self.assertEqual(behavioral.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertEqual(person.status, CohortBackfillRunStatus.COMPLETED)
 
     def test_second_fire_is_a_noop(self) -> None:
         run, _cohorts = self._make_run(["completed", "completed"])

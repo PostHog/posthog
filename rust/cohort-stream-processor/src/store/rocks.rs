@@ -194,11 +194,10 @@ struct Stage2DirtyTracking {
     ///
     /// No path holds two leases on one prefix today: the prefix carries `partition_id`, there is one
     /// `ReconcileQueue` per partition worker, and only that queue's head is ever leased — kind-scoped
-    /// supersession puts a mixed cohort's two runs in the same queue, not in the same lease. The
-    /// `debug_assert` below pins that. Counting rather than setting is what keeps a release build
-    /// honest if it ever stops holding: the last release wins instead of the first, so capture stays
-    /// on for the surviving job rather than silently dropping every concurrent mutation from its
-    /// snapshot.
+    /// supersession puts a mixed cohort's two runs in the same queue, not in the same lease. Counting
+    /// rather than setting is what keeps this correct if that ever stops holding: the last release
+    /// wins instead of the first, so capture stays on for the surviving job rather than silently
+    /// dropping every concurrent mutation from its snapshot.
     active: RwLock<HashMap<Stage2CohortPrefix, NonZeroUsize>>,
     active_count: AtomicUsize,
 }
@@ -209,15 +208,10 @@ impl Stage2DirtyTracking {
             .active
             .write()
             .expect("Stage 2 dirty-tracking lock is not held across fallible work");
-        let leases = active
+        active
             .entry(prefix)
             .and_modify(|leases| *leases = leases.saturating_add(1))
             .or_insert(NonZeroUsize::MIN);
-        debug_assert_eq!(
-            leases.get(),
-            1,
-            "only the reconcile queue head leases dirty tracking, so one prefix holds one lease"
-        );
         self.active_count.fetch_add(1, Ordering::Release);
         Stage2DirtyTrackingGuard {
             tracking: self.clone(),
@@ -1901,6 +1895,53 @@ mod tests {
                 .unwrap()
                 .is_empty(),
             "idle Stage 2 writes do not accumulate permanent dirty metadata",
+        );
+    }
+
+    #[test]
+    fn stage2_dirty_capture_survives_until_the_last_lease_releases() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let key = Stage2Key {
+            partition_id: 3,
+            team_id: 7,
+            cohort_id: 100,
+            person_id: Uuid::from_u128(1),
+        };
+        let prefix = key.cohort_prefix();
+
+        // No production path holds two leases on one prefix today, but the refcount is what keeps
+        // capture on for a surviving lease if that ever changes — the last release must win, not
+        // the first.
+        let first = store.track_stage2_dirty(prefix);
+        let second = store.track_stage2_dirty(prefix);
+        drop(first);
+        store
+            .write_batch(|batch| batch.put_stage2(&key, b"during"))
+            .unwrap();
+        assert_eq!(
+            store.scan_stage2_dirty(prefix, None, 10).unwrap().len(),
+            1,
+            "capture stays on while any lease is held",
+        );
+
+        drop(second);
+        store
+            .write_batch(|batch| {
+                batch.delete_stage2_dirty(&Stage2DirtyKey::new(key));
+                batch.put_stage2(&key, b"after");
+            })
+            .unwrap();
+        assert!(
+            store
+                .scan_stage2_dirty(prefix, None, 10)
+                .unwrap()
+                .is_empty(),
+            "the last release disables capture",
         );
     }
 

@@ -114,11 +114,11 @@ fn shape_guard<T>(
     match parse(raw) {
         Ok(hash) => Some(hash),
         Err(error) => {
-            counter!(FILTER_CATALOG_INVALID_SHAPE_HASH, "guard" => kind.as_str()).increment(1);
+            counter!(FILTER_CATALOG_INVALID_SHAPE_HASH, "kind" => kind.as_str()).increment(1);
             warn!(
                 cohort_id = cohort_id.0,
                 team_id = team_id.0,
-                guard = kind.as_str(),
+                kind = kind.as_str(),
                 error = %error,
                 "ignoring invalid persisted shape hash",
             );

@@ -766,8 +766,8 @@ fn admit_reconcile(
         return;
     }
 
-    let guard = tile.scope().kind();
-    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), guard, offset) {
+    let kind = tile.scope().kind();
+    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), kind, offset) {
         SupersedeOutcome::NoQueuedJob => merge.seed_tracker.defer(partition_id as i32, offset),
         SupersedeOutcome::Replaced(superseded) => {
             let (replacement, outcome) = merge
@@ -784,7 +784,7 @@ fn admit_reconcile(
                     );
                 }
             }
-            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL, "guard" => guard.as_str()).increment(1);
+            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL, "kind" => kind.as_str()).increment(1);
             replacement
         }
         SupersedeOutcome::RetainedNewerOrEqual => {
@@ -803,7 +803,7 @@ fn admit_reconcile(
     };
 
     queue.enqueue(tile.clone(), deferred);
-    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL, "guard" => guard.as_str()).increment(1);
+    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL, "kind" => kind.as_str()).increment(1);
 }
 
 /// What one tile staged across its referencing leaves.

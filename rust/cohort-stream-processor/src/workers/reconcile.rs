@@ -374,14 +374,14 @@ pub(crate) async fn handle_reconcile_drain(
                 counter!(
                     RECONCILE_JOBS_DISCARDED_TOTAL,
                     "reason" => reason.as_str(),
-                    "guard" => tile.scope().kind().as_str(),
+                    "kind" => tile.scope().kind().as_str(),
                 )
                 .increment(1);
                 warn_job!(
                     tile,
                     partition_id,
                     reason = reason.as_str(),
-                    guard = tile.scope().kind().as_str(),
+                    kind = tile.scope().kind().as_str(),
                     "discarding reconcile job without a completion marker",
                 );
                 continue;
@@ -764,8 +764,8 @@ async fn drain_marker(
         return DrainStep::Yield;
     }
 
-    let guard = tile.scope().kind().as_str();
-    counter!(RECONCILE_MARKERS_EMITTED_TOTAL, "guard" => guard).increment(1);
+    let kind = tile.scope().kind().as_str();
+    counter!(RECONCILE_MARKERS_EMITTED_TOTAL, "kind" => kind).increment(1);
     let completed = queue
         .finish_front()
         .expect("the marker-producing queue head is still present");
@@ -775,7 +775,7 @@ async fn drain_marker(
         completed.offset,
         "completed reconcile",
     );
-    counter!(RECONCILE_JOBS_COMPLETED_TOTAL, "guard" => guard).increment(1);
+    counter!(RECONCILE_JOBS_COMPLETED_TOTAL, "kind" => kind).increment(1);
     info!(
         partition_id,
         team_id = tile.team_id().0,
