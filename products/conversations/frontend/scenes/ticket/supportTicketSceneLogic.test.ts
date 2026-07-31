@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { JSONContent } from '@tiptap/core'
 import { expectLogic } from 'kea-test-utils'
 
 import { tagsModel } from '~/models/tagsModel'
@@ -349,6 +350,17 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
     ])('unsavedTicketChanges lists %s', (_name, applyEdit, expected) => {
         applyEdit()
         expect(logic.values.unsavedTicketChanges).toEqual(expected)
+    })
+
+    // Unsent draft text is pending work: it must drive the beforeUnload guard so closing the tab
+    // or hard-navigating away with typed-but-unsent reply content prompts before discarding it.
+    test.each<[string, JSONContent | null, boolean]>([
+        ['no draft', null, false],
+        ['a draft with content', { type: 'doc', content: [{ type: 'paragraph' }] }, true],
+    ])('hasPendingWork reflects %s', (_name, draft, expected) => {
+        expect(logic.values.hasPendingWork).toBe(false)
+        logic.actions.setDraftContent(draft)
+        expect(logic.values.hasPendingWork).toBe(expected)
     })
 
     // Overlapping updates must serialize: the second PATCH waits for the first and carries the
