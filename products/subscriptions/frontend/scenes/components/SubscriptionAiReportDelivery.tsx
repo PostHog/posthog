@@ -1,4 +1,4 @@
-import { LemonBanner, LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -343,31 +343,6 @@ function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQuery
     )
 }
 
-/** One-line reconciliation for rows whose overall status is Failed but parts still succeeded — content attaches
- * to a run marked Failed reads as contradictory without it. Null when there's nothing surprising to explain. */
-function deliveryOutcomeNote(
-    row: Pick<SubscriptionDeliveryApi, 'status'>,
-    recipients: readonly DeliveryRecipientResult[],
-    insights: readonly DeliveryInsightItem[]
-): string | null {
-    if (row.status !== SubscriptionDeliveryStatusEnumApi.Failed) {
-        return null
-    }
-    const delivered = recipients.filter((r) => r.status === 'success').length
-    const computed = insights.filter((i) => !i.failed && !i.pending).length
-    if (delivered === 0 && computed === 0) {
-        return null
-    }
-    const parts: string[] = []
-    if (computed > 0) {
-        parts.push(`${computed} ${computed === 1 ? 'item' : 'items'} still computed`)
-    }
-    if (delivered > 0) {
-        parts.push(`delivery reached ${delivered} ${delivered === 1 ? 'destination' : 'destinations'}`)
-    }
-    return `This run failed overall, but ${parts.join(' and ')} before the failure.`
-}
-
 /** Expanded detail for a delivery row: AI summary, prompt at generation time, delivered report, per-query
  * accordion, plus per-recipient and per-insight delivery outcomes. Returns null when there's nothing to show. */
 export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
@@ -379,14 +354,8 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
     if (!deliveryRowHasExpandableContent(row)) {
         return null
     }
-    const outcomeNote = deliveryOutcomeNote(row, recipients, insights)
     return (
         <div className="px-4 py-3 text-sm flex flex-col gap-4">
-            {outcomeNote ? (
-                <LemonBanner type="warning" className="text-xs">
-                    {outcomeNote}
-                </LemonBanner>
-            ) : null}
             {row.change_summary ? (
                 <div className="whitespace-pre-wrap">
                     <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
