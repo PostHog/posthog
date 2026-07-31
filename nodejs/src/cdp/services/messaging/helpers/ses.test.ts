@@ -210,7 +210,9 @@ describe('SesWebhookHandler', () => {
         })
 
         it('caps the length so a long url cannot bloat the metrics sort key', () => {
-            expect(normalizeClickUrl(`https://example.com/${'x'.repeat(500)}`)).toHaveLength(200)
+            // Many short segments, because a single long segment is collapsed by the redaction above
+            // and would never reach the cap.
+            expect(normalizeClickUrl(`https://example.com/${'ab/'.repeat(100)}`)).toHaveLength(200)
         })
     })
 
