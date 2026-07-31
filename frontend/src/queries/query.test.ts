@@ -307,7 +307,8 @@ describe('query', () => {
             })
         })
 
-        it('handles non-string error message', async () => {
+        // A non-string detail used to pass straight through and crash React when rendered
+        it('drops a non-string error message', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({
                 data: {
                     query_status: {
@@ -317,7 +318,7 @@ describe('query', () => {
             })
 
             await expect(pollForResults('test-query-id')).rejects.toMatchObject({
-                detail: { nested: 'object' },
+                detail: '',
             })
         })
     })
