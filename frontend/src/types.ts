@@ -7678,19 +7678,19 @@ export type OAuthApplicationPublicMetadata = {
     wildcard_read_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
-    status: 'pending' | 'success'
+    status: 'pending' | 'success' | 'failed'
     dnsRecords: (
         | {
-              type: 'dkim'
+              type: 'verification'
               recordType: 'TXT'
               recordHostname: string
               recordValue: string
               status: 'pending' | 'success'
           }
         | {
-              type: 'spf'
-              recordType: 'TXT'
-              recordHostname: '@'
+              type: 'dkim'
+              recordType: 'CNAME'
+              recordHostname: string
               recordValue: string
               status: 'pending' | 'success'
           }
@@ -7701,6 +7701,13 @@ export interface EmailSenderDomainStatus {
               recordValue: string
               status: 'pending' | 'success'
               priority?: number
+          }
+        | {
+              type: 'dmarc'
+              recordType: 'TXT'
+              recordHostname: string
+              recordValue: string
+              status: 'pending' | 'success'
           }
     )[]
 }

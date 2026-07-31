@@ -348,9 +348,9 @@ class TestEmailIntegration:
                     "status": "pending",
                 },
                 {
-                    "type": "spf",
+                    "type": "mail_from",
                     "recordType": "TXT",
-                    "recordHostname": "@",
+                    "recordHostname": "feedback.posthog.com",
                     "recordValue": "v=spf1 include:amazonses.com ~all",
                     "status": "pending",
                 },

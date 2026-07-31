@@ -217,15 +217,9 @@ class SESProvider:
                 }
             )
 
-        dns_records.append(
-            {
-                "type": "verification",
-                "recordType": "TXT",
-                "recordHostname": "@",
-                "recordValue": "v=spf1 include:amazonses.com ~all",
-                "status": "pending",
-            }
-        )
+        # Deliberately no SPF at the root domain — SPF is evaluated against the envelope MAIL FROM
+        # domain, which is the custom subdomain below, and it carries its own SPF. A root record
+        # would only collide with whatever else the domain already sends mail through.
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
         try:

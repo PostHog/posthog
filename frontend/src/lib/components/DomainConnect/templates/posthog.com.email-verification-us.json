@@ -3,7 +3,7 @@
     "providerName": "PostHog",
     "serviceId": "email-verification-us",
     "serviceName": "PostHog Email Sending (US)",
-    "version": 1,
+    "version": 2,
     "syncBlock": false,
     "logoUrl": "https://posthog.com/brand/posthog-logo.svg",
     "description": "Configures DNS records for PostHog email sending (domain verification, DKIM, SPF, MAIL FROM)",
@@ -33,7 +33,6 @@
             "pointsTo": "%dkim3%.dkim.amazonses.com",
             "ttl": 3600
         },
-        { "groupId": "spf", "type": "SPFM", "host": "@", "spfRules": "include:amazonses.com", "ttl": 3600 },
         {
             "groupId": "mailfrom",
             "type": "MX",
