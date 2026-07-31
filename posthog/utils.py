@@ -340,6 +340,7 @@ def get_delta_mapping_for(
             delta_mapping["month"] = 1
             delta_mapping["day"] = 1
         elif position == "End":
+            delta_mapping["month"] = 12
             delta_mapping["day"] = 31
 
     return delta_mapping
