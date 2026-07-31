@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use capture::token::validate_token;
 use metrics::counter;
 use moka::future::Cache;
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -88,23 +89,26 @@ impl TokenValidator {
             return TokenVerdict::Valid;
         };
 
-        if let Some(exists) = self.cache.get(token).await {
-            let result = if exists {
-                "valid_cached"
-            } else {
-                "unknown_cached"
-            };
-            counter!("capture_logs_token_validation_total", "result" => result).increment(1);
-            return if exists {
-                TokenVerdict::Valid
-            } else {
-                TokenVerdict::Unknown
-            };
+        // Shape-check before touching the cache or Postgres. A token that isn't
+        // even a well-formed project key has no team, so reject it here — and,
+        // critically, unauthenticated junk (unique garbage tokens) can never
+        // drive a cache miss or a database lookup, closing the DoS amplifier.
+        if validate_token(token).is_err() {
+            counter!("capture_logs_token_validation_total", "result" => "malformed").increment(1);
+            return TokenVerdict::Unknown;
         }
 
-        match store.token_exists(token).await {
+        // try_get_with coalesces concurrent misses for the same token into a
+        // single query (one Postgres round trip per key, not one per request),
+        // caches the Ok verdict (positive and negative), and does NOT cache
+        // errors — so a store blip fails open per-request and self-heals.
+        let token_owned = token.to_string();
+        match self
+            .cache
+            .try_get_with(token_owned, async { store.token_exists(token).await })
+            .await
+        {
             Ok(exists) => {
-                self.cache.insert(token.to_string(), exists).await;
                 let result = if exists { "valid" } else { "unknown" };
                 counter!("capture_logs_token_validation_total", "result" => result).increment(1);
                 if exists {
@@ -200,6 +204,25 @@ mod tests {
             store.calls.load(Ordering::SeqCst),
             2,
             "unavailable verdicts must not be cached, so recovery is immediate"
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_tokens_are_rejected_without_touching_the_store() {
+        // A personal API key (phx_) is not a project token — it must be
+        // rejected on shape alone, and must never reach Postgres, so garbage
+        // traffic can't drive database load.
+        let store = Arc::new(FakeStore {
+            exists: Some(true),
+            calls: AtomicUsize::new(0),
+        });
+        let v = validator_with(store.clone());
+        assert_eq!(v.check("phx_personal_key").await, TokenVerdict::Unknown);
+        assert_eq!(v.check("").await, TokenVerdict::Unknown);
+        assert_eq!(
+            store.calls.load(Ordering::SeqCst),
+            0,
+            "malformed tokens must never query the store"
         );
     }
 

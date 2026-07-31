@@ -331,7 +331,9 @@ impl Service {
     }
 }
 
-/// 401 for tokens no team owns; unavailable validation fails open.
+/// 401 for tokens no team owns; unavailable validation fails open. Applied to
+/// the metrics endpoint only (where a typo'd onboarding token otherwise 200s
+/// and silently drops); the higher-volume logs/traces paths are left untouched.
 pub(crate) async fn reject_unknown_token(
     service: &Service,
     token: &str,
@@ -436,7 +438,6 @@ pub async fn export_logs_http(
             Json(json!({"error": format!("Invalid token")})),
         ));
     }
-    reject_unknown_token(&service, token).await?;
 
     tracing::Span::current().record("token", token);
 
@@ -627,8 +628,6 @@ pub async fn export_traces_http(
             Json(json!({"error": "Invalid token"})),
         ));
     }
-
-    reject_unknown_token(&service, token).await?;
 
     tracing::Span::current().record("token", token);
 

@@ -321,7 +321,6 @@ pub async fn export_datadog_logs_http(
             Json(json!({"error": "Invalid token"})),
         ));
     }
-    crate::service::reject_unknown_token(&service, &token).await?;
 
     tracing::Span::current().record("token", &token);
 
