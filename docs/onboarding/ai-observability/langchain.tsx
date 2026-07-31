@@ -113,8 +113,12 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
             content: (
                 <>
                     <Markdown>
-                        Attach the handler through `config` when you invoke your chain. PostHog captures an
-                        `$ai_generation` event for each LLM call and an `$ai_span` event for each tool call.
+                        {dedent`
+                            Build your agent once, then invoke it inside the function that handles a turn. PostHog
+                            captures an \`$ai_generation\` event for each LLM call and an \`$ai_span\` event for each
+                            tool call, both nested under one trace, as long as the whole turn runs through a single
+                            call to \`invoke\`.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -125,35 +129,25 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 code: dedent`
                                     from langchain_openai import ChatOpenAI
                                     from langchain_core.tools import tool
-                                    from langchain_core.runnables import RunnableLambda
+                                    from langchain.agents import create_agent
 
                                     @tool
                                     def get_weather(city: str) -> str:
                                         """Get the weather for a given city."""
                                         return f"It's always sunny in {city}!"
 
-                                    model = ChatOpenAI(openai_api_key="your_openai_api_key").bind_tools([get_weather])
+                                    model = ChatOpenAI(openai_api_key="your_openai_api_key")
+                                    agent = create_agent(model, tools=[get_weather])
 
-                                    def run_turn(user_input: str) -> str:
-                                        # Wrapping the whole turn in one RunnableLambda gives the tool call a
-                                        # parent run. Without a parent, the handler logs it as its own
-                                        # $ai_trace instead of an $ai_span.
-                                        response = model.invoke(user_input)
+                                    def ask(user_input: str, user_id: str, conversation_id: str) -> str:
+                                        handler = create_handler(user_id=user_id, session_id=conversation_id)
+                                        result = agent.invoke(
+                                            {"messages": [{"role": "user", "content": user_input}]},
+                                            config={"callbacks": [handler]},
+                                        )
+                                        return result["messages"][-1].content
 
-                                        for tool_call in response.tool_calls:
-                                            print(get_weather.invoke(tool_call))
-
-                                        return response.content
-
-                                    agent_turn = RunnableLambda(run_turn)
-
-                                    handler = create_handler(user_id="user_123", session_id="conversation-abc")
-                                    result = agent_turn.invoke(
-                                        "What's the weather in Paris?",
-                                        config={"callbacks": [handler]},
-                                    )
-
-                                    print(result)
+                                    print(ask("What's the weather in Paris?", "user_123", "conversation-abc"))
                                 `,
                             },
                             {
@@ -162,7 +156,7 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 code: dedent`
                                     import { ChatOpenAI } from '@langchain/openai'
                                     import { tool } from '@langchain/core/tools'
-                                    import { RunnableLambda } from '@langchain/core/runnables'
+                                    import { createAgent } from 'langchain'
                                     import { z } from 'zod'
 
                                     const getWeather = tool(
@@ -176,53 +170,48 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                       }
                                     )
 
-                                    const model = new ChatOpenAI({ apiKey: 'your_openai_api_key' }).bindTools([getWeather])
+                                    const model = new ChatOpenAI({ apiKey: 'your_openai_api_key' })
+                                    const agent = createAgent({ llm: model, tools: [getWeather] })
 
-                                    const agentTurn = RunnableLambda.from(async (userInput: string, config) => {
-                                      // Wrapping the whole turn in one RunnableLambda gives the tool call a
-                                      // parent run, and passing config into every nested call keeps it there —
-                                      // LangChain.js doesn't propagate callbacks implicitly the way Python does.
-                                      const response = await model.invoke(userInput, config)
+                                    async function ask(userInput: string, userId: string, conversationId: string): Promise<string> {
+                                      const handler = createHandler(userId, conversationId)
+                                      const result = await agent.invoke(
+                                        { messages: [{ role: 'user', content: userInput }] },
+                                        { callbacks: [handler] }
+                                      )
+                                      return result.messages[result.messages.length - 1].content
+                                    }
 
-                                      for (const toolCall of response.tool_calls ?? []) {
-                                        console.log(await getWeather.invoke(toolCall, config))
-                                      }
-
-                                      return response.content
-                                    })
-
-                                    const handler = createHandler('user_123', 'conversation-abc')
-                                    const result = await agentTurn.invoke("What's the weather in Paris?", {
-                                      callbacks: [handler],
-                                    })
-
-                                    console.log(result)
+                                    console.log(await ask("What's the weather in Paris?", 'user_123', 'conversation-abc'))
                                 `,
                             },
                         ]}
                     />
 
-                    <CalloutBox type="caution" icon="IconWarning" title="Config propagation and tool spans">
-                        <Markdown>
-                            {dedent`
-                                **In Node, pass \`config\` into every nested call.** Python threads the active
-                                callbacks through contextvars automatically, so nested \`.invoke()\` calls pick them up
-                                on their own. LangChain.js doesn't — skip \`config\` on a nested call and that call runs
-                                with no callbacks at all. Nothing errors, so you're left with a single root trace and
-                                no generations or spans, silently.
+                    <Markdown>
+                        {dedent`
+                            \`agent\` is built once, outside \`ask\`, and reused across turns. The handler is built
+                            fresh inside \`ask\` on every call, because it carries \`distinct_id\` and
+                            \`$ai_session_id\`, and those need to change per conversation. \`create_agent\` and
+                            \`createAgent\` build the tool-calling loop on LangGraph under the hood, the same engine
+                            behind the
+                            [LangGraph installation page](https://posthog.com/docs/ai-observability/installation/langgraph).
+                            That's why the \`get_weather\` call above is captured automatically as an \`$ai_span\`
+                            with its real execution duration, nested under the trace, without any extra code.
+                        `}
+                    </Markdown>
 
-                                **Tool calls need a parent run.** The handler decides whether a call is a trace or a
-                                span based on whether it has a parent run. A tool invoked with no enclosing chain
-                                becomes its own root, producing a second, disconnected \`$ai_trace\` instead of an
-                                \`$ai_span\`.
-                                Wrapping the turn in one \`RunnableLambda\`, as above, fixes it in both Python and
-                                Node. This only comes up when you hand-roll a loop like this one — a prebuilt agent,
-                                like LangGraph's
-                                [\`create_react_agent\`](https://posthog.com/docs/ai-observability/installation/langgraph),
-                                already runs as a single root.
-                            `}
-                        </Markdown>
-                    </CalloutBox>
+                    <Markdown>
+                        {dedent`
+                            \`distinct_id\` ties this call to a person, so you can see everything one user asked for
+                            and know who hit an error or ran up cost. \`$ai_session_id\` groups every call in one
+                            conversation, so a multi-turn exchange reads as a single thread instead of separate,
+                            unrelated calls. A trace covers one turn, and a session covers the whole conversation:
+                            passing the same session id to every handler you build for that conversation is what
+                            connects them. Together, \`distinct_id\` and \`$ai_session_id\` give you a complete view:
+                            which person, which conversation, which turn, and every LLM call and tool call inside it.
+                        `}
+                    </Markdown>
 
                     <Blockquote>
                         <Markdown>
@@ -240,10 +229,10 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <Markdown>
                         {dedent`
-                            The handler also builds a trace hierarchy automatically based on how your chain is
-                            nested. Pass the same \`$ai_session_id\` to every handler you construct for a conversation
-                            to group its calls into one session, and \`trace_id\`/\`traceId\` to control the top-level
-                            trace ID instead of letting PostHog generate one.
+                            The handler also builds a trace hierarchy automatically based on how your agent is
+                            structured. Pass the same \`$ai_session_id\` to every handler you construct for a
+                            conversation to group its calls into one session, and \`trace_id\`/\`traceId\` to control
+                            the top-level trace ID instead of letting PostHog generate one.
                         `}
                     </Markdown>
                 </>

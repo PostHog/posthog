@@ -13,12 +13,15 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Install the PostHog AI package, the Vercel AI SDK, and the OpenTelemetry SDK.</Markdown>
+                    <Markdown>
+                        Install the PostHog AI package, the Vercel AI SDK, the OpenTelemetry SDK, and Zod for defining
+                        tool schemas.
+                    </Markdown>
 
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-node @opentelemetry/resources
+                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-node @opentelemetry/resources zod
                         `}
                     />
                 </>
@@ -65,19 +68,32 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
             content: (
                 <>
                     <Markdown>
-                        Pass `experimental_telemetry` to your Vercel AI SDK calls. The `posthog_distinct_id` metadata
-                        field links events to a specific user in PostHog.
+                        {dedent`
+                            Pass \`experimental_telemetry\` to your Vercel AI SDK calls. The \`posthog_distinct_id\`
+                            metadata field links events to a specific user in PostHog. Define \`tools\` the same way
+                            you always would, with an \`execute\` function; PostHog captures the execution as a span
+                            once the call completes.
+                        `}
                     </Markdown>
 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            import { generateText } from 'ai'
+                            import { generateText, tool, stepCountIs } from 'ai'
                             import { openai } from '@ai-sdk/openai'
+                            import { z } from 'zod'
 
                             const result = await generateText({
                               model: openai('gpt-5-mini'),
-                              prompt: 'Tell me a fun fact about hedgehogs.',
+                              prompt: "What's the weather in Paris?",
+                              tools: {
+                                get_weather: tool({
+                                  description: 'Get the weather for a city',
+                                  inputSchema: z.object({ city: z.string() }),
+                                  execute: async ({ city }) => \`It's always sunny in \${city}!\`,
+                                }),
+                              },
+                              stopWhen: stepCountIs(5), // let the model see the tool result and respond
                               experimental_telemetry: {
                                 isEnabled: true,
                                 functionId: 'my-ai-function',
@@ -96,6 +112,19 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                     <Markdown>
                         Pass `$ai_session_id` in `metadata` to group every call in a conversation into one PostHog
                         session.
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            \`posthog_distinct_id\` ties this call to a person, so you can see everything one user
+                            asked for and know who hit an error or ran up cost. \`$ai_session_id\` groups every call
+                            in one conversation, so a multi-turn exchange reads as a single thread instead of
+                            separate, unrelated calls. A trace covers one call, and a session covers the whole
+                            conversation: passing the same session id in \`metadata\` across every call is what
+                            connects them. Together, \`posthog_distinct_id\` and \`$ai_session_id\` give you a
+                            complete view: who made the request, which conversation it's part of, and every
+                            generation and tool execution inside it.
+                        `}
                     </Markdown>
 
                     <Blockquote>

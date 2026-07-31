@@ -101,11 +101,24 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                         `}
                     />
 
+                    <Markdown>
+                        {dedent`
+                            \`posthog_distinct_id\` ties this call to a person, so you can see everything one user
+                            asked for and know who hit an error or ran up cost. \`$ai_session_id\` groups every
+                            generation, span, and trace from a call into one PostHog session, so a multi-turn
+                            exchange reads as a single thread instead of separate, unrelated calls. A trace covers
+                            one query, and a session covers the whole conversation: passing the same session id
+                            across every query is what connects them. Together, \`posthog_distinct_id\` and
+                            \`$ai_session_id\` give you a complete view: who made the request, which conversation
+                            it's part of, and every generation and tool call inside it.
+                        `}
+                    </Markdown>
+
                     <Blockquote>
                         <Markdown>
                             {dedent`
                             **Notes:**
-                            - All original messages are yielded unchanged — the wrapper is fully transparent.
+                            - All original messages are yielded unchanged. The wrapper is fully transparent.
                             - Pass \`$ai_session_id\` in \`posthog_properties\` to group every generation, span, and trace from a call into one PostHog session.
                             - If you want to capture LLM events anonymously, **don't** pass a distinct ID. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                             `}
@@ -237,6 +250,13 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                             - \`$ai_generation\` events for each LLM turn (with token counts, cost, and cache metrics)
                             - \`$ai_span\` events for each tool use (Read, Glob, Grep, Bash, etc.)
                             - An \`$ai_trace\` event grouping the entire conversation with total cost and latency
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            Each \`$ai_span\` event carries the tool's real execution duration and nests under the
+                            trace automatically. You don't write any capture code for it.
                         `}
                     </Markdown>
                 </>

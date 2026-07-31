@@ -114,10 +114,10 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                 <>
                     <Markdown>
                         {dedent`
-                            Attach the handler through \`config\` when you invoke the graph. \`create_react_agent\`
-                            already runs the whole turn as a single root run, so PostHog correctly nests each tool
-                            call as an \`$ai_span\` under the trace — no extra wrapping needed, unlike a hand-rolled
-                            tool-calling loop.
+                            Attach the handler through \`config\` when you invoke the graph, inside the function that
+                            handles a turn. \`create_react_agent\` already runs the whole turn as a single root run,
+                            so PostHog correctly nests each tool call as an \`$ai_span\` under the trace. No extra
+                            wrapping needed, unlike a hand-rolled tool-calling loop.
                         `}
                     </Markdown>
 
@@ -139,14 +139,15 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     model = ChatOpenAI(api_key="your_openai_api_key")
                                     agent = create_react_agent(model, tools=[get_weather])
 
-                                    handler = create_handler(user_id="user_123", session_id="conversation-abc")
+                                    def ask(user_input: str, user_id: str, conversation_id: str) -> str:
+                                        handler = create_handler(user_id=user_id, session_id=conversation_id)
+                                        result = agent.invoke(
+                                            {"messages": [{"role": "user", "content": user_input}]},
+                                            config={"callbacks": [handler]},
+                                        )
+                                        return result["messages"][-1].content
 
-                                    result = agent.invoke(
-                                        {"messages": [{"role": "user", "content": "What's the weather in Paris?"}]},
-                                        config={"callbacks": [handler]},
-                                    )
-
-                                    print(result["messages"][-1].content)
+                                    print(ask("What's the weather in Paris?", "user_123", "conversation-abc"))
                                 `,
                             },
                             {
@@ -172,18 +173,40 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                     const model = new ChatOpenAI({ apiKey: 'your_openai_api_key' })
                                     const agent = createReactAgent({ llm: model, tools: [getWeather] })
 
-                                    const handler = createHandler('user_123', 'conversation-abc')
+                                    async function ask(userInput: string, userId: string, conversationId: string): Promise<string> {
+                                      const handler = createHandler(userId, conversationId)
+                                      const result = await agent.invoke(
+                                        { messages: [{ role: 'user', content: userInput }] },
+                                        { callbacks: [handler] }
+                                      )
+                                      return result.messages[result.messages.length - 1].content
+                                    }
 
-                                    const result = await agent.invoke(
-                                      { messages: [{ role: 'user', content: "What's the weather in Paris?" }] },
-                                      { callbacks: [handler] }
-                                    )
-
-                                    console.log(result.messages[result.messages.length - 1].content)
+                                    console.log(await ask("What's the weather in Paris?", 'user_123', 'conversation-abc'))
                                 `,
                             },
                         ]}
                     />
+
+                    <Markdown>
+                        {dedent`
+                            \`agent\` is built once, outside \`ask\`, and reused across turns. The handler is built
+                            fresh inside \`ask\` on every call, because it carries \`distinct_id\` and
+                            \`$ai_session_id\`, and those need to change per conversation.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            \`distinct_id\` ties this call to a person, so you can see everything one user asked for
+                            and know who hit an error or ran up cost. \`$ai_session_id\` groups every call in one
+                            conversation, so a multi-turn exchange reads as a single thread instead of separate,
+                            unrelated calls. A trace covers one turn, and a session covers the whole conversation:
+                            passing the same session id to every handler you build for that conversation is what
+                            connects them. Together, \`distinct_id\` and \`$ai_session_id\` give you a complete view:
+                            which person, which conversation, which turn, and every LLM call and tool call inside it.
+                        `}
+                    </Markdown>
 
                     <Blockquote>
                         <Markdown>
