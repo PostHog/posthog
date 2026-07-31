@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCopy, IconDrag, IconPlus } from '@posthog/icons'
+import { IconCopy, IconPlus, IconTarget } from '@posthog/icons'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
@@ -56,7 +56,7 @@ function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
                 {isCopyingNode ? (
                     <IconCopy className="text-sm text-primary" />
                 ) : isMovingNode ? (
-                    <IconDrag className="text-sm text-primary" />
+                    <IconTarget className="text-sm text-primary" />
                 ) : (
                     <IconPlus className="text-sm text-primary" />
                 )}
@@ -77,7 +77,7 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     const node = nodesById[props.id]
 
     return (
-        <div className="transition-all hover:translate-y-[-2px]">
+        <div>
             {node?.handles?.map((handle) => (
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
