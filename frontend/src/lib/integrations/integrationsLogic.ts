@@ -856,6 +856,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
         githubAvailableInstallations: [
             null as GitHubAvailableInstallationApi[] | null,
             {
+                // The org's other GitHub installations, so the UI can offer a picker when there's
+                // more than one, rather than failing the auto-resolve link as ambiguous.
                 loadGithubAvailableInstallations: async () => {
                     const response = await integrationsGithubAvailableInstallationsRetrieve(
                         String(values.currentProjectId)
@@ -884,14 +886,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        loadIntegrationsSuccess: ({ integrations }) => {
-            // "Link existing installation" only applies when this project has no GitHub integration
-            // yet. Fetch the org's installations so the UI can offer a picker when more than one
-            // exists, rather than failing the auto-resolve link with an ambiguous-installation error.
-            if (!integrations?.some((integration) => integration.kind === 'github')) {
-                actions.loadGithubAvailableInstallations()
-            }
-        },
         loadGitHubRepositories: ({ integrationId }) => {
             actions.loadGitHubRepositoriesPage(integrationId, 0)
         },

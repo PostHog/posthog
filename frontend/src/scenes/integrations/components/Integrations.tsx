@@ -5,6 +5,7 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -35,8 +36,14 @@ export function LinearIntegration({ next }: { next?: string }): JSX.Element {
 export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { linkedGithubInstallationLoading, githubAvailableInstallations } = useValues(integrationsLogic)
-    const { linkExistingGithubInstallation } = useActions(integrationsLogic)
+    const { linkExistingGithubInstallation, loadGithubAvailableInstallations } = useActions(integrationsLogic)
     const githubIntegrations = useIntegrations('github')
+
+    // integrationsLogic is a singleton mounted from dozens of unrelated surfaces, so this fetch
+    // hangs off the GitHub setup UI instead of the shared integrations load.
+    useOnMountEffect(() => {
+        loadGithubAvailableInstallations()
+    })
 
     const settingsPath = next ?? urls.settings('environment-integrations')
     const authorizationUrl = api.integrations.authorizeUrl({

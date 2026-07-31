@@ -472,7 +472,7 @@ def link_existing_team_github_integration(
         )
         distinct_installation_ids = {
             str(config_installation_id)
-            for integration in org_github
+            for integration in defer_repository_cache_fields(org_github)
             if (config_installation_id := (integration.config or {}).get("installation_id"))
         }
         if not distinct_installation_ids:
