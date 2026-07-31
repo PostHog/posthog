@@ -101,7 +101,7 @@ overrides:
   # native module compiles from source under backpressure (e.g. node-pty in CI).
   # undici 8.4.1 dropped that assertion and handles the paused case gracefully;
   # node-gyp only uses stable public exports (fetch/Agent), so 8.x is safe.
-  'node-gyp>undici': 8.4.1
+  'node-gyp>undici': 8.5.0
   # Swap vite for the rolldown-based fork for faster dev boot times (#3027).
   vite: npm:rolldown-vite@7.3.1
   # Security: force patched versions for advisory-flagged packages (each pin is over the
@@ -120,6 +120,8 @@ overrides:
   fast-uri: 3.1.4
   '@hono/node-server': 1.19.13
   lodash: 4.18.0
+  serialize-javascript: 7.0.5
+  '@electron/get>undici': 7.28.0
 
 onlyBuiltDependencies:
   - '@parcel/watcher'
