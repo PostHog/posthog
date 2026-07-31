@@ -43,7 +43,9 @@ async def minio_client(bucket_name):
 
 @pytest_asyncio.fixture
 async def aorganization():
-    org = await sync_to_async(Organization.objects.create)(name=f"DuckLakeTestOrg-{random.randint(1, 99999)}")
+    org = await sync_to_async(Organization.objects.create)(
+        name=f"DuckLakeTestOrg-{random.randint(1, 99999)}", is_ai_data_processing_approved=True
+    )
 
     yield org
 
