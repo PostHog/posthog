@@ -25,6 +25,7 @@ use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
 use cymbal::modes::resolution::load_monitor::LoadMonitor;
 use cymbal::modes::resolution::service::{CymbalResolutionService, ServiceConfig};
+use cymbal::stages::resolution::event_release::ReleaseCache;
 use cymbal::stages::resolution::ResolutionStage;
 use cymbal::symbolication::symbol::SymbolResolver;
 use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
@@ -112,6 +113,8 @@ fn local_stage(resolver: Arc<dyn SymbolResolver>) -> ResolutionStage {
     ResolutionStage {
         symbol_resolver: resolver,
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
+        release_cache: ReleaseCache::disabled(),
         remote: None,
     }
 }
@@ -126,6 +129,8 @@ fn remote_stage(
         // local fallback would still produce parity-matching output.
         symbol_resolver: resolver,
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
+        release_cache: ReleaseCache::disabled(),
         remote: Some(remote),
     }
 }

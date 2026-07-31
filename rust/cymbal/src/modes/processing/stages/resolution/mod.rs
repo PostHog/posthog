@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use sqlx::PgPool;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+pub mod event_release;
 pub mod exception;
 pub mod frame;
 pub mod legacy;
@@ -13,6 +15,7 @@ use crate::{
     metric_consts::RESOLUTION_STAGE,
     stages::pipeline::{ParsedPipelineItem, ResolvedPipelineItem},
     stages::resolution::{
+        event_release::{EventReleaseResolver, ReleaseCache},
         exception::ExceptionResolver,
         frame::FrameResolver,
         legacy::LegacyOrderResolver,
@@ -29,6 +32,13 @@ use crate::{
 pub struct ResolutionStage {
     pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
+    /// Used to resolve the event-level release id (`$release_id`) to its release row. `None` on the
+    /// remote resolution server, which only symbolicates frames and never resolves event releases.
+    pub posthog_pool: Option<PgPool>,
+    /// Caches event-level release lookups (`$release_id` and mobile app-metadata hash) so the
+    /// per-event resolution doesn't re-hit Postgres for the same release. Lives on `AppContext`,
+    /// cloned in here per batch.
+    pub release_cache: ReleaseCache,
     /// When `Some`, the resolution stage can route sampled events through the
     /// remote `cymbal.resolution.v1` client path. Unsampled events still use
     /// local exception+frame resolution. There is no local fallback for events
@@ -42,6 +52,8 @@ impl From<&Arc<AppContext>> for ResolutionStage {
         Self {
             symbol_resolver: app_context.as_ref().symbol_resolver.clone(),
             symbol_resolution_limiter: app_context.as_ref().symbol_resolution_limiter.clone(),
+            posthog_pool: Some(app_context.as_ref().posthog_pool.clone()),
+            release_cache: app_context.as_ref().release_cache.clone(),
             remote: app_context.as_ref().remote_resolution.clone(),
         }
     }
@@ -77,6 +89,8 @@ impl Stage for ResolutionStage {
             let resolved = resolve_batch(batch, remote, self.clone())
                 .await?
                 .apply_operator(LegacyOrderResolver, self.clone())
+                .await?
+                .apply_operator(EventReleaseResolver, self.clone())
                 .await?;
             return Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()));
         }
@@ -87,6 +101,8 @@ impl Stage for ResolutionStage {
             .apply_operator(FrameResolver, self.clone())
             .await?
             .apply_operator(LegacyOrderResolver, self.clone())
+            .await?
+            .apply_operator(EventReleaseResolver, self.clone())
             .await?;
         Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()))
     }

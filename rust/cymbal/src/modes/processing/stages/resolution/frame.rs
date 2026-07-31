@@ -236,6 +236,7 @@ mod test {
             zip_fixture,
         },
         modes::processing::config::ProcessingConfig,
+        stages::resolution::event_release::ReleaseCache,
         symbolication::symbol::local::LocalSymbolResolver,
         symbolication::symbol_store::Catalog,
     };
@@ -348,6 +349,8 @@ mod test {
                 db.clone(),
             )),
             symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+            posthog_pool: Some(db.clone()),
+            release_cache: ReleaseCache::disabled(),
             remote: None,
         }
     }

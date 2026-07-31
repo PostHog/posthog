@@ -15,6 +15,7 @@ use crate::{
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
     stages::rate_limiting::RedisRateLimiter,
+    stages::resolution::event_release::ReleaseCache,
     stages::resolution::remote::{
         dns::TokioDnsResolver, pool::EndpointPool, resolver::RemoteResolutionContext,
         RemoteResolutionConfig,
@@ -61,6 +62,10 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+    // Caches event-level release resolution (`$release_id` and the mobile app-metadata hash) so a
+    // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
+    // for apps that never bound one. Lives here so it survives across batches.
+    pub release_cache: ReleaseCache,
 }
 
 impl Drop for AppContext {
@@ -182,6 +187,11 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
+        let release_cache = ReleaseCache::new(
+            config.release_cache_max_bytes,
+            Duration::from_secs(config.release_cache_ttl_seconds),
+        );
+
         let (remote_resolution, remote_resolution_refresh_task) =
             build_remote_resolution(config).await?;
 
@@ -205,6 +215,7 @@ impl AppContext {
             rate_limiter_enabled_team_ids,
             symbol_resolver,
             issue_cache,
+            release_cache,
             remote_resolution,
             remote_resolution_refresh_task,
         })

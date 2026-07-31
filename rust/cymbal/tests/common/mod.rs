@@ -21,6 +21,7 @@ use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
 use cymbal::stages::pipeline::ParsedPipelineItem;
 use cymbal::stages::resolution::{
+    event_release::ReleaseCache,
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
@@ -451,6 +452,8 @@ pub fn remote_stage(ctx: RemoteResolutionContext) -> ResolutionStage {
     ResolutionStage {
         symbol_resolver: Arc::new(NoopResolver),
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
+        release_cache: ReleaseCache::disabled(),
         remote: Some(ctx),
     }
 }
@@ -459,6 +462,8 @@ pub fn local_stage() -> ResolutionStage {
     ResolutionStage {
         symbol_resolver: Arc::new(NoopResolver),
         symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
+        posthog_pool: None,
+        release_cache: ReleaseCache::disabled(),
         remote: None,
     }
 }
