@@ -390,6 +390,7 @@ export interface accountsColumnConfigLogicValues {
     customPropertyTaxonomicOptions: (SimpleOption & {
         description?: string
         id: string
+        is_canonical?: boolean
         property_type: PropertyType
     })[]
     defaultSelectColumns: string[]
@@ -554,6 +555,7 @@ export interface accountsColumnConfigLogicMeta {
         customPropertyTaxonomicOptions: (customPropertyDefinitions: CustomPropertyDefinitionApi[]) => (SimpleOption & {
             description?: string
             id: string
+            is_canonical?: boolean
             property_type: PropertyType
         })[]
         aliasToRelationshipDefinition: (
@@ -842,11 +844,17 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             (s) => [s.customPropertyDefinitions],
             (
                 customPropertyDefinitions: CustomPropertyDefinitionApi[]
-            ): (SimpleOption & { id: string; description?: string; property_type: PropertyType })[] =>
+            ): (SimpleOption & {
+                id: string
+                description?: string
+                is_canonical?: boolean
+                property_type: PropertyType
+            })[] =>
                 customPropertyDefinitions.map((definition) => ({
                     id: definition.id,
                     name: definition.name,
                     description: definition.description ?? undefined,
+                    is_canonical: definition.is_canonical,
                     property_type: propertyTypeForDisplayType(definition.display_type),
                 })),
         ],
