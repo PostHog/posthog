@@ -1,7 +1,9 @@
+import uuid
+import datetime as dt
 import contextlib
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -15,6 +17,7 @@ from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
     DuckLakeRegisterDataImportsGateInputs,
     DuckLakeRegisterDataImportsInputs,
     DuckLakeRegisterDataImportsMetadata,
+    DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
     copy_and_register_ducklake_data_imports_activity,
     ducklake_register_data_imports_gate_activity,
@@ -121,11 +124,12 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         def __init__(self) -> None:
             self.copies: list[tuple[str, str]] = []
 
-        def find(self, prefix: str) -> list[str]:
-            return [
-                f"{prefix}/_ph_partition_key=2026-07/a.parquet",
-                f"{prefix}/_ph_partition_key=2026-08/b.parquet",
-            ]
+        def find(self, prefix: str, detail: bool = False):
+            files = {
+                f"{prefix}/_ph_partition_key=2026-07/a.parquet": {"Size": 100, "type": "file"},
+                f"{prefix}/_ph_partition_key=2026-08/b.parquet": {"Size": 200, "type": "file"},
+            }
+            return files if detail else list(files)
 
         def copy(self, source: str, destination: str) -> None:
             self.copies.append((source, destination))
@@ -158,6 +162,7 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     heartbeater.__enter__ = MagicMock(return_value=heartbeater)
     heartbeater.__exit__ = MagicMock(return_value=False)
     monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+    workload_metrics = _mock_activity_workload_metrics(monkeypatch)
 
     inputs = _activity_inputs()
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
@@ -188,13 +193,19 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     assert max(registration_indexes) < min(verification_indexes)
     assert max(verification_indexes) < drop_live_index < rename_index
     assert any("SET PARTITIONED BY" in query for query in executed)
+    workload_metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema")
+    workload_metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema")
+    workload_metrics.bytes_getter.assert_called_once_with(team_id=1, schema_id="schema")
+    workload_metrics.files.record.assert_called_once_with(2.0)
+    workload_metrics.rows.record.assert_called_once_with(2.0)
+    workload_metrics.bytes.record.assert_called_once_with(300.0)
 
 
 def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
     monkeypatch.setattr(
         registration_module,
         "_copy_prepared_parquet_files",
-        lambda source_uri, landing_uri: [f"{landing_uri}/file.parquet"],
+        lambda source_uri, landing_uri: ([f"{landing_uri}/file.parquet"], 100),
     )
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: False)
     monkeypatch.setattr(
@@ -206,15 +217,24 @@ def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
     heartbeater.__enter__ = MagicMock(return_value=heartbeater)
     heartbeater.__exit__ = MagicMock(return_value=False)
     monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
+    stale_counter = MagicMock()
+    stale_metric = MagicMock(return_value=stale_counter)
+    monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_stale_metric", stale_metric)
+    workload_metrics = _mock_activity_workload_metrics(monkeypatch)
 
     assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is False
+    stale_metric.assert_called_once_with(team_id=1, schema_id="schema", stage="post_copy")
+    stale_counter.add.assert_called_once_with(1)
+    workload_metrics.files.record.assert_not_called()
+    workload_metrics.rows.record.assert_not_called()
+    workload_metrics.bytes.record.assert_not_called()
 
 
 def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
     monkeypatch.setattr(
         registration_module,
         "_copy_prepared_parquet_files",
-        lambda source_uri, landing_uri: [f"{landing_uri}/file.parquet"],
+        lambda source_uri, landing_uri: ([f"{landing_uri}/file.parquet"], 100),
     )
     monkeypatch.setattr(registration_module, "_prepared_generation_is_current", lambda inputs: True)
     conn = MagicMock()
@@ -247,6 +267,117 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
     assert not any("RENAME TO" in query for query in executed)
 
 
+@pytest.mark.asyncio
+async def test_workflow_does_not_record_duration_when_disabled(monkeypatch):
+    execute_activity = AsyncMock(return_value=False)
+    metrics = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(return_value=dt.datetime(2026, 7, 30)))
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    metrics.started_getter.assert_not_called()
+    metrics.duration_getter.assert_not_called()
+    metrics.finished_getter.assert_not_called()
+    metrics.last_success_getter.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    finished_at = started_at + dt.timedelta(minutes=7, seconds=12)
+    execute_activity = AsyncMock(side_effect=[True, _activity_inputs().metadata, True])
+    metrics = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(side_effect=[started_at, finished_at]))
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    metric_identifiers = {"team_id": 1, "schema_id": str(_workflow_inputs().schema_id)}
+    metrics.started_getter.assert_called_once_with(**metric_identifiers)
+    metrics.started.add.assert_called_once_with(1)
+    metrics.finished_getter.assert_called_once_with(**metric_identifiers, status="completed")
+    metrics.finished.add.assert_called_once_with(1)
+    metrics.duration_getter.assert_called_once_with(**metric_identifiers, status="completed")
+    metrics.duration.record.assert_called_once_with(432.0)
+    metrics.last_success_getter.assert_called_once_with(**metric_identifiers)
+    metrics.last_success.set.assert_called_once_with(finished_at.timestamp())
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_end_to_end_duration_on_post_gate_failure(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    failed_at = started_at + dt.timedelta(seconds=5)
+    execute_activity = AsyncMock(side_effect=[True, RuntimeError("prepare failed")])
+    metrics = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(side_effect=[started_at, failed_at]))
+
+    with pytest.raises(RuntimeError, match="prepare failed"):
+        await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    metric_identifiers = {"team_id": 1, "schema_id": str(_workflow_inputs().schema_id)}
+    metrics.started_getter.assert_called_once_with(**metric_identifiers)
+    metrics.started.add.assert_called_once_with(1)
+    metrics.finished_getter.assert_called_once_with(**metric_identifiers, status="failed")
+    metrics.finished.add.assert_called_once_with(1)
+    metrics.duration_getter.assert_called_once_with(**metric_identifiers, status="failed")
+    metrics.duration.record.assert_called_once_with(5.0)
+    metrics.last_success_getter.assert_not_called()
+
+
+def _mock_workflow_metrics(monkeypatch):
+    metrics = MagicMock()
+    metrics.duration_getter = MagicMock(return_value=metrics.duration)
+    metrics.finished_getter = MagicMock(return_value=metrics.finished)
+    metrics.started_getter = MagicMock(return_value=metrics.started)
+    metrics.last_success_getter = MagicMock(return_value=metrics.last_success)
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_duration_metric",
+        metrics.duration_getter,
+    )
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_finished_metric",
+        metrics.finished_getter,
+    )
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_started_metric",
+        metrics.started_getter,
+    )
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_last_success_metric",
+        metrics.last_success_getter,
+    )
+    return metrics
+
+
+def _mock_activity_workload_metrics(monkeypatch):
+    metrics = MagicMock()
+    metrics.files_getter = MagicMock(return_value=metrics.files)
+    metrics.rows_getter = MagicMock(return_value=metrics.rows)
+    metrics.bytes_getter = MagicMock(return_value=metrics.bytes)
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_files_metric",
+        metrics.files_getter,
+    )
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_rows_metric",
+        metrics.rows_getter,
+    )
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_bytes_metric",
+        metrics.bytes_getter,
+    )
+    return metrics
+
+
 def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
     return DuckLakeRegisterDataImportsActivityInputs(
         team_id=1,
@@ -259,6 +390,15 @@ def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
             ducklake_schema_name="posthog_data_imports_team_1",
             ducklake_table_name="postgres_customers",
         ),
+    )
+
+
+def _workflow_inputs() -> DuckLakeRegisterDataImportsInputs:
+    return DuckLakeRegisterDataImportsInputs(
+        team_id=1,
+        job_id="job",
+        schema_id=uuid.UUID("019ef5df-e4c7-0000-b543-8ef7f13b5f15"),
+        prepared_queryable_folder="customers__query",
     )
 
 
