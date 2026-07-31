@@ -7,6 +7,7 @@ use personhog_coordination::pod::HandoffHandler;
 use tracing::info;
 
 use crate::cache::{DirtyIndex, PartitionedCache};
+use crate::fencing::FencedChangelogProducers;
 use crate::inflight::InflightTracker;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
 
@@ -46,6 +47,10 @@ pub struct LeaderHandoffHandler {
     dirty_index: Arc<DirtyIndex>,
     warming: WarmingConfig,
     pools: Arc<WarmClientPools>,
+    /// Present when broker-enforced epoch fencing is on: acquiring a
+    /// partition initializes its transactional producer (fencing every
+    /// predecessor), and releasing it drops the producer.
+    fenced: Option<Arc<FencedChangelogProducers>>,
 }
 
 impl LeaderHandoffHandler {
@@ -55,6 +60,7 @@ impl LeaderHandoffHandler {
         dirty_index: Arc<DirtyIndex>,
         warming: WarmingConfig,
         pools: Arc<WarmClientPools>,
+        fenced: Option<Arc<FencedChangelogProducers>>,
     ) -> Self {
         Self {
             cache,
@@ -62,6 +68,7 @@ impl LeaderHandoffHandler {
             dirty_index,
             warming,
             pools,
+            fenced,
         }
     }
 
@@ -88,6 +95,19 @@ impl HandoffHandler for LeaderHandoffHandler {
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "warming partition cache from kafka");
+        // Broker-side fencing before the warm read, not after: acquiring
+        // the fence bumps the producer epoch and aborts any in-flight
+        // transaction from a predecessor, so every write a stale owner
+        // ever committed sits below the watermark the warm is about to
+        // read. Fencing after the read would leave a gap where a zombie
+        // commits an acked write the warm never sees.
+        if let Some(fenced) = &self.fenced {
+            fenced
+                .acquire(partition)
+                .await
+                .map_err(personhog_coordination::error::Error::invalid_state)?;
+            info!(partition, "changelog fence acquired");
+        }
         warm_from_kafka(
             &self.warming,
             &self.pools,
@@ -106,6 +126,9 @@ impl HandoffHandler for LeaderHandoffHandler {
 
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
+        if let Some(fenced) = &self.fenced {
+            fenced.release(partition);
+        }
         self.inflight.unfence(partition);
         self.cache.drop_partition(partition);
         // The new owner's warming rebuilds its own marks; stale marks here
@@ -117,6 +140,19 @@ impl HandoffHandler for LeaderHandoffHandler {
 
     async fn resume_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "handoff cancelled; re-admitting writes");
+        // The cancelled handoff's target may have gotten as far as
+        // acquiring the changelog fence, which leaves this pod's producer
+        // epoch-stale — every write would fail as fenced until the next
+        // handoff. Re-acquiring bumps the epoch back to this pod before
+        // writes are re-admitted. (No acked write can predate this: the
+        // target never serves before the assignment flips.)
+        if let Some(fenced) = &self.fenced {
+            fenced
+                .acquire(partition)
+                .await
+                .map_err(personhog_coordination::error::Error::invalid_state)?;
+            info!(partition, "changelog fence re-acquired on resume");
+        }
         self.inflight.unfence(partition);
         Ok(())
     }
@@ -176,6 +212,7 @@ mod tests {
                 },
             },
             pools,
+            None,
         )
     }
 

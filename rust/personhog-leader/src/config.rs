@@ -20,6 +20,24 @@ pub struct Config {
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
 
+    /// Broker-enforced epoch fencing: the changelog is produced through
+    /// per-partition transactional producers, so a new owner's
+    /// acquisition fences every predecessor at the broker. Off by
+    /// default while the latency cost is being measured.
+    #[envconfig(default = "false")]
+    pub kafka_transactional_fencing: bool,
+
+    /// How long a fencing transaction window admits joining writes
+    /// before committing. Amortizes the commit round trip across
+    /// concurrent same-partition writes.
+    #[envconfig(default = "5")]
+    pub fencing_window_ms: u64,
+
+    /// Timeout for transactional init (fencing acquisition) and
+    /// commit/abort operations.
+    #[envconfig(default = "10000")]
+    pub fencing_txn_timeout_ms: u64,
+
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
 

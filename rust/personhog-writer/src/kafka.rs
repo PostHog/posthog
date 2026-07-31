@@ -28,6 +28,10 @@ impl PersonConsumer {
             .set("auto.offset.reset", offset_reset)
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false")
+            // Only committed transactions: with the leader's epoch fencing
+            // on, aborted windows and zombie leftovers must never reach
+            // Postgres. Identical behavior on a non-transactional topic.
+            .set("isolation.level", "read_committed")
             // Cooperative-sticky: during scale events, only partitions that need
             // to move are revoked. Non-moving partitions keep being consumed.
             .set("partition.assignment.strategy", "cooperative-sticky");

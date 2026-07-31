@@ -29,6 +29,7 @@ use metrics::{counter, gauge};
 use personhog_leader::cache::{DirtyIndex, PartitionedCache};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
+use personhog_leader::fencing::FencedChangelogProducers;
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
@@ -213,6 +214,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
+    let fenced = if config.kafka_transactional_fencing {
+        tracing::info!(
+            window_ms = config.fencing_window_ms,
+            "broker-enforced epoch fencing enabled for the changelog"
+        );
+        Some(Arc::new(FencedChangelogProducers::new(
+            config.kafka.clone(),
+            config.kafka_person_state_topic.clone(),
+            Duration::from_millis(config.fencing_txn_timeout_ms),
+            Duration::from_millis(config.fencing_txn_timeout_ms),
+            Duration::from_millis(config.fencing_window_ms),
+        )))
+    } else {
+        None
+    };
+
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer.clone(),
@@ -228,6 +245,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.properties_trim_target,
         ),
         warnings.clone(),
+        fenced.clone(),
     );
 
     let warm_pools = Arc::new(WarmClientPools::new(
@@ -259,6 +277,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
         Arc::clone(&warm_pools),
+        fenced,
     );
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)

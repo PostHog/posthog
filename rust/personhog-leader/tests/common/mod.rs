@@ -358,6 +358,7 @@ pub async fn start_leader_pod(
         Arc::clone(&dirty_index),
         warming,
         pools,
+        None,
     );
     let pod = PodHandle::new(
         store,
@@ -387,6 +388,7 @@ pub async fn start_leader_pod(
         recovery,
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -438,6 +440,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         Arc::clone(&dirty_index),
         warming,
         pools,
+        None,
     );
     let pod = PodHandle::new(
         store,
@@ -468,6 +471,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         recovery,
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -556,6 +560,7 @@ pub async fn start_leader_with_pg_fallback(
         test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

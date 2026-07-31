@@ -20,6 +20,7 @@ use crate::cache::{
     approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
     PersonCacheKey,
 };
+use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
@@ -82,6 +83,9 @@ pub struct PersonHogLeaderService {
     recovery: Arc<ChangelogRecovery>,
     size_limits: PropertySizeLimits,
     warnings: WarningsProducer,
+    /// Present when broker-enforced epoch fencing is on; the write
+    /// path produces through the partition's transaction window.
+    fenced: Option<Arc<FencedChangelogProducers>>,
 }
 
 impl PersonHogLeaderService {
@@ -98,6 +102,7 @@ impl PersonHogLeaderService {
         recovery: Arc<ChangelogRecovery>,
         size_limits: PropertySizeLimits,
         warnings: WarningsProducer,
+        fenced: Option<Arc<FencedChangelogProducers>>,
     ) -> Self {
         Self {
             cache,
@@ -111,6 +116,7 @@ impl PersonHogLeaderService {
             recovery,
             size_limits,
             warnings,
+            fenced,
         }
     }
 
@@ -698,25 +704,53 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         // Produce to Kafka first, then update the cache on success.
         // Readers only ever see durably committed state.
-        let offset = match produce_person_changelog(
-            &self.producer,
-            &self.changelog_topic,
-            partition,
-            &proto,
-        )
-        .await
-        {
-            Ok(offset) => offset,
-            Err(e) => {
-                tracing::error!(
-                    team_id = cache_key.team_id,
-                    person_id = cache_key.person_id,
-                    error = %e,
-                    "failed to produce person state changelog"
-                );
-                return Err(Status::internal(format!(
-                    "failed to durably store person state: {e}"
-                )));
+        let offset = if let Some(fenced) = &self.fenced {
+            match fenced.produce(partition, &proto).await {
+                Ok(offset) => offset,
+                // The broker fenced this pod: a newer owner holds the
+                // partition, so this claim is stale. FailedPrecondition
+                // is the admission fence's own vocabulary — the router
+                // classifies it as a bounce and re-resolves toward the
+                // real owner.
+                Err(e @ FencedProduceError::Fenced) => {
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        "changelog producer fenced; rejecting write as stale owner"
+                    );
+                    return Err(Status::failed_precondition(format!(
+                        "partition ownership fenced: {e}"
+                    )));
+                }
+                Err(e) => {
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        error = %e,
+                        "failed to produce person state changelog (fenced path)"
+                    );
+                    return Err(Status::internal(format!(
+                        "failed to durably store person state: {e}"
+                    )));
+                }
+            }
+        } else {
+            match produce_person_changelog(&self.producer, &self.changelog_topic, partition, &proto)
+                .await
+            {
+                Ok(offset) => offset,
+                Err(e) => {
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        error = %e,
+                        "failed to produce person state changelog"
+                    );
+                    return Err(Status::internal(format!(
+                        "failed to durably store person state: {e}"
+                    )));
+                }
             }
         };
 
@@ -805,6 +839,7 @@ mod tests {
             ),
             PropertySizeLimits::new(655360, 524288),
             WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
+            None,
         )
     }
 
