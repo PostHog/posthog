@@ -79,7 +79,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             This instruments the OpenAI calls LlamaIndex makes underneath, so you get one
                             `$ai_generation` per LLM call. Retrieval and query-engine steps are not captured as spans.
                             To record those, capture `$ai_span` events yourself with a shared `$ai_trace_id` — see
-                            [manual capture](/docs/ai-observability/installation/manual-capture).
+                            [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture).
                         </Markdown>
                     </CalloutBox>
                 </>
