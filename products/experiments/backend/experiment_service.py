@@ -2436,7 +2436,12 @@ class ExperimentService:
         # request import path.
         from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-        github = tasks_repo_selection.resolve_team_github_integration(experiment.team_id, team=experiment.team)
+        # team_only: the candidates are shown to any experiment viewer with Code access, and the
+        # cleanup PR is opened by the team installation's bot identity — a personal-connection
+        # fallback would both leak someone's private repo names and target a repo the bot can't use.
+        github = tasks_repo_selection.resolve_team_github_integration(
+            experiment.team_id, team=experiment.team, team_only=True
+        )
         if github is None:
             return {"repository": None, "source": "no_integration", "candidates": []}
         cached = {

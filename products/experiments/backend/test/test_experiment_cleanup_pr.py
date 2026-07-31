@@ -9,6 +9,9 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserIntegration
+
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -185,3 +188,23 @@ class TestExperimentCleanupPr(APIBaseTest):
         experiment.refresh_from_db()
         self.assertEqual(mock_create_task.call_args.kwargs["repository"], "acme/api")
         self.assertEqual(experiment.repository, "acme/api")
+
+    def test_cleanup_target_never_uses_personal_github_connections(self):
+        # The team has no GitHub integration, but an org owner has a personal connection with
+        # cached repos. The resolver's owner fallback must not surface those repo names to
+        # experiment viewers, nor be used as a cleanup target.
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.OWNER
+        membership.save()
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            config={"account": {"name": "someone", "type": "User"}},
+            repository_cache=[{"id": 1, "name": "private-repo", "full_name": "someone/private-repo"}],
+            repository_cache_updated_at=timezone.now(),
+        )
+        experiment = self._running_experiment()
+
+        target = ExperimentService(team=self.team, user=self.user).get_cleanup_repository_target(experiment)
+
+        self.assertEqual(target, {"repository": None, "source": "no_integration", "candidates": []})
