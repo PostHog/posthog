@@ -147,7 +147,6 @@ SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
     "gateway.eu.posthog.com",
     "api.anthropic.com",
-    "mcp.posthog.com",
 )
 
 

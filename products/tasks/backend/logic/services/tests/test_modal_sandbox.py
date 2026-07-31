@@ -1609,18 +1609,26 @@ class TestModalSandboxCreateSnapshot:
 
 class TestSessionInitProbeHosts:
     @pytest.mark.parametrize(
-        ("site_url", "mcp_url", "expected_host"),
+        ("site_url", "mcp_url", "expected_host", "unused_host"),
         [
-            ("https://us.posthog.com", None, "mcp.posthog.com"),
-            ("https://eu.posthog.com", None, "mcp-eu.posthog.com"),
-            ("https://us.posthog.com", "https://custom-mcp.example.com/mcp", "custom-mcp.example.com"),
+            ("https://us.posthog.com", None, "mcp.posthog.com", "mcp-eu.posthog.com"),
+            ("https://eu.posthog.com", None, "mcp-eu.posthog.com", "mcp.posthog.com"),
+            (
+                "https://us.posthog.com",
+                "https://custom-mcp.example.com/mcp",
+                "custom-mcp.example.com",
+                "mcp.posthog.com",
+            ),
         ],
     )
-    def test_includes_resolved_mcp_host(self, site_url: str, mcp_url: str | None, expected_host: str):
+    def test_includes_only_resolved_mcp_host(
+        self, site_url: str, mcp_url: str | None, expected_host: str, unused_host: str
+    ):
         with override_settings(SITE_URL=site_url, SANDBOX_MCP_URL=mcp_url):
             hosts = _session_init_probe_hosts()
 
         assert expected_host in hosts
+        assert unused_host not in hosts
 
     @override_settings(
         SANDBOX_LLM_GATEWAY_URL="https://gateway.dev.posthog.dev",
