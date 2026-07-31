@@ -166,6 +166,8 @@ interface BackendEventsMatching {
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
 
 export const RECORDINGS_LIMIT = 20
+/** Well past the slowest healthy list query, so this only fires on a request that has stalled. */
+const RECORDINGS_LIST_TIMEOUT_MS = 90_000
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
 export const defaultRecordingDurationFilter: RecordingDurationFilter = {
@@ -990,7 +992,22 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     await breakpoint(400) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.recordings.list(params)
+                    // A stalled connection never rejects on its own, and nothing else can clear the
+                    // loading flag once it is set - that is the endless spinner, which also blocks
+                    // "load more". Time the request out so it lands on the recoverable error state.
+                    const abortController = new AbortController()
+                    const timeout = setTimeout(() => {
+                        abortController.abort()
+                        // The abort travels as an AbortError, which is deliberately dropped by the global
+                        // loader error handler, so report it here or the timeout leaves no trace at all.
+                        posthog.captureException(new Error('Timed out loading session recordings'))
+                    }, RECORDINGS_LIST_TIMEOUT_MS)
+                    let response: RecordingsQueryResponse
+                    try {
+                        response = await api.recordings.list(params, { signal: abortController.signal })
+                    } finally {
+                        clearTimeout(timeout)
+                    }
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
@@ -1167,7 +1184,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             false,
             {
                 loadSessionRecordingsFailure: () => true,
-                loadSessionRecordingSuccess: () => false,
+                loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,

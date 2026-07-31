@@ -88,4 +88,26 @@ describe('Playlist', () => {
         })
         expect(screen.queryByText(/selected recording/)).not.toBeInTheDocument()
     })
+
+    it('recovers from a failed load via the error banner', async () => {
+        useMocks({ get: { '/api/environments/:team_id/session_recordings': () => [500, { detail: 'boom' }] } })
+        logic.actions.loadSessionRecordings()
+
+        renderPlaylist()
+
+        expect((await screen.findAllByText("We couldn't load recordings.")).length).toBeGreaterThan(0)
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings': { results: [], has_next: false },
+            },
+        })
+        userEvent.click(screen.getAllByText('Try again')[0])
+
+        // A successful reload has to clear the error, even when it legitimately finds nothing.
+        await waitFor(() => {
+            expect(screen.queryByText("We couldn't load recordings.")).not.toBeInTheDocument()
+        })
+        expect((await screen.findAllByTestId('mock-troubleshooting')).length).toBeGreaterThan(0)
+    })
 })

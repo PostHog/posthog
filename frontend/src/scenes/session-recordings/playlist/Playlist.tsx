@@ -398,13 +398,32 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     )
 }
 
+const LoadErrorBanner = (): JSX.Element => {
+    const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
+    const { loadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
+
+    return (
+        <LemonBanner
+            type="error"
+            action={{
+                children: 'Try again',
+                loading: sessionRecordingsResponseLoading,
+                disabledReason: sessionRecordingsResponseLoading ? 'Loading recordings' : undefined,
+                onClick: () => loadSessionRecordings(),
+            }}
+        >
+            We couldn't load recordings.
+        </LemonBanner>
+    )
+}
+
 const ListEmptyState = (): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
             {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                <LoadErrorBanner />
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
@@ -428,7 +447,7 @@ const CollectionEmptyState = ({
     return (
         <div className="p-3 text-sm text-secondary">
             {sessionRecordingsAPIErrored ? (
-                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+                <LoadErrorBanner />
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : isSynthetic ? (

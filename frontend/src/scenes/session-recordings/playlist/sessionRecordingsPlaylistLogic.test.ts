@@ -791,7 +791,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     expect.objectContaining({ session_ids: ['s1', 's2'] })
                 )
                 expect(listSpy).toHaveBeenLastCalledWith(
-                    expect.objectContaining({ session_ids: ['s1', 's2'], date_from: '-7d' })
+                    expect.objectContaining({ session_ids: ['s1', 's2'], date_from: '-7d' }),
+                    expect.anything()
                 )
             })
 
@@ -817,7 +818,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 }).toDispatchActions(['setFilters', 'loadSessionRecordings', 'loadSessionRecordingsSuccess'])
 
                 expect(logic.values.filters.session_ids).toBeUndefined()
-                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ session_ids: undefined }))
+                expect(listSpy).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ session_ids: undefined }),
+                    expect.anything()
+                )
             })
         })
 
@@ -923,7 +927,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
 
                 expect(listSpy).toHaveBeenLastCalledWith(
-                    expect.objectContaining({ hide_viewed_recordings: 'current-user' })
+                    expect.objectContaining({ hide_viewed_recordings: 'current-user' }),
+                    expect.anything()
                 )
             })
 
@@ -934,7 +939,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 logic.actions.loadSessionRecordings()
                 await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
 
-                expect(listSpy).toHaveBeenLastCalledWith(expect.objectContaining({ hide_viewed_recordings: undefined }))
+                expect(listSpy).toHaveBeenLastCalledWith(
+                    expect.objectContaining({ hide_viewed_recordings: undefined }),
+                    expect.anything()
+                )
             })
 
             it('bulk delete only marks successfully deleted recordings', async () => {
