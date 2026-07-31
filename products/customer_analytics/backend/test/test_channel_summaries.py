@@ -155,6 +155,7 @@ class TestRecordChannelSummary(BaseTest):
 
         summary_id = self._record(account, messages=refs)
 
+        assert summary_id is not None
         summary = AccountChannelSummary.objects.unscoped().get(id=summary_id)
         assert summary.messages == refs
 

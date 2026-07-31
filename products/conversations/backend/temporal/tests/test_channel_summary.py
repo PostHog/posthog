@@ -120,8 +120,8 @@ class TestSummarizeHelpers:
     def test_truncated_transcript_returns_only_the_kept_threads(self):
         # Audit refs and message_count come from the returned threads: a thread the
         # transcript dropped must drop out of the audit too, or the count overclaims.
-        old_thread = ({"text": "x" * 300, "ts": "100.0", "user": "U1"}, [])
-        new_thread = ({"text": "y" * 300, "ts": "200.0", "user": "U1"}, [])
+        old_thread: tuple[dict, list[dict]] = ({"text": "x" * 300, "ts": "100.0", "user": "U1"}, [])
+        new_thread: tuple[dict, list[dict]] = ({"text": "y" * 300, "ts": "200.0", "user": "U1"}, [])
         client = MagicMock()
         team = MagicMock()
         team.timezone_info = UTC
