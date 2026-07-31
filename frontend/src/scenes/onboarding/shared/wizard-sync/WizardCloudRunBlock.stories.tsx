@@ -12,7 +12,8 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { IntegrationType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { IntegrationType, OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from '../../legacy/onboardingLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
@@ -85,9 +86,10 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        // Legacy flow, deliberately: the self-driving install step forces the cloud arm off (its run
+        // is interactive and the cloud runner is headless), so the block only renders here.
         featureFlags: {
             [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test',
-            [FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT]: 'self-driving',
         },
         // These stories render the full app shell around a wizard step that's mid-flight by design
         // (connecting/polling/queued) — skip the test runner's default "wait for loaders to hide" check.
@@ -123,22 +125,10 @@ type Story = StoryObj
 // re-run play now — an under-budgeted wait fails all three attempts instead of flaking once.
 const WAIT_OPTIONS = { timeout: 30000, interval: 200 }
 
-// Click a footer/body button by its exact label, waiting for it to mount first.
-async function clickButton(text: string): Promise<void> {
-    await waitFor(() => {
-        const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === text)
-        if (!btn) {
-            throw new Error(`button "${text}" not ready`)
-        }
-    }, WAIT_OPTIONS)
-    const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === text)
-    await userEvent.click(btn as Element)
-}
-
 /**
- * Lands on the context-first install step with a given set of integrations, optionally driving
- * wizardCloudRunLogic into a later state. The logic is mounted up front so `drive` can dispatch
- * before the install-step block renders; the play then advances welcome → install.
+ * Lands on the install step with a given set of integrations, optionally driving wizardCloudRunLogic
+ * into a later state. The logic is mounted up front so `drive` can dispatch before the install-step
+ * block renders.
  */
 function cloudRunStory({
     integrations,
@@ -167,7 +157,9 @@ function cloudRunStory({
                 // activeCloudRun is persisted (survives a refresh mid-run) — clear any handle left
                 // over from an earlier story in the same browser session before driving this one.
                 activeCloudRunLogic.actions.clearActiveCloudRun()
-                router.actions.push(urls.onboarding())
+                router.actions.push(
+                    urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+                )
                 drive?.()
             })
 
@@ -175,7 +167,6 @@ function cloudRunStory({
         },
         parameters: { testOptions: { waitForSelector } },
         play: async () => {
-            await clickButton('Get started')
             await extraPlay?.()
         },
     }
@@ -298,7 +289,9 @@ function CloudRunPlayground({ githubConnected, repository, pullRequestQueued }: 
 
     useDelayedOnMountEffect(() => {
         activeCloudRunLogic.actions.clearActiveCloudRun()
-        router.actions.push(urls.onboarding())
+        router.actions.push(
+            urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+        )
         if (repository) {
             wizardCloudRunLogic.actions.setSelectedRepository(repository)
         }
@@ -330,7 +323,4 @@ export const Playground: StoryObj<PlaygroundArgs> = {
     },
     render: (args) => <CloudRunPlayground key={JSON.stringify(args)} {...args} />,
     parameters: { testOptions: { waitForSelector: '[data-attr="wizard-cloud-run-open-pr"]' } },
-    play: async () => {
-        await clickButton('Get started')
-    },
 }
