@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
 import {
@@ -222,6 +222,15 @@ export function FinishExperimentModal(): JSX.Element {
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
     const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
     const [cleanupRepository, setCleanupRepository] = useState<string | null>(null)
+
+    // Reset on open, not only on close: a failed end/ship closes the modal through the logic
+    // without this component's close handler, which would leave a stale pick for the next open.
+    useEffect(() => {
+        if (isFinishExperimentModalOpen) {
+            setOpenCleanupPr(false)
+            setCleanupRepository(null)
+        }
+    }, [isFinishExperimentModalOpen])
 
     const { cleanupTarget } = useValues(flagCleanupTargetLogic({ experimentId: experiment.id as number }))
 
