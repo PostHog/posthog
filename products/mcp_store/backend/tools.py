@@ -17,6 +17,7 @@ from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .policy import SYNC_DEFAULT_APPROVAL_STATE
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
 
 logger = structlog.get_logger(__name__)
@@ -272,7 +273,9 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
                 description=description,
                 input_schema=input_schema,
                 # New tools default to needs_approval so adoption stays explicit.
-                approval_state="needs_approval",
+                # The policy engine keys off this exact value to tell a synced
+                # default apart from a member's real choice — keep them in step.
+                approval_state=SYNC_DEFAULT_APPROVAL_STATE,
                 last_seen_at=now,
                 removed_at=None,
             )

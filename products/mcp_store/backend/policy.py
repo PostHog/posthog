@@ -29,6 +29,22 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from .models import MCPGatewayServer, MCPOrgRule, MCPServerInstallation, MCPToolPolicy, TeamMCPGatewayConfig
 
+# What tool sync stamps on every freshly discovered row (see tools.py). Only
+# members have this legacy layer, so a row still sitting at the sync default
+# would invent a member preference that no one chose — and because a caller's
+# own choice beats a laxer ceiling, that phantom undercuts the team baseline.
+# The result was incoherent: team and agent scopes saw the baseline while the
+# member saw needs_approval on the same tool.
+#
+# Safe to ignore because an explicit choice is recorded elsewhere: the legacy
+# toggle mirrors every write into a member MCPToolPolicy row
+# (views._mirror_tool_approval_to_gateway), and scope rows outrank legacy ones.
+# The gap is a pre-gateway member who explicitly picked needs_approval and was
+# never mirrored. That only changes behaviour on teams whose admin has set a
+# permissive preset — with no preset the resolve() fallback is needs_approval
+# anyway — so the loosening is limited to teams that asked for it.
+SYNC_DEFAULT_APPROVAL_STATE = "needs_approval"
+
 # Exact verb forms that indicate a tool mutates or destroys state. Deliberately
 # the strong set only: an over-broad heuristic would make the "ask"/"block"
 # presets gate nearly every tool.
@@ -253,10 +269,13 @@ class PolicyContext:
             else:
                 self.preset = config.member_default_preset if caller.kind == "member" else config.agent_default_preset
 
-        self._legacy_rows = dict(legacy_rows or {}) if caller.kind == "member" else {}
+        raw_legacy = dict(legacy_rows or {}) if caller.kind == "member" else {}
         if legacy_rows is None and installation is not None and caller.kind == "member":
             for row in installation.tools.filter(removed_at__isnull=True).values("tool_name", "approval_state"):
-                self._legacy_rows[row["tool_name"]] = row["approval_state"]
+                raw_legacy[row["tool_name"]] = row["approval_state"]
+        self._legacy_rows = {
+            tool_name: state for tool_name, state in raw_legacy.items() if state != SYNC_DEFAULT_APPROVAL_STATE
+        }
 
     @classmethod
     def for_agent_servers(

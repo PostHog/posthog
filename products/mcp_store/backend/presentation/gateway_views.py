@@ -905,6 +905,16 @@ class MCPGatewayServerViewSet(
             return
         raise PermissionDenied("Only project admins can manage this scope.")
 
+    def _member_installation(self, server: MCPGatewayServer, scope_user: User) -> MCPServerInstallation | None:
+        """The credential this member calls the server through.
+
+        Mirrors ``get_your_connection``: a personal row wins over a legacy
+        team-shared row the same user happens to own.
+        """
+        own = [installation for installation in server.installations.all() if installation.user_id == scope_user.id]
+        own.sort(key=lambda installation: installation.scope != "personal")
+        return own[0] if own else None
+
     def _resolve_policies_for_scope(
         self,
         server: MCPGatewayServer,
@@ -917,7 +927,19 @@ class MCPGatewayServerViewSet(
         else:
             # Team scope resolves as a member with no scope rows of their own.
             caller = GatewayCaller(kind="member", user_id=scope_user.id if scope_user else None)
-        context = PolicyContext(team_id=self.team_id, caller=caller, gateway_server=server)
+        # The member's own preference lives in the legacy per-installation
+        # column, which PolicyContext only loads when given the installation.
+        # The proxy and the installation tools endpoint both pass it, so
+        # without it this view would show a laxer state than gets enforced.
+        # Team scope resolves the ceiling itself and agent scope has no legacy
+        # rows, so neither needs one.
+        installation = self._member_installation(server, scope_user) if scope_type == "member" and scope_user else None
+        context = PolicyContext(
+            team_id=self.team_id,
+            caller=caller,
+            gateway_server=server,
+            installation=installation,
+        )
 
         tools: list[tuple[str, str, dict[str, Any]]] = []
         seen: set[str] = set()
