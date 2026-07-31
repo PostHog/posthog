@@ -5070,3 +5070,45 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         existing.refresh_from_db()
         assert existing.config["project_id"] == "original-project"
         assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1
+
+
+class TestPosthogCrossRegionAuthorize:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _authorize(self, client: HttpClient, **params):
+        return client.get(f"/api/environments/{self.team.pk}/integrations/authorize/", {"kind": "posthog", **params})
+
+    def test_rejects_unknown_region(self, client: HttpClient):
+        client.force_login(self.user)
+        response = self._authorize(client, region="MARS", scopes="task:read")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "region must be one of" in response.json()["detail"]
+
+    def test_rejects_missing_region(self, client: HttpClient):
+        client.force_login(self.user)
+        response = self._authorize(client, scopes="task:read")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_rejects_unsupported_scope(self, client: HttpClient):
+        client.force_login(self.user)
+        response = self._authorize(client, region="EU", scopes="organization:read")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Unsupported cross-region scopes" in response.json()["detail"]
+
+    @override_settings(
+        POSTHOG_CROSS_REGION_BASE_URL_EU="https://eu.posthog.com",
+        POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_EU="eu-client-id",
+        POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_EU="eu-secret",
+    )
+    def test_valid_request_redirects_to_target_region(self, client: HttpClient):
+        client.force_login(self.user)
+        response = self._authorize(client, region="EU", scopes="task:read,task:write")
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response.headers["Location"].startswith("https://eu.posthog.com/oauth/authorize?")
+        assert client.cookies.get("ph_oauth_state") is not None
