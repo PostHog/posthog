@@ -400,6 +400,7 @@ export function NotebookComponentShell({
                                 icon={<IconGear />}
                                 active={componentPanels.filters}
                                 tooltip={filtersLabel}
+                                disabledReason={toolbarExtras?.filtersDisabledReason ?? undefined}
                                 onClick={() => toggleComponentPanel('filters')}
                             />
                         ) : null}

@@ -569,7 +569,11 @@ export function MountedRealNotebookNodeComponent({
     )
 
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { actions: nodeActions, customMenuItems: nodeMenuItems } = useValues(nodeLogic)
+    const {
+        actions: nodeActions,
+        customMenuItems: nodeMenuItems,
+        settingsDisabledReason: nodeSettingsDisabledReason,
+    } = useValues(nodeLogic)
     const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
 
     // The settings-panel instance (editOnly) shares the shell with the content instance;
@@ -580,8 +584,12 @@ export function MountedRealNotebookNodeComponent({
         if (editOnly || !setToolbarExtras) {
             return
         }
-        setToolbarExtras({ actions: nodeActions, menuItems: nodeMenuItems })
-    }, [editOnly, nodeActions, nodeMenuItems, setToolbarExtras])
+        setToolbarExtras({
+            actions: nodeActions,
+            menuItems: nodeMenuItems,
+            filtersDisabledReason: nodeSettingsDisabledReason,
+        })
+    }, [editOnly, nodeActions, nodeMenuItems, nodeSettingsDisabledReason, setToolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings
@@ -658,7 +666,15 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
+                <div
+                    className={clsx(
+                        'MarkdownNotebook__real-node',
+                        // The settings-only (filters panel) instance sizes to its content — the
+                        // 8rem min-height is for node output, not a one-row filter bar.
+                        editOnly && 'MarkdownNotebook__real-node--settings-only'
+                    )}
+                    style={nodeStyle}
+                >
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />

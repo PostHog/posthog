@@ -933,6 +933,7 @@ export interface notebookNodeLogicValues {
     ref: HTMLElement | null
     resizeable: boolean
     sendMessage: <T extends keyof NotebookNodeMessages>(message: T, payload: NotebookNodeMessages[T]) => boolean
+    settingsDisabledReason: string | null
     settingsPlacement: NotebookNodeSettingsPlacement
     sourceComment: CommentType | null | undefined
     sqlV2ReturnVariable: string
@@ -1051,6 +1052,9 @@ export interface notebookNodeLogicActions {
     setResizeable: (resizeable: boolean) => {
         resizeable: boolean
     }
+    setSettingsDisabledReason: (settingsDisabledReason: string | null) => {
+        settingsDisabledReason: string | null
+    }
     setTitlePlaceholder: (titlePlaceholder: string) => {
         titlePlaceholder: string
     }
@@ -1159,6 +1163,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setResizeable: (resizeable: boolean) => ({ resizeable }),
         setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
         setMenuItems: (menuItems: LemonMenuItems | null) => ({ menuItems }),
+        setSettingsDisabledReason: (settingsDisabledReason: string | null) => ({ settingsDisabledReason }),
         insertAfter: (content: JSONContent) => ({ content }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
         setPreviousNode: (node: RichContentNode | null) => ({ node }),
@@ -1256,6 +1261,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             null as LemonMenuItems | null,
             {
                 setMenuItems: (_, { menuItems }) => menuItems,
+            },
+        ],
+        settingsDisabledReason: [
+            null as string | null,
+            {
+                setSettingsDisabledReason: (_, { settingsDisabledReason }) => settingsDisabledReason,
             },
         ],
         messageListeners: [

@@ -10,6 +10,8 @@ export type NotebookComponentToolbarAction = Pick<LemonButtonProps, 'icon'> & {
 export type NotebookComponentToolbarExtras = {
     actions: NotebookComponentToolbarAction[]
     menuItems: LemonMenuItems | null
+    /** Disables the shell's filters toggle with this tooltip (e.g. nothing to configure yet). */
+    filtersDisabledReason?: string | null
 }
 
 // Bridge for node implementations (mounted inside a panel) to surface their custom

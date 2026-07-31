@@ -1953,6 +1953,14 @@ button.MarkdownNotebook__component-title:focus-visible {
     background: var(--markdown-notebook-component-background);
 }
 
+.MarkdownNotebook__real-node--settings-only {
+    min-height: 0;
+
+    .MarkdownNotebook__real-node-settings {
+        border-bottom: 0;
+    }
+}
+
 .MarkdownNotebook__real-node-settings {
     border-bottom: 1px solid var(--color-border-primary);
 }

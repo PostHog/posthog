@@ -273,6 +273,64 @@ describe('NotebookComponentShell', () => {
         expect(within(openFilters.container).getByText('Results')).toBeTruthy()
     })
 
+    it('disables the filters toggle when the component publishes a disabled reason', () => {
+        const toggleComponentPanel = jest.fn()
+
+        function ExtrasProbe(): JSX.Element {
+            const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+            useEffect(() => {
+                setToolbarExtras?.({
+                    actions: [],
+                    menuItems: null,
+                    filtersDisabledReason: 'Create a journey to configure this panel',
+                })
+            }, [setToolbarExtras])
+            return <div>Results</div>
+        }
+
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: ExtrasProbe,
+                EditComponent: () => <div>Filters panel</div>,
+                viewModeFilters: true,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentShell
+                node={{
+                    id: 'probe-node',
+                    type: 'component',
+                    tagName: 'Probe',
+                    props: {},
+                }}
+                mode="view"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                allowViewModeFilters={true}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={toggleComponentPanel}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        const filtersButton = within(container).getByLabelText('Show filters')
+        expect(filtersButton.getAttribute('aria-disabled')).toBe('true')
+        fireEvent.click(filtersButton)
+        expect(toggleComponentPanel).not.toHaveBeenCalled()
+    })
+
     it('collapses output on read-only canvases', () => {
         const registry = createMarkdownNotebookRegistry([
             {
