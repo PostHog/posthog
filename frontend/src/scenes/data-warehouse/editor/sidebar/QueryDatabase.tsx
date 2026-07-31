@@ -1017,6 +1017,48 @@ export const QueryDatabase = ({
                                     </DropdownMenuSubContent>
                                 </DropdownMenuSub>
                             ) : null}
+                            {warehouseAccessControlEnabled && sources.length === 1 ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.ExternalDataSource,
+                                            resourceId: sources[0].id,
+                                            name: sources[0].label || sourceType || 'Source',
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : warehouseAccessControlEnabled && sources.length > 1 ? (
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger asChild>
+                                        <ButtonPrimitive menuItem>
+                                            Access control
+                                            <IconChevronRight className="ml-auto size-3" />
+                                        </ButtonPrimitive>
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {sources.map((source) => (
+                                            <DropdownMenuItem
+                                                key={source.id}
+                                                asChild
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    openAccessControlModal({
+                                                        resource: AccessControlResourceType.ExternalDataSource,
+                                                        resourceId: source.id,
+                                                        name: source.label || sourceType || 'Source',
+                                                    })
+                                                }}
+                                            >
+                                                <ButtonPrimitive menuItem>{source.label}</ButtonPrimitive>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            ) : null}
                             <DropdownMenuItem asChild>
                                 <Link
                                     to={urls.dataWarehouseSourceNew(sourceType)}
