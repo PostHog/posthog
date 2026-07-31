@@ -25,6 +25,7 @@ use common_ingestion_warnings::{
 };
 use common_types::{EventWithLibraryInfo, RawEvent};
 use serde_json::{json, Map};
+use uuid::Uuid;
 
 use crate::api::CaptureError;
 use crate::v0_request::ProcessingContext;
@@ -134,6 +135,39 @@ pub fn emit_rate_limit_warning(
     );
 }
 
+/// Emit the `distinct_id_truncated` warning for one legacy batch's events
+/// whose distinct_id was cut down to the 200-char cap at extraction. The
+/// events were ingested (modified, not dropped), so this is legacy-only: v1
+/// rejects oversized ids outright as `distinct_id_too_large`.
+///
+/// Identifier details are included only when the batch had exactly one
+/// truncated event; with several they would be an arbitrary pick, and `count`
+/// already carries the volume. The truncated value is at most 200 chars, so
+/// it needs no bounding of its own; `distinctIdLength` is the original char
+/// count, telling the customer how far over the cap they were.
+pub fn emit_distinct_id_truncated_warning(
+    emitter: Option<&dyn WarningEmitter>,
+    request: &WarningRequestContext,
+    sample: Option<(String, usize, Uuid)>,
+    count: u64,
+) {
+    let mut details = Map::new();
+    if let Some((distinct_id, original_chars, event_uuid)) = sample {
+        details.insert("distinctId".to_string(), json!(distinct_id));
+        details.insert("distinctIdLength".to_string(), json!(original_chars));
+        details.insert("eventUuid".to_string(), json!(event_uuid));
+    }
+
+    emit_request_warning(
+        emitter,
+        request,
+        CAPTURE_LEGACY_ANALYTICS,
+        WarningType::DistinctIdTruncated,
+        details,
+        count,
+    );
+}
+
 fn unknown_if_missing(value: Option<&str>) -> String {
     match value {
         Some(v) if !v.trim().is_empty() => v.to_string(),
@@ -158,6 +192,12 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
     match err {
         CaptureError::MissingEventName => Some(WarningType::MissingEventName),
         CaptureError::MissingDistinctId => Some(WarningType::MissingDistinctId),
+        // Only the Kafka sink raises EventTooBig during processing; the
+        // transport-level size limits fail at the parsing stage, before a
+        // verified token exists, and so never reach the abort path. This is
+        // the same drop the nodejs pipeline reports as message_size_too_large
+        // when its own produce hits the broker limit.
+        CaptureError::EventTooBig(_) => Some(WarningType::MessageSizeTooLarge),
 
         // Transport and parse failures surface before a verified token
         // exists, so there is no team to attribute a warning to.
@@ -179,7 +219,6 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
         // mapper never sees.
         CaptureError::InvalidCookielessMode
         | CaptureError::InvalidTimestamp
-        | CaptureError::EventTooBig(_)
         | CaptureError::MissingSnapshotData
         | CaptureError::MissingSessionId
         | CaptureError::MissingWindowId
@@ -203,10 +242,16 @@ pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
 /// Emit the ingestion warning for a legacy-path `process_events` abort, if the
 /// error maps to one.
 ///
-/// The legacy pipeline rejects the whole request on the first invalid event,
-/// so `count` charges the full batch, matching what `report_dropped_events`
-/// records for the same failure. Floored at 1 for v1 parity: a zero count
-/// would read as "nothing happened" in the v2 table.
+/// The legacy pipeline rejects the whole request on the first invalid event.
+/// For validation aborts that means nothing was sent, so `count` charges the
+/// full batch, matching what `report_dropped_events` records for the same
+/// failure; it's floored at 1 for v1 parity, since a zero count would read as
+/// "nothing happened" in the v2 table. `EventTooBig` is the exception: the
+/// sink raises it per message after earlier events in the batch were already
+/// enqueued (and typically deliver despite the 413), so charging the batch
+/// would report delivered events as failed. It emits `count = 1` — at least
+/// one event was rejected — matching the sink's per-event
+/// `kafka_message_size` drop metric.
 pub fn emit_processing_abort_warning(
     emitter: Option<&dyn WarningEmitter>,
     context: &ProcessingContext,
@@ -216,13 +261,17 @@ pub fn emit_processing_abort_warning(
     let Some(warning) = warning_for_capture_error(err) else {
         return;
     };
+    let count = match err {
+        CaptureError::EventTooBig(_) => 1,
+        _ => event_count.max(1),
+    };
     emit_request_warning(
         emitter,
         &legacy_request_context(context),
         CAPTURE_LEGACY_ANALYTICS,
         warning,
         Map::new(),
-        event_count.max(1),
+        count,
     );
 }
 
@@ -360,8 +409,11 @@ mod tests {
                 CaptureError::MissingDistinctId,
                 Some(WarningType::MissingDistinctId),
             ),
+            (
+                CaptureError::EventTooBig("too big".to_string()),
+                Some(WarningType::MessageSizeTooLarge),
+            ),
             // Excluded on purpose; see warning_for_capture_error's doc.
-            (CaptureError::EventTooBig("too big".to_string()), None),
             (CaptureError::InvalidCookielessMode, None),
             (CaptureError::EmptyBatch, None),
             (CaptureError::EmptyPayload, None),
@@ -393,12 +445,12 @@ mod tests {
     // so pin them here like the common crate's weld test does for from_tag.
     #[test]
     fn mapped_abort_warnings_ride_the_capture_produced_tag_route() {
-        let mapped = [
+        let mapping_errors = [
             CaptureError::MissingEventName,
             CaptureError::MissingDistinctId,
-        ]
-        .iter()
-        .filter_map(warning_for_capture_error);
+            CaptureError::EventTooBig("too big".to_string()),
+        ];
+        let mapped = mapping_errors.iter().filter_map(warning_for_capture_error);
 
         for warning in mapped {
             assert!(
@@ -419,35 +471,52 @@ mod tests {
 
     #[test]
     fn abort_helper_charges_full_batch_with_legacy_validation_source() {
-        // (event_count, expected emitted count): a whole-request abort charges
-        // the batch size; zero floors to 1 so the v2 row never reads as a
-        // no-op, matching v1's batch-abort convention.
-        let cases = [(25u64, 25u64), (0u64, 1u64)];
+        // (error, event_count, expected emitted count): a validation abort
+        // charges the batch size (nothing was sent), flooring zero to 1 so
+        // the v2 row never reads as a no-op, matching v1's batch-abort
+        // convention. EventTooBig charges 1: earlier batch events were
+        // already enqueued and typically deliver, so a batch count would
+        // report delivered events as failed.
+        let cases = [
+            (
+                CaptureError::MissingDistinctId,
+                WarningType::MissingDistinctId,
+                25u64,
+                25u64,
+            ),
+            (
+                CaptureError::MissingDistinctId,
+                WarningType::MissingDistinctId,
+                0u64,
+                1u64,
+            ),
+            (
+                CaptureError::EventTooBig("too big".to_string()),
+                WarningType::MessageSizeTooLarge,
+                25u64,
+                1u64,
+            ),
+        ];
 
-        for (event_count, expected_count) in cases {
+        for (error, expected_warning, event_count, expected_count) in cases {
             let emitter = CollectingEmitter::default();
             let context = legacy_context(SdkAttribution {
                 lib: Some("web".to_string()),
                 lib_version: Some("1.2.3".to_string()),
             });
 
-            emit_processing_abort_warning(
-                Some(&emitter),
-                &context,
-                &CaptureError::MissingDistinctId,
-                event_count,
-            );
+            emit_processing_abort_warning(Some(&emitter), &context, &error, event_count);
 
             let emitted = emitter.emitted();
-            assert_eq!(emitted.len(), 1, "event_count={event_count}");
+            assert_eq!(emitted.len(), 1, "{error:?} event_count={event_count}");
             let warning = &emitted[0];
             assert_eq!(warning.token, "tok");
             assert_eq!(
                 warning.source,
                 common_ingestion_warnings::CAPTURE_LEGACY_ANALYTICS
             );
-            assert_eq!(warning.warning, WarningType::MissingDistinctId);
-            assert_eq!(warning.count, expected_count);
+            assert_eq!(warning.warning, expected_warning);
+            assert_eq!(warning.count, expected_count, "{error:?}");
             assert_eq!(warning.extra_details.get("lib"), Some(&json!("web")));
             assert_eq!(
                 warning.extra_details.get("libVersion"),
