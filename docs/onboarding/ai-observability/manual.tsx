@@ -302,6 +302,140 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
             ),
         },
         {
+            title: 'Capture tool calls and other spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        `$ai_span` is a plain trace node — it isn't tied to any LLM provider. Use it for tool calls,
+                        database queries, retrieval steps, or any other work you want timed inside a trace. Set
+                        `$ai_span_type` to describe the kind of work, for example `tool`, `chain`, `retriever`, or
+                        `agent`.
+                    </Markdown>
+
+                    <Markdown>
+                        Nothing computes duration for you — time your own code and pass the result as `$ai_latency`. The
+                        span must also carry the same `$ai_trace_id` as the generation it belongs to, or it won't nest
+                        inside the same trace.
+                    </Markdown>
+
+                    <Markdown>
+                        For example, here's a tool call captured as a span right after the generation that triggered it.
+                        Both share the same `$ai_trace_id` (so they nest in one trace) and `$ai_session_id` (so they
+                        group into the same conversation). `client` is PostHog's [OpenAI
+                        wrapper](https://posthog.com/docs/ai-observability/installation/openai), which captures the
+                        `$ai_generation` automatically; `posthog` is the raw client used to capture the span.
+                    </Markdown>
+
+                    <Tab.Group tabs={['Python', 'Node.js']}>
+                        <Tab.List>
+                            <Tab>Python</Tab>
+                            <Tab>Node.js</Tab>
+                        </Tab.List>
+                        <Tab.Panels>
+                            <Tab.Panel>
+                                <CodeBlock
+                                    language="python"
+                                    code={dedent`
+                                        from posthog import Posthog
+                                        from posthog.ai.openai import OpenAI
+                                        import time, uuid, json
+
+                                        posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
+                                        client = OpenAI(api_key="your_openai_api_key", posthog_client=posthog)
+
+                                        session_id = "conversation-abc"  # same across every turn of the conversation
+                                        trace_id = str(uuid.uuid4())     # one per turn
+                                        distinct_id = "user_123"
+
+                                        # tools and get_weather() are your existing tool-calling setup
+                                        response = client.chat.completions.create(
+                                            model="gpt-4o-mini",
+                                            messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                                            tools=tools,
+                                            posthog_distinct_id=distinct_id,
+                                            posthog_trace_id=trace_id,
+                                            posthog_properties={"$ai_session_id": session_id},
+                                        )
+
+                                        # Capture each tool call as a span nested under the generation above
+                                        for call in response.choices[0].message.tool_calls:
+                                            start = time.time()
+                                            result = get_weather(**json.loads(call.function.arguments))
+
+                                            posthog.capture(
+                                                distinct_id=distinct_id,
+                                                event="$ai_span",
+                                                properties={
+                                                    "$ai_trace_id": trace_id,               # ties the span to the generation
+                                                    "$ai_session_id": session_id,           # ties it to the conversation
+                                                    "$ai_span_id": str(uuid.uuid4()),
+                                                    "$ai_span_name": call.function.name,
+                                                    "$ai_input_state": call.function.arguments,
+                                                    "$ai_output_state": result,
+                                                    "$ai_latency": time.time() - start,
+                                                },
+                                            )
+                                    `}
+                                />
+                            </Tab.Panel>
+                            <Tab.Panel>
+                                <CodeBlock
+                                    language="typescript"
+                                    code={dedent`
+                                        import { OpenAI } from '@posthog/ai/openai'
+                                        import { PostHog } from 'posthog-node'
+
+                                        const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+                                        const client = new OpenAI({ apiKey: 'your_openai_api_key', posthog })
+
+                                        const sessionId = 'conversation-abc' // same across every turn of the conversation
+                                        const traceId = crypto.randomUUID()  // one per turn
+                                        const distinctId = 'user_123'
+
+                                        // tools and getWeather() are your existing tool-calling setup
+                                        const response = await client.chat.completions.create({
+                                          model: 'gpt-4o-mini',
+                                          messages: [{ role: 'user', content: "What's the weather in Paris?" }],
+                                          tools,
+                                          posthogDistinctId: distinctId,
+                                          posthogTraceId: traceId,
+                                          posthogProperties: { $ai_session_id: sessionId },
+                                        })
+
+                                        // Capture each tool call as a span nested under the generation above
+                                        for (const call of response.choices[0].message.tool_calls) {
+                                          const start = Date.now()
+                                          const result = await getWeather(JSON.parse(call.function.arguments))
+
+                                          posthog.capture({
+                                            distinctId,
+                                            event: '$ai_span',
+                                            properties: {
+                                              $ai_trace_id: traceId,             // ties the span to the generation
+                                              $ai_session_id: sessionId,         // ties it to the conversation
+                                              $ai_span_id: crypto.randomUUID(),
+                                              $ai_span_name: call.function.name,
+                                              $ai_input_state: call.function.arguments,
+                                              $ai_output_state: result,
+                                              $ai_latency: (Date.now() - start) / 1000,
+                                            },
+                                          })
+                                        }
+                                    `}
+                                />
+                            </Tab.Panel>
+                        </Tab.Panels>
+                    </Tab.Group>
+
+                    <Markdown>
+                        See [spans](https://posthog.com/docs/ai-observability/spans) for the full list of span
+                        properties.
+                    </Markdown>
+                </>
+            ),
+        },
+        {
             title: 'Event properties',
             content: (
                 <>
