@@ -92,18 +92,21 @@ describe('canvas-size', () => {
 
         // `Math.max(0, NaN)` is NaN, so a non-finite rect/margin used to poison the plot size — a NaN
         // pixel range maps every point and axis tick to NaN, blanking the chart while x-only tooltips
-        // still fire. Every dimension must stay finite and non-negative.
+        // still fire. Only the non-finite dimension floors to 0; the finite one keeps its real size —
+        // pinning both catches a blanket floor-to-0 that would clobber a valid dimension yet still be
+        // finite and non-negative. DEFAULT_MARGINS is left 48 / right 16 / top 16 / bottom 32.
         it.each([
-            { name: 'a NaN height', rect: { width: 600, height: NaN } },
-            { name: 'an infinite height', rect: { width: 600, height: Infinity } },
-            { name: 'a NaN width', rect: { width: NaN, height: 400 } },
-        ])('floors the plot size to a finite, non-negative value for $name', ({ rect }) => {
-            const d = buildDimensions(rect, DEFAULT_MARGINS)
-            expect(isFinite(d.plotWidth)).toBe(true)
-            expect(isFinite(d.plotHeight)).toBe(true)
-            expect(d.plotWidth).toBeGreaterThanOrEqual(0)
-            expect(d.plotHeight).toBeGreaterThanOrEqual(0)
-        })
+            { name: 'a NaN height', rect: { width: 600, height: NaN }, plotWidth: 536, plotHeight: 0 },
+            { name: 'an infinite height', rect: { width: 600, height: Infinity }, plotWidth: 536, plotHeight: 0 },
+            { name: 'a NaN width', rect: { width: NaN, height: 400 }, plotWidth: 0, plotHeight: 352 },
+        ])(
+            'floors only the non-finite dimension, keeping the finite one, for $name',
+            ({ rect, plotWidth, plotHeight }) => {
+                const d = buildDimensions(rect, DEFAULT_MARGINS)
+                expect(d.plotWidth).toBe(plotWidth)
+                expect(d.plotHeight).toBe(plotHeight)
+            }
+        )
     })
 
     describe('sameDimensions', () => {

@@ -126,13 +126,18 @@ export function createXScale(labels: string[], dimensions: ChartDimensions): Sca
         .padding(0)
 }
 
+/** Min/max y-axis tick counts. `MIN_Y_TICKS` doubles as the floor for a non-finite/non-positive
+ *  plot height, where d3's `ticks()` would otherwise return an empty array. */
+const MIN_Y_TICKS = 2
+const MAX_Y_TICKS = 11
+
 export function yTickCountForHeight(plotHeight: number): number {
     // A non-finite or non-positive plot height (e.g. an unmeasured container) would make d3's
     // `ticks(count)` return `[]` — the axis then renders no ticks at all. Floor at the minimum.
     if (!isFinite(plotHeight) || plotHeight <= 0) {
-        return 2
+        return MIN_Y_TICKS
     }
-    return Math.max(2, Math.min(11, Math.floor(plotHeight / 50)))
+    return Math.max(MIN_Y_TICKS, Math.min(MAX_Y_TICKS, Math.floor(plotHeight / 50)))
 }
 
 /** Repair a fixed, caller-supplied `[min, max]` domain so it can't map every value to NaN. A
@@ -147,6 +152,15 @@ export function sanitizeFixedDomain([min, max]: readonly [number, number]): [num
         return [min, min + 1]
     }
     return min < max ? [min, max] : [max, min]
+}
+
+/** Repair a degenerate (`min === max`) or non-finite value-scale extent so a linear domain can't
+ *  map every value to NaN: coerce non-finite bounds to 0, bracket zero, and guarantee a unit span.
+ *  Callers apply it only inside the degenerate/non-finite guard — bracketing a well-formed extent
+ *  toward zero would move the axis. */
+function repairDegenerateExtent(min: number, max: number): [number, number] {
+    const lo = Math.min(0, isFinite(min) ? min : 0)
+    return [lo, Math.max(0, isFinite(max) ? max : 0, lo + 1)]
 }
 
 export function createYScale(
@@ -240,8 +254,9 @@ export function buildValueScale(options: {
             let logMin = min
             let logMax = max
             if (!isFinite(logMin) || !isFinite(logMax) || logMin === logMax) {
-                logMin = Math.min(0, isFinite(logMin) ? logMin : 0)
-                logMax = Math.max(0, isFinite(logMax) ? logMax : 0, logMin + 1)
+                const [lo, hi] = repairDegenerateExtent(logMin, logMax)
+                logMin = lo
+                logMax = hi
             }
             return scaleLinear().domain([logMin, logMax]).nice(tickCount).range(valueRange)
         }
@@ -262,8 +277,9 @@ export function buildValueScale(options: {
     // chart) is treated the same. Bracket zero, then guarantee a unit span, so the axis stays
     // well-formed.
     if (!isFinite(min) || !isFinite(max) || min === max) {
-        min = Math.min(0, isFinite(min) ? min : 0)
-        max = Math.max(0, isFinite(max) ? max : 0, min + 1)
+        const [lo, hi] = repairDegenerateExtent(min, max)
+        min = lo
+        max = hi
     }
 
     return scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
@@ -725,8 +741,9 @@ function buildBarValueScale(
     // Guard the degenerate single-point domain (e.g. empty data with a single goal value at 0), and
     // any non-finite extent, so the value scale never maps every bar to NaN.
     if (!isFinite(min) || !isFinite(max) || min === max) {
-        min = isFinite(min) ? min : 0
-        max = Math.max(min + 1, isFinite(max) ? max : min + 1)
+        const [lo, hi] = repairDegenerateExtent(min, max)
+        min = lo
+        max = hi
     }
     const scale = scaleLinear().domain([min, max]).nice(tickCount)
     return scale.range(padValueRange(valueRange, scale.domain() as [number, number], valuePadding))
