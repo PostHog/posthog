@@ -63,4 +63,6 @@ def region_claims_secret(provider: str) -> str:
         return str(SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"])
     if provider == "telegram":
         return str(get_instance_setting("TELEGRAM_APP_WEBHOOK_SECRET"))
+    if provider == "whatsapp":
+        return str(get_instance_setting("WHATSAPP_APP_APP_SECRET"))
     raise RegionAuthError(f"Unknown chat provider: {provider}")

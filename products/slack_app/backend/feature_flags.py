@@ -38,6 +38,7 @@ SLACK_APP_CANVAS_FILE_ARTIFACTS_FLAG = "slack-app-canvas-file-artifacts"
 SLACK_APP_MODEL_CLASSIFIER_FLAG = "slack-app-model-classifier"
 UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 TELEGRAM_APP_FLAG = "telegram-app"
+WHATSAPP_APP_FLAG = "whatsapp-app"
 
 
 def _region_properties() -> dict[str, str]:
@@ -273,6 +274,29 @@ def is_telegram_app_enabled(integration: Integration) -> bool:
     except Exception:
         logger.exception(
             "slack_app_telegram_feature_flag_check_failed",
+            integration_id=integration.id,
+        )
+        return False
+
+
+def is_whatsapp_app_enabled(integration: Integration) -> bool:
+    """Gate for the WhatsApp chat surface: message handling, task creation, and
+    replies for a bound chat. Keyed per chat with the org as the flag group, so
+    rollouts target organizations while a single-chat allowlist rule stays possible."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                WHATSAPP_APP_FLAG,
+                f"whatsapp_chat:{integration.integration_id}",
+                groups={"organization": str(integration.team.organization_id)},
+                person_properties=_region_properties(),
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "slack_app_whatsapp_feature_flag_check_failed",
             integration_id=integration.id,
         )
         return False

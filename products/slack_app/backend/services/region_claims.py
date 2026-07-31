@@ -32,6 +32,7 @@ logger = structlog.get_logger(__name__)
 _PROVIDER_CLAIM_KINDS: dict[str, frozenset[str]] = {
     "slack": frozenset(SLACK_INTEGRATION_KINDS),
     "telegram": frozenset({"telegram"}),
+    "whatsapp": frozenset({"whatsapp"}),
 }
 
 

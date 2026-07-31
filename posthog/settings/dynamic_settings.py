@@ -192,6 +192,26 @@ CONSTANCE_CONFIG = {
         "Secret Telegram echoes in the webhook header; also signs cross-region claims probes.",
         str,
     ),
+    "WHATSAPP_APP_ACCESS_TOKEN": (
+        get_from_env("WHATSAPP_APP_ACCESS_TOKEN", default=""),
+        "System-user access token for the PostHog WhatsApp Business number. Empty disables the WhatsApp chat surface.",
+        str,
+    ),
+    "WHATSAPP_APP_APP_SECRET": (
+        get_from_env("WHATSAPP_APP_APP_SECRET", default=""),
+        "Meta app secret validating WhatsApp webhook signatures; also signs cross-region claims probes.",
+        str,
+    ),
+    "WHATSAPP_APP_VERIFY_TOKEN": (
+        get_from_env("WHATSAPP_APP_VERIFY_TOKEN", default=""),
+        "Token echoed during Meta's webhook verification handshake (GET hub.challenge).",
+        str,
+    ),
+    "WHATSAPP_APP_PHONE_NUMBER_ID": (
+        get_from_env("WHATSAPP_APP_PHONE_NUMBER_ID", default=""),
+        "Graph API phone number id the WhatsApp bot sends from.",
+        str,
+    ),
     "SUPPORT_TEAMS_APP_ID": (
         get_from_env("SUPPORT_TEAMS_APP_ID", default=""),
         "Azure AD Application (client) ID for the SupportHog Teams bot. Shared across all tenants.",
@@ -382,6 +402,10 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_SLACK_SIGNING_SECRET",
     "TELEGRAM_APP_BOT_TOKEN",
     "TELEGRAM_APP_WEBHOOK_SECRET",
+    "WHATSAPP_APP_ACCESS_TOKEN",
+    "WHATSAPP_APP_APP_SECRET",
+    "WHATSAPP_APP_VERIFY_TOKEN",
+    "WHATSAPP_APP_PHONE_NUMBER_ID",
     "SUPPORT_TEAMS_APP_ID",
     "SUPPORT_TEAMS_APP_SECRET",
     "SUPPORT_TEAMS_APP_TENANT_ID",

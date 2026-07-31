@@ -436,3 +436,44 @@ class TestTelegramWorkspaceClaims(TestCase):
                 HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
             )
         assert response.status_code == 403
+
+
+class TestWhatsAppWorkspaceClaims(TestCase):
+    """WhatsApp claims probes: signed with the shared Meta app secret via the neutral
+    region headers. Like Telegram, there is no legacy-header fallback — that shim is
+    Slack-only.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.secret = "whatsapp-claims-test-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def _post(self, payload: dict, *, secret: str | None = None) -> Any:
+        body = json.dumps(payload).encode()
+        signature, ts = sign_region_request(body, secret or self.secret)
+        return self.client.post(
+            "/chat/whatsapp/workspace/claims/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_POSTHOG_REGION_SIGNATURE=signature,
+            HTTP_X_POSTHOG_REGION_TIMESTAMP=ts,
+        )
+
+    def test_signed_probe_reports_bound_chat(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="whatsapp",
+            integration_id="15550001111",
+            config={},
+        )
+        with override_instance_config("WHATSAPP_APP_APP_SECRET", self.secret):
+            response = self._post({"workspace_id": "15550001111", "kinds": ["whatsapp"]})
+        assert response.status_code == 200
+        assert response.json() == {"claimed": True}
+
+    def test_wrong_secret_returns_403(self):
+        with override_instance_config("WHATSAPP_APP_APP_SECRET", self.secret):
+            response = self._post({"workspace_id": "15550001111", "kinds": ["whatsapp"]}, secret="different")
+        assert response.status_code == 403

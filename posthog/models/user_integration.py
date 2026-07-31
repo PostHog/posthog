@@ -71,6 +71,7 @@ class UserIntegration(UUIDModel):
         GITHUB = "github"
         SLACK = "slack"
         TELEGRAM = "telegram"
+        WHATSAPP = "whatsapp"
 
     user = models.ForeignKey(
         "posthog.User",

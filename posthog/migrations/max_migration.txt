@@ -1,1 +1,1 @@
-1287_alter_integration_kind_alter_userintegration_kind
+1288_alter_integration_kind_alter_userintegration_kind

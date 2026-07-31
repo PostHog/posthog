@@ -160,6 +160,7 @@ class Task(DeletedMetaFields, models.Model):
         AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
         TELEGRAM = "telegram", "Telegram"
+        WHATSAPP = "whatsapp", "WhatsApp"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         POSTHOG_AI = "posthog_ai", "PostHog AI"
@@ -657,7 +658,12 @@ class Task(DeletedMetaFields, models.Model):
         if origin_product == Task.OriginProduct.SIGNAL_REPORT:
             extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
             extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
-        elif origin_product in (Task.OriginProduct.USER_CREATED, Task.OriginProduct.SLACK, Task.OriginProduct.TELEGRAM):
+        elif origin_product in (
+            Task.OriginProduct.USER_CREATED,
+            Task.OriginProduct.SLACK,
+            Task.OriginProduct.TELEGRAM,
+            Task.OriginProduct.WHATSAPP,
+        ):
             extra_state["pr_authorship_mode"] = (
                 PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
             )
