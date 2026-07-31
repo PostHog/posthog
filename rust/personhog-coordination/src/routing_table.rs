@@ -1046,7 +1046,7 @@ impl RoutingTable {
                 return Ok(false);
             }
         };
-        util::record_phase_watch_delivery("router", handoff.phase_entered_at_ms);
+        util::record_phase_watch_delivery("router", handoff.phase, handoff.phase_entered_at_ms);
 
         match handoff.phase {
             HandoffPhase::Freezing | HandoffPhase::Draining | HandoffPhase::Warming => {

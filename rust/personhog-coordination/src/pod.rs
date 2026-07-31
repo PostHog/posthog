@@ -1183,6 +1183,7 @@ impl PodHandle {
                                 Ok(handoff) => {
                                     util::record_phase_watch_delivery(
                                         "pod",
+                                        handoff.phase,
                                         handoff.phase_entered_at_ms,
                                     );
                                     Some(handoff.partition)

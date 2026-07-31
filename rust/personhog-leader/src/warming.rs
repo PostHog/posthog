@@ -409,7 +409,27 @@ pub async fn warm_from_kafka(
             .map_err(|e| CoordError::invalid_state(format!("fetch_watermarks join: {e}")))?
         }
     });
-    let (committed_offset, (low, hwm)) = tokio::try_join!(committed_fut, watermarks_fut)?;
+    let (committed_res, watermarks_res) = tokio::join!(committed_fut, watermarks_fut);
+    let (low, hwm) = match watermarks_res {
+        Ok(marks) => marks,
+        // The watermark call failed on this consumer, so the pool's
+        // drop-doubtful-clients contract applies: fall through without
+        // giving it back.
+        Err(e) => return Err(e),
+    };
+    let committed_offset = match committed_res {
+        Ok(offset) => offset,
+        Err(e) => {
+            // The committed-offset query runs on the offsets pool's
+            // client; this consumer did nothing and is sound. Returning
+            // it keeps reconcile-driven warm retries from rebuilding a
+            // Kafka client per attempt.
+            if let Ok(consumer) = Arc::try_unwrap(consumer) {
+                pools.warming.give_back(consumer);
+            }
+            return Err(e);
+        }
+    };
 
     let start_offset = resolve_start_offset(committed_offset, low, cfg.lookback_offsets);
 
