@@ -51,11 +51,11 @@ class TestMaterializedViewRouting(BaseTest):
         return context.workload
 
     @parameterized.expand([("routing_enabled", True, True), ("routing_disabled", False, False)])
-    def test_matview_only_query_routing(self, _name: str, routing_enabled: bool, expects_endpoints: bool):
+    def test_matview_only_query_routing(self, _name: str, routing_enabled: bool, expects_routed: bool):
         workload = self._workload_for("SELECT id FROM my_view", routing_enabled=routing_enabled)
-        assert (workload == Workload.ENDPOINTS) is expects_endpoints
+        assert (workload == Workload.MATERIALIZED_VIEWS) is expects_routed
 
     def test_matview_query_touching_events_stays_default(self):
         # Referencing events (resolved through the real pipeline) disqualifies routing.
         workload = self._workload_for("SELECT id, (SELECT count() FROM events) AS c FROM my_view", routing_enabled=True)
-        assert workload != Workload.ENDPOINTS
+        assert workload != Workload.MATERIALIZED_VIEWS

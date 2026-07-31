@@ -68,6 +68,16 @@ def test_connection_pool_creation_with_team_id(settings):
     assert team_pool.connection_args["host"] == "clicky"
 
 
+def test_materialized_views_workload_shares_endpoints_host(settings):
+    # MATERIALIZED_VIEWS offloads to the endpoints cluster, so it must resolve to the same host as
+    # ENDPOINTS — otherwise matview-only queries silently route to the main cluster with no error.
+    settings.CLICKHOUSE_ENDPOINTS_HOST = "ch-endpoints.example.com"
+
+    endpoints_host = get_pool(Workload.ENDPOINTS).connection_args["host"]
+    assert endpoints_host == "ch-endpoints.example.com"
+    assert get_pool(Workload.MATERIALIZED_VIEWS).connection_args["host"] == endpoints_host
+
+
 @pytest.fixture(autouse=True)
 def reset_state():
     make_ch_pool.cache_clear()
