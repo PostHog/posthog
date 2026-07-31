@@ -75,6 +75,7 @@ from products.tasks.backend.models import (
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
+    TaskRunLivingArtifactChartRequestSerializer,
 )
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
@@ -8377,6 +8378,150 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
             )
+
+
+class TestLivingArtifactChartRequestValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("both", {"name": "c", "query": {"kind": "TrendsQuery"}, "insight_id": 1}),
+            ("neither", {"name": "c"}),
+        ]
+    )
+    def test_requires_exactly_one_of_query_or_insight_id(self, _name, body):
+        serializer = TaskRunLivingArtifactChartRequestSerializer(data=body)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("query", serializer.errors)
+
+
+class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
+    CHART_QUERY = {
+        "kind": "InsightVizNode",
+        "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+    }
+
+    def _post_chart(self, scopes, body):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        return self._post_chart_to_run(scopes, body, task=task, run_id=str(run.id))
+
+    def _post_chart_to_run(self, scopes, body, *, task, run_id):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="chart test key",
+            secure_value=hash_key_value(api_key_value),
+            scopes=scopes,
+        )
+        self.client.force_authenticate(None)
+        return self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run_id}/living_artifacts/chart/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {api_key_value}"},
+        )
+
+    @parameterized.expand([("task_write_only", ["task:write"]), ("query_read_only", ["query:read"])])
+    def test_rejects_key_missing_either_scope(self, _name, scopes):
+        response = self._post_chart(scopes, {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def _artifact_response(self):
+        return {
+            "id": "a1",
+            "task_id": "t1",
+            "run_id": "r1",
+            "team_id": self.team.id,
+            "name": "Chart",
+            "artifact_type": "file",
+            "adapter": "slack_file",
+            "status": "active",
+            "location": {},
+            "metadata": {},
+            "current_version": 1,
+            "versions": [],
+        }
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_renders_and_registers_artifact_with_both_scopes(self, mock_render, mock_create):
+        mock_asset = MagicMock(id=321, exception=None)
+        mock_asset.get_subscription_delivery_content_url.return_value = (
+            "https://app.dev/exporter/export-1.png?token=abc"
+        )
+        mock_render.return_value = (mock_asset, b"png-bytes")
+        mock_create.return_value = (self._artifact_response(), None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["export_asset_id"], 321)
+        self.assertIn("/insights/new#q=", data["url"])
+        self.assertEqual(mock_create.call_args.kwargs["artifact"]["content_bytes"], b"png-bytes")
+        self.assertEqual(
+            mock_create.call_args.kwargs["artifact"]["metadata"],
+            {"image_url": "https://app.dev/exporter/export-1.png?token=abc", "posthog_url": data["url"]},
+        )
+        # The facade rejects any export_context whose source isn't an InsightVizNode, so a wrong
+        # wrapping here would 400 every real request with the assertions above still green.
+        # upgrade() stamps schema versions on nested nodes, so compare everything else.
+        mock_render.assert_called_once()
+        render_kwargs = mock_render.call_args.kwargs
+        self.assertEqual(render_kwargs["team"], self.team)
+        self.assertEqual(render_kwargs["created_by"], self.user)
+        self.assertIsNone(render_kwargs["insight_id"])
+        sent_query = render_kwargs["export_context"]["source"]
+        self.assertEqual(sent_query["kind"], "InsightVizNode")
+        self.assertEqual(
+            {k: v for k, v in sent_query["source"].items() if k != "version"},
+            self.CHART_QUERY["source"],
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "dataviz_node",
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                "InsightVizNode",
+            ),
+            ("bare_hogql", {"kind": "HogQLQuery", "query": "SELECT 1"}, "InsightVizNode"),
+            (
+                "datatable_node",
+                {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+                "InsightVizNode",
+            ),
+            ("string_query", "SELECT 1", "InsightVizNode"),
+            ("list_kind", {"kind": ["TrendsQuery"]}, "InsightVizNode"),
+            (
+                "invalid_source_kind",
+                {"kind": "InsightVizNode", "source": {"kind": "NotAQuery"}},
+                "Invalid insight query",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_non_chartable_queries_rejected_before_render(self, _name, query, expected_error, mock_render):
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": query})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_error, response.json()["error"])
+        mock_render.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_unknown_run_rejected_before_render(self, mock_render):
+        response = self._post_chart_to_run(
+            ["task:write", "query:read"],
+            {"name": "Chart", "query": self.CHART_QUERY},
+            task=self.create_task(),
+            run_id="00000000-0000-0000-0000-000000000000",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_render.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_render_failure_returns_typed_400(self, mock_render):
+        mock_render.return_value = (MagicMock(id=322, exception="Query exploded"), None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # The raw asset.exception stays in the log — the agent relays this field into Slack.
+        self.assertEqual(response.json()["error"], "Chart render failed")
 
 
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
