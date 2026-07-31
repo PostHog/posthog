@@ -52,8 +52,12 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
         <Integration kind="github">
             <div className="flex flex-col gap-y-2">
                 <div className="flex flex-wrap gap-2">
+                    {/* This leaves PostHog entirely. GitHub decides what it shows, since an app
+                        installs at most once per account: install where it's missing, configure
+                        where it's already there. So the label names the destination, not an
+                        outcome we can promise. */}
                     <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
-                        Connect organization
+                        Manage on GitHub
                     </LemonButton>
                     {canLinkExisting && (
                         <GitHubInstallationLink
@@ -63,11 +67,15 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
                         />
                     )}
                 </div>
+                <p className="text-secondary text-xs mb-0">
+                    Install the PostHog app on a GitHub account, or change which repositories an existing installation
+                    can see.
+                </p>
                 {canLinkExisting && (
                     <p className="text-secondary text-xs mb-0">
                         {multipleInstallations
                             ? 'Choose an existing GitHub installation to connect to this project.'
-                            : 'Already installed the PostHog GitHub App for another project in this organization? A GitHub App installs once per organization, so use "Link existing installation" to connect it here instead of reinstalling.'}
+                            : 'A GitHub App installs once per organization. Link the installation you already have instead of reinstalling.'}
                     </p>
                 )}
             </div>
