@@ -80,6 +80,9 @@ separate project.
   root Jest roots include `../products`, so it would otherwise collect desktop's `*.test.ts`
   files and fail resolving their workspace-only deps (e.g. `@agentclientprotocol/sdk`).
   Desktop tests run under Vitest in desktop-* CI.
+- `.dockerignore`: `products/desktop` added. The file is `*` plus `!products`, so without this
+  the whole tree (~56 MiB of icons, fonts, videos, wasm grammars and a vendored ripgrep binary)
+  lands in every server image build context. Nothing in the images imports it.
 - `pytest.ini`: `--ignore=products/desktop` added to `addopts`. Same reason for the Django
   suite: posthog pytest would otherwise collect desktop's Python tooling tests.
 - `.github/workflows/desktop-*.yml`: ported workflows (mapping below).
@@ -104,14 +107,15 @@ separate project.
 
 | Source (.github/workflows/) | Port | Notes beyond the standard transforms |
 | --- | --- | --- |
-| build.yml | desktop-build.yml | gating: merge_group + `Desktop Build Pass` |
+| _(none — monorepo-native)_ | desktop-ci.yml | single `pull_request:`/`merge_group:` dispatch that calls the five gating workflows; see transform rule 7 |
+| build.yml | desktop-build.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Build Pass` |
 | warm-caches.yml | desktop-warm-caches.yml | seeds every cache the restore-only desktop PR workflows use; pnpm-store caching is explicit (`desktop-pnpm-*` keys) instead of setup-node auto-cache so PR restores share the namespace |
 | agent-release-verify.yml | desktop-agent-release-verify.yml | restore-only pnpm store |
-| typecheck.yml | desktop-typecheck.yml | gating: merge_group + `Desktop Typecheck Pass` |
-| code-quality.yml | desktop-quality.yml | gating: merge_group + `Desktop Quality Pass` |
-| test.yml | desktop-test.yml | gating: merge_group + `Desktop Tests Pass`; live-gateway e2e kept with `POSTHOG_CODE_E2E_*` org secrets |
-| code-storybook.yml | desktop-storybook.yml | gating: merge_group + `Desktop Storybook Pass`; VR CLI checkout still pulls `PostHog/posthog` master (same repo now, but master's CLI, not the PR branch's, is the intended version) |
-| code-build-test.yml | desktop-build-test.yml | |
+| typecheck.yml | desktop-typecheck.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Typecheck Pass` |
+| code-quality.yml | desktop-quality.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Quality Pass` |
+| test.yml | desktop-test.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Tests Pass`; live-gateway e2e kept with `POSTHOG_CODE_E2E_*` org secrets |
+| code-storybook.yml | desktop-storybook.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Storybook Pass`; VR CLI checkout still pulls `PostHog/posthog` master (same repo now, but master's CLI, not the PR branch's, is the intended version) |
+| code-build-test.yml | desktop-build-test.yml | `workflow_dispatch` only; the source's `refactor/electron-vite` push trigger is a code-repo branch and is dropped |
 | code-release.yml | desktop-release.yml | tags `desktop-v*`; legacy publishing to PostHog/code releases kept (see below) |
 | code-tag.yml | desktop-tag.yml | computes and pushes `desktop-v*` tags; quiet-period check and patch count scoped `-- products/desktop/` (monorepo master always has fresh commits; unscoped counts would be meaningless) |
 | code-update-e2e.yml | desktop-update-e2e.yml | nightly + dispatch; the source's temporary push trigger for `test/macos-auto-update-e2e` is dropped (code-repo branch, and default-only triggers exempt its caches from the cache-write lint) |
@@ -155,11 +159,19 @@ ports from source using these rules.
    every monorepo file, so each filter gains a positive `products/desktop/**` scope and its excludes
    are reanchored under `products/desktop/` (`predicate-quantifier: every` retained). Non-gating
    workflows get top-level `paths: ["products/desktop/**", <own workflow file>]` filters instead.
-7. **Merge queue**: gating workflows (build, typecheck, quality, test, storybook) add a
-   `merge_group:` trigger, skip all jobs on merge_group runs, and end in an always-running
-   `Desktop <X> Pass` collation job — the job to register as the required status check.
-   Paths-filtered workflows without `merge_group:` would leave the queue waiting on a check
-   that never reports.
+7. **Merge queue**: gating workflows (build, typecheck, quality, test, storybook) become
+   `workflow_call` reusable workflows with no triggers of their own beyond the `push:` master
+   arm, and end in an always-running `Desktop <X> Pass` collation job. They are dispatched by
+   `desktop-ci.yml` (monorepo-native, no source counterpart), which owns the `pull_request:`
+   and `merge_group:` triggers, the PR concurrency group, and the secrets each child declares.
+   That keeps the whole suite to one workflow run per PR event instead of five, against
+   GitHub's 500-runs/10s dispatch cap.
+   Two consequences worth knowing before registering required checks:
+   - The check context is `<caller job id> / Desktop <X> Pass` (for example
+     `build / Desktop Build Pass`), not the bare job name. Register those strings.
+   - Neither the parent nor the children may take a trigger-level `paths:` filter; a required
+     check that never dispatches leaves the PR stuck waiting for status. Change detection
+     stays in each child's internal `changes` job.
 8. **Tags**: app release tags are `desktop-v*` in the monorepo (the AWS release role trusts
    `repo:PostHog/posthog:ref:refs/tags/desktop-v*`). Tag triggers, version extraction, tag
    globs and created tags all use the namespace. Agent tags stay `agent-v*`. Releases
