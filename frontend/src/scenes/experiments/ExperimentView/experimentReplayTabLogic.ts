@@ -440,8 +440,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        // Recordings opened from here are watched for what the experiment did to this session, so the
-        // player's sidebar opens on Overview — where the experiment context sits — instead of Inspector.
         actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
 
         // Opening the tab is a session-replay cross-sell from experiments.
