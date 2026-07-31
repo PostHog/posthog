@@ -7824,6 +7824,8 @@ export interface InsightBuilderConfigApi {
     /** Saved view name. When set, compiles FROM <view> so the insight tracks view updates. */
     baseView?: string | null
     columns: InsightBuilderDimensionApi[]
+    /** Snapshot of the SQL this config compiled to when saved. Edit detection compares source.query against this text, so compiler output changes in later releases don't misread older saved insights as externally edited. */
+    compiledQuery?: string | null
     /** When true, the SQL editor opens this insight in the builder and treats source.query as compiled output */
     enabled: boolean
     /** Conditions on the base query's columns, applied before grouping */
