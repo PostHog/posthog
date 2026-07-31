@@ -26,6 +26,8 @@ export interface PersonalGitHubIntegration {
     installation_id: string | null
     repository_selection: string | null
     account: { type: string; name: string } | null
+    /** The connected user's own GitHub login (distinct from `account`, which is the installation org/user). */
+    github_login: string | null
     uses_shared_installation: boolean
     created_at: string | null
 }
@@ -144,6 +146,7 @@ export interface personalIntegrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -194,6 +197,7 @@ export interface personalIntegrationsLogicActions {
                 | 'linear'
                 | 'linkedin-ads'
                 | 'meta-ads'
+                | 'pardot'
                 | 'pinterest-ads'
                 | 'postgresql'
                 | 'reddit-ads'
@@ -475,7 +479,7 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
             const params = new URLSearchParams(window.location.search)
 
             // Stash ``connect_from`` so the post-roundtrip success toast can surface a
-            // "Return to PostHog Code" CTA.
+            // "Return to PostHog Desktop" CTA.
             const connectFrom = params.get('connect_from')
             if (connectFrom) {
                 writeConnectFromStorage(connectFrom)

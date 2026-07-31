@@ -1,4 +1,5 @@
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from django.db import transaction
@@ -45,6 +46,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -56,6 +58,8 @@ from products.notifications.backend.facade.api import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
 
 @temporalio.activity.defn
@@ -166,8 +170,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.SNOOZED)
             # Snooze expired — persist clear so evaluate_alert reads the fresh state.
             alert.snoozed_until = None
-            alert.state = AlertState.NOT_FIRING
-            alert.save(update_fields=["snoozed_until", "state"])
+            state_fields = apply_unsnooze(alert)
+            alert.save(update_fields=["snoozed_until", *state_fields])
 
         try:
             insight = alert.insight
@@ -371,7 +375,7 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
 async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
     """Send notifications for a previously evaluated alert check (idempotent)."""
 
-    @database_sync_to_async(thread_sensitive=False)
+    @database_sync_to_async(thread_sensitive=False, executor=_NOTIFICATION_DELIVERY_EXECUTOR)
     def _notify() -> None:
         # Mismatched pair surfaces as DoesNotExist instead of notifying the wrong alert.
         alert_check = AlertCheck.objects.select_related("alert_configuration", "alert_configuration__team").get(

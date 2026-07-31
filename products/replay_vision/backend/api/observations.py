@@ -18,13 +18,14 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
+from posthog.event_usage import report_user_action
 from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 from posthog.utils import relative_date_parse
@@ -42,6 +43,7 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
@@ -273,6 +275,22 @@ class ClassifierStatsSerializer(serializers.Serializer):
     total_with_tags = serializers.IntegerField(help_text="Succeeded observations that emitted at least one tag.")
 
 
+class FacetCountSerializer(serializers.Serializer):
+    term = serializers.CharField(help_text="The facet value as emitted by the summarizer (lowercased).")
+    count = serializers.IntegerField(help_text="Number of succeeded observations that emitted this value.")
+
+
+class SummarizerStatsSerializer(serializers.Serializer):
+    friction_ranked = FacetCountSerializer(many=True, help_text="Top friction points by emission count.")
+    keyword_ranked = FacetCountSerializer(many=True, help_text="Top keywords by emission count.")
+    total_with_facets = serializers.IntegerField(
+        help_text="Succeeded observations that emitted at least one friction point or keyword."
+    )
+    total_with_friction = serializers.IntegerField(
+        help_text="Succeeded observations that reported at least one friction point."
+    )
+
+
 class ScorerSummarySerializer(serializers.Serializer):
     min = serializers.FloatField(help_text="Minimum observed score.")
     p25 = serializers.FloatField(help_text="25th-percentile score.")
@@ -382,6 +400,10 @@ class ObservationStatsSerializer(serializers.Serializer):
     scorer = ScorerStatsSerializer(
         allow_null=True,
         help_text="Scorer-type aggregates; null when the scanner is not a scorer.",
+    )
+    summarizer = SummarizerStatsSerializer(
+        allow_null=True,
+        help_text="Summarizer-type facet aggregates; null when the scanner is not a summarizer.",
     )
 
 
@@ -701,7 +723,22 @@ class ReplayObservationViewSet(
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         observation = self.get_object()
         context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
-        return Response(self.get_serializer(observation, context=context).data)
+        response = Response(self.get_serializer(observation, context=context).data)
+        # Viewed step of the created → viewed → rated funnel. In-flight observations are excluded
+        # because the observation scene polls this endpoint every few seconds while a scan runs.
+        if observation.status not in IN_FLIGHT_STATUSES:
+            report_user_action(
+                cast(User, request.user),
+                "replay_vision_observation_viewed",
+                {
+                    "observation_id": str(observation.id),
+                    "scanner_id": str(observation.scanner_id),
+                    "status": observation.status,
+                },
+                team=self.team,
+                request=request,
+            )
+        return response
 
     def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
         # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
@@ -808,7 +845,7 @@ class ReplayObservationViewSet(
         self.check_object_permissions(self.request, scanner)
         user = cast(User, request.user)
         if not has_tasks_access(user):
-            raise PermissionDenied("Creating a task requires access to PostHog Code.")
+            raise PermissionDenied("Creating a task requires access to PostHog Desktop.")
         content = _observation_task_content(observation, scanner)
         # Lock the observation row so a client retry or concurrent double submit returns the task the
         # first call minted instead of creating a duplicate to triage.
@@ -859,6 +896,9 @@ class ReplayObservationViewSet(
             ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
                 created_at=original_created_at
             )
+        if outcome is WorkflowStartOutcome.CAPPED:
+            # The pre-check above passed on a snapshot; the atomic claim is the authoritative gate.
+            raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
         if outcome is WorkflowStartOutcome.ALREADY_RUNNING:
             # The prior run is still closing, so its deterministic id blocks the restart and no new row will appear.
             return Response(
@@ -917,6 +957,19 @@ class ReplayObservationViewSet(
                 "feedback": input_serializer.validated_data.get("feedback", ""),
                 "created_by": user,
             },
+        )
+        # The core calibration signal: thumbs up/down on whether the scanner got the session right.
+        report_user_action(
+            user,
+            "replay_vision_observation_rated",
+            {
+                "observation_id": str(observation.id),
+                "scanner_id": str(observation.scanner_id),
+                "is_correct": label.is_correct,
+                "has_feedback": bool(label.feedback),
+            },
+            team=self.team,
+            request=request,
         )
         return Response(ReplayObservationLabelSerializer(label).data)
 

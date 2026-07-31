@@ -3,12 +3,33 @@ use personhog_common::properties::rewrite_out_of_range_numbers;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 
-use crate::cache::{CachedPerson, PersonCacheKey};
+use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
 
-/// Reads a person from the main Postgres `posthog_person` table.
-/// Used as a fallback when the leader's cache doesn't have the person.
+/// A configured PG fallback: the pool and the table it reads. The table
+/// must be the one the writer maintains (see FALLBACK_TABLE in
+/// config.rs for the pairing rule), so a fallback cannot be constructed
+/// without deciding it.
+#[derive(Clone)]
+pub struct PgFallback {
+    pub pool: PgPool,
+    pub table: String,
+}
+
+/// Validate a configured table identifier before it is interpolated into
+/// SQL (identifiers cannot be bound as parameters).
+pub fn validate_table_name(table: &str) -> Result<(), String> {
+    if table.is_empty() || !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("invalid fallback table name: {table:?}"));
+    }
+    Ok(())
+}
+
+/// Reads a person from the configured fallback table — the table the
+/// writer maintains. Used as a fallback when the leader's cache doesn't
+/// have the person.
 pub async fn load_person_from_pg(
     pool: &PgPool,
+    table: &str,
     key: &PersonCacheKey,
 ) -> Result<Option<CachedPerson>, sqlx::Error> {
     let start = std::time::Instant::now();
@@ -21,19 +42,19 @@ pub async fn load_person_from_pg(
     // whose PG-expanded rendering serde_json rejects, and the leniency
     // lives in our parse step (see below). The cost is identical — sqlx's
     // jsonb decode parses the same text under the hood.
-    let row = sqlx::query(
+    let row = sqlx::query(&format!(
         "SELECT id, team_id, uuid::text, properties::text AS properties, created_at, version, \
          is_identified
-         FROM posthog_person
+         FROM {table}
          WHERE team_id = $1 AND id = $2",
-    )
+    ))
     .bind(team_id_i32)
     .bind(key.person_id)
     .fetch_optional(pool)
     .await?;
 
-    histogram!("personhog_leader_pg_fallback_duration_seconds")
-        .record(start.elapsed().as_secs_f64());
+    histogram!("personhog_leader_pg_fallback_duration_ms")
+        .record(start.elapsed().as_secs_f64() * 1000.0);
 
     let Some(row) = row else {
         counter!("personhog_leader_pg_fallback_total", "outcome" => "not_found").increment(1);
@@ -46,6 +67,7 @@ pub async fn load_person_from_pg(
     // Borrowed from the row buffer — no copy; parse cost matches what
     // sqlx's own jsonb decode would spend on the same bytes.
     let properties_text: &str = row.get("properties");
+    let properties_text_len = properties_text.len();
     let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
     let version: Option<i64> = row.get("version");
     let is_identified: bool = row.get("is_identified");
@@ -83,6 +105,7 @@ pub async fn load_person_from_pg(
         id,
         uuid,
         team_id: team_id as i64,
+        approx_bytes: approx_person_bytes(properties_text_len),
         properties,
         created_at: created_at.timestamp(),
         version: version.unwrap_or(0),

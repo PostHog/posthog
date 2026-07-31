@@ -30,6 +30,25 @@ describe('jest quarantine runtime fixture', () => {
         throw new Error('quarantined async failure')
     })
 
+    test.each([1])('tolerates each row %s', () => {
+        throw new Error('quarantined each row failure')
+    })
+
+    test.each([2])('keeps unrelated done row %s', (value, done) => {
+        expect(value).toBe(2)
+        done()
+    })
+
+    test.each([3])('tolerates each done row %s', (_value, done) => {
+        done(new Error('quarantined each done row failure'))
+    })
+
+    describe.each(['A'])('parameterized describe %s', () => {
+        test('tolerates nested failure', () => {
+            throw new Error('quarantined parameterized describe failure')
+        })
+    })
+
     test('tolerates beforeEach failure', () => {
         expect(true).toBe(true)
     })

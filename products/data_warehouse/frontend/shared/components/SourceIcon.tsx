@@ -70,6 +70,11 @@ function SourceIconImage({ src, alt, sizePx }: { src: string; alt: string; sizeP
             alt={alt}
             height={sizePx}
             width={sizePx}
+            // The catalog renders every source's icon at once (1000+ tiles). Without lazy loading the
+            // browser eagerly requests all of them on mount, flooding the network and delaying paint —
+            // only the icons scrolled into view need to load.
+            loading="lazy"
+            decoding="async"
             className="object-contain max-w-none rounded"
             onError={(e) => {
                 const img = e.currentTarget

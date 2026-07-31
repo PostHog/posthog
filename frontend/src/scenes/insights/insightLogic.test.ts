@@ -577,6 +577,32 @@ describe('insightLogic', () => {
         await expectLogic(logic).toDispatchActions([savedInsightsLogic().actionTypes.updateInsight])
     })
 
+    test('saveInsight clears the browser draft only when saving a new insight', async () => {
+        const draftKey = `draft-query-${MOCK_TEAM_ID}`
+        localStorage.setItem(draftKey, JSON.stringify({ query: { kind: 'TrendsQuery' }, timestamp: 1 }))
+
+        const updateProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            cachedInsight: { id: 42, short_id: Insight42, query: examples.FunnelsQuery, result: {} },
+        }
+        logic = insightLogic(updateProps)
+        logic.mount()
+        insightDataLogic(updateProps).mount()
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
+        expect(localStorage.getItem(draftKey)).not.toBeNull()
+
+        const newProps: InsightLogicProps = { dashboardItemId: 'new' }
+        logic = insightLogic(newProps)
+        logic.mount()
+        insightDataLogic(newProps).mount()
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
+        expect(localStorage.getItem(draftKey)).toBeNull()
+    })
+
     test('saveInsight updates dashboards', async () => {
         const dashLogic = dashboardLogic({ id: MOCK_DASHBOARD_ID })
         dashLogic.mount()
@@ -1040,6 +1066,70 @@ describe('insightLogic', () => {
             logic.mount()
 
             expect(logic.values.hasOverrides).toBe(expected)
+        })
+    })
+
+    describe('loadInsight refresh mode', () => {
+        // Overridden queries get their own cache key, which nothing warms — a cache-only-ish
+        // `async` read yields `result: null` and the scene shows "Chart data didn't load".
+        const seenRefreshParams: (string | null)[] = []
+
+        beforeEach(() => {
+            seenRefreshParams.length = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': ({ request }) => {
+                        const url = new URL(request.url)
+                        seenRefreshParams.push(url.searchParams.get('refresh'))
+                        return [
+                            200,
+                            {
+                                results: [
+                                    {
+                                        id: 42,
+                                        short_id: Insight42,
+                                        result: ['result from api'],
+                                        filters: API_FILTERS,
+                                        name: 'original name',
+                                    },
+                                ],
+                            },
+                        ]
+                    },
+                },
+            })
+        })
+
+        it('uses async without overrides', async () => {
+            logic = insightLogic({ dashboardItemId: Insight42 })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async'])
+        })
+
+        it('blocks on a cache miss when overrides are present', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                dashboardId: 33,
+                filtersOverride: { date_from: '-14d' },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async_except_on_cache_miss'])
+        })
+
+        it('treats empty overrides as no overrides', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                dashboardId: 33,
+                filtersOverride: {},
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async'])
         })
     })
 

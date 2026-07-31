@@ -619,11 +619,6 @@ export const teamLogic = kea<teamLogicType>([
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
             }
-
-            // Detect managed viewsets to mark them as completed in the product setup
-            if (currentTeam?.managed_viewsets?.['revenue_analytics']) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.EnableRevenueAnalyticsViewset)
-            }
         },
         updateCurrentTeamSuccess: () => {
             // Reload user after team update to keep user object in sync

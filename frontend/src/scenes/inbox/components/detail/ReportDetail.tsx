@@ -1,5 +1,5 @@
-import { useValues } from 'kea'
-import { ReactNode, useState } from 'react'
+import { BindLogic, useValues } from 'kea'
+import { ReactNode, useCallback, useState } from 'react'
 
 import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
 import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
@@ -13,6 +13,7 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
+import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
@@ -36,9 +37,20 @@ import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
-import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
+import { PrChecksSection } from './PrChecksSection'
+import { PrCommentsSection } from './PrCommentsSection'
+import {
+    PullRequestBranchTag,
+    PullRequestBranchTagSkeleton,
+    PullRequestDiffPanel,
+    PullRequestDiffPending,
+    PullRequestDiffStat,
+    PullRequestDiffStatSkeleton,
+} from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
+import { ReportChart } from './ReportChart'
 import { useReportDetailActions } from './ReportDetailActions'
+import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
@@ -249,12 +261,20 @@ interface InboxDetailFrameProps {
     tab: InboxTabKey
     /** Summary section heading icon + title. */
     summary: { icon: ReactNode; title: string }
+    /** Content rendered in the main column directly under the Summary (e.g. the PR conversation). */
+    summaryFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
-    /** Diff body. When present, the overview and this render behind two tabs (GitHub-style PR view). */
+    /** Whether to render the Overview / Files changed tab bar. Driven by whether the report has a PR
+     * (known immediately), not by whether the diff has loaded — so the tab bar doesn't pop in a beat
+     * later and shift the layout. */
+    showFilesTab?: boolean
+    /** Diff body rendered under the "Files changed" tab (may be a skeleton while the commit artefact loads). */
     diffSection?: ReactNode
     /** Branch tag shown in the "Files changed" tab label, so the tab signals there's code behind it. */
     diffBranchTag?: ReactNode
+    /** +/- line-count stat shown in the "Files changed" tab label, right of the branch. */
+    diffStat?: ReactNode
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
@@ -269,23 +289,52 @@ export function InboxDetailFrame({
     report,
     tab,
     summary,
+    summaryFooter,
     primaryAction,
+    showFilesTab,
     diffSection,
     diffBranchTag,
+    diffStat,
     children,
 }: InboxDetailFrameProps): JSX.Element {
-    const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
-        inboxReportDetailLogic({ reportId: report.id, report })
-    )
-    // GitHub-style PR view: when a diff is present, the overview and the diff live behind two tabs.
+    const logicProps = { reportId: report.id, report }
+    const {
+        reportSignals,
+        reportSignalsLoading,
+        priorityExplanation,
+        actionabilityExplanation,
+        chartPlacements,
+        trailingCharts,
+    } = useValues(inboxReportDetailLogic(logicProps))
+    // GitHub-style PR view: when the report has a PR, the overview and the diff live behind two tabs.
     const [activeDetailTab, setActiveDetailTab] = useState<'overview' | 'files'>('overview')
-    const hasDiff = !!diffSection
+    const hasDiff = !!showFilesTab
     const signals = reportSignals ?? []
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
+
+    // Depends on placement alone. `LemonMarkdown` memoizes its anchor component on this callback, so
+    // anything else in here — the charts themselves, the report object — would rebuild that component
+    // as the report polls and unmount every rendered chart with it.
+    const renderChartRef = useCallback(
+        (chartId: string, sourceOffset?: number): ReactNode =>
+            sourceOffset !== undefined && chartPlacements.inlineByOffset.get(sourceOffset) === chartId ? (
+                <ReportChart chartId={chartId} />
+            ) : null,
+        [chartPlacements]
+    )
+
+    // Reading depth on the report body: which supporting sections a reader actually opened.
+    const captureSectionToggle = (section: string) => (collapsed: boolean) =>
+        captureInboxReportAction({
+            report,
+            actionType: collapsed ? 'collapse_section' : 'expand_section',
+            surface: 'detail_pane',
+            extra: { section },
+        })
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
@@ -303,56 +352,80 @@ export function InboxDetailFrame({
         onClick: action.onClick,
     }))
 
+    // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
+    // building the logic itself would have to pass `report` back in, and kea treats that as a props
+    // change on the mounted instance.
     const overviewBody = (
-        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-            <div className="min-w-0">
-                <DetailSection icon={summary.icon} title={summary.title}>
-                    {report.summary ? (
-                        <LemonMarkdown
-                            className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
-                            disableImages
-                        >
-                            {report.summary}
-                        </LemonMarkdown>
-                    ) : (
-                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                            No summary yet – an agent is still investigating.
-                        </p>
-                    )}
-                </DetailSection>
-            </div>
-
-            <div className="flex flex-col min-w-0 gap-5">
-                {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
-                {children}
-                <SuggestedReviewersSection report={report} />
-                {hasEvidence && (
+        <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
+            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+                <div className="min-w-0 flex flex-col gap-5">
                     <DetailSection
-                        icon={<IconSearch />}
-                        title="Evidence"
-                        rightSlot={
-                            <Tooltip title={FINDINGS_TOOLTIP}>
-                                <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
-                                </span>
-                            </Tooltip>
-                        }
+                        icon={summary.icon}
+                        title={summary.title}
+                        collapsible
+                        onToggleCollapsed={captureSectionToggle('summary')}
                     >
-                        {reportSignalsLoading && reportSignals === null ? (
-                            <EvidenceSkeleton count={evidenceCount} />
+                        {report.summary ? (
+                            <LemonMarkdown
+                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_[data-attr=report-chart]]:my-5 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
+                                disableImages
+                                renderChartRef={renderChartRef}
+                            >
+                                {report.summary}
+                            </LemonMarkdown>
                         ) : (
-                            <div className="flex flex-col gap-3">
-                                {signals.map((signal: SignalNode) => (
-                                    <SignalCard key={signal.signal_id} signal={signal} />
+                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                                No summary yet – an agent is still investigating.
+                            </p>
+                        )}
+                        {trailingCharts.length > 0 && (
+                            <div className="flex flex-col gap-4 mt-5">
+                                {trailingCharts.map((chart) => (
+                                    <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
                                 ))}
                             </div>
                         )}
                     </DetailSection>
-                )}
-                <ReportTasksSection report={report} />
-                <ReportActivitySection report={report} />
+                    {summaryFooter}
+                    {/* The rating closes out the report body, where the reading ends – ahead of the
+                    supporting sections, which stack underneath once the layout drops to one column. */}
+                    <ReportFeedbackFooter report={report} />
+                </div>
+
+                <div className="flex flex-col min-w-0 gap-5">
+                    {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
+                    {children}
+                    <SuggestedReviewersSection report={report} />
+                    {hasEvidence && (
+                        <DetailSection
+                            icon={<IconSearch />}
+                            title="Evidence"
+                            collapsible
+                            onToggleCollapsed={captureSectionToggle('evidence')}
+                            rightSlot={
+                                <Tooltip title={FINDINGS_TOOLTIP}>
+                                    <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
+                                        {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                                    </span>
+                                </Tooltip>
+                            }
+                        >
+                            {reportSignalsLoading && reportSignals === null ? (
+                                <EvidenceSkeleton count={evidenceCount} />
+                            ) : (
+                                <div className="flex flex-col gap-3">
+                                    {signals.map((signal: SignalNode) => (
+                                        <SignalCard key={signal.signal_id} signal={signal} />
+                                    ))}
+                                </div>
+                            )}
+                        </DetailSection>
+                    )}
+                    <ReportTasksSection report={report} />
+                    <ReportActivitySection report={report} />
+                </div>
             </div>
-        </div>
+        </BindLogic>
     )
 
     return (
@@ -419,15 +492,18 @@ export function InboxDetailFrame({
                                 </LemonButton>
                             ))}
                         </div>
-                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconEllipsis />}
-                                aria-label="More actions"
-                                className="@4xl:hidden"
-                            />
-                        </LemonMenu>
+                        {/* A resolved report past its refund window has no secondary actions at all. */}
+                        {overflowMenuItems.length > 0 && (
+                            <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    aria-label="More actions"
+                                    className="@4xl:hidden"
+                                />
+                            </LemonMenu>
+                        )}
                     </div>
                 </div>
             </div>
@@ -435,7 +511,14 @@ export function InboxDetailFrame({
             {hasDiff ? (
                 <LemonTabs
                     activeKey={activeDetailTab}
-                    onChange={setActiveDetailTab}
+                    onChange={(key) => {
+                        setActiveDetailTab(key)
+                        // Reviewing the diff is the deepest engagement a report gets short of acting
+                        // on it, and it's the one desktop can't see either.
+                        if (key === 'files') {
+                            captureInboxReportAction({ report, actionType: 'view_diff', surface: 'detail_pane' })
+                        }
+                    }}
                     tabs={[
                         { key: 'overview', label: 'Overview', content: overviewBody },
                         {
@@ -443,10 +526,20 @@ export function InboxDetailFrame({
                             label: (
                                 <span className="flex items-center gap-1.5">
                                     <span>Files changed</span>
+                                    {diffStat}
                                     {diffBranchTag}
                                 </span>
                             ),
-                            content: <>{diffSection}</>,
+                            // `LemonTabs` renders only the active tab, so the rating row is repeated
+                            // at the end of the diff – otherwise reviewing a PR's code and stopping
+                            // there leaves no way to rate the report. Both rows drive the same
+                            // report-keyed logic, so a rating given on one reads back on the other.
+                            content: (
+                                <div className="flex flex-col gap-5">
+                                    {diffSection}
+                                    <ReportFeedbackFooter report={report} />
+                                </div>
+                            ),
                         },
                     ]}
                 />
@@ -469,7 +562,7 @@ function prFilesUrl(prUrl: string): string {
  * the branch's diff against the default branch alongside the overview. Runs keep their own `AgentRunDetail`.
  */
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
-    const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { latestCommitArtefact, reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
 
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -479,6 +572,10 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
     // tab when that artefact carries the repo + branch the diff endpoint needs.
     const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
     const canDiff = !!(commit?.repository && commit?.branch)
+    // A PR-bearing report always gets the tab bar right away — driven by `hasPr` (immediate) rather than
+    // the diff artefact (a beat later), so the tabs don't pop in and shift the layout. While the commit
+    // artefact is still loading, the tab label and body show skeletons.
+    const artefactsLoaded = reportArtefacts !== null
 
     return (
         <InboxDetailFrame
@@ -494,19 +591,41 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                         to={prFilesUrl(prUrl)}
                         targetBlank
                         tooltip={`${prRef.repoSlug}#${prRef.number}`}
+                        onClick={() =>
+                            captureInboxReportAction({ report, actionType: 'open_pr', surface: 'detail_pane' })
+                        }
                     >
                         Open in GitHub
                     </LemonButton>
                 ) : undefined
             }
+            showFilesTab={hasPr || canDiff}
             diffSection={
-                canDiff && commit && latestCommitArtefact ? (
+                canDiff && commit ? (
                     <PullRequestDiffPanel report={report} commit={commit} />
+                ) : hasPr ? (
+                    <PullRequestDiffPending artefactsLoaded={artefactsLoaded} />
                 ) : undefined
             }
             diffBranchTag={
-                canDiff && commit && latestCommitArtefact ? <PullRequestBranchTag commit={commit} /> : undefined
+                canDiff && commit ? (
+                    <PullRequestBranchTag commit={commit} />
+                ) : hasPr && !artefactsLoaded ? (
+                    <PullRequestBranchTagSkeleton />
+                ) : undefined
             }
-        />
+            diffStat={
+                canDiff && commit ? (
+                    <PullRequestDiffStat report={report} commit={commit} />
+                ) : hasPr && !artefactsLoaded ? (
+                    <PullRequestDiffStatSkeleton />
+                ) : undefined
+            }
+            // The PR conversation sits under the Summary as primary content; CI checks stay in the
+            // sidebar. Both drop themselves when there's nothing to show.
+            summaryFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
+        >
+            {hasPr && <PrChecksSection report={report} />}
+        </InboxDetailFrame>
     )
 }

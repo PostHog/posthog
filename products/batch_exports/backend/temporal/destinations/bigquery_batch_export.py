@@ -33,7 +33,7 @@ from google.cloud import bigquery, iam_admin_v1
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
@@ -50,10 +50,10 @@ from products.batch_exports.backend.service import (
     BigQueryBatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer
@@ -433,12 +433,36 @@ class GoogleCloudCredentialsError(Exception):
 
 
 async def ensure_our_google_cloud_credentials_are_valid():
-    """Raise `InvalidCredentialsError` if we cannot refresh our credentials."""
+    """Raise `GoogleCloudCredentialsError` if we cannot refresh our credentials."""
+
     our_credentials = get_our_google_cloud_credentials()
+    session = _make_requests_session()
     try:
-        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request())
+        await asyncio.to_thread(our_credentials.refresh, google.auth.transport.requests.Request(session=session))
     except Exception as e:
         raise GoogleCloudCredentialsError from e
+
+
+def _make_requests_session() -> "requests.Session":
+    """Make a requests.Session for Google credentials refresh requests."""
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    retry = Retry(
+        backoff_factor=1.0,  # 0s, 2s, 4s, 6s, ...
+        connect=5,  # Retry on connection errors
+        status=5,  # Retry on statuses matching the ones below
+        status_forcelist=[429, 500, 502, 503],
+        allowed_methods=(*Retry.DEFAULT_ALLOWED_METHODS, "POST"),
+    )
+
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    return session
 
 
 async def get_service_account_description(
@@ -1612,8 +1636,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = BigQueryInsertInputs(
             team_id=inputs.team_id,

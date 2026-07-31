@@ -3,10 +3,10 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from functools import cached_property
+from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
-from django.db.models import Case, CharField, Exists, F, Model, OuterRef, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
 from opentelemetry import trace
@@ -69,42 +69,52 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "external_data_source",
     "warehouse_objects",
     "feature_flag",
+    "heatmap",
     "hog_flow",
     "insight",
     "llm_analytics",
+    "tagger",
+    "llm_skill",
     "ai_observability_clusters",
     "notebook",
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",
     "survey",
+    "ticket",
     "web_analytics",
     "activity_log",
     "error_tracking",
     "logs",
+    "mcp_analytics",
     "metrics",
     "tracing",
     "replay_scanner",
     "toolbar",
+    "llm_playground",
 )
+
+# Resources whose access comes from membership rather than resource-level AccessControl rows,
+# so nothing sits above an object of this type to fall back to
+RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS: frozenset[APIScopeObject] = frozenset({"organization", "project", "plugin"})
 
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
-    "external_data_schema": "external_data_source",
     "warehouse_table": "warehouse_objects",
     "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
-    "tagger": "llm_analytics",
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
-    "llm_skill": "llm_analytics",
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
+    # Saved ticket views (the `conversation` scope) share the Support product's
+    # single "ticket" RBAC resource, so admins configure one control instead of two.
+    "conversation": "ticket",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
@@ -114,6 +124,19 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # scanner's "and then…" automations) — configured via the same single
     # replay_scanner rule rather than a separate resource.
     "vision_action": "replay_scanner",
+}
+
+# Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
+# parent's, this checks the child's own access first and falls back to the parent.
+# For example:
+# this table (object) -> this source (object) -> all tables (resource) -> all sources (resource) -> default
+#
+# The parent's id is read off the child's foreign key to it (DataWarehouseTable.external_data_source),
+# so an entry only works when that foreign key exists. A null one means no parent, and the object
+# skips it rather than inheriting: a self-managed table has no source, so no rule about sources
+# may reach it.
+RESOURCE_FALLBACK_MAP: dict[APIScopeObject, APIScopeObject] = {
+    "warehouse_table": "external_data_source",
 }
 
 WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(
@@ -170,6 +193,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "warehouse_objects":
         # Umbrella label for both warehouse tables and views (both children inherit from this)
         return "data warehouse tables & views"
+    if resource == "llm_playground":
+        # The playground is a single page, not a collection of objects
+        return "LLM playground"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -419,6 +445,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "export"
     if name == "sessionrecordingplaylist":
         return "session_recording_playlist"
+    if name == "savedheatmap":
+        return "heatmap"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
     if name == "experimentholdout":
@@ -431,8 +459,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "hog_flow"
     if name == "externaldatasource":
         return "external_data_source"
-    if name == "externaldataschema":
-        return "external_data_schema"
     if name == "datawarehousesavedquery":
         return "warehouse_view"
     if name == "datawarehousesavedqueryfolder":
@@ -450,6 +476,35 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return None
 
     return cast(APIScopeObject, name)
+
+
+@cache
+def _fallback_parent_field(model: type[Model], parent_resource: APIScopeObject) -> Optional[str]:
+    """Attribute holding the id of `model`'s `parent_resource` foreign key, if it has one.
+
+    Found by introspection rather than a declared field map so the relationship is read off the
+    schema that already defines it. Cached because it depends only on the model class.
+    """
+    for field in model._meta.get_fields():
+        # ForeignKey covers OneToOneField too, and excludes the reverse relations get_fields() also returns.
+        if not isinstance(field, ForeignKey) or field.related_model is None:
+            continue
+        if model_to_resource(cast(Model, field.related_model)) == parent_resource:
+            return field.attname
+    return None
+
+
+def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Optional[str]:
+    """Id of the object `obj` falls back to for access, or None when it has no such parent.
+
+    None is what makes a self-managed table skip its source tiers rather than inherit from a
+    source it doesn't have.
+    """
+    field = _fallback_parent_field(type(obj), parent_resource)
+    if field is None:
+        return None
+    parent_id = getattr(obj, field, None)
+    return str(parent_id) if parent_id is not None else None
 
 
 class UserAccessControl:
@@ -903,8 +958,7 @@ class UserAccessControl:
             # Use parent resource for access control checks
             return self.access_level_for_resource(parent_resource)
 
-        # These are resources which we don't have resource level access controls for
-        if resource == "organization" or resource == "project" or resource == "plugin":
+        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return default_access_level(resource)
 
         org_membership = self._organization_membership
@@ -1290,27 +1344,51 @@ class UserAccessControl:
         ).access_level
 
     def _object_access_level_from_rows(
-        self, resource: APIScopeObject, object_access_controls: list[_AccessControl], explicit: bool = False
+        self,
+        resource: APIScopeObject,
+        object_access_controls: list[_AccessControl],
+        explicit: bool = False,
+        fallback_parent_id: Optional[str] = None,
     ) -> Optional[AccessControlLevel]:
-        """Row-based object access resolution: explicit (role/member) object rows win, then
+        """Row-based object access resolution, most specific rule first: explicit (role/member) object
+        rows, then the fallback parent's object rows, then resource-level rows, then the parent's
         resource-level rows, then default object rows, then the resource default. Shared by
         `get_user_access_level` and `bulk_object_access_levels`.
         """
+        parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
+
         explicit_rows = [
             ac for ac in object_access_controls if ac.role_id is not None or ac.organization_member_id is not None
         ]
         if explicit_rows:
             return self._highest_access_level_from_rows(resource, explicit_rows)
 
+        if parent:
+            parent_rows = self._get_access_controls(
+                self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
+            )
+            if parent_rows:
+                return self._highest_access_level_from_rows(parent, parent_rows)
+
         if self.has_access_levels_for_resource(resource):
             access_level_for_resource = self.access_level_for_resource(resource)
             if access_level_for_resource:
                 return access_level_for_resource
 
+        if parent and self.has_access_levels_for_resource(parent):
+            access_level_for_parent = self.access_level_for_resource(parent)
+            if access_level_for_parent:
+                return access_level_for_parent
+
         if object_access_controls:
             return self._highest_access_level_from_rows(resource, object_access_controls)
 
         return None if explicit else default_access_level(resource)
+
+    @staticmethod
+    def _fallback_parent_id(obj: Model, resource: APIScopeObject) -> Optional[str]:
+        parent = RESOURCE_FALLBACK_MAP.get(resource)
+        return fallback_parent_object_id(obj, parent) if parent else None
 
     def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
         resource = model_to_resource(obj)
@@ -1325,7 +1403,12 @@ class UserAccessControl:
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         )
-        return self._object_access_level_from_rows(resource, object_access_controls, explicit=explicit)
+        return self._object_access_level_from_rows(
+            resource,
+            object_access_controls,
+            explicit=explicit,
+            fallback_parent_id=self._fallback_parent_id(obj, resource),
+        )
 
     def bulk_object_access_levels(
         self,
@@ -1338,6 +1421,12 @@ class UserAccessControl:
         `get_user_access_level`, but object rows come from the bulk preload grouped in memory,
         so no per-object queries are issued.
         """
+        # Warehouse tables aren't listed by either caller (search, the file tree). If that changes, load
+        # the parent ids here too, so access is checked against the source and not just the table.
+        parent = RESOURCE_FALLBACK_MAP.get(resource)
+        if parent:
+            raise NotImplementedError(f"bulk_object_access_levels cannot resolve `{resource}` through `{parent}`")
+
         if not objects:
             return {}
 
