@@ -460,6 +460,9 @@ class TeamMarketingAnalyticsConfig(models.Model):
             self.sources_map = current_sources
 
     def to_cache_key_dict(self) -> dict:
+        # Deferred: posthog.hogql imports models, and this module loads at django.setup() in every process.
+        from posthog.hogql.database.schema.marketing_costs_precomputed import costs_dedup_v2_enabled  # noqa: PLC0415
+
         return {
             "base_currency": self.team.base_currency,
             "sources_map": self.sources_map,
@@ -468,6 +471,8 @@ class TeamMarketingAnalyticsConfig(models.Model):
             "campaign_name_mappings": self.campaign_name_mappings,
             "custom_source_mappings": self.custom_source_mappings,
             "campaign_field_preferences": self.campaign_field_preferences,
+            # Without this the flag isn't a kill switch: flipping it leaves the old numbers cached.
+            "costs_dedup_v2": costs_dedup_v2_enabled(self.team),
         }
 
 
