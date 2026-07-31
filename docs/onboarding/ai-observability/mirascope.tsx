@@ -71,6 +71,25 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                             OpenAIInstrumentor().instrument()
                         `}
                     />
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
+                        <Markdown>
+                            {dedent`
+                                PostHog needs \`$ai_session_id\` to group calls into one session, and the only place
+                                to set it here is a \`Resource\` attribute fixed when \`TracerProvider\` is created —
+                                it doesn't change again for as long as the process runs. That's correct for a script
+                                that makes one round of calls and exits, but not for a long-lived service: every
+                                caller ends up in the same session, and nothing about the setup will warn you.
+
+                                For sessions scoped to a real conversation, capture \`$ai_span\` and
+                                \`$ai_generation\` events directly (see
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
+                                or reach for an integration with a per-call channel instead, such as the PostHog SDK
+                                wrappers or the
+                                [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
+                            `}
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },

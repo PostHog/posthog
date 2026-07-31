@@ -73,6 +73,30 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                             Agent.instrument_all()
                         `}
                     />
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
+                        <Markdown>
+                            {dedent`
+                                Unlike the other integrations on this page, Pydantic AI's built-in OpenTelemetry
+                                instrumentation gives you a genuine span tree, not one flat span per call —
+                                \`Agent.instrument_all()\` emits an \`invoke_agent\` span for the run itself, alongside
+                                the \`gen_ai.*\` span for the model call, so PostHog can reconstruct the agent run
+                                rather than just the LLM call inside it.
+
+                                Session grouping is the one place this setup still falls short, same as the rest.
+                                \`$ai_session_id\` can only be set as a \`Resource\` attribute when \`TracerProvider\`
+                                is created, and that's fixed for the process's lifetime — fine for a script or a
+                                one-conversation-per-process worker, wrong for a long-lived agent service, where every
+                                conversation silently collapses into the same session.
+
+                                For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events
+                                directly (see
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
+                                or use an integration with a per-call channel, such as the PostHog SDK wrappers or the
+                                [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
+                            `}
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },

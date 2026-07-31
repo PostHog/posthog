@@ -71,6 +71,30 @@ export const getSmolagentsSteps = (ctx: OnboardingComponentsContext): StepDefini
                             OpenAIInstrumentor().instrument()
                         `}
                     />
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
+                        <Markdown>
+                            {dedent`
+                                \`$ai_session_id\` groups multiple traces into one PostHog session, and with this
+                                integration the only place to set it is a \`Resource\` attribute fixed when the
+                                OpenTelemetry SDK starts. That works if a process only ever runs one agent
+                                conversation, like a script, but a long-lived smolagents service ends up stamping
+                                every user's run with the same session id — silently, since nothing about the setup
+                                errors.
+
+                                For sessions scoped to one conversation, capture \`$ai_span\` and \`$ai_generation\`
+                                events directly (see
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
+                                or move to an integration with a per-call channel, such as the PostHog SDK wrappers or
+                                the
+                                [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
+
+                                It's also worth knowing this only captures the model calls smolagents makes — not any
+                                tools you add to that \`tools=[]\` list. Give a tool call its own \`$ai_span\`, tied to
+                                the same \`$ai_trace_id\`, if you want it to show up.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },

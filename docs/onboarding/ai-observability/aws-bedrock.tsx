@@ -102,6 +102,26 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                             },
                         ]}
                     />
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
+                        <Markdown>
+                            {dedent`
+                                PostHog groups related traces into one session via \`$ai_session_id\`, but this
+                                integration only exposes it as an attribute on the \`Resource\` you build once, when
+                                \`TracerProvider\` is created above — fixed for the life of the process. That's fine
+                                for a script or a worker that only ever handles one conversation, but not for a
+                                long-lived API service, where every caller's conversation silently collapses into the
+                                same session.
+
+                                For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events
+                                directly — see
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture) —
+                                or switch to an integration with a per-call channel, such as the PostHog SDK wrappers
+                                or the
+                                [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
+                            `}
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },

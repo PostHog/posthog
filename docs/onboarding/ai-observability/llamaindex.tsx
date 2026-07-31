@@ -82,6 +82,24 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture).
                         </Markdown>
                     </CalloutBox>
+
+                    <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
+                        <Markdown>
+                            {dedent`
+                                The same fixed-at-startup limitation applies to \`$ai_session_id\`, which groups
+                                traces into one PostHog session. It can only be set as a \`Resource\` attribute when
+                                \`TracerProvider\` is created, so it's locked in for the life of the process —
+                                accurate for a script that runs one query and exits, wrong for a long-lived query
+                                service, where every user's questions silently end up in the same session.
+
+                                For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events
+                                directly (see
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
+                                or use an integration with a per-call channel, such as the PostHog SDK wrappers or the
+                                [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
+                            `}
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },
