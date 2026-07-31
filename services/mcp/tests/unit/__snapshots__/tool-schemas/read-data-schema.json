@@ -8,6 +8,7 @@
                     "properties": {
                         "kind": {
                             "const": "events",
+                            "description": "List events seen in the last 30 days, ranked by frequency.",
                             "type": "string"
                         },
                         "limit": {
