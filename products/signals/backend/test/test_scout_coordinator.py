@@ -52,6 +52,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
     _allocate_tick_budget,
+    _breaker_paused_configs_by_team,
     _collect_probe_runs,
     _DueRun,
     _overdue_seconds,
@@ -559,7 +560,8 @@ class TestFailureStreakProbeCollection:
                 last_run_at=now - timedelta(seconds=last_run_seconds_ago),
             )
 
-        probes = _collect_probe_runs(team.id, {"signals-scout-general"}, now)
+        paused_by_team = _breaker_paused_configs_by_team()
+        probes = _collect_probe_runs(paused_by_team.get(team.id, []), {"signals-scout-general"}, now)
 
         assert [p.skill_name for p in probes] == (["signals-scout-general"] if expect_probe else [])
 

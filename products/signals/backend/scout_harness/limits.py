@@ -39,13 +39,15 @@ STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 # tripping within hours on the tight cadences, not days.
 FAILURE_STREAK_PAUSE_THRESHOLD = 5
 
-# Cooldown a tripped breaker holds before the coordinator lets one probe run through — the
-# half-open state. A pause is not a tombstone: whatever wedged the lane (a broken sandbox
-# env, a skill the model can't work through) usually gets fixed without anyone thinking to
-# un-pause a scout, so the breaker has to re-test itself. A successful probe clears the
-# breaker outright; a failed one re-stamps `auto_paused_at` and the cooldown restarts. Set
-# to a day so a wedged lane costs one lease per day instead of one per interval, and so the
-# probe is never *more* frequent than the scout's own schedule.
+# Cooldown a paused lane holds before the coordinator dispatches one probe — the half-open
+# state. A pause is not a tombstone: whatever wedged the lane (a broken sandbox env, a skill
+# the model can't work through) usually gets fixed without anyone thinking to un-pause a
+# scout, so the breaker has to re-test itself. A successful probe resumes the lane; a failed
+# one restarts the cooldown through its own `last_run_at` stamp. Set to a day so a wedged
+# lane costs one lease per day instead of one per interval. Deliberately independent of the
+# scout's own schedule: for a scout on a slower-than-daily cadence the probe IS more frequent
+# than its healthy schedule, which trades at most one lease per day for recovery within a day
+# rather than up to a full (possibly 30-day) interval after the underlying cause is fixed.
 AUTO_PAUSE_PROBE_INTERVAL_S = 24 * 60 * 60
 
 # Per-team ceiling on ENABLED scout configs — the per-team cost cap. Each enabled scout
