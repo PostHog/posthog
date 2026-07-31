@@ -1580,6 +1580,29 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertFalse(dashboard.deleted)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_does_not_translate_a_short_id_through_another_teams_object(self, mock_flag):
+        """short_id uniqueness (insight, notebook, session recording playlist) is enforced per
+        team, not per project, and notebook creation accepts a caller-chosen short_id - so a
+        notebook the requester creates in their own team can share a short_id with a real
+        notebook in a sibling team. Translating that ref to a pk without keying by team would
+        let the requester's own notebook (where they're creator, so fully authorized) silently
+        stand in for the victim's during the victim team's access check."""
+        team2 = self._create_sibling_team()
+        victim_notebook = Notebook.objects.create(team=team2, short_id="colliding-id", created_by=self.other_user)
+        self._grant_to_user("notebook", str(victim_notebook.pk), "viewer", team=team2)
+        victim_entry = self._sole_entry_for(
+            file_type="notebook", ref=victim_notebook.short_id, path="Docs/Victim notebook", team=team2
+        )
+        # Planted in the requester's own team: same short_id, but self.user is its creator here
+        Notebook.objects.create(team=self.team, short_id="colliding-id", created_by=self.user)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{victim_entry.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        victim_notebook.refresh_from_db()
+        self.assertFalse(victim_notebook.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_destroy_locks_the_reference_count_only_once(self, mock_flag):
         """_delete_file_system_entry must act on the reference count _ensure_can_delete already
         locked and authorized against, not recompute an unlocked count of its own - two

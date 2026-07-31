@@ -40,13 +40,19 @@ _REF_PK_CACHE_PREFIX = "fs_ref_pk:v1"
 _REF_PK_CACHE_TTL = 60 * 60
 
 
-def _ref_pk_cache_key(project_id: int, entry_type: str, ref: str) -> str:
-    return f"{_REF_PK_CACHE_PREFIX}:{project_id}:{entry_type}:{ref}"
+def _ref_pk_cache_key(project_id: int, entry_type: str, team_id: int, ref: str) -> str:
+    return f"{_REF_PK_CACHE_PREFIX}:{project_id}:{entry_type}:{team_id}:{ref}"
 
 
-def _get_cached_ref_pks(project_id: int, entry_type: str, refs: list[str]) -> dict[str, str]:
-    """Return the subset of refs whose pk is already cached. Cache failures degrade to a miss."""
-    key_to_ref = {_ref_pk_cache_key(project_id, entry_type, ref): ref for ref in refs}
+def _get_cached_ref_pks(project_id: int, entry_type: str, team_id: int, refs: list[str]) -> dict[str, str]:
+    """Return the subset of refs whose pk is already cached for this team. Cache failures
+    degrade to a miss.
+
+    Keyed by team_id, not just ref: short_id uniqueness (insight, notebook, session recording
+    playlist) is enforced per team, not per project, so the same short_id can legitimately
+    belong to a different real object in every team.
+    """
+    key_to_ref = {_ref_pk_cache_key(project_id, entry_type, team_id, ref): ref for ref in refs}
     try:
         cached = cache.get_many(list(key_to_ref))
     except Exception:
@@ -55,10 +61,13 @@ def _get_cached_ref_pks(project_id: int, entry_type: str, refs: list[str]) -> di
     return {key_to_ref[key]: str(pk) for key, pk in cached.items()}
 
 
-def _set_cached_ref_pks(project_id: int, pk_by_type_ref: dict[tuple[str, str], str]) -> None:
-    if not pk_by_type_ref:
+def _set_cached_ref_pks(project_id: int, pk_by_type_team_ref: dict[tuple[str, int, str], str]) -> None:
+    if not pk_by_type_team_ref:
         return
-    to_set = {_ref_pk_cache_key(project_id, entry_type, ref): pk for (entry_type, ref), pk in pk_by_type_ref.items()}
+    to_set = {
+        _ref_pk_cache_key(project_id, entry_type, team_id, ref): pk
+        for (entry_type, team_id, ref), pk in pk_by_type_team_ref.items()
+    }
     try:
         cache.set_many(to_set, timeout=_REF_PK_CACHE_TTL)
     except Exception:
@@ -74,8 +83,13 @@ def _is_access_controlled_type(file_system_type: str) -> bool:
 def _ref_translation_queryset(
     entry_type: str, registration: ModelRegistration, refs: list[str], project_id: int
 ) -> QuerySet:
-    """Queryset yielding (type, ref, pk, created_by_id) rows for one entry type, with uniform
-    column types so querysets of different models can be UNIONed into one statement."""
+    """Queryset yielding (type, ref, pk, team_id, created_by_id) rows for one entry type, with
+    uniform column types so querysets of different models can be UNIONed into one statement.
+
+    Stays project-wide rather than filtering to one team: short_id uniqueness is enforced per
+    team, not per project, so the same ref can legitimately resolve to a different real object
+    in every team - the caller keys results by the returned team_id so those don't collide.
+    """
     model = apps.get_model(registration.app_label, registration.model_name)
     manager = getattr(model, registration.manager_name, model._default_manager)
     lookup_field = registration.lookup_field
@@ -90,13 +104,14 @@ def _ref_translation_queryset(
             _type=Value(entry_type, output_field=CharField()),
             _ref=Cast(lookup_field, output_field=CharField()),
             _pk=Cast("pk", output_field=CharField()),
+            _team_id=F(f"{registration.team_field}_id"),
             # Cast rather than Value(None, ...): an untyped NULL lets Postgres resolve the
             # union column as text and clash with real integer columns (see search.py)
             _created_by_id=F("created_by_id")
             if hasattr(model, "created_by")
             else Cast(Value(None), output_field=BigIntegerField()),
         )
-        .values_list("_type", "_ref", "_pk", "_created_by_id")
+        .values_list("_type", "_ref", "_pk", "_team_id", "_created_by_id")
     )
 
 
@@ -155,34 +170,44 @@ def bulk_file_system_access_levels(
     two different teams in one batch - e.g. a row planted in the caller's own team pointing at
     another team's object. Collapsing those into one (type, ref) entry would let whichever
     team's level was resolved last silently override the other's.
+
+    The ref->pk translation is team-scoped for the same reason: short_id uniqueness (insight,
+    notebook, session recording playlist) is enforced per team, not per project - notebook
+    creation in particular accepts a caller-chosen short_id - so the same ref can legitimately
+    translate to a different real object, with a different creator, in every team. Resolving it
+    once per (type, ref) rather than per (type, ref, team_id) would let an attacker-owned object
+    in one team stand in for a real object of the same ref in another, passing that attacker's
+    own pk and creator into the victim team's access check.
     """
     results: dict[tuple[str, str, int], Optional[AccessControlLevel]] = {}
     user_id = user_access_control.user.id
 
-    entries_by_type: dict[str, dict[str, Optional[int]]] = {}
     entries_by_type_team: dict[tuple[str, int], dict[str, Optional[int]]] = {}
     for entry_type, ref, created_by_id, team_id in entries:
         if not ref or not _is_access_controlled_type(entry_type):
             continue
         # The same object can back several entries (e.g. an unfiled row and a user-created one)
         # with different `created_by` values - the row marking the user as creator wins
-        for by_ref in (
-            entries_by_type.setdefault(entry_type, {}),
-            entries_by_type_team.setdefault((entry_type, team_id), {}),
-        ):
-            if by_ref.get(ref) is None or created_by_id == user_id:
-                by_ref[ref] = created_by_id
+        by_ref = entries_by_type_team.setdefault((entry_type, team_id), {})
+        if by_ref.get(ref) is None or created_by_id == user_id:
+            by_ref[ref] = created_by_id
 
-    # (type, ref) -> (pk, created_by_id)
-    translated: dict[tuple[str, str], tuple[str, Optional[int]]] = {}
+    # (type, ref, team_id) -> (pk, created_by_id)
+    translated: dict[tuple[str, str, int], tuple[str, Optional[int]]] = {}
 
-    # One UNION query across every type needing a ref->pk translation or a creator lookup
-    translation_querysets = []
-    cacheable_query_types: set[str] = set()  # non-id-keyed types we query, to backfill the pk cache
-    for entry_type, creator_by_provided_ref in entries_by_type.items():
+    # Refs still needing a DB lookup, merged across every team's group into one set per type -
+    # so a ref two teams' objects happen to share (see the docstring above) is queried once, not
+    # once per team. The query itself stays project-wide; every matching row, whichever team it
+    # actually belongs to, is captured below and keyed by its own team_id, not by whichever
+    # team's group triggered the lookup.
+    refs_needing_query_by_type: dict[str, set[str]] = {}
+    registrations_by_type: dict[str, ModelRegistration] = {}
+    cacheable_groups: set[tuple[str, int]] = set()  # (type, team_id) pairs safe to backfill the pk cache
+    for (entry_type, team_id), creator_by_provided_ref in entries_by_type_team.items():
         registration = get_file_system_registration(entry_type)
         if not registration:
             continue
+        registrations_by_type[entry_type] = registration
         needs_creator = any(created_by_id is None for created_by_id in creator_by_provided_ref.values())
         id_keyed = registration.lookup_field == "id"
         if id_keyed and not needs_creator:
@@ -193,26 +218,31 @@ def bulk_file_system_access_levels(
         # the cache and only query the refs still missing - a warm cache takes the UNION off the
         # request entirely. Creator lookups always hit the DB so they never read stale creators.
         if not id_keyed and not needs_creator:
-            cached_pks = _get_cached_ref_pks(project_id, entry_type, refs)
+            cached_pks = _get_cached_ref_pks(project_id, entry_type, team_id, refs)
             for ref, pk in cached_pks.items():
-                translated[(entry_type, ref)] = (pk, None)
+                translated[(entry_type, ref, team_id)] = (pk, None)
             refs = [ref for ref in refs if ref not in cached_pks]
             if not refs:
                 continue
         if not id_keyed:
-            cacheable_query_types.add(entry_type)
-        translation_querysets.append(_ref_translation_queryset(entry_type, registration, refs, project_id))
+            cacheable_groups.add((entry_type, team_id))
+        refs_needing_query_by_type.setdefault(entry_type, set()).update(refs)
+
+    translation_querysets = [
+        _ref_translation_queryset(entry_type, registrations_by_type[entry_type], list(refs), project_id)
+        for entry_type, refs in refs_needing_query_by_type.items()
+    ]
 
     if translation_querysets:
         union_qs = translation_querysets[0]
         if len(translation_querysets) > 1:
             union_qs = union_qs.union(*translation_querysets[1:], all=True)
-        pk_cache_updates: dict[tuple[str, str], str] = {}
-        for row_type, ref_value, pk_value, created_by_id in union_qs:
+        pk_cache_updates: dict[tuple[str, int, str], str] = {}
+        for row_type, ref_value, pk_value, row_team_id, created_by_id in union_qs:
             ref_str, pk_str = str(ref_value), str(pk_value)
-            translated[(row_type, ref_str)] = (pk_str, created_by_id)
-            if row_type in cacheable_query_types:
-                pk_cache_updates[(row_type, ref_str)] = pk_str
+            translated[(row_type, ref_str, row_team_id)] = (pk_str, created_by_id)
+            if (row_type, row_team_id) in cacheable_groups:
+                pk_cache_updates[(row_type, row_team_id, ref_str)] = pk_str
         _set_cached_ref_pks(project_id, pk_cache_updates)
 
     access_controls_by_team = _user_access_controls_by_team(
@@ -225,7 +255,7 @@ def bulk_file_system_access_levels(
         objects: list[tuple[str, Optional[int]]] = []
         ref_by_pk: dict[str, str] = {}
         for ref, provided_creator in creator_by_provided_ref.items():
-            row = translated.get((entry_type, ref))
+            row = translated.get((entry_type, ref, team_id))
             # Unresolved refs keep the ref as a pk stand-in: it matches no AccessControl rows,
             # so they resolve at resource level exactly like an existing object without object
             # rows, making guessed refs indistinguishable from real-but-ungranted ones
