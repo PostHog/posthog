@@ -51,7 +51,7 @@ async def test_syncs_event_retention_months_from_billing(features: list[dict], e
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_emits_completion_and_change_events():
+async def test_emits_change_events_and_returns_totals():
     team = await _team_with_features(
         [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}], current_months=999
     )
@@ -62,17 +62,15 @@ async def test_emits_completion_and_change_events():
         yield lambda **kwargs: captured.append(kwargs)
 
     with patch("posthog.temporal.sync_events_retention.activities.ph_scoped_capture", fake_scoped_capture):
-        await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
+        result = await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False))
 
-    assert [c["event"] for c in captured] == ["events_retention_changed", "events_retention_sync_completed"]
+    assert [c["event"] for c in captured] == ["events_retention_changed"]
     change = captured[0]["properties"]
     assert change["team_id"] == team.pk
     assert change["retention_months_before"] == 999
     assert change["retention_months_after"] == 12
-    completed = captured[1]["properties"]
-    assert completed["total_processed"] == 1
-    assert completed["total_updated"] == 1
-    assert completed["dry_run"] is False
+    assert result.total_processed == 1
+    assert result.total_updated == 1
 
 
 @pytest.mark.django_db(transaction=True)
