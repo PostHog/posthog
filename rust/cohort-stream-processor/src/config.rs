@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use anyhow::ensure;
+use anyhow::{ensure, Context};
 use common_database::PoolConfig;
 use common_kafka::config::KafkaConfig;
 use common_types::cohort::TeamAllowlist;
@@ -11,6 +11,7 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::warn;
 
+use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
 use crate::store::durability::DurabilityConfig;
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
 use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
@@ -263,6 +264,39 @@ pub struct Config {
     /// Cadence for routing one bounded reconcile-drain tick to each active partition worker.
     #[envconfig(from = "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", default = "2000")]
     pub cohort_seed_reconcile_tick_interval_ms: u64,
+
+    /// Apply `person_property` seeds. Default off; while off they skip and commit, so a run
+    /// produced against a gate-off fleet has to be re-produced after enabling.
+    #[envconfig(from = "COHORT_SEED_PERSON_APPLY_ENABLED", default = "false")]
+    pub cohort_seed_person_apply_enabled: bool,
+
+    /// How far a person seed's scan instant must beat the stored record's stamp before it may
+    /// overwrite live-evaluated state (ms). Covers ClickHouse replication lag plus modest client
+    /// clock skew; ties go to live.
+    #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
+    pub cohort_seed_person_live_margin_ms: i64,
+
+    /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
+    /// `0` disables the trigger.
+    #[envconfig(from = "COHORT_SEED_LIVE_LAG_PAUSE_MS", default = "120000")]
+    pub cohort_seed_live_lag_pause_ms: i64,
+
+    /// Resume a live-lag-paused seed partition once its watermark age drops below this (ms).
+    /// Must be positive and below the pause threshold when the trigger is enabled.
+    #[envconfig(from = "COHORT_SEED_LIVE_LAG_RESUME_MS", default = "60000")]
+    pub cohort_seed_live_lag_resume_ms: i64,
+
+    /// Disk gate: pause all seed partitions once the store filesystem's used share reaches
+    /// this (%). `0` (the default) disables the trigger: pausing seeds cannot shrink a store
+    /// grown by the live path, so a threshold below the steady-state footprint would engage and
+    /// never release. Opt in per deployment once the utilization gauge has baseline history.
+    #[envconfig(from = "COHORT_SEED_DISK_PAUSE_PCT", default = "0")]
+    pub cohort_seed_disk_pause_pct: f64,
+
+    /// Resume disk-paused seed partitions once the used share drops below this (%). Must be
+    /// positive and below the pause threshold when the trigger is enabled.
+    #[envconfig(from = "COHORT_SEED_DISK_RESUME_PCT", default = "55")]
+    pub cohort_seed_disk_resume_pct: f64,
 
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
@@ -623,6 +657,55 @@ impl Config {
         Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
     }
 
+    /// The seed consumer's pacing gates. `0` on a pause threshold disables that trigger; an
+    /// enabled trigger requires `0 < resume < pause` (and `pause <= 100` for the disk share) so a
+    /// flapping or never-releasing pair is refused at startup.
+    pub fn seed_pacing_config(&self) -> anyhow::Result<SeedPacingConfig> {
+        let live_lag = if self.cohort_seed_live_lag_pause_ms == 0 {
+            None
+        } else {
+            ensure!(
+                self.cohort_seed_live_lag_pause_ms > 0,
+                "COHORT_SEED_LIVE_LAG_PAUSE_MS must be positive (0 disables the trigger).",
+            );
+            ensure!(
+                self.cohort_seed_live_lag_resume_ms > 0,
+                "COHORT_SEED_LIVE_LAG_RESUME_MS must be positive: a non-positive resume \
+                 threshold could never release the pause.",
+            );
+            Some(
+                Hysteresis::new(
+                    AgeMs(self.cohort_seed_live_lag_pause_ms),
+                    AgeMs(self.cohort_seed_live_lag_resume_ms),
+                )
+                .context(
+                    "COHORT_SEED_LIVE_LAG_RESUME_MS must be below COHORT_SEED_LIVE_LAG_PAUSE_MS",
+                )?,
+            )
+        };
+        let disk = if self.cohort_seed_disk_pause_pct == 0.0 {
+            None
+        } else {
+            ensure!(
+                self.cohort_seed_disk_pause_pct > 0.0 && self.cohort_seed_disk_pause_pct <= 100.0,
+                "COHORT_SEED_DISK_PAUSE_PCT must be within (0, 100] (0 disables the trigger).",
+            );
+            ensure!(
+                self.cohort_seed_disk_resume_pct > 0.0,
+                "COHORT_SEED_DISK_RESUME_PCT must be positive: a non-positive resume threshold \
+                 could never release the pause.",
+            );
+            Some(
+                Hysteresis::new(
+                    UsedPct(self.cohort_seed_disk_pause_pct),
+                    UsedPct(self.cohort_seed_disk_resume_pct),
+                )
+                .context("COHORT_SEED_DISK_RESUME_PCT must be below COHORT_SEED_DISK_PAUSE_PCT")?,
+            )
+        };
+        Ok(SeedPacingConfig { live_lag, disk })
+    }
+
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_millis(self.checkpoint_interval_ms)
     }
@@ -658,7 +741,8 @@ impl Config {
         }
     }
 
-    /// Refuse unsafe durability startup combinations. Pure (no I/O), so unit-testable without a broker.
+    /// Refuse unsafe startup combinations (durability, reconcile, and pacing knobs). Pure
+    /// (no I/O), so unit-testable without a broker.
     ///
     /// Guards:
     /// - Reconcile scan and tick limits must be non-zero; a zero page would falsely certify an
@@ -667,7 +751,7 @@ impl Config {
     ///   on open, silently discarding the restore.
     /// - `durable_restore_enabled` + `cohort_cascade_enabled` requires `durable_restore_single_pod`
     ///   and a pod identity: `pod_identity()` alone is not a single-pod signal (set on every k8s pod).
-    pub fn validate_durability_startup(&self) -> anyhow::Result<()> {
+    pub fn validate_startup(&self) -> anyhow::Result<()> {
         ensure!(
             self.cohort_seed_reconcile_scan_page > 0,
             "COHORT_SEED_RECONCILE_SCAN_PAGE must be greater than zero.",
@@ -677,10 +761,52 @@ impl Config {
             "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS must be greater than zero.",
         );
 
+        let pacing = self.seed_pacing_config()?;
+        // Idle partitions' watermarks advance only once per probe, so a pause threshold inside
+        // two probe intervals would flap on quiet partitions.
+        let idle_probe_ms =
+            i64::try_from(self.cohort_seed_watermark_idle_probe_interval_ms).unwrap_or(i64::MAX);
+        if pacing.live_lag.is_some()
+            && self.cohort_seed_live_lag_pause_ms <= idle_probe_ms.saturating_mul(2)
+        {
+            warn!(
+                cohort_seed_live_lag_pause_ms = self.cohort_seed_live_lag_pause_ms,
+                idle_probe_interval_ms = self.cohort_seed_watermark_idle_probe_interval_ms,
+                "COHORT_SEED_LIVE_LAG_PAUSE_MS within 2× the idle-probe interval: idle \
+                 partitions advance only per probe, so the live-lag gate may flap on quiet \
+                 partitions.",
+            );
+        }
+
         if self.cohort_seed_reconcile_enabled && !self.cohort_seed_consumer_enabled {
             warn!(
                 "COHORT_SEED_RECONCILE_ENABLED without COHORT_SEED_CONSUMER_ENABLED: no reconcile \
                  controls can be consumed; enable the seed consumer or turn reconcile off.",
+            );
+        }
+
+        // A negative margin biases the person-seed verdict toward the seed, letting a stale scan
+        // overwrite fresher live state.
+        ensure!(
+            self.cohort_seed_person_live_margin_ms >= 0,
+            "COHORT_SEED_PERSON_LIVE_MARGIN_MS must not be negative.",
+        );
+
+        if self.cohort_seed_person_apply_enabled && !self.cohort_seed_consumer_enabled {
+            warn!(
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_CONSUMER_ENABLED: no person \
+                 seeds can be consumed; enable the seed consumer or turn person apply off.",
+            );
+        }
+
+        // A membership produce that fails after stage 1 commits drops the single-leaf change: the
+        // replayed seed merges to Unchanged and re-emits only composed flips. The reconcile
+        // snapshot is what repairs that, and it can, because the register row committed with
+        // stage 1 — but only if it is switched on.
+        if self.cohort_seed_person_apply_enabled && !self.cohort_seed_reconcile_enabled {
+            warn!(
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a failed \
+                 membership produce drops its single-leaf change permanently, with no repair path.",
             );
         }
 
@@ -1014,6 +1140,12 @@ mod tests {
             cohort_seed_reconcile_enabled: false,
             cohort_seed_reconcile_scan_page: 256,
             cohort_seed_reconcile_tick_interval_ms: 2_000,
+            cohort_seed_person_apply_enabled: false,
+            cohort_seed_person_live_margin_ms: 900_000,
+            cohort_seed_live_lag_pause_ms: 120_000,
+            cohort_seed_live_lag_resume_ms: 60_000,
+            cohort_seed_disk_pause_pct: 60.0,
+            cohort_seed_disk_resume_pct: 55.0,
         }
     }
 
@@ -1059,7 +1191,7 @@ mod tests {
         let mut config = test_config();
         config.cohort_seed_reconcile_scan_page = 0;
         assert!(config
-            .validate_durability_startup()
+            .validate_startup()
             .unwrap_err()
             .to_string()
             .contains("COHORT_SEED_RECONCILE_SCAN_PAGE"),);
@@ -1067,7 +1199,7 @@ mod tests {
         config.cohort_seed_reconcile_scan_page = 1;
         config.cohort_seed_reconcile_tick_interval_ms = 0;
         assert!(config
-            .validate_durability_startup()
+            .validate_startup()
             .unwrap_err()
             .to_string()
             .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
@@ -1079,7 +1211,106 @@ mod tests {
         config.cohort_seed_reconcile_enabled = true;
         config.cohort_seed_consumer_enabled = false;
 
-        assert!(config.validate_durability_startup().is_ok());
+        assert!(config.validate_startup().is_ok());
+    }
+
+    #[test]
+    fn person_seed_knobs_default_dark_and_refuse_a_negative_live_margin() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(!defaults.cohort_seed_person_apply_enabled);
+        assert_eq!(defaults.cohort_seed_person_live_margin_ms, 900_000);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_SEED_PERSON_APPLY_ENABLED", "true"),
+            ("COHORT_SEED_PERSON_LIVE_MARGIN_MS", "1234"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.cohort_seed_person_apply_enabled);
+        assert_eq!(config.cohort_seed_person_live_margin_ms, 1234);
+
+        let mut negative = test_config();
+        negative.cohort_seed_person_live_margin_ms = -1;
+        assert!(negative
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_PERSON_LIVE_MARGIN_MS"));
+
+        // Apply-on without the consumer is a warning, not a refusal — same as reconcile.
+        let mut orphaned = test_config();
+        orphaned.cohort_seed_person_apply_enabled = true;
+        orphaned.cohort_seed_consumer_enabled = false;
+        assert!(orphaned.validate_startup().is_ok());
+    }
+
+    /// A flapping (inverted/equal) threshold pair or a never-releasing resume must be refused at
+    /// startup, not discovered as a wedged or flapping gate in production.
+    #[test]
+    fn seed_pacing_validation_rejects_inverted_equal_and_non_positive_thresholds() {
+        let defaults = test_config();
+        let pacing = defaults.seed_pacing_config().unwrap();
+        assert!(pacing.live_lag.is_some());
+        assert!(pacing.disk.is_some());
+
+        type Mutation = fn(&mut Config);
+        let cases: [(&str, Mutation); 6] = [
+            ("COHORT_SEED_LIVE_LAG_RESUME_MS must be below", |config| {
+                config.cohort_seed_live_lag_resume_ms = 120_000; // equal
+            }),
+            ("COHORT_SEED_LIVE_LAG_RESUME_MS must be below", |config| {
+                config.cohort_seed_live_lag_resume_ms = 240_000; // inverted
+            }),
+            (
+                "COHORT_SEED_LIVE_LAG_RESUME_MS must be positive",
+                |config| {
+                    config.cohort_seed_live_lag_resume_ms = -1;
+                },
+            ),
+            ("COHORT_SEED_LIVE_LAG_PAUSE_MS must be positive", |config| {
+                config.cohort_seed_live_lag_pause_ms = -1;
+            }),
+            ("COHORT_SEED_DISK_RESUME_PCT must be below", |config| {
+                config.cohort_seed_disk_resume_pct = 60.0; // equal
+            }),
+            ("COHORT_SEED_DISK_PAUSE_PCT must be within", |config| {
+                config.cohort_seed_disk_pause_pct = 101.0;
+            }),
+        ];
+        for (expected, mutate) in cases {
+            let mut config = test_config();
+            mutate(&mut config);
+            let err = config.validate_startup().unwrap_err().to_string();
+            assert!(err.contains(expected), "expected {expected:?} in {err:?}");
+        }
+    }
+
+    /// The env defaults must ship the disk gate dark: it can engage on deployments that already
+    /// run the seed consumer, and a threshold below the store's steady-state footprint would
+    /// never release.
+    #[test]
+    fn seed_pacing_env_defaults_enable_live_lag_and_disable_disk() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        let pacing = defaults.seed_pacing_config().unwrap();
+        assert!(pacing.live_lag.is_some());
+        assert!(pacing.disk.is_none());
+    }
+
+    #[test]
+    fn seed_pacing_zero_pause_thresholds_disable_their_triggers() {
+        let mut config = test_config();
+        config.cohort_seed_live_lag_pause_ms = 0;
+        config.cohort_seed_disk_pause_pct = 0.0;
+        // Resume thresholds are irrelevant while disabled — even nonsense must not refuse boot.
+        config.cohort_seed_live_lag_resume_ms = -5;
+        config.cohort_seed_disk_resume_pct = -5.0;
+
+        let pacing = config.seed_pacing_config().unwrap();
+        assert!(pacing.live_lag.is_none());
+        assert!(pacing.disk.is_none());
+        assert!(config.validate_startup().is_ok());
     }
 
     #[test]
@@ -1433,14 +1664,14 @@ mod tests {
 
     #[test]
     fn durability_startup_guard_passes_for_the_default_config() {
-        assert!(test_config().validate_durability_startup().is_ok());
+        assert!(test_config().validate_startup().is_ok());
     }
 
     #[test]
     fn durability_startup_guard_passes_for_a_plain_durable_restore() {
         let mut config = test_config();
         config.durable_restore_enabled = true;
-        assert!(config.validate_durability_startup().is_ok());
+        assert!(config.validate_startup().is_ok());
     }
 
     #[test]
@@ -1450,7 +1681,7 @@ mod tests {
         config.cohort_cascade_enabled = true;
         config.pod_name = Some("pod-0".to_string());
         let err = config
-            .validate_durability_startup()
+            .validate_startup()
             .expect_err("durable + cascade without the opt-in must be refused");
         assert!(
             err.to_string().contains("DURABLE_RESTORE_SINGLE_POD"),
@@ -1467,7 +1698,7 @@ mod tests {
         config.pod_name = None;
         config.pod_hostname = None;
         assert!(
-            config.validate_durability_startup().is_err(),
+            config.validate_startup().is_err(),
             "single-pod opt-in without a pod identity must still refuse the combo",
         );
     }
@@ -1480,7 +1711,7 @@ mod tests {
         config.durable_restore_single_pod = true;
         config.pod_name = Some("cohort-stream-processor-0".to_string());
         assert!(
-            config.validate_durability_startup().is_ok(),
+            config.validate_startup().is_ok(),
             "durable + cascade is allowed on a single-pod static-membership deploy",
         );
     }
@@ -1491,7 +1722,7 @@ mod tests {
         config.checkpoint_enabled = true;
         config.durable_restore_enabled = false;
         let err = config
-            .validate_durability_startup()
+            .validate_startup()
             .expect_err("checkpoint without durable restore must be refused");
         assert!(
             err.to_string().contains("DURABLE_RESTORE_ENABLED"),
@@ -1504,7 +1735,7 @@ mod tests {
         let mut config = test_config();
         config.checkpoint_enabled = true;
         config.durable_restore_enabled = true;
-        assert!(config.validate_durability_startup().is_ok());
+        assert!(config.validate_startup().is_ok());
     }
 
     #[test]

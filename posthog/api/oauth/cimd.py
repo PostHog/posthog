@@ -11,12 +11,12 @@ import re
 import json
 import time
 import hashlib
-from typing import TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import requests
@@ -41,6 +41,9 @@ from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
 from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
 
 from .client_name import sanitize_client_name, validate_client_name
+
+if TYPE_CHECKING:
+    from posthog.models.oauth_provisioning import ProvisioningConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -565,6 +568,39 @@ def _touch_verification_token(token: CIMDVerificationToken) -> None:
     CIMDVerificationToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
 
+def _retier_account_requests_limit(app: OAuthApplication, *, verified: bool) -> None:
+    """Move a partner's account-request limit onto the verified or unverified default tier.
+
+    Only our own default tiers move. An explicit admin override (source="admin") stays put, and
+    so does a legacy row with no source recorded, treated conservatively as admin so a value
+    that pre-dates the field is not clobbered.
+
+    Locks and re-reads before deciding, because the caller's copy of the app was loaded before a
+    network fetch of the metadata document. That window is wide enough for an admin to have
+    revoked a capability in it, and merging into a stale blob would write the revoked value back.
+    """
+    with transaction.atomic():
+        current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
+        config = current.provisioning
+        if not current.is_provisioning_partner or config.rate_limit_source not in (
+            "default_unverified",
+            "default_verified",
+        ):
+            return
+        app.update_provisioning(
+            rate_limits=config.rate_limits.model_copy(
+                update={
+                    "account_requests": (
+                        CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+                        if verified
+                        else CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
+                    )
+                }
+            ),
+            rate_limit_source="default_verified" if verified else "default_unverified",
+        )
+
+
 def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocument) -> OAuthApplication:
     """
     Update an existing OAuthApplication from refreshed CIMD metadata.
@@ -617,30 +653,6 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if old_org_id != new_org_id:
         app.organization = new_org
         update_fields.append("organization")
-        # When verification status flips on an already-provisioning app, keep
-        # the rate-limit tier in sync. Only bump when the source is one of our
-        # default tiers — explicit admin overrides (source="admin") and
-        # legacy rows with no source recorded (source="") stay put. Legacy
-        # rows are treated conservatively as admin to avoid clobbering values
-        # that pre-date this field.
-        if app.is_provisioning_partner and app.provisioning_rate_limit_account_requests_source in (
-            "default_unverified",
-            "default_verified",
-        ):
-            became_verified = old_org_id is None and new_org_id is not None
-            became_unverified = old_org_id is not None and new_org_id is None
-            if became_verified:
-                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-                app.provisioning_rate_limit_account_requests_source = "default_verified"
-                update_fields.extend(
-                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
-                )
-            elif became_unverified:
-                app.provisioning_rate_limit_account_requests = CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
-                app.provisioning_rate_limit_account_requests_source = "default_unverified"
-                update_fields.extend(
-                    ["provisioning_rate_limit_account_requests", "provisioning_rate_limit_account_requests_source"]
-                )
 
     try:
         app.full_clean()
@@ -653,6 +665,13 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     else:
         if verification is not None:
             _touch_verification_token(verification)
+        # Keep the rate-limit tier in step with verification status. Written after the main save
+        # and through its own locked merge, rather than as another field on it, because the whole
+        # provisioning blob has to be rewritten to change one key inside it.
+        if old_org_id is None and new_org_id is not None:
+            _retier_account_requests_limit(app, verified=True)
+        elif old_org_id is not None and new_org_id is None:
+            _retier_account_requests_limit(app, verified=False)
         # Emit a distinct event on org re-linking so a metadata compromise
         # flipping A→B (or A→None, None→A) is visible in analytics, not
         # just buried in the generic refresh event.
@@ -817,45 +836,68 @@ def get_application_by_client_id(client_id: str) -> OAuthApplication:
 # traceable to a real PostHog organization.
 CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT = 10  # per hour, anonymous CIMD
 CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT = 100  # per hour, verified CIMD
-CIMD_PROVISIONING_DEFAULTS: dict[str, bool | int | str] = {
-    # Nothing here touches client authentication: that is derived from the client's own
-    # metadata document by _resolve_client_authentication, so a CIMD partner is public or
-    # private_key_jwt according to what it publishes.
-    "is_provisioning_partner": True,
-    "provisioning_active": True,
-    "provisioning_can_create_accounts": True,
-    "provisioning_can_provision_resources": True,
-    "provisioning_rate_limit_account_requests": CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
-}
 
 
-def _cimd_provisioning_defaults_for(app: OAuthApplication) -> dict:
-    """Return the provisioning default profile to apply to this CIMD app on
-    first-time registration. Verified apps (linked to a PostHog org) get the
-    higher account-request rate limit."""
-    defaults = dict(CIMD_PROVISIONING_DEFAULTS)
-    if app.organization_id is not None:
-        defaults["provisioning_rate_limit_account_requests"] = CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
-        defaults["provisioning_rate_limit_account_requests_source"] = "default_verified"
-    else:
-        defaults["provisioning_rate_limit_account_requests_source"] = "default_unverified"
-    return defaults
+def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfig":
+    """The config a CIMD app gets when it registers itself, layered over whatever it already has.
+
+    Nothing here touches client authentication: that is derived from the client's own metadata
+    document by _resolve_client_authentication, so a CIMD partner is public or private_key_jwt
+    according to what it publishes.
+
+    Deliberately narrow. Creating accounts and provisioning resources is the whole point of
+    self-serve registration, so those are turned on; no other capability is, because a partner
+    that vouched for itself by publishing a document is not the same as one PostHog decided to
+    trust. GitHub grants, wizard runs, deep links and skipped consent are granted by an admin or
+    not at all.
+
+    Layered rather than replacing the config wholesale, so an admin who granted a capability
+    before the app first registered does not have it silently dropped here. For the ordinary
+    case - a brand new self-registered client - the existing config is empty and the two are
+    the same thing.
+    """
+    config = app.provisioning
+    changes: dict[str, object] = {"active": True, "can_create_accounts": True, "can_provision_resources": True}
+
+    # Verified partners (those who presented a valid `posthog_verification_token`) get a higher
+    # account-request limit, since abuse is traceable to a real PostHog organization. An admin
+    # override already recorded on the app outranks both tiers.
+    if config.rate_limit_source != "admin":
+        verified = app.organization_id is not None
+        changes["rate_limits"] = config.rate_limits.model_copy(
+            update={
+                "account_requests": (
+                    CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT
+                    if verified
+                    else CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT
+                )
+            }
+        )
+        changes["rate_limit_source"] = "default_verified" if verified else "default_unverified"
+
+    return config.model_copy(update=changes)
 
 
 def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
-    """Apply provisioning defaults to a CIMD app and persist them.
+    """Opt a CIMD app into provisioning with the self-serve defaults, and persist them.
 
-    Computes the correct defaults (verified vs anonymous rate limit) based on
-    the app's organization linkage, sets the fields, and saves. Respects
-    `provisioning_disabled` as a kill switch - returns the app untouched
-    rather than re-enabling a partner an admin has explicitly disabled."""
-    if app.provisioning_disabled:
-        return app
-    became_partner = not app.is_provisioning_partner
-    defaults = _cimd_provisioning_defaults_for(app)
-    for field, value in defaults.items():
-        setattr(app, field, value)
-    app.save(update_fields=list(defaults.keys()))
+    Respects the `disabled` kill switch - returns the app untouched rather than re-enabling a
+    partner an admin has explicitly disabled.
+
+    Locks and re-reads the config first. Registration runs after a network fetch of the metadata
+    document, so the caller's copy of the app can be seconds or minutes old, and layering the
+    defaults over that copy would write back a capability - or a cleared kill switch - that an
+    admin revoked while the fetch was in flight.
+    """
+    with transaction.atomic():
+        current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
+        app._provisioning_config = current._provisioning_config
+        if app.provisioning.disabled:
+            return app
+        became_partner = not current.is_provisioning_partner
+        app.is_provisioning_partner = True
+        app.provisioning = _cimd_provisioning_defaults_for(app)
+        app.save(update_fields=["is_provisioning_partner", "_provisioning_config"])
 
     # A partner appearing without an admin creating it is the event worth watching for abuse,
     # so it fires on the transition only - re-running the defaults over an existing partner is
@@ -868,7 +910,7 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
                 "cimd_url": app.cimd_metadata_url,
                 "client_name": app.name,
                 "app_id": str(app.pk),
-                "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
+                "account_requests_rate_limit": app.provisioning.rate_limits.account_requests,
                 "is_verified": app.organization_id is not None,
                 "organization_id": str(app.organization_id) if app.organization_id else None,
             },

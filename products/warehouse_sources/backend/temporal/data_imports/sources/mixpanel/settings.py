@@ -2,8 +2,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Mixpanel vendor API version labels. `v1` is PostHog's legacy placeholder — the source

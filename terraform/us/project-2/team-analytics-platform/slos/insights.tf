@@ -99,14 +99,18 @@ locals {
       name_prefix  = "SLO: Alert checks"
       description  = "Rolling burn rate for alert checks."
       error_budget = 0.01
-      regions      = ["us"]
+      regions      = ["us", "eu"]
       daily_sql    = <<-SQL
         SELECT
             toDate(timestamp) AS date,
-            countIf(event = 'alert check') AS total,
-            countIf(event = 'alert check failed') AS failures
+            count() AS total,
+            countIf(properties.outcome = 'failure' OR properties.alert_state = 'Errored') AS failures
         FROM events
-        WHERE event IN ('alert check', 'alert check failed')
+        WHERE event = 'slo_operation_completed'
+            AND properties.operation = 'alert_check'
+            AND properties.alert_type = 'insight'
+            AND properties.region = '{{REGION}}'
+            AND properties.skip_reason IS NULL
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY date
       SQL
@@ -121,20 +125,24 @@ locals {
       name_prefix  = "SLO: Alert timeliness"
       description  = "Rolling burn rate for alert check timeliness."
       error_budget = 0.01
-      regions      = ["us"]
+      regions      = ["us", "eu"]
       daily_sql    = <<-SQL
         WITH alert_checks AS (
             SELECT
-                properties.alert_id AS alert_id,
+                properties.resource_id AS alert_id,
                 properties.calculation_interval AS calculation_interval,
                 timestamp,
                 lagInFrame(timestamp) OVER (
-                    PARTITION BY properties.alert_id, properties.calculation_interval
+                    PARTITION BY properties.resource_id, properties.calculation_interval
                     ORDER BY timestamp ASC
                     ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
                 ) AS prev_check
             FROM events
-            WHERE event IN ('alert check', 'alert check failed')
+            WHERE event = 'slo_operation_completed'
+                AND properties.operation = 'alert_check'
+                AND properties.alert_type = 'insight'
+                AND properties.region = '{{REGION}}'
+                AND properties.skip_reason IS NULL
                 AND properties.calculation_interval IN ('hourly', 'daily', 'weekly', 'monthly')
                 AND timestamp >= now() - INTERVAL 45 DAY
         )

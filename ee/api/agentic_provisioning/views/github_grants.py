@@ -5,7 +5,7 @@ only ever sees an opaque grant_id. No region proxy: grants are region-local
 
 Grant creation enforces its partner quota inline rather than through
 ``partner_throttle_classes``, so the capability check runs first: a partner
-without ``provisioning_can_create_accounts`` is refused for free instead of
+without ``can_create_accounts`` is refused for free instead of
 burning its hourly grant budget on requests it can never complete.
 """
 
@@ -25,14 +25,14 @@ from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.serializers import GitHubGrantCreateSerializer
 from ee.api.agentic_provisioning.throttling import GrantPollThrottle, enforce_partner_rate_limit
-from ee.api.agentic_provisioning.views.base import ConfidentialPartnerAPIView
+from ee.api.agentic_provisioning.views.base import GitHubGrantsAPIView
 
 
-class GitHubGrantsCreateView(ConfidentialPartnerAPIView):
+class GitHubGrantsCreateView(GitHubGrantsAPIView):
     def post(self, request: Request) -> Response:
         partner = cast(OAuthApplication, request.auth)
 
-        if not partner.provisioning_can_create_accounts:
+        if not partner.provisioning.can_create_accounts:
             capture_provisioning_event("github_grant", "error", partner=partner, error_code="account_creation_disabled")
             raise ProvisioningError("forbidden", "Account creation is not enabled for this partner", status=403)
 
@@ -77,7 +77,7 @@ class GitHubGrantsCreateView(ConfidentialPartnerAPIView):
         )
 
 
-class GitHubGrantRepositoriesView(ConfidentialPartnerAPIView):
+class GitHubGrantRepositoriesView(GitHubGrantsAPIView):
     # Keyed per calling partner and grant id, so polls against an id the caller does
     # not own can only exhaust the caller's own budget.
     partner_throttle_classes = [GrantPollThrottle]
