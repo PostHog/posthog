@@ -12,6 +12,20 @@ pub struct PersonCacheKey {
     pub person_id: i64,
 }
 
+/// Fixed per-entry overhead charged on top of the serialized-properties
+/// estimate: the struct's scalar fields, the uuid, the key, and foyer's
+/// record bookkeeping.
+const PERSON_ENTRY_OVERHEAD_BYTES: usize = 256;
+
+/// The weight an entry contributes to the cache's byte capacity, from
+/// the serialized size of its properties at whichever boundary the
+/// person entered through. An estimate for eviction accounting — the
+/// point is that weight scales with document size, not that it matches
+/// the allocator byte for byte.
+pub fn approx_person_bytes(properties_serialized_len: usize) -> usize {
+    PERSON_ENTRY_OVERHEAD_BYTES + properties_serialized_len
+}
+
 /// Cached person state with properties as a JSON map.
 #[derive(Debug, Clone)]
 pub struct CachedPerson {
@@ -22,6 +36,9 @@ pub struct CachedPerson {
     pub created_at: i64,
     pub version: i64,
     pub is_identified: bool,
+    /// Byte weight charged against the cache capacity; see
+    /// [`approx_person_bytes`].
+    pub approx_bytes: usize,
     // TODO: Add properties_last_updated_at and properties_last_operation
 }
 
@@ -32,6 +49,7 @@ impl TryFrom<Person> for CachedPerson {
     type Error = serde_json::Error;
 
     fn try_from(person: Person) -> Result<Self, Self::Error> {
+        let approx_bytes = approx_person_bytes(person.properties.len());
         Ok(Self {
             id: person.id,
             uuid: person.uuid,
@@ -40,6 +58,7 @@ impl TryFrom<Person> for CachedPerson {
             created_at: person.created_at,
             version: person.version,
             is_identified: person.is_identified,
+            approx_bytes,
         })
     }
 }
@@ -82,8 +101,13 @@ pub struct PersonCache {
 }
 
 impl PersonCache {
-    pub fn new(capacity: usize) -> Self {
-        let cache = CacheBuilder::new(capacity)
+    /// `capacity_bytes` bounds the cache by the entries' byte weights
+    /// (see [`approx_person_bytes`]), not their count — person documents
+    /// vary by orders of magnitude and grow in place across writes, so
+    /// an entry-count bound cannot bound memory.
+    pub fn new(capacity_bytes: usize) -> Self {
+        let cache = CacheBuilder::new(capacity_bytes)
+            .with_weighter(|_key: &PersonCacheKey, value: &Arc<CachedPerson>| value.approx_bytes)
             .with_event_listener(Arc::new(CacheEventMetrics))
             .build();
         Self { inner: cache }
@@ -124,12 +148,53 @@ mod tests {
             created_at: 1700000000,
             version: 1,
             is_identified: false,
+            approx_bytes: approx_person_bytes(64),
         }
+    }
+
+    /// An entry-count capacity cannot bound memory: documents grow in
+    /// place and vary by orders of magnitude. This pins the byte
+    /// denomination — sustained inserts far beyond the byte capacity
+    /// must evict most of them. Foyer shards its capacity and evicts
+    /// lazily on later inserts to the same shard, so the bound is
+    /// asserted with per-shard slack rather than exactly.
+    #[test]
+    fn byte_weights_evict_under_capacity_pressure() {
+        let cache = PersonCache::new(8 * 1024);
+        let fat = "x".repeat(4 * 1024);
+        for person_id in 0..32 {
+            let mut person = test_person();
+            person.id = person_id;
+            person.properties = serde_json::json!({ "blob": fat.clone() });
+            person.approx_bytes = approx_person_bytes(4 * 1024);
+            cache.put(
+                PersonCacheKey {
+                    team_id: 42,
+                    person_id,
+                },
+                person,
+            );
+        }
+        let resident = (0..32)
+            .filter(|id| {
+                cache
+                    .get(&PersonCacheKey {
+                        team_id: 42,
+                        person_id: *id,
+                    })
+                    .is_some()
+            })
+            .count();
+        assert!(
+            resident <= 16,
+            "128KB of inserts against an 8KB byte capacity retained {resident} \
+             of 32 entries — byte weights are not driving eviction"
+        );
     }
 
     #[test]
     fn cache_put_get_roundtrip() {
-        let cache = PersonCache::new(100);
+        let cache = PersonCache::new(1 << 20);
         let key = PersonCacheKey {
             team_id: 42,
             person_id: 1,
@@ -148,7 +213,7 @@ mod tests {
 
     #[test]
     fn cache_remove() {
-        let cache = PersonCache::new(100);
+        let cache = PersonCache::new(1 << 20);
         let key = PersonCacheKey {
             team_id: 42,
             person_id: 1,
@@ -163,7 +228,7 @@ mod tests {
 
     #[test]
     fn cache_overwrite() {
-        let cache = PersonCache::new(100);
+        let cache = PersonCache::new(1 << 20);
         let key = PersonCacheKey {
             team_id: 42,
             person_id: 1,

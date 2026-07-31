@@ -10,9 +10,11 @@ pub struct Config {
     #[envconfig(default = "127.0.0.1:50053")]
     pub grpc_address: SocketAddr,
 
-    /// In-memory cache capacity in number of entries
-    #[envconfig(default = "100000")]
-    pub cache_memory_capacity: usize,
+    /// Per-partition person-cache capacity in bytes. Entries are weighed
+    /// by their approximate serialized size, so this bounds memory, not
+    /// entry count. 32 MiB per partition by default.
+    #[envconfig(default = "33554432")]
+    pub cache_memory_capacity_bytes: usize,
 
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
