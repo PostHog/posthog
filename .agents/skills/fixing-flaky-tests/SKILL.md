@@ -18,7 +18,8 @@ Three non-negotiables, in order:
    Size N to the observed failure rate.
 
 Stabilizing the test is not the only valid ending.
-Once you know why it flakes, step 5 asks whether it should exist — a test that catches nothing real is worth deleting, and one that flakes because of the level it runs at is worth moving down a rung.
+Once you know why it flakes, step 5 asks whether it should exist.
+A test that catches nothing real is worth deleting, and one that flakes because of the level it runs at is worth moving down a rung.
 
 Before any of these: **measure, don't assume.** Flaky-vs-deterministic, and the rate, are facts to establish from verifiable GitHub run data (step 1) — never inherited from a Slack alert, a teammate's guess, or a `ci:insights` label.
 
@@ -184,33 +185,42 @@ So apply `/writing-tests`' gate retroactively, with more force than you would to
 
 Three outcomes are valid. Pick deliberately; don't default to the first.
 
-| Outcome         | When                                                                                                       |
-| --------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Fix it**      | The test guards a real regression at roughly the right cost. Continue to step 6.                           |
-| **Re-level it** | The behavior is worth guarding but the flake is inherent to the level it runs at. Move it down the ladder. |
-| **Delete it**   | You cannot name the regression it catches, or another test already catches it.                             |
+| Outcome         | When                                                                           | Next   |
+| --------------- | ------------------------------------------------------------------------------ | ------ |
+| **Fix it**      | Guards a real regression at roughly the right cost.                            | step 6 |
+| **Re-level it** | Worth guarding, but the flake is inherent to the level it runs at.             | below  |
+| **Delete it**   | You cannot name the regression it catches, or another test already catches it. | below  |
 
 ### Delete it
 
-Recurring shapes that fail the gate — recognize them by name:
+Recurring shapes that fail the gate:
 
-- **Tautological smoke test.** Asserts a precondition that many sibling tests in the same file already require to run at all (that the chart rendered, that the list is non-empty). Every later test is a stronger version of it.
-- **Duplicated coverage.** A second, thinner test of a path an existing test already exercises. Fold it in as a parameterized case, or drop it.
-- **Third-party assertion.** Flaky because it exercises a vendor's eventual consistency, scheduler, or API rather than our logic. That is the vendor's test to write, and it is usually already covered by mock-based siblings.
-- **Permanently gated.** Skipped everywhere except CI (missing credentials, opt-in marker), so no one develops against it and only CI ever pays for it.
+- **Tautological smoke test.** Asserts a precondition many sibling tests in the same file already need to run at all — that the chart rendered, that the list is non-empty.
+  Every later test is a stronger version of it.
+- **Duplicated coverage.** A thinner second test of a path an existing test already exercises.
+  Fold it in as a parameterized case, or drop it.
+- **Third-party assertion.** Flaky because it exercises a vendor's eventual consistency, scheduler, or API rather than our logic.
+  That is the vendor's test to write, and mock-based siblings usually already cover our side.
+- **Permanently gated.** Skipped everywhere but CI (missing credentials, opt-in marker), so nobody develops against it and only CI pays for it.
 
-Deletion carries the same evidence bar as a fix, not a lower one:
+Deletion is irreversible, so it carries a **higher** bar than a fix:
 
-- Name what still covers the behavior after removal, file:line. "Probably covered elsewhere" is not an answer — go read the sibling test.
-- State the coverage you are genuinely giving up. There usually is some; say it out loud rather than claiming there is none.
-- Get the owner's agreement (`/establishing-code-ownership`). Deleting someone's coverage is their call, not yours.
-- Never delete to make a red build green under time pressure. That is quarantine with extra steps, and it is how real regressions ship.
+- **Get explicit user approval**, the same gate quarantine carries.
+  Propose the deletion and hand back; don't take it yourself.
+- Account for the coverage: name what still catches this at file:line, or say plainly what is lost and why that's acceptable.
+  "Probably covered elsewhere" is not an answer — go read the sibling test.
+- Never delete to turn a red build green under time pressure.
+  That is quarantine with extra steps, and it is how real regressions ship.
+
+Then skip to step 8: there is nothing to loop.
 
 ### Re-level it
 
-When the assertion is worth keeping but the flake is structural, move the test down the cost ladder in `/writing-tests` rather than hardening it in place.
-A round trip through a real broker, browser, or vendor API to prove logic that a direct call could prove is testing the transport, not the logic — and the transport is where the nondeterminism lives.
-Re-leveling keeps the regression covered and removes the flake by construction, so prefer it over an increasingly elaborate wait.
+Move the test down the cost ladder in `/writing-tests` rather than hardening it in place.
+A round trip through a real broker, browser, or vendor API to prove logic a direct call could prove is testing the transport, and the transport is where the nondeterminism lives.
+Re-leveling removes the flake by construction, so prefer it over an increasingly elaborate wait.
+
+The replacement is a new test: run `/writing-tests`' gate on it, and validate it at its new level rather than against the old repro conditions, which no longer exist.
 
 ## 6. Fix the root cause — never mask it
 
@@ -238,7 +248,11 @@ If the flake was never reproducible locally, run N = 20 as a regression check an
 Any failure in the loop → back to step 4; the root cause was wrong or incomplete.
 Finish with one normal run of the surrounding file/suite to confirm the fix didn't break sibling tests.
 
-Deleted instead? There is nothing to loop. Run the surrounding file/suite once to confirm nothing depended on it, and carry the coverage argument into the report.
+Re-leveled instead? The old repro conditions no longer apply.
+Loop the replacement at its own level, and confirm the flake is gone because the old test is gone, not because it got faster.
+
+Deleted instead? Nothing to loop.
+Run the surrounding file/suite once to confirm nothing depended on it, and carry the coverage argument into the report.
 
 ## 8. Report
 
@@ -249,7 +263,7 @@ Local repro:     <command + conditions, e.g. 3/20 failures with neighbor X, maxW
 Root cause:      <one or two sentences>
 Outcome:         fixed | re-leveled (<from> → <to>) | deleted
 Change:          <what changed and why it removes the cause; for a deletion, what still covers the behavior (file:line) and what coverage is genuinely lost>
-Validation:      <N>/<N> passes under repro conditions | analytical only (CI-specific) | n/a, deleted
+Validation:      <N>/<N> passes under repro conditions | <N>/<N> at the new level | analytical only (CI-specific) | n/a, deleted
 Follow-ups:      <product bug found, related tests with the same pattern, or none>
 ```
 
@@ -259,4 +273,5 @@ Follow-ups:      <product bug found, related tests with the same pattern, or non
 - Do not edit `.github/workflows/` as part of a flake fix.
 - Do not accept/update snapshots to make a flake pass.
 - If the same root-cause pattern clearly affects sibling tests, fix them in the same change only when mechanical; otherwise list them as follow-ups.
-- Do not delete a test without the owner's agreement and a named replacement for the coverage. Deletion is a valid outcome, never a shortcut to green.
+- Do not delete a test without explicit user approval, plus either a named replacement for the coverage or a plain statement of what is lost.
+  Deletion is a valid outcome, never a shortcut to green.
