@@ -902,7 +902,7 @@ class ReplayObservationViewSet(
         check_team_in_flight_capacity(self.team.id)
         # Locked so two concurrent retries can't both pass the status check and both delete the row.
         with transaction.atomic():
-            locked = ReplayObservation.objects.select_for_update().get(pk=original_pk)
+            locked = ReplayObservation.objects.select_for_update().get(pk=original_pk, team_id=self.team_id)
             if locked.status != ObservationStatus.FAILED:
                 raise ValidationError("Only failed observations can be retried.")
             # Captured before the delete cascades it away: a run that never starts has to put the team's
@@ -1006,7 +1006,9 @@ class ReplayObservationViewSet(
         # both insert, and the loser hits the OneToOne constraint as a 500.
         with transaction.atomic():
             # `only("pk")`: the lock is the point, and the full row drags its JSONB columns along.
-            ReplayObservation.objects.select_for_update().only("pk").filter(pk=observation.pk).first()
+            ReplayObservation.objects.select_for_update().only("pk").filter(
+                pk=observation.pk, team_id=observation.team_id
+            ).first()
             # team_id in the lookup keeps the query team-scoped.
             label, _ = ReplayObservationLabel.objects.update_or_create(
                 observation=observation,
