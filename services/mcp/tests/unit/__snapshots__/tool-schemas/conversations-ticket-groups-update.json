@@ -116,6 +116,34 @@
                                         {
                                             "properties": {
                                                 "key": {
+                                                    "const": "sla_state",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "const": "in",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "const": "ticket_property",
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "description": "Matches tickets in ANY of these SLA states. Note the hyphens. All three states require a deadline to EXIST, so a ticket with no SLA at all is in none of them — to ask whether a deadline exists in the first place, use the sla_due_at is_set/is_not_set filter instead.",
+                                                    "items": {
+                                                        "enum": ["breached", "at-risk", "on-track"],
+                                                        "type": "string"
+                                                    },
+                                                    "maxItems": 100,
+                                                    "minItems": 1,
+                                                    "type": "array"
+                                                }
+                                            },
+                                            "required": ["type", "key", "operator", "value"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "properties": {
+                                                "key": {
                                                     "const": "created_at",
                                                     "type": "string"
                                                 },
@@ -134,6 +162,22 @@
                                                 }
                                             },
                                             "required": ["type", "key", "operator", "value"],
+                                            "type": "object"
+                                        },
+                                        {
+                                            "properties": {
+                                                "expression": {
+                                                    "description": "A HogQL boolean expression over the ticket, e.g. \"message_count > 5\" or \"message_count > 5 AND priority = 'high'\". The escape hatch for conditions the filters above cannot express. Tags are NOT reachable from here (they are a relational join, not a column) — AND a ticket_tags filter alongside the sql filter instead. Capped at 1000 characters, and at most 5 sql filters across ALL groups. The server compiles and test-runs the expression and rejects anything that does not work, so expect errors to surface on save.",
+                                                    "maxLength": 1000,
+                                                    "minLength": 1,
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "const": "sql",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["type", "expression"],
                                             "type": "object"
                                         }
                                     ]

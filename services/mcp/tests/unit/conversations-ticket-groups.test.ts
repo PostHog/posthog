@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { ConversationsTicketGroupsUpdateSchema } from '@/schema/tool-inputs'
 import {
     type TicketGroup,
     getTicketGroupsTool,
@@ -56,12 +57,22 @@ describe('normalizeTicketGroups', () => {
                     { type: 'ticket_property', key: 'status', operator: 'in', value: ['open'] },
                     { type: 'ticket_property', key: 'email_from', operator: 'icontains', value: '@bigcorp.com' },
                     { type: 'ticket_property', key: 'sla_due_at', operator: 'is_set' },
+                    { type: 'ticket_property', key: 'sla_state', operator: 'in', value: ['breached', 'at-risk'] },
                     { type: 'ticket_property', key: 'created_at', operator: 'date_before', value: '-1mStart' },
+                    { type: 'sql', expression: "message_count > 5 AND priority = 'high'" },
                 ],
             },
             { label: 'Placeholder', filters: [] },
         ]
         expect(normalizeTicketGroups(groups)).toEqual(groups)
+    })
+
+    it('returns null for a sql filter with no usable expression', () => {
+        const withFilters = (filters: unknown[]): unknown => [{ label: 'A', filters }]
+        expect(normalizeTicketGroups(withFilters([{ type: 'sql' }]))).toBeNull()
+        expect(normalizeTicketGroups(withFilters([{ type: 'sql', expression: '' }]))).toBeNull()
+        expect(normalizeTicketGroups(withFilters([{ type: 'sql', expression: '   ' }]))).toBeNull()
+        expect(normalizeTicketGroups(withFilters([{ type: 'sql', expression: 7 }]))).toBeNull()
     })
 
     it('returns null for absent or malformed values', () => {
@@ -172,6 +183,71 @@ describe('validateTicketGroups', () => {
         expect(() => validateTicketGroups([{ label: 'A', filters }])).toThrow(/takes no value/i)
     })
 
+    it('accepts a tag ANDed with a sql expression (splitting one tag by conversation length)', () => {
+        expect(() =>
+            validateTicketGroups([
+                {
+                    label: 'Chatty onboarding',
+                    filters: [
+                        { type: 'ticket_tags', operator: 'any_of', value: ['plan_onboarding'] },
+                        { type: 'sql', expression: 'message_count > 3' },
+                    ],
+                },
+                {
+                    label: 'Onboarding',
+                    filters: [{ type: 'ticket_tags', operator: 'any_of', value: ['plan_onboarding'] }],
+                },
+            ])
+        ).not.toThrow()
+    })
+
+    it('accepts sla_state alongside the separate sla_due_at question', () => {
+        expect(() =>
+            validateTicketGroups([
+                {
+                    label: 'Slipping',
+                    filters: [
+                        { type: 'ticket_property', key: 'sla_state', operator: 'in', value: ['breached', 'at-risk'] },
+                    ],
+                },
+                {
+                    label: 'No clock on it yet',
+                    filters: [{ type: 'ticket_property', key: 'sla_due_at', operator: 'is_not_set' }],
+                },
+            ])
+        ).not.toThrow()
+    })
+
+    it('rejects a sql filter with a blank expression', () => {
+        expect(() => validateTicketGroups([{ label: 'A', filters: [{ type: 'sql', expression: '   ' }] }])).toThrow(
+            /needs a non-empty expression/i
+        )
+    })
+
+    it('rejects a sql expression over 1000 characters', () => {
+        const expression = `message_count > ${'9'.repeat(1000)}`
+        expect(() => validateTicketGroups([{ label: 'A', filters: [{ type: 'sql', expression }] }])).toThrow(
+            /too long \(max 1000 characters/i
+        )
+    })
+
+    it('rejects more than 5 sql filters counted across all groups', () => {
+        // One per group, so the per-group filter cap can't be what trips.
+        const groups: TicketGroup[] = Array.from({ length: 6 }, (_, index) => ({
+            label: `Group ${index}`,
+            filters: [{ type: 'sql', expression: `message_count > ${index}` }],
+        }))
+        expect(() => validateTicketGroups(groups)).toThrow(/at most 5 SQL expression filters/i)
+    })
+
+    it('accepts exactly 5 sql filters', () => {
+        const groups: TicketGroup[] = Array.from({ length: 5 }, (_, index) => ({
+            label: `Group ${index}`,
+            filters: [{ type: 'sql', expression: `message_count > ${index}` }],
+        }))
+        expect(() => validateTicketGroups(groups)).not.toThrow()
+    })
+
     it('accepts the full date grammar', () => {
         for (const value of ['-3d', '-12h', '-1mStart', '-1yEnd', '2026-07-01', '2026-07-01T12:00:00Z']) {
             expect(() =>
@@ -210,6 +286,31 @@ describe('validateTicketGroups', () => {
                     },
                 ])
             ).toThrow(/can't parse the date/i)
+        }
+    })
+})
+
+// Tested at the zod layer on purpose: validateTicketGroups only checks the
+// OPERATOR of a ticket_property filter, never the values, so the enum in the
+// tool schema is the only thing standing between a mistyped "at_risk" and a
+// backend rejection.
+describe('sla_state values at the zod boundary', () => {
+    const withSlaStates = (value: string[]): unknown => ({
+        groups: [
+            { label: 'Slipping', filters: [{ type: 'ticket_property', key: 'sla_state', operator: 'in', value }] },
+        ],
+    })
+
+    it('accepts the hyphenated states', () => {
+        const result = ConversationsTicketGroupsUpdateSchema.safeParse(
+            withSlaStates(['breached', 'at-risk', 'on-track'])
+        )
+        expect(result.success).toBe(true)
+    })
+
+    it('rejects the underscored spellings', () => {
+        for (const state of ['at_risk', 'on_track']) {
+            expect(ConversationsTicketGroupsUpdateSchema.safeParse(withSlaStates([state])).success).toBe(false)
         }
     })
 })

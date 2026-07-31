@@ -3,6 +3,12 @@ import type { z } from 'zod'
 import { ConversationsTicketGroupsGetSchema, ConversationsTicketGroupsUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
+// The SLA states a ticket can be in — mirrors SLA_STATES in backend/sla.py.
+// All three require a deadline to exist, so a ticket with no SLA is in none of
+// them; `sla_due_at` is_set/is_not_set is the filter for that separate question.
+const SLA_STATES = ['breached', 'at-risk', 'on-track'] as const
+type SlaState = (typeof SLA_STATES)[number]
+
 /** One filter of a ticket group, as stored in
  *  `conversations_settings.ticket_groups[].filters`. The vocabulary mirrors
  *  products/conversations/backend/ticket_groups.py — the write validator
@@ -12,7 +18,9 @@ export type TicketGroupFilter =
     | { type: 'ticket_property'; key: 'channel_source' | 'status' | 'priority'; operator: 'in'; value: string[] }
     | { type: 'ticket_property'; key: 'email_from'; operator: 'icontains'; value: string }
     | { type: 'ticket_property'; key: 'sla_due_at'; operator: 'is_set' | 'is_not_set' }
+    | { type: 'ticket_property'; key: 'sla_state'; operator: 'in'; value: SlaState[] }
     | { type: 'ticket_property'; key: 'created_at'; operator: 'date_before' | 'date_after'; value: string }
+    | { type: 'sql'; expression: string }
 
 /** One of the team's ticket groups. List order is priority order (first =
  *  highest); a ticket takes the FIRST group whose filters ALL match, and
@@ -44,8 +52,15 @@ const PROPERTY_OPERATORS: Record<string, readonly string[]> = {
     priority: ['in'],
     email_from: ['icontains'],
     sla_due_at: ['is_set', 'is_not_set'],
+    sla_state: ['in'],
     created_at: ['date_before', 'date_after'],
 }
+
+// Mirrors MAX_SQL_FILTERS in backend/ticket_groups.py and
+// MAX_SQL_EXPRESSION_LENGTH in backend/ticket_group_sql.py. SQL filters are the
+// escape hatch, not the main vocabulary, so both caps are deliberately tight.
+const MAX_SQL_FILTERS = 5
+const MAX_SQL_EXPRESSION_LENGTH = 1000
 
 // The shared created_at date grammar — these regexes are duplicated verbatim
 // from ticket_groups.py / the frontend's ticketGroups.ts.
@@ -100,6 +115,11 @@ function isStructurallyUsableFilter(raw: unknown): boolean {
     const filter = raw as Record<string, unknown>
     if (filter.type === 'ticket_tags') {
         return filter.operator === 'any_of' && isStringList(filter.value)
+    }
+    if (filter.type === 'sql') {
+        // Compilability is the write validator's business; a stored expression
+        // that no longer compiles matches nothing rather than failing the read.
+        return typeof filter.expression === 'string' && filter.expression.trim().length > 0
     }
     if (filter.type === 'ticket_property') {
         const key = filter.key
@@ -162,6 +182,21 @@ function validateStringListValue(value: string[], label: string): void {
 }
 
 function validateFilter(filter: TicketGroupFilter, label: string): void {
+    if (filter.type === 'sql') {
+        // A sql filter has no operator — just an expression. We can only check
+        // that it is present and within length; whether it actually compiles is
+        // the server's call, since parsing HogQL client-side isn't possible.
+        const expression = typeof filter.expression === 'string' ? filter.expression.trim() : ''
+        if (!expression) {
+            throw new Error(`The SQL expression filter in "${label}" needs a non-empty expression.`)
+        }
+        if (expression.length > MAX_SQL_EXPRESSION_LENGTH) {
+            throw new Error(
+                `The SQL expression in "${label}" is too long (max ${MAX_SQL_EXPRESSION_LENGTH} characters, got ${expression.length}).`
+            )
+        }
+        return
+    }
     switch (filter.operator) {
         case 'any_of':
         case 'in':
@@ -191,6 +226,16 @@ function validateFilter(filter: TicketGroupFilter, label: string): void {
                 )
             }
             return
+        default:
+            // Unreachable while TicketGroupFilter and the zod union above it stay
+            // in step. Only one drift direction is type-checked (a zod variant
+            // with no TS variant fails typecheck), so this catches the other:
+            // a TS variant added without a case here would silently skip
+            // validation entirely.
+            throw new Error(
+                `A filter in "${label}" has a shape this validator doesn't know — the TicketGroupFilter type and ` +
+                    'the zod filter union in schema/tool-inputs.ts have drifted apart; add the missing case.'
+            )
     }
 }
 
@@ -200,6 +245,14 @@ function validateFilter(filter: TicketGroupFilter, label: string): void {
 export function validateTicketGroups(groups: TicketGroup[]): void {
     if (groups.length > 50) {
         throw new Error(`At most 50 groups are allowed (got ${groups.length}).`)
+    }
+    // Counted across ALL groups, not per group — same order the backend checks in.
+    const sqlFilterCount = groups.reduce(
+        (total, group) => total + group.filters.filter((filter) => filter.type === 'sql').length,
+        0
+    )
+    if (sqlFilterCount > MAX_SQL_FILTERS) {
+        throw new Error(`At most ${MAX_SQL_FILTERS} SQL expression filters are allowed (${sqlFilterCount} given).`)
     }
     const seenLabels = new Set<string>()
     for (const group of groups) {

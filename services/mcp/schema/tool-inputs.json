@@ -184,6 +184,34 @@
                                                         },
                                                         "key": {
                                                             "type": "string",
+                                                            "const": "sla_state"
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "const": "in"
+                                                        },
+                                                        "value": {
+                                                            "minItems": 1,
+                                                            "maxItems": 100,
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string",
+                                                                "enum": ["breached", "at-risk", "on-track"]
+                                                            },
+                                                            "description": "Matches tickets in ANY of these SLA states. Note the hyphens. All three states require a deadline to EXIST, so a ticket with no SLA at all is in none of them — to ask whether a deadline exists in the first place, use the sla_due_at is_set/is_not_set filter instead."
+                                                        }
+                                                    },
+                                                    "required": ["type", "key", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "type": "string",
+                                                            "const": "ticket_property"
+                                                        },
+                                                        "key": {
+                                                            "type": "string",
                                                             "const": "created_at"
                                                         },
                                                         "operator": {
@@ -197,6 +225,22 @@
                                                         }
                                                     },
                                                     "required": ["type", "key", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "type": "string",
+                                                            "const": "sql"
+                                                        },
+                                                        "expression": {
+                                                            "type": "string",
+                                                            "minLength": 1,
+                                                            "maxLength": 1000,
+                                                            "description": "A HogQL boolean expression over the ticket, e.g. \"message_count > 5\" or \"message_count > 5 AND priority = 'high'\". The escape hatch for conditions the filters above cannot express. Tags are NOT reachable from here (they are a relational join, not a column) — AND a ticket_tags filter alongside the sql filter instead. Capped at 1000 characters, and at most 5 sql filters across ALL groups. The server compiles and test-runs the expression and rejects anything that does not work, so expect errors to surface on save."
+                                                        }
+                                                    },
+                                                    "required": ["type", "expression"]
                                                 }
                                             ]
                                         },

@@ -845,6 +845,20 @@ const TicketGroupFilterField = z.union([
     }),
     z.object({
         type: z.literal('ticket_property'),
+        key: z.literal('sla_state'),
+        operator: z.literal('in'),
+        value: z
+            .array(z.enum(['breached', 'at-risk', 'on-track']))
+            .min(1)
+            .max(100)
+            .describe(
+                'Matches tickets in ANY of these SLA states. Note the hyphens. All three states require a ' +
+                    'deadline to EXIST, so a ticket with no SLA at all is in none of them — to ask whether a ' +
+                    'deadline exists in the first place, use the sla_due_at is_set/is_not_set filter instead.'
+            ),
+    }),
+    z.object({
+        type: z.literal('ticket_property'),
         key: z.literal('created_at'),
         operator: z.enum(['date_before', 'date_after']),
         value: z
@@ -854,6 +868,28 @@ const TicketGroupFilterField = z.union([
                 'Either a relative date "-N<unit>" — units h/d/w/m/y, N 1..1000, optional case-sensitive Start/End ' +
                     'suffix (e.g. "-3d" = rolling: now minus 3 days, "-1mStart" = start of last month) — or a strict ' +
                     'ISO datetime like "2026-07-01" or "2026-07-01T12:00:00Z". Relative values resolve at query time.'
+            ),
+    }),
+    // No `operator` on this one: a sql filter is a bare HogQL boolean
+    // expression. Only the cheap shape checks (non-empty, length) can live
+    // here — SERVER VALIDATION IS AUTHORITATIVE. A client cannot parse HogQL,
+    // and the backend does strictly more than we can: it compiles the
+    // expression to Postgres and executes it over a sample to prove it runs,
+    // rejecting the write otherwise. Never treat passing this schema as
+    // meaning the expression is valid.
+    z.object({
+        type: z.literal('sql'),
+        expression: z
+            .string()
+            .min(1)
+            .max(1000)
+            .describe(
+                'A HogQL boolean expression over the ticket, e.g. "message_count > 5" or ' +
+                    '"message_count > 5 AND priority = \'high\'". The escape hatch for conditions the filters ' +
+                    'above cannot express. Tags are NOT reachable from here (they are a relational join, not a ' +
+                    'column) — AND a ticket_tags filter alongside the sql filter instead. Capped at 1000 ' +
+                    'characters, and at most 5 sql filters across ALL groups. The server compiles and test-runs ' +
+                    'the expression and rejects anything that does not work, so expect errors to surface on save.'
             ),
     }),
 ])

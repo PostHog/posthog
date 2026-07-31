@@ -41,9 +41,28 @@ Each filter is one of:
 - `{"type": "ticket_property", "key": "email_from", "operator": "icontains", "value": "@bigcorp.com"}`
   — case-insensitive substring of the sender.
 - `{"type": "ticket_property", "key": "sla_due_at", "operator": "is_set" | "is_not_set"}` — no
-  `value` field.
+  `value` field. Whether the ticket has a deadline **at all**, which is not the same question as
+  whether it has been missed — for that use `sla_state`.
+- `{"type": "ticket_property", "key": "sla_state", "operator": "in", "value": ["breached", "at-risk", "on-track"]}`
+  — the same states the list's SLA filter uses. Note the hyphens.
 - `{"type": "ticket_property", "key": "created_at", "operator": "date_before" | "date_after",
 "value": "-3d"}` — see the date grammar below.
+- `{"type": "sql", "expression": "message_count > 5 AND priority = 'high'"}` — a HogQL boolean
+  expression, the escape hatch for conditions this vocabulary doesn't cover. See below.
+
+### `sla_state` vs `sla_due_at is_set` — different questions
+
+Both exist deliberately, and picking the wrong one silently gives the wrong groups:
+
+- **`sla_state`** is `breached` / `at-risk` / `on-track`. **All three require a deadline to exist**,
+  so a ticket with **no SLA is in none of them**. Use it to ask _how the ticket is doing_ against
+  its deadline.
+- **`sla_due_at`** `is_set` / `is_not_set` asks only _whether a deadline exists at all_ — it says
+  nothing about whether that deadline has been missed.
+
+The trap to avoid: an `sla_state` filter will **never** surface a ticket that has no SLA, no matter
+how many states you list. If the user wants "tickets nobody has put a clock on yet", that is
+`sla_due_at` `is_not_set` — an `sla_state` filter cannot express it.
 
 A multi-filter group ANDs its filters. For example, "email tickets from Big Corp opened in the
 last week":
@@ -58,6 +77,59 @@ last week":
   ]
 }
 ```
+
+### The `sql` filter — the escape hatch
+
+`{"type": "sql", "expression": "..."}` takes a HogQL **boolean** expression over the ticket and is
+compiled to SQL on save. Reach for it only when the filters above can't express the condition:
+
+```json
+{ "type": "sql", "expression": "message_count > 5 AND priority = 'high'" }
+```
+
+Things to know before suggesting one:
+
+- **Tags are NOT reachable from a SQL expression.** Tags are a relational lazy join, not a column,
+  so there is nothing to reference. To combine tags with a SQL condition, **AND a `ticket_tags`
+  filter alongside** it (see the worked example below).
+- **`ai_resolved` is NOT reachable either.** It's a computed expression that only exists inside a
+  full SELECT, not a column an expression can reference.
+- **Read JSON columns with chain access, not ClickHouse JSON functions.** For a nested value in
+  `session_context`, write `session_context.plan = 'enterprise'` — that prints as Postgres' native
+  `->` / `->>` operators. `JSONExtractString(session_context, 'plan')` looks right and compiles, but
+  prints as `json_extract_path_text`, which takes `json` while the column is `jsonb`, so it can
+  never run and the save is rejected.
+- The server **compiles and test-runs** the expression when saving, so a bad expression is rejected
+  at save time rather than quietly breaking the list. Errors surface on the update call.
+- Caps: **at most 5 `sql` filters across all groups**, and **1000 characters** per expression. They
+  cost more than the other filters, which is why they're limited.
+- There is no client-side evaluator for groups, precisely because a browser can't evaluate HogQL.
+
+### Combining a tag with a SQL condition
+
+This is the most compelling use of `sql`: **splitting one tag by something the tag can't say.** Here
+the `plan_onboarding` tag is split by conversation length, so long-running onboarding threads get
+worked before fresh ones.
+
+```json
+[
+  {
+    "label": "Chatty onboarding",
+    "filters": [
+      { "type": "ticket_tags", "operator": "any_of", "value": ["plan_onboarding"] },
+      { "type": "sql", "expression": "message_count > 3" }
+    ]
+  },
+  {
+    "label": "Onboarding",
+    "filters": [{ "type": "ticket_tags", "operator": "any_of", "value": ["plan_onboarding"] }]
+  }
+]
+```
+
+**Order matters and is the whole trick here.** Because the first matching group wins, the more
+specific group ("Chatty onboarding") **must** come first. Flip the two and the general "Onboarding"
+group absorbs every onboarding ticket, leaving "Chatty onboarding" permanently empty.
 
 ### The created_at date grammar
 
@@ -99,8 +171,9 @@ User: "Add a VIP tier above everything else, matching the `vip` tag."
   from the current groups.
 - Tags come from the team's ticket-tagging (often set by workflows). A tags-based group only ranks
   what the tags already say; if tickets are missing tags, they'll pool in the first group.
-- Limits enforced on save: at most 50 groups, 10 filters per group, 100 values per filter, labels
-  ≤ 100 chars, string values ≤ 200 chars, no duplicate labels.
+- Limits enforced on save: at most 50 groups, 10 filters per group, 100 values per filter, **5
+  `sql` filters across all groups**, labels ≤ 100 chars, string values ≤ 200 chars, **SQL
+  expressions ≤ 1000 chars**, no duplicate labels.
 - Overlapping groups are fine (first match wins), but the order between them decides everything —
   put the more specific group first.
 - Sorting by ticket group in the UI shows section headers with per-group match counts across the
