@@ -1,3 +1,4 @@
+import json
 import logging
 import datetime as dt
 
@@ -14,7 +15,12 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportRun,
 )
-from products.batch_exports.backend.service import backfill_export, delete_batch_export, sync_batch_export
+from products.batch_exports.backend.service import (
+    SUPPORTED_FILTER_TYPES,
+    backfill_export,
+    delete_batch_export,
+    sync_batch_export,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -22,8 +28,8 @@ logger.setLevel(logging.INFO)
 EXPORT_NAME = "PostHog HTTP Migration"
 VALID_INTERVALS = {i[0] for i in BATCH_EXPORT_INTERVALS}
 REGION_URLS = {
-    "us": "https://app.posthog.com/batch",
-    "eu": "https://eu.posthog.com/batch",
+    "us": "https://us.i.posthog.com/batch/",
+    "eu": "https://eu.i.posthog.com/batch/",
 }
 
 
@@ -69,6 +75,17 @@ class Command(BaseCommand):
             type=str,
             help="Event to include in migration. Can be used multiple times.",
         )
+        parser.add_argument(
+            "--filter",
+            "-f",
+            nargs="+",
+            dest="filters",
+            required=False,
+            type=str,
+            help="A serialized HogQL property filter as a JSON object, e.g. "
+            '\'{"type": "event", "key": "$host", "operator": "exact", "value": "example.com"}\'. '
+            "Can be used multiple times to migrate only the subset of events matching all filters.",
+        )
 
     def handle(self, **options):
         team_id = options["team_id"]
@@ -79,6 +96,7 @@ class Command(BaseCommand):
         verbose = options["verbosity"] > 1
         exclude_events = options["exclude_events"]
         include_events = options["include_events"]
+        filters = parse_filters(options["filters"])
 
         create_args = [
             interval,
@@ -145,6 +163,7 @@ class Command(BaseCommand):
             end_days_from_now=end_days_from_now,
             exclude_events=exclude_events,
             include_events=include_events,
+            filters=filters,
         )
 
 
@@ -220,6 +239,7 @@ def create_migration(
     end_days_from_now: int,
     include_events: list[str] | None = None,
     exclude_events: list[str] | None = None,
+    filters: list[dict] | None = None,
 ):
     if interval not in VALID_INTERVALS:
         raise CommandError("invalid interval, choices are: {}".format(VALID_INTERVALS))
@@ -246,6 +266,7 @@ def create_migration(
         url=url,
         exclude_events=exclude_events,
         include_events=include_events,
+        filters=filters,
     )
     result = input("Enter [y] to continue creating a new migration (Ctrl+C to cancel) ")
     if result.lower() != "y":
@@ -267,6 +288,7 @@ def create_migration(
         interval=interval,
         paused=True,
         end_at=end_at,
+        filters=filters,
     )
     sync_batch_export(batch_export, created=True)
 
@@ -286,6 +308,28 @@ def display(message, **kwargs):
             value = value.strftime("%Y-%m-%d %H:%M:%S")
         print(f"  {key} = {value}")  # noqa: T201
     print()  # noqa: T201
+
+
+def parse_filters(raw_filters: list[str] | None) -> list[dict] | None:
+    if not raw_filters:
+        return None
+
+    filters = []
+    for raw_filter in raw_filters:
+        try:
+            parsed = json.loads(raw_filter)
+        except json.JSONDecodeError as e:
+            raise CommandError(f"couldn't parse filter as JSON: {raw_filter!r} ({e})")
+
+        if not isinstance(parsed, dict) or "type" not in parsed:
+            raise CommandError(f"invalid filter, must be a JSON object with a 'type' key: {raw_filter!r}")
+
+        if parsed["type"] not in SUPPORTED_FILTER_TYPES:
+            raise CommandError(f"invalid filter type '{parsed['type']}', choices are: {SUPPORTED_FILTER_TYPES}")
+
+        filters.append(parsed)
+
+    return filters
 
 
 def parse_to_utc(date_str: str) -> dt.datetime:
