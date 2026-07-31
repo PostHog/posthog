@@ -1345,7 +1345,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.AccountCustomProperties,
                         // Account custom property definitions are per-team API data, so the
                         // options come from the consumer via `optionsFromProp` — items carry
-                        // `{ id, name, property_type }` with the definition id as the value.
+                        // `{ id, name, description, property_type }` with the definition id as the value.
                         getIcon: getPropertyDefinitionIcon,
                         getName: (option: PropertyDefinition) => option.name,
                         getValue: (option: PropertyDefinition) => option.id,
