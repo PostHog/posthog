@@ -338,6 +338,7 @@ export const sourceFieldToElement = (
                 caption={field.caption}
                 multiple={field.multiple}
                 legacySingleField={legacySingleField}
+                noAccountsHelp={field.noAccountsHelp}
             />
         )
     }

@@ -30,6 +30,10 @@ export interface IntegrationAccountSelectorProps {
     /** Legacy single-value payload field that seeds the multi picker when it's still empty
      *  (e.g. GitHub sources saved before multi-repo support store `repository`). */
     legacySingleField?: string
+    /** Source-specific markdown shown instead of the generic "no accounts accessible" hint
+     *  when the connected integration returns zero accounts (e.g. a permission requirement
+     *  particular to that platform). Falls back to the generic hint when omitted. */
+    noAccountsHelp?: string
 }
 
 /** Coerce a form value into the multi picker's string[] shape: undefined/'' -> [],
@@ -358,6 +362,7 @@ function IntegrationAccountFieldWithDropdown({
     fieldLabel,
     placeholder,
     caption,
+    noAccountsHelp,
 }: IntegrationAccountSelectorProps & { integrationId: number }): JSX.Element {
     const { accounts, accountsLoading, accountsLoaded, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
@@ -397,8 +402,11 @@ function IntegrationAccountFieldWithDropdown({
         <LemonField name={fieldName} label={fieldLabel} help={captionHelp(caption)}>
             {({ value, onChange }) => {
                 const accountValues = accounts.map((account) => account.value)
+                // Fire on a genuinely empty accessible list too (not just a mismatch within a
+                // non-empty one) — a hand-typed Account ID otherwise sails through unremarked when
+                // the picker has nothing to offer.
                 const savedValueMissing =
-                    !!value && !accountsLoading && accounts.length > 0 && !accountValues.includes(String(value))
+                    !!value && !accountsLoading && accountsLoaded && !accountValues.includes(String(value))
                 return (
                     <div className="flex flex-col gap-2">
                         <InputWithSuggestionsDropdown
@@ -419,10 +427,17 @@ function IntegrationAccountFieldWithDropdown({
                             </p>
                         )}
                         {accountsLoaded && !accountsLoading && !accountsError && accounts.length === 0 && (
-                            <p className="m-0 text-xs text-warning">
-                                No accounts are accessible for this connection. Check that the connected account has the
-                                right permissions, then <ReconnectLink integrationKind={integrationKind} />.
-                            </p>
+                            <div className="text-xs text-warning">
+                                {noAccountsHelp ? (
+                                    <LemonMarkdown className="text-xs">{noAccountsHelp}</LemonMarkdown>
+                                ) : (
+                                    <p className="m-0">
+                                        No accounts are accessible for this connection. Check that the connected account
+                                        has the right permissions, then{' '}
+                                        <ReconnectLink integrationKind={integrationKind} />.
+                                    </p>
+                                )}
+                            </div>
                         )}
                         {savedValueMissing && (
                             <p className="m-0 text-xs text-warning">

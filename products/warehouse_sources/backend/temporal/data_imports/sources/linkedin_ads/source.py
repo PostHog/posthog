@@ -153,6 +153,14 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
                         integrationField="linkedin_ads_integration_id",
                         integrationKind="linkedin-ads",
                         required=True,
+                        noAccountsHelp=(
+                            "LinkedIn only lists ad accounts where the signed-in member has a "
+                            "Viewer role or above directly on the account in Campaign Manager. "
+                            "Access through a business manager or organization alone isn't enough. "
+                            "Ask an account admin to add the member directly, then reconnect. See the "
+                            "[LinkedIn Ads source docs](https://posthog.com/docs/cdp/sources/linkedin-ads) "
+                            "for details."
+                        ),
                     ),
                 ],
             ),

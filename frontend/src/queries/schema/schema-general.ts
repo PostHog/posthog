@@ -6830,6 +6830,13 @@ export interface SourceFieldOauthAccountSelectConfig {
      * a newer field supersedes.
      */
     hidden?: boolean
+    /**
+     * Markdown shown instead of the generic "no accounts accessible" hint when the
+     * connected integration returns zero accounts. Use this to explain a source-specific
+     * permission requirement (e.g. a role the signed-in account needs) rather than leaving
+     * the user to guess why the picker is empty.
+     */
+    noAccountsHelp?: string
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'

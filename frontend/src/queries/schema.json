@@ -46678,6 +46678,10 @@
                 "name": {
                     "type": "string"
                 },
+                "noAccountsHelp": {
+                    "description": "Markdown shown instead of the generic \"no accounts accessible\" hint when the connected integration returns zero accounts. Use this to explain a source-specific permission requirement (e.g. a role the signed-in account needs) rather than leaving the user to guess why the picker is empty.",
+                    "type": "string"
+                },
                 "placeholder": {
                     "type": "string"
                 },

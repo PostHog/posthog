@@ -2555,6 +2555,15 @@ class SourceFieldOauthAccountSelectConfig(BaseModel):
         description=("Allow selecting multiple values; the field's payload value becomes string[]."),
     )
     name: str
+    noAccountsHelp: str | None = Field(
+        default=None,
+        description=(
+            'Markdown shown instead of the generic "no accounts accessible" hint when'
+            " the connected integration returns zero accounts. Use this to explain a"
+            " source-specific permission requirement (e.g. a role the signed-in account"
+            " needs) rather than leaving the user to guess why the picker is empty."
+        ),
+    )
     placeholder: str | None = None
     required: bool | None = None
     type: Literal["oauth-account-select"] = "oauth-account-select"
