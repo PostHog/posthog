@@ -115,11 +115,6 @@ export interface EmailTemplaterLogicProps {
      * parent form's dirty state and save flow see them without a separate editor-level save.
      */
     layout?: 'modal' | 'inline'
-    /**
-     * Opens the editing modal on mount when the email has no content yet - for entry points
-     * (e.g. a freshly created email destination) where editing the email is the next step.
-     */
-    autoOpenEditor?: boolean
 }
 
 function autoRevealAdvancedFields(
@@ -609,16 +604,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 const hasHtml = !!props.value.html
                 actions.setActiveContentTab(hasHtml ? 'visual' : 'plaintext')
             }
-            if (isModalOpen && !props.value?.html && !props.value?.design && values.templates.length > 0) {
-                actions.setIsTemplatePickerOpen(true)
-            }
-        },
-
-        loadTemplatesSuccess: ({ templates }) => {
-            // The auto-opened editor can beat the templates request; offer the picker once they land.
-            if (values.isModalOpen && !props.value?.html && !props.value?.design && templates.length > 0) {
-                actions.setIsTemplatePickerOpen(true)
-            }
         },
 
         applyTemplate: ({ template }) => {
@@ -723,10 +708,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
         actions.loadTemplates()
         actions.loadPersonPropertyDefinitions()
-
-        if (props.autoOpenEditor && props.layout !== 'inline' && !props.value?.html && !props.value?.design) {
-            actions.setIsModalOpen(true)
-        }
     }),
 ])
 

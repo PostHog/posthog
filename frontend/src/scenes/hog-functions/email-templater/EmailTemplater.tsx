@@ -104,8 +104,7 @@ function DestinationEmailTemplaterForm({
     fieldsHidden?: boolean
 }): JSX.Element {
     const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setIsModalOpen, setActiveContentTab } =
-        useActions(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab } = useActions(emailTemplaterLogic)
 
     return (
         <>
@@ -200,11 +199,14 @@ function DestinationEmailTemplaterForm({
                     <LemonField name="html" className="flex relative flex-col">
                         {({ value }: ChildFunctionProps) => (
                             <>
-                                <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
+                                <div
+                                    className={clsx(
+                                        'flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100',
+                                        value ? 'opacity-0' : 'opacity-100' // Hide if there is content
+                                    )}
+                                >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
-                                        Click to modify content
-                                    </LemonButton>
+                                    <EmailPreviewOverlayButtons hasContent={!!value} />
                                 </div>
 
                                 <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
@@ -367,14 +369,8 @@ function NativeEmailTemplaterForm({
 }): JSX.Element {
     const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields } =
         useValues(emailTemplaterLogic)
-    const {
-        setEmailEditorRef,
-        onEmailEditorReady,
-        setIsModalOpen,
-        setActiveContentTab,
-        hideAdvancedField,
-        revealAdvancedField,
-    } = useActions(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField, revealAdvancedField } =
+        useActions(emailTemplaterLogic)
 
     // The template editor has only subject + preheader, so they share one row with the
     // visual/plain-text switch to keep vertical space for the canvas.
@@ -594,9 +590,7 @@ function NativeEmailTemplaterForm({
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
-                                        Click to modify content
-                                    </LemonButton>
+                                    <EmailPreviewOverlayButtons hasContent={!!value} />
                                 </div>
 
                                 <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
@@ -606,6 +600,39 @@ function NativeEmailTemplaterForm({
                 )}
             </Form>
         </>
+    )
+}
+
+function EmailPreviewOverlayButtons({ hasContent }: { hasContent: boolean }): JSX.Element {
+    const { templates } = useValues(emailTemplaterLogic)
+    const { setIsModalOpen, setIsTemplatePickerOpen } = useActions(emailTemplaterLogic)
+
+    if (hasContent) {
+        return (
+            <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
+                Click to modify content
+            </LemonButton>
+        )
+    }
+
+    return (
+        <div className="flex gap-2 z-10">
+            <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
+                Start blank
+            </LemonButton>
+            {templates.length > 0 && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => {
+                        setIsModalOpen(true)
+                        setIsTemplatePickerOpen(true)
+                    }}
+                >
+                    Start from template
+                </LemonButton>
+            )}
+        </div>
     )
 }
 

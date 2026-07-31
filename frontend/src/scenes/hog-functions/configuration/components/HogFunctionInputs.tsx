@@ -28,7 +28,6 @@ export function HogFunctionInputs(): JSX.Element {
         oldInputs,
         newInputs,
         canEditSource,
-        logicProps,
     } = useValues(hogFunctionConfigurationLogic)
 
     const {
@@ -92,8 +91,6 @@ export function HogFunctionInputs(): JSX.Element {
                     }}
                     showSource={showSource}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                    // Creating a new function whose next step is authoring the email: open the editor straight away
-                    autoOpenEmailEditor={!logicProps.id}
                 />
                 {oldInputs && newInputs && (
                     <div className="flex gap-2 items-center p-2 mt-4 rounded border border-dashed bg-surface-secondary">
