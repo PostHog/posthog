@@ -136,7 +136,7 @@ class MCPGatewayAgentViewSet(viewsets.ViewSet):
                 removed_at__isnull=True,
             )
             .order_by("installation_id", "tool_name", "-last_seen_at", "-id")
-            .only("installation_id", "tool_name", "description", "input_schema")
+            .only("installation_id", "tool_name", "description", "input_schema", "annotations")
         ):
             tools_by_installation[tool.installation_id].append(tool)
 

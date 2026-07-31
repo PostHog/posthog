@@ -197,6 +197,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         user_id=None,
         include_personal=False,
         interaction_origin=None,
+        allowed_installation_ids=None,
         origin_product="support_reply",
         task_agent_key="support",
     )

@@ -1169,7 +1169,9 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         support_account.refresh_from_db()
         assert support_account.handle == "posthog-support"
         assert response.json()["results"][0]["id"] == str(support_account.id)
-        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 3
+        # Reconciliation renames the legacy row in place (keyed on token_hash),
+        # so the catalog stays at exactly one row per built-in agent.
+        assert MCPServiceAccount.objects.for_team(self.team.id).count() == 2
 
     def test_agents_cannot_be_created_or_deleted(self) -> None:
         self._make_admin()
@@ -2333,7 +2335,9 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("dcr-client-id", None, "none"),
+        return_value=DcrClientRegistration(
+            client_id="dcr-client-id", client_secret=None, token_endpoint_auth_method="none"
+        ),
     )
     def test_admin_can_install_custom_despite_disabled_default_posture(
         self, auth_type: str, _mock_dcr, mock_discover, _allow
@@ -2790,7 +2794,9 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("dcr-client-id", None, "none"),
+        return_value=DcrClientRegistration(
+            client_id="dcr-client-id", client_secret=None, token_endpoint_auth_method="none"
+        ),
     )
     def test_install_custom_reenables_recycled_installation(self, _mock_dcr, mock_discover, _allow):
         """Removing a gateway server disables its rows; reinstalling must switch them back on."""

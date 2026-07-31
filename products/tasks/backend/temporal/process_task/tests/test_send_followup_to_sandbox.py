@@ -559,6 +559,10 @@ class TestSendFollowupActivityRefreshOrdering:
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
             ) as mock_refresh,
             patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_github",
+                return_value=True,
+            ),
+            patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
             ) as mock_user_msg,
             patch(
@@ -694,6 +698,10 @@ class TestSendFollowupTurnTimeout:
             ) as mock_conn_token,
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_github",
+                return_value=True,
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
