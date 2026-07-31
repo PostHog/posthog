@@ -20,8 +20,12 @@
 # ## What we refuse, and why
 #
 # The printed fragment is spliced into SQL, so this module is a security
-# boundary. Every value a customer writes is bound as a parameter by the
-# printer (never interpolated), but that alone is not enough:
+# boundary. Every STRING a customer writes is bound as a parameter by the
+# printer, never interpolated (posthog/hogql/printer/postgres.py's visit_constant
+# deliberately overrides the base printer's inline-everything behaviour). Scalars
+# — ints, floats, bools, uuids, datetimes — are inlined, but quote-free and
+# machine-formatted, with a guard rejecting any `%`, so no attacker-controlled
+# text reaches the statement that way either. That still isn't enough on its own:
 #
 #   - SUBQUERIES: `system.*` tables print as ClickHouse's `postgresql(host,
 #     db, table, user, password)` table function, which binds this
