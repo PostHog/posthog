@@ -7,12 +7,10 @@ from typing import Any, Literal
 
 from django.conf import settings
 
-import numpy as np
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 import deltalake.exceptions
-from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -24,38 +22,23 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     align_incoming_decimals_to_delta,
     conditional_lru_cache_async,
+    first_per_pk_table,
     normalize_column_name,
-    pyarrow_schema_from_arrow_exportable,
+    realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    delta_merge_spill_kwargs,
     execute_with_conflict_retry,
 )
 
 # _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
 # backoff is as safe as retrying a single failed call, and simpler.
 _PURGE_S3_PREFIX_MAX_ATTEMPTS = 4
-
-
-def _delta_merge_spill_kwargs() -> dict[str, int]:
-    """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
-
-    A merge decompresses the target partition into an Arrow working set that can exceed the pod's
-    memory limit and take down every co-tenant activity. When the byte budgets are configured (and the
-    worker mounts a scratch disk at its TMPDIR), delta-rs bounds DataFusion's memory pool: bytes past
-    `max_spill_size` spill to disk, capped at `max_temp_directory_size`. Unset → omit the kwargs so
-    DataFusion keeps its unbounded default (today's behavior), which also keeps this compatible with
-    deltalake versions predating the parameters.
-    """
-    kwargs: dict[str, int] = {}
-    if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES is not None:
-        kwargs["max_spill_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES
-    if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES is not None:
-        kwargs["max_temp_directory_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES
-    return kwargs
 
 
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
@@ -117,81 +100,6 @@ def _write_deltalake(
     )
 
 
-def _realign_decimal_buffers(table: pa.Table) -> pa.Table:
-    """Re-materialize any Decimal128/256 column whose values buffer isn't 16-byte aligned.
-
-    delta-rs (arrow-rs) aborts the entire worker — not a catchable Python exception,
-    an `abort()` at the `extern "C"` boundary that can't unwind — when it's handed a
-    decimal values buffer aligned to 8 bytes instead of the 16 that Rust's i128 requires.
-    The misalignment arrives across the Arrow C Data Interface, which only recommends
-    8-byte alignment. We funnel every Delta write/merge through here so a single guard
-    covers both pipeline versions. See delta-io/delta-rs#3884.
-
-    Only the values buffer (`buffers()[1]`) holds the i128 payload that must be aligned;
-    the validity bitmap has no such requirement, so we don't bother checking it.
-
-    `pa.concat_arrays` forces a fresh allocation through pyarrow's allocator (64-byte
-    aligned), which satisfies the requirement. `combine_chunks()` is zero-copy and would
-    keep the misaligned buffer, so it can't be used here. The buffer scan is cheap and
-    the copy only fires on the rare misaligned batch, so the common path is untouched.
-    """
-    new_columns: dict[str, pa.ChunkedArray] = {}
-    realigned = False
-    for i in range(table.num_columns):
-        field = table.field(i)
-        column = table.column(i)
-        if pa.types.is_decimal(field.type) and any(
-            (values := chunk.buffers()[1]) is not None and values.address % 16 for chunk in column.chunks
-        ):
-            # concat_arrays preserves the chunks' (decimal) type; pyarrow-stubs has no
-            # chunked_array overload for an explicit decimal type=.
-            new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)])
-            realigned = True
-        else:
-            new_columns[field.name] = column
-
-    if not realigned:
-        return table
-
-    return pa.table(new_columns, schema=table.schema)
-
-
-def _first_per_pk_table(
-    pa_table: pa.Table, pk_columns: list[str], keep: Literal["first", "last"] = "first"
-) -> pa.Table:
-    """Return a table containing only one row per PK tuple (in original row order).
-
-    `keep` picks which occurrence survives: "first" is used when closing existing
-    "current" rows during SCD2 append; "last" is used to dedupe upsert batches, where
-    the latest occurrence of a key carries the freshest data. Either way the merge
-    receives at most one source row per key, avoiding ambiguous multi-match merge
-    semantics (and the duplicate inserts `when_not_matched_insert_all` would produce).
-    """
-    if not pk_columns or pa_table.num_rows == 0:
-        return pa_table
-
-    # Strategy: tag every row with its position, group by PK, and for each PK
-    # take the smallest (or largest) position — the first (or last) time we saw
-    # that PK. Sorting those positions at the end restores the original row order.
-    #
-    # We use numpy for the final sort because pyarrow's type stubs for
-    # `pc.sort_indices` / `Array.take` are currently broken — numpy's stubs work.
-    idx_col_name = "__ph_cdc_row_idx"
-    aggregate: Literal["min", "max"] = "min" if keep == "first" else "max"
-
-    # 1. Add a row-position column: [0, 1, 2, ..., n-1]
-    indexed = pa_table.append_column(idx_col_name, pa.array(range(pa_table.num_rows), type=pa.int64()))
-
-    # 2. Group by PK, keeping only one position per PK
-    grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, aggregate)])
-
-    # 3. Sort those positions ascending so the output mirrors the input row order
-    kept_indices = np.sort(grouped.column(f"{idx_col_name}_{aggregate}").to_numpy())
-
-    # 4. Materialize the rows at those positions from the original table
-    return pa_table.take(kept_indices)
-
-
 def _merge_predicate_ops(normalized_primary_keys: list[str]) -> list[str]:
     """Per-key merge match conditions, using NULL-safe equality.
 
@@ -201,7 +109,7 @@ def _merge_predicate_ops(normalized_primary_keys: list[str]) -> list[str]:
     `segments.device`, which are frequently NULL — therefore never match their existing target row,
     so `when_not_matched_insert_all` re-inserts them on *every* incremental sync and the table
     silently accumulates a duplicate per NULL-keyed row. `IS NOT DISTINCT FROM` treats NULL == NULL,
-    matching the source dedup (`_first_per_pk_table` groups NULLs together) and stopping the drift.
+    matching the source dedup (`first_per_pk_table` groups NULLs together) and stopping the drift.
 
     Each term is parenthesised: delta-rs's predicate parser (1.6.1) mis-associates a bare
     `a IS NOT DISTINCT FROM b AND c IS NOT DISTINCT FROM d` (it groups `b AND c`), so the parens are
@@ -328,29 +236,6 @@ class DeltaTableHelper:
         else:
             capture_exception(e)
 
-    async def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
-        delta_table = await self.get_delta_table()
-        if delta_table is None:
-            raise Exception("Deltalake table not found")
-
-        delta_table_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
-
-        # Columns added here always predate their own addition: every file the table already
-        # holds was written without this column, so it must tolerate absent values on those
-        # rows. Forcing nullable regardless of the incoming batch's own nullability (which
-        # reflects only whether *this* batch happened to contain nulls) is what lets a later
-        # `optimize.compact()` read those old files at all — a non-nullable add otherwise fails
-        # compaction with "Non-nullable column '<name>' is missing from the physical schema".
-        new_fields = [
-            deltalake.Field.from_arrow(field.with_nullable(True))
-            for field in ensure_delta_compatible_arrow_schema(schema)
-            if field.name not in delta_table_schema.names
-        ]
-        if new_fields:
-            await asyncio.to_thread(delta_table.alter.add_columns, new_fields)
-
-        return delta_table
-
     @conditional_lru_cache_async(maxsize=1, condition=lambda result: result is not None)
     async def get_delta_table(self) -> deltalake.DeltaTable | None:
         delta_uri = await self._get_delta_table_uri()
@@ -451,7 +336,7 @@ class DeltaTableHelper:
         if use_partitioning:
             dedupe_keys.append(PARTITION_KEY)
 
-        deduped = _first_per_pk_table(data, dedupe_keys, keep="last")
+        deduped = first_per_pk_table(data, dedupe_keys, keep="last")
         dropped = data.num_rows - deduped.num_rows
         if dropped > 0:
             await self._logger.awarning(
@@ -569,14 +454,14 @@ class DeltaTableHelper:
         commit_metadata: dict[str, str] | None = None,
     ) -> deltalake.DeltaTable:
         # Guard against delta-rs aborting the worker on misaligned decimal buffers (see
-        # _realign_decimal_buffers). Sub-tables derived below via filter()/take() are
+        # realign_decimal_buffers). Sub-tables derived below via filter()/take() are
         # freshly allocated by pyarrow and so inherit safe alignment.
-        data = _realign_decimal_buffers(data)
+        data = realign_decimal_buffers(data)
 
         delta_table = await self.get_delta_table()
 
         if delta_table:
-            delta_table = await self._evolve_delta_schema(data.schema)
+            delta_table = await evolve_delta_schema(delta_table, data.schema)
 
         await self._logger.adebug(
             f"write_to_deltalake: _is_first_sync = {self._is_first_sync}. should_overwrite_table = {should_overwrite_table}"
@@ -682,7 +567,7 @@ class DeltaTableHelper:
                                 predicate=predicate,
                                 streamed_exec=True,
                                 commit_properties=merge_commit_properties,
-                                **_delta_merge_spill_kwargs(),
+                                **delta_merge_spill_kwargs(),
                             )
                             .when_matched_update_all()
                             .when_not_matched_insert_all()
@@ -708,7 +593,7 @@ class DeltaTableHelper:
                             predicate=" AND ".join(predicate_ops),
                             streamed_exec=False,
                             commit_properties=commit_properties,
-                            **_delta_merge_spill_kwargs(),
+                            **delta_merge_spill_kwargs(),
                         )
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
@@ -803,106 +688,6 @@ class DeltaTableHelper:
         delta_table = await self.get_delta_table()
         assert delta_table is not None
 
-        return delta_table
-
-    async def write_scd2_to_deltalake(
-        self,
-        data: pa.Table,
-        primary_keys: Sequence[Any],
-        commit_metadata: dict[str, str] | None = None,
-    ) -> deltalake.DeltaTable:
-        """Write CDC SCD Type 2 data: close existing current rows, then append new rows.
-
-        For each PK that appears in `data`:
-        1. Find the existing row in the target with matching PK and valid_to IS NULL
-           (the current row) and update its valid_to to the earliest valid_from of the
-           new events for that PK.
-        2. Append all rows from `data` as new history entries.
-
-        `data` is expected to already have valid_from / valid_to columns as produced
-        by batcher.build_scd2_table().
-        """
-        # See write_to_deltalake / _realign_decimal_buffers. The close-existing merge uses
-        # _first_per_pk_table(data), whose take() output is freshly allocated, so realigning
-        # `data` here covers both the close and the append.
-        data = _realign_decimal_buffers(data)
-
-        delta_table = await self.get_delta_table()
-
-        if delta_table:
-            delta_table = await self._evolve_delta_schema(data.schema)
-
-        commit_properties: deltalake.CommitProperties | None = (
-            deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
-        )
-
-        # Step 1: Close existing current rows for PKs in this batch
-        if delta_table is not None and primary_keys and "valid_from" in data.column_names:
-            existing_delta_table = delta_table
-            py_column_names = data.column_names
-            normalized_pks: list[str] = []
-            for x in primary_keys:
-                n = normalize_column_name(x)
-                if n in py_column_names:
-                    normalized_pks.append(n)
-
-            if normalized_pks:
-                # Use only the first row per PK to avoid ambiguous multi-match merge
-                first_per_pk = _first_per_pk_table(data, normalized_pks)
-
-                predicate_parts = [f"source.{col} = target.{col}" for col in normalized_pks]
-                predicate_parts.append("target.valid_to IS NULL")
-                predicate = " AND ".join(predicate_parts)
-
-                # NOTE: do NOT tag this intermediate merge with `commit_properties`. SCD2 is a
-                # two-step write (close-existing then append-new); if we tagged step 1 with the
-                # same (run_uuid, batch_index) and the process crashed before step 2, Kafka
-                # redelivery would see the tagged commit, treat the batch as already done, and
-                # silently skip the append → data loss. Tag only the terminal commit (step 2).
-                def _do_scd2_close(first_per_pk: pa.Table, predicate: str) -> dict:
-                    return (
-                        existing_delta_table.merge(
-                            source=first_per_pk,
-                            source_alias="source",
-                            target_alias="target",
-                            predicate=predicate,
-                            streamed_exec=False,
-                            **_delta_merge_spill_kwargs(),
-                        )
-                        .when_matched_update(updates={"valid_to": "source.valid_from"})
-                        .execute()
-                    )
-
-                close_stats = await execute_with_conflict_retry(
-                    existing_delta_table,
-                    lambda: _do_scd2_close(first_per_pk, predicate),
-                    "write_scd2_to_deltalake: close merge",
-                    self._logger,
-                )
-                await self._logger.adebug(f"SCD2 close stats: {json.dumps(close_stats)}")
-
-        # Step 2: Append all new rows
-        if delta_table is None:
-            storage_options = self._get_credentials()
-            delta_uri = await self._get_delta_table_uri()
-            delta_table = await asyncio.to_thread(
-                deltalake.DeltaTable.create,
-                table_uri=delta_uri,
-                schema=data.schema,
-                storage_options=storage_options,
-            )
-
-        await asyncio.to_thread(
-            deltalake.write_deltalake,
-            table_or_uri=delta_table,
-            data=data,
-            mode="append",
-            schema_mode="merge",
-            commit_properties=commit_properties,
-        )
-
-        delta_table = await self.get_delta_table()
-        assert delta_table is not None
         return delta_table
 
     async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:
