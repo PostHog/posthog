@@ -19,15 +19,18 @@ export const EvenlyDistributedRows = ({
     maxItemsPerRow?: number
 }): JSX.Element => {
     const [rowLayout, setRowLayout] = useState<{ itemsPerRow: number; numRows: number }>()
-    const elementRef = useRef<HTMLDivElement>(null)
+    // Measured on a wrapper that's never restyled, so resizing the grid inside it can't feed back into
+    // the observed box (mutating the observed element from within its own ResizeObserver callback is
+    // what triggers "ResizeObserver loop" oscillation).
+    const containerRef = useRef<HTMLDivElement>(null)
 
     const updateSize = useCallback((): void => {
-        if (!elementRef.current) {
+        if (!containerRef.current) {
             return
         }
         const pxPerRem = parseFloat(getComputedStyle(document.documentElement).fontSize)
         const minWidthPx = minWidthRems * pxPerRem
-        const containerWidthPx = elementRef.current.offsetWidth
+        const containerWidthPx = containerRef.current.offsetWidth
 
         const calculatedMaxItemsPerRow = Math.floor(containerWidthPx / minWidthPx)
         const effectiveMaxItemsPerRow = maxItemsPerRow
@@ -40,14 +43,13 @@ export const EvenlyDistributedRows = ({
         const numRows = Math.ceil(children.length / effectiveMaxItemsPerRow)
         const itemsPerRow = Math.min(Math.ceil(children.length / numRows), effectiveMaxItemsPerRow)
 
-        setRowLayout({
-            numRows,
-            itemsPerRow,
-        })
-    }, [setRowLayout, elementRef, minWidthRems, children.length, maxItemsPerRow])
+        setRowLayout((prev) =>
+            prev && prev.itemsPerRow === itemsPerRow && prev.numRows === numRows ? prev : { numRows, itemsPerRow }
+        )
+    }, [containerRef, minWidthRems, children.length, maxItemsPerRow])
 
     useEffect(() => {
-        const element = elementRef.current
+        const element = containerRef.current
         if (!element) {
             return
         }
@@ -55,24 +57,38 @@ export const EvenlyDistributedRows = ({
         updateSize()
 
         let resizeObserver: ResizeObserver | undefined
+        let rafId: number | null = null
         if (typeof ResizeObserver !== 'undefined') {
-            resizeObserver = new ResizeObserver(updateSize)
+            resizeObserver = new ResizeObserver(() => {
+                // Coalesce bursts of notifications into one recalculation per frame.
+                if (rafId != null) {
+                    return
+                }
+                rafId = requestAnimationFrame(() => {
+                    rafId = null
+                    updateSize()
+                })
+            })
         }
         resizeObserver?.observe(element)
 
         return () => {
-            resizeObserver?.unobserve(element)
+            if (rafId != null) {
+                cancelAnimationFrame(rafId)
+            }
+            resizeObserver?.disconnect()
         }
     }, [updateSize])
 
     return (
-        <div
-            className={clsx('grid', className)}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ gridTemplateColumns: `repeat(${rowLayout?.itemsPerRow ?? 1}, 1fr)` }}
-            ref={elementRef}
-        >
-            {rowLayout ? children : null}
+        <div className="w-full" ref={containerRef}>
+            <div
+                className={clsx('grid', className)}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ gridTemplateColumns: `repeat(${rowLayout?.itemsPerRow ?? 1}, 1fr)` }}
+            >
+                {rowLayout ? children : null}
+            </div>
         </div>
     )
 }
