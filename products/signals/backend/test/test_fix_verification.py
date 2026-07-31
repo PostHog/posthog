@@ -3,7 +3,13 @@ from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from parameterized import parameterized
+
+from posthog.models import Team
+
+from products.signals.backend import fix_verification
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import RelatedTo
 from products.signals.backend.fix_verification import (
@@ -54,33 +60,40 @@ class TestScheduleFixVerification(BaseTest):
 class TestEvaluatePendingFixVerifications(BaseTest):
     _MERGED_AT = datetime(2026, 7, 1, 12, tzinfo=UTC)
 
-    def _make_verification(self) -> tuple[SignalReport, SignalFixVerification]:
+    def _make_verification(
+        self, *, team: Team | None = None, merged_at: datetime | None = None
+    ) -> tuple[SignalReport, SignalFixVerification]:
         report = SignalReport.objects.create(
-            team=self.team,
+            team=team or self.team,
             status=SignalReport.Status.RESOLVED,
             title="MCP tool calls failing validation",
             summary="Schema mismatch on the execute-sql tool",
         )
-        with freeze_time(self._MERGED_AT):
+        with freeze_time(merged_at or self._MERGED_AT):
             verification = schedule_fix_verification(
                 report, task_id=uuid.uuid4(), pr_url="https://github.com/posthog/posthog/pull/42"
             )
         return report, verification
 
     def _spawn_recurrence(
-        self, resolved: SignalReport, *, at: datetime, status: str = SignalReport.Status.POTENTIAL
+        self,
+        resolved: SignalReport,
+        *,
+        at: datetime,
+        status: str = SignalReport.Status.POTENTIAL,
+        attribution: ArtefactAttribution | None = None,
     ) -> SignalReport:
         # Mirror the grouping pipeline: a signal matching a resolved report spawns a fresh
         # report and links it back via a symmetric related_to artefact pair.
         with freeze_time(at):
             recurrence = SignalReport.objects.create(
-                team=self.team, status=status, title=resolved.title, summary=resolved.summary
+                team_id=resolved.team_id, status=status, title=resolved.title, summary=resolved.summary
             )
             SignalReportArtefact.add_log(
-                team_id=self.team.id,
+                team_id=resolved.team_id,
                 report_id=str(recurrence.id),
                 content=RelatedTo(report_id=str(resolved.id)),
-                attribution=ArtefactAttribution.system(),
+                attribution=attribution or ArtefactAttribution.system(),
             )
         return recurrence
 
@@ -148,3 +161,77 @@ class TestEvaluatePendingFixVerifications(BaseTest):
         verification.refresh_from_db()
         assert verification.status == SignalFixVerification.Status.INCONCLUSIVE
         assert stats.inconclusive == 1
+
+    def test_user_authored_link_is_not_recurrence_evidence(self):
+        # related_to is writable through the artefact API; a member linking a live report
+        # must neither force REGRESSED nor pull the verification forward before its deadline.
+        resolved, verification = self._make_verification()
+        self._spawn_recurrence(
+            resolved,
+            at=self._MERGED_AT + timedelta(days=2),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+        )
+
+        stats = evaluate_pending_fix_verifications(now=self._MERGED_AT + timedelta(days=3))
+        verification.refresh_from_db()
+        assert verification.status == SignalFixVerification.Status.PENDING
+        assert stats.checked == 0
+
+        evaluate_pending_fix_verifications(now=self._MERGED_AT + FIX_VERIFICATION_SOAK_WINDOW)
+        verification.refresh_from_db()
+        assert verification.status == SignalFixVerification.Status.VERIFIED
+
+    @parameterized.expand(
+        [
+            ("non_uuid_target", '{"report_id": "../not-a-uuid"}'),
+            ("schema_mismatch", '{"unexpected": true}'),
+        ]
+    )
+    def test_malformed_link_row_is_skipped_and_later_teams_still_settle(self, _name: str, raw_content: str):
+        # A poisoned one-sided related_to row (e.g. left behind by a failed symmetric write)
+        # must be skipped, not raise out of the cross-team sweep.
+        poisoned_report, poisoned_verification = self._make_verification()
+        with freeze_time(self._MERGED_AT + timedelta(days=1)):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=poisoned_report,
+                type=SignalReportArtefact.ArtefactType.RELATED_TO,
+                content=raw_content,
+            )
+
+        other_team = Team.objects.create(organization=self.organization)
+        other_report, other_verification = self._make_verification(
+            team=other_team, merged_at=self._MERGED_AT + timedelta(hours=1)
+        )
+        recurrence = self._spawn_recurrence(other_report, at=self._MERGED_AT + timedelta(days=2))
+
+        stats = evaluate_pending_fix_verifications(now=self._MERGED_AT + FIX_VERIFICATION_SOAK_WINDOW)
+
+        poisoned_verification.refresh_from_db()
+        other_verification.refresh_from_db()
+        assert poisoned_verification.status == SignalFixVerification.Status.VERIFIED
+        assert other_verification.status == SignalFixVerification.Status.REGRESSED
+        assert other_verification.regressed_report_id == recurrence.id
+        assert stats.checked == 2
+
+    def test_error_settling_one_verification_does_not_halt_the_sweep(self):
+        _, broken_verification = self._make_verification()
+        _, other_verification = self._make_verification(merged_at=self._MERGED_AT + timedelta(hours=1))
+
+        real_settle = fix_verification._settle_verification
+
+        def settle_or_boom(
+            verification: SignalFixVerification, *, now: datetime
+        ) -> "SignalFixVerification.Status | None":
+            if verification.id == broken_verification.id:
+                raise RuntimeError("boom")
+            return real_settle(verification, now=now)
+
+        with patch.object(fix_verification, "_settle_verification", side_effect=settle_or_boom):
+            stats = evaluate_pending_fix_verifications(now=self._MERGED_AT + FIX_VERIFICATION_SOAK_WINDOW)
+
+        broken_verification.refresh_from_db()
+        other_verification.refresh_from_db()
+        assert broken_verification.status == SignalFixVerification.Status.PENDING
+        assert other_verification.status == SignalFixVerification.Status.VERIFIED
+        assert stats.checked == 1
