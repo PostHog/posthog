@@ -185,6 +185,92 @@ describe('PushNotificationService', () => {
             expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
         })
 
+        it('stamps workflow, action and invocation ids into the data payload so opens can be attributed', async () => {
+            // An open is captured on the device, so these ids riding along in the payload are the only
+            // way the resulting event can be tied back to the workflow and step that sent it.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            invocation.state.actionId = 'push-step'
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            // Nested under the single `posthog` key, JSON-encoded: that is the only entry the SDKs read,
+            // and FCM's `data` map only accepts string values. Sibling keys would be silently ignored.
+            expect(parseJSON(body.message.data.posthog)).toEqual({
+                workflow_id: invocation.functionId,
+                action_id: 'push-step',
+                invocation_id: invocation.id,
+            })
+        })
+
+        it('carries the batch run id so a batch push open divides against its sends', async () => {
+            // A batch run attributes its send metrics to the batch job, not the workflow
+            // (`parentRunId ?? functionId`). Without the same id on the open, sends would be counted
+            // against the batch and opens against the workflow, and the open rate wouldn't divide.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            invocation.state.actionId = 'push-step'
+            invocation.parentRunId = 'batch-job-1'
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(parseJSON(body.message.data.posthog)).toEqual({
+                workflow_id: invocation.functionId,
+                action_id: 'push-step',
+                invocation_id: invocation.id,
+                parent_run_id: 'batch-job-1',
+            })
+            // The same id the send metric is filed under, so the two are comparable.
+            expect(result.metrics).toContainEqual(
+                expect.objectContaining({ metric_name: 'push_sent', app_source_id: 'batch-job-1' })
+            )
+        })
+
+        it('does not let a custom data key shadow the correlation payload', async () => {
+            // `data` is customer-controlled. If a custom key could win, opens would be attributed to
+            // whatever workflow the sender named, so the reserved key has to be applied last.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            ;(invocation.queueParameters as any).payload.data = { posthog: 'not-the-real-workflow' }
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(parseJSON(body.message.data.posthog).workflow_id).toBe(invocation.functionId)
+        })
+
         describe('message asset capture', () => {
             let serviceWithAssets: PushNotificationService
 

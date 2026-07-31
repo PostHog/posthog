@@ -27,6 +27,7 @@ from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
     link_existing_team_github_integration,
+    list_org_github_installations,
 )
 from posthog.api.github_callback.types import (
     FlowKind,
@@ -906,6 +907,30 @@ class GitHubLinkExistingRequestSerializer(serializers.Serializer):
     )
 
 
+class GitHubAvailableInstallationSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(
+        help_text="GitHub installation ID to pass to github/link_existing when linking this installation."
+    )
+    account_name = serializers.CharField(
+        allow_null=True,
+        help_text="GitHub account (organization or user) the installation belongs to, for display in the picker.",
+    )
+    account_type = serializers.CharField(
+        allow_null=True,
+        help_text="GitHub account type, e.g. 'Organization' or 'User'.",
+    )
+    source_team_id = serializers.IntegerField(
+        help_text="A project in the organization that already has this installation linked.",
+    )
+
+
+class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
+    installations = GitHubAvailableInstallationSerializer(
+        many=True,
+        help_text="Distinct GitHub installations in the organization available to link to this project.",
+    )
+
+
 class GitHubOAuthAuthorizeRequestSerializer(serializers.Serializer):
     installation_id = serializers.CharField(
         required=False,
@@ -960,6 +985,7 @@ class IntegrationViewSet(
         "github_repos",
         "github_branches",
         "github_teams",
+        "github_available_installations",
         "jira_projects",
         "linear_teams",
         "anthropic_managed_agents",
@@ -1581,6 +1607,22 @@ class IntegrationViewSet(
             ),
         )
         return Response(status=204)
+
+    @extend_schema(responses={200: GitHubAvailableInstallationsResponseSerializer})
+    @action(methods=["GET"], detail=False, url_path="github/available_installations")
+    def github_available_installations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the org's existing GitHub installations this project can reuse.
+
+        A GitHub App installs once per organization, so a second project links an existing
+        installation rather than reinstalling. This backs the picker: when the org has more than
+        one installation, the client passes the chosen installation_id to github/link_existing.
+        """
+        installations = list_org_github_installations(
+            user=cast(User, request.user),
+            organization=self.organization,
+            exclude_team_id=self.team_id,
+        )
+        return Response({"installations": GitHubAvailableInstallationSerializer(installations, many=True).data})
 
     @extend_schema(
         request=GitHubLinkExistingRequestSerializer,
