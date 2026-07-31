@@ -2158,14 +2158,18 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
         # resolutions against drifting when a tier is added or reordered.
         self._apply_for_everyone(rules, self.sourced_table)
 
-        inherited = resolve_inherited_object_access(self.team, "warehouse_table", self.sourced_table)
+        inherited = resolve_inherited_object_access(
+            self.user_with_no_role, self.team, "warehouse_table", self.sourced_table
+        )
         assert inherited is not None
         assert inherited.access_level == self.user_with_no_role_access_control.get_user_access_level(self.sourced_table)
 
     def test_inherited_access_matches_the_runtime_for_a_self_managed_table(self):
         self._apply_for_everyone({"this_source": "none", "all_sources": "none"}, self.self_managed_table)
 
-        inherited = resolve_inherited_object_access(self.team, "warehouse_table", self.self_managed_table)
+        inherited = resolve_inherited_object_access(
+            self.user_with_no_role, self.team, "warehouse_table", self.self_managed_table
+        )
         assert inherited is not None
         assert inherited.access_level == self.user_with_no_role_access_control.get_user_access_level(
             self.self_managed_table

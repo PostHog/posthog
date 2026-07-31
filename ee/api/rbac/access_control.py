@@ -303,7 +303,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # can spell out what removing the override means. Resolved server-side, next to the
             # runtime access resolution, so the two cannot drift; None means nothing sits above
             # this object and the UI must not offer "No override".
-            inherited = resolve_inherited_object_access(team, resource, obj)
+            inherited = resolve_inherited_object_access(user_access_control.user, team, resource, obj)
             payload["inherited_access"] = asdict(inherited) if inherited else None
 
         return Response(payload)
