@@ -112,18 +112,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     <Markdown>
                         {dedent`
                             When you use LiteLLM to call an LLM provider, PostHog automatically captures an
-                            \`$ai_generation\` event. LiteLLM's callback does not see tools you call afterward. The
-                            SDK example below also captures a tool call as an \`$ai_span\` event, right after the
-                            generation that triggered it.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            LiteLLM has no \`posthog_trace_id\` parameter, so generate the trace id yourself and
-                            pass it through \`metadata\`, the same way \`$ai_session_id\` already travels.
-                            \`posthog\` is a raw PostHog client you create for this, separate from the callback
-                            LiteLLM uses to send the generation.
+                            \`$ai_generation\` event. Identity and trace data travel through \`metadata\`, since
+                            LiteLLM has no dedicated \`posthog_trace_id\` parameter.
                         `}
                     </Markdown>
 
@@ -142,7 +132,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     trace_id = str(uuid.uuid4())     # one per turn
                                     user_id = "user_123"
 
-                                    # tools and get_weather() are your existing tool-calling setup
+                                    # tools is your existing tool-calling setup
                                     response = litellm.completion(
                                         model="gpt-5-mini",
                                         messages=[{"role": "user", "content": "What's the weather in Paris?"}],
@@ -154,25 +144,6 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             "$ai_trace_id": trace_id,
                                         },
                                     )
-
-                                    # Capture each tool call as a span nested under the generation above
-                                    for call in response.choices[0].message.tool_calls or []:
-                                        start = time.time()
-                                        result = get_weather(**json.loads(call.function.arguments))
-
-                                        posthog.capture(
-                                            distinct_id=user_id,
-                                            event="$ai_span",
-                                            properties={
-                                                "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
-                                                "$ai_span_id": str(uuid.uuid4()),
-                                                "$ai_span_name": call.function.name,
-                                                "$ai_input_state": call.function.arguments,
-                                                "$ai_output_state": result,
-                                                "$ai_latency": time.time() - start,
-                                            },
-                                        )
                                 `,
                             },
                             {
@@ -200,24 +171,6 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             },
                         ]}
                     />
-
-                    <Markdown>
-                        {dedent`
-                            \`user_id\` in \`metadata\` ties this call to a person, mapped to PostHog's
-                            \`distinct_id\`. This lets you see everything one user asked for and know who hit an
-                            error or ran up cost. \`$ai_session_id\` groups every call in one conversation, so a
-                            multi-turn exchange reads as a single thread instead of separate, unrelated calls.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            A trace covers one call, and a session covers the whole conversation: passing the same
-                            session id across every call is what connects them. Together, they give you a complete
-                            view: who made the request, which conversation it is part of, and every generation and
-                            tool call inside it.
-                        `}
-                    </Markdown>
 
                     <Blockquote>
                         <Markdown>
@@ -251,20 +204,34 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 <>
                     <Markdown>
                         {dedent`
-                            The recommended SDK example above already captures a tool call as a span nested under
-                            its generation. The rules below apply whenever you capture a span by hand, including
-                            cases with more than one tool.
+                            Capture each tool call as a span yourself, as the example below does right after the
+                            generation that triggered it.
                         `}
                     </Markdown>
 
-                    <Markdown>
-                        {dedent`
-                            The span must carry the same \`$ai_trace_id\` as the generation it belongs to, or it
-                            will not nest under the same trace. Nothing measures duration for you: time your own
-                            code and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind
-                            of work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            # get_weather() is your existing tool-calling function
+                            for call in response.choices[0].message.tool_calls or []:
+                                start = time.time()
+                                result = get_weather(**json.loads(call.function.arguments))
+
+                                posthog.capture(
+                                    distinct_id=user_id,
+                                    event="$ai_span",
+                                    properties={
+                                        "$ai_trace_id": trace_id,
+                                        "$ai_session_id": session_id,
+                                        "$ai_span_id": str(uuid.uuid4()),
+                                        "$ai_span_name": call.function.name,
+                                        "$ai_input_state": call.function.arguments,
+                                        "$ai_output_state": result,
+                                        "$ai_latency": time.time() - start,
+                                    },
+                                )
                         `}
-                    </Markdown>
+                    />
 
                     <Markdown>
                         {dedent`
