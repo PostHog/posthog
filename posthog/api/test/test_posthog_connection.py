@@ -3,7 +3,6 @@ import time
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
@@ -11,19 +10,17 @@ from rest_framework import status
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 
-CONNECT_SETTINGS = {
-    "POSTHOG_CONNECT_BASE_URL_EU": "https://eu.posthog.com",
-    "POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU": "eu-client-id",
-    "POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU": "eu-secret",
-}
-
 FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 
 
-@override_settings(**CONNECT_SETTINGS)
 class TestPostHogConnectionForward:
     @pytest.fixture(autouse=True)
-    def setup_environment(self, db):
+    def setup_environment(self, db, settings):
+        # pytest-style class (not a Django TestCase), so use the `settings` fixture rather than the
+        # override_settings class decorator, which only works on SimpleTestCase subclasses.
+        settings.POSTHOG_CONNECT_BASE_URL_EU = "https://eu.posthog.com"
+        settings.POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU = "eu-client-id"
+        settings.POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU = "eu-secret"
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(
