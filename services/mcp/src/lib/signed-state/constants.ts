@@ -24,6 +24,9 @@ export const NONCE_KEY_PREFIX = 'mcp:signed-state:nonce'
 /** Redis key prefix for stashed prepare payloads awaiting execute. */
 export const PAYLOAD_KEY_PREFIX = 'mcp:signed-state:payload'
 
+/** Redis key prefix for the per-user stashed-bytes quota window. */
+export const PAYLOAD_QUOTA_KEY_PREFIX = 'mcp:signed-state:payload-quota'
+
 /**
  * Extra lifetime a stashed payload gets beyond its token's TTL. Ensures the
  * Redis entry never expires before the token does under clock skew — an
@@ -33,17 +36,28 @@ export const PAYLOAD_KEY_PREFIX = 'mcp:signed-state:payload'
 export const PAYLOAD_STASH_TTL_MARGIN_SECONDS = 30
 
 /**
- * Maximum serialized size of a stashed prepare payload, in bytes. Stashed
- * payloads live in shared Redis for the token TTL, so without a cap an
- * authenticated caller could retain rate-limit × TTL × request-size bytes
- * and pressure eviction of session and rate-limit state. Matches the Hono
- * dispatcher's 1 MiB request-body cap (`MAX_BODY_BYTES`), so it never
- * rejects args the transport can deliver — anything tighter would refuse
- * scout definitions the backend accepts (1 MB per body/file). It exists
- * as a backstop so a future request-limit raise can't silently widen
- * Redis retention.
+ * Maximum serialized size of a single stashed prepare payload, in bytes.
+ * Matches the Hono dispatcher's 1 MiB request-body cap (`MAX_BODY_BYTES`),
+ * so it never rejects args the transport can deliver — anything tighter
+ * would refuse scout definitions the backend accepts (1 MB per body/file).
+ * It exists as a backstop so a future request-limit raise can't silently
+ * widen Redis retention. The aggregate exposure is bounded separately by
+ * `STASH_QUOTA_BYTES_PER_WINDOW`.
  */
 export const MAX_STASHED_PAYLOAD_BYTES = 1_048_576
+
+/**
+ * Aggregate bytes one user may stash per quota window. Stashed payloads
+ * share Redis with session and rate-limit state, so per-payload and
+ * per-request limits alone still allow a caller at the rate limit to
+ * retain gigabytes within one token TTL. 20 MiB per window is far above
+ * legitimate use (a burst of large scout definitions is still a few MiB)
+ * while capping worst-case retention per user at the quota. The window
+ * spans the payload TTL, so the counter outlives every entry it charged
+ * for; it is not decremented on execute — a consumed confirmation still
+ * counts until the window rolls.
+ */
+export const STASH_QUOTA_BYTES_PER_WINDOW = 20 * 1_048_576
 
 /** Env var name. */
 export const SIGNING_KEY_ENV_VAR = 'MCP_SIGNED_STATE_KEY'

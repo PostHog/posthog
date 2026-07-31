@@ -52,8 +52,9 @@ function makeLedger(): { ledger: NonceLedger; consumed: Set<string> } {
     return { ledger, consumed }
 }
 
-function makeStash(): { stash: PayloadStash; store: Map<string, string> } {
+function makeStash(): { stash: PayloadStash; store: Map<string, string>; quotas: Map<string, number> } {
     const store = new Map<string, string>()
+    const quotas = new Map<string, number>()
     const stash = new PayloadStash({
         set: async (key, value, ..._args) => {
             const args = _args.map((a) => (typeof a === 'string' ? a.toUpperCase() : a))
@@ -73,8 +74,14 @@ function makeStash(): { stash: PayloadStash; store: Map<string, string> } {
             }
             return deleted
         },
+        incrby: async (key, increment) => {
+            const next = (quotas.get(key) ?? 0) + increment
+            quotas.set(key, next)
+            return next
+        },
+        expire: async () => 1,
     })
-    return { stash, store }
+    return { stash, store, quotas }
 }
 
 describe('prepareConfirmedAction', () => {
@@ -131,6 +138,43 @@ describe('prepareConfirmedAction', () => {
             })
         ).rejects.toThrow('too large')
         expect(store.size).toBe(0)
+    })
+
+    it('refuses to stash once the per-user window quota is exhausted', async () => {
+        // Per-payload and per-request caps alone still let a caller at the
+        // rate limit retain gigabytes within one token TTL; the aggregate
+        // quota is what bounds that. Dropping it reopens the exposure.
+        // Unique nonces per prepare — the shared makeCodec pins one nonce,
+        // which would collide in the stash across repeated prepares.
+        let nonceCounter = 0
+        const codec = new SignedStateCodec(Buffer.alloc(32, 0x42), {
+            now: () => 1_700_000_000_000,
+            randomNonce: () => `nonce-${nonceCounter++}`,
+            ttlSeconds: 300,
+        })
+        const { stash, store } = makeStash()
+        const args = { body: 'x'.repeat(900_000) }
+        for (let i = 0; i < 23; i++) {
+            await prepareConfirmedAction(makeContext('did-1'), {
+                args,
+                purpose: 'scout-create',
+                actionLabel: 'create scout',
+                messageTemplate: 'msg',
+                codec,
+                stash,
+            })
+        }
+        await expect(
+            prepareConfirmedAction(makeContext('did-1'), {
+                args,
+                purpose: 'scout-create',
+                actionLabel: 'create scout',
+                messageTemplate: 'msg',
+                codec,
+                stash,
+            })
+        ).rejects.toThrow('too much pending confirmation data')
+        expect(store.size).toBe(23)
     })
 
     it('leaves unknown placeholders literal so authors notice missing keys', async () => {

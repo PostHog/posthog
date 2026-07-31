@@ -57,6 +57,7 @@ import {
     SignedStateAlreadyConsumed,
     SignedStateCodec,
     SignedStateError,
+    STASH_QUOTA_BYTES_PER_WINDOW,
 } from '@/lib/signed-state'
 
 import type { Context } from './types'
@@ -176,9 +177,20 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
         confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'refused' })
         confirmedActionRefusalsTotal.inc({ tool: options.purpose, reason: 'payload_too_large' })
         throw new Error(
-            `${options.purpose} was not prepared — the action arguments are too large to confirm ` +
+            `${options.purpose} was not prepared: the action arguments are too large to confirm ` +
                 `(${serializedBytes} bytes; limit ${MAX_STASHED_PAYLOAD_BYTES}). Trim the arguments, ` +
                 `for example by shortening bundled file contents, and try again.`
+        )
+    }
+    const stashWindowSeconds = options.codec.ttlSeconds + PAYLOAD_STASH_TTL_MARGIN_SECONDS
+    const quotaTotal = await options.stash.charge(sub, serializedBytes, stashWindowSeconds)
+    if (quotaTotal > STASH_QUOTA_BYTES_PER_WINDOW) {
+        confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'refused' })
+        confirmedActionRefusalsTotal.inc({ tool: options.purpose, reason: 'stash_quota_exceeded' })
+        throw new Error(
+            `${options.purpose} was not prepared: too much pending confirmation data for this user ` +
+                `(${quotaTotal} bytes in the current window; limit ${STASH_QUOTA_BYTES_PER_WINDOW}). ` +
+                `Wait a few minutes for pending confirmations to expire and try again.`
         )
     }
     const reference: SignedPayloadReference = { digest: sha256Hex(serialized) }
@@ -248,7 +260,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
         return refuse(
             options.purpose,
             'wrong_word',
-            `${options.purpose} was not executed — the \`${CONFIRMATION_WORD_ARG}\` argument must be the literal string "${CONFIRMATION_WORD}", typed by the user. The user did not confirm.`
+            `${options.purpose} was not executed: the \`${CONFIRMATION_WORD_ARG}\` argument must be the literal string "${CONFIRMATION_WORD}", typed by the user. The user did not confirm.`
         )
     }
 
@@ -257,7 +269,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
         claims = await options.codec.decode(hash, sub, options.purpose)
     } catch (err) {
         if (err instanceof SignedStateError) {
-            return refuse(options.purpose, err.kind, `${options.purpose} was not executed — ${reasonFor(err)}.`)
+            return refuse(options.purpose, err.kind, `${options.purpose} was not executed: ${reasonFor(err)}.`)
         }
         throw err
     }
@@ -272,14 +284,14 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
             return refuse(
                 options.purpose,
                 'replay',
-                `${options.purpose} was not executed — this confirmation has already been used or its prepared payload has expired. Start a new prepare-then-execute cycle if you need to perform the action again.`
+                `${options.purpose} was not executed: this confirmation has already been used or its prepared payload has expired. Start a new prepare-then-execute cycle if you need to perform the action again.`
             )
         }
         if (sha256Hex(stored) !== claims.payload.digest) {
             return refuse(
                 options.purpose,
                 'digest_mismatch',
-                `${options.purpose} was not executed — the stored confirmation payload does not match the signed digest. Run the prepare step again.`
+                `${options.purpose} was not executed: the stored confirmation payload does not match the signed digest. Run the prepare step again.`
             )
         }
         let parsed: unknown
@@ -292,7 +304,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
             return refuse(
                 options.purpose,
                 'malformed_payload',
-                `${options.purpose} was not executed — confirmation payload is malformed.`
+                `${options.purpose} was not executed: confirmation payload is malformed.`
             )
         }
         wrapper = parsed as Partial<SignedConfirmedActionPayload>
@@ -312,7 +324,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
                 return refuse(
                     options.purpose,
                     'replay',
-                    `${options.purpose} was not executed — this confirmation has already been used. Start a new prepare-then-execute cycle if you need to perform the action again.`
+                    `${options.purpose} was not executed: this confirmation has already been used. Start a new prepare-then-execute cycle if you need to perform the action again.`
                 )
             }
             throw err
@@ -322,7 +334,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
             return refuse(
                 options.purpose,
                 'malformed_payload',
-                `${options.purpose} was not executed — confirmation payload is malformed.`
+                `${options.purpose} was not executed: confirmation payload is malformed.`
             )
         }
         wrapper = verified as Partial<SignedConfirmedActionPayload>
@@ -335,7 +347,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
         return refuse(
             options.purpose,
             'malformed_payload',
-            `${options.purpose} was not executed — confirmation payload is malformed.`
+            `${options.purpose} was not executed: confirmation payload is malformed.`
         )
     }
 
@@ -347,7 +359,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
         return refuse(
             options.purpose,
             'scope_mismatch',
-            `${options.purpose} was not executed — the confirmation was issued for a different project or organization than the one currently active. Switch back to the project the action was prepared in, or run the prepare step again in the current one.`
+            `${options.purpose} was not executed: the confirmation was issued for a different project or organization than the one currently active. Switch back to the project the action was prepared in, or run the prepare step again in the current one.`
         )
     }
 

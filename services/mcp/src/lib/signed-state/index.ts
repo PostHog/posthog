@@ -11,6 +11,7 @@ export {
     MAX_STASHED_PAYLOAD_BYTES,
     PAYLOAD_STASH_TTL_MARGIN_SECONDS,
     SIGNING_KEY_ENV_VAR,
+    STASH_QUOTA_BYTES_PER_WINDOW,
 } from './constants'
 export {
     SignedStateAlreadyConsumed,

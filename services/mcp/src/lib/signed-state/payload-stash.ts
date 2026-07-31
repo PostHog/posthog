@@ -19,7 +19,7 @@
  * every execute depend on shared Redis.
  */
 
-import { PAYLOAD_KEY_PREFIX } from './constants'
+import { PAYLOAD_KEY_PREFIX, PAYLOAD_QUOTA_KEY_PREFIX } from './constants'
 
 /**
  * Minimal Redis surface — just what the stash needs. Both `ioredis` (prod)
@@ -29,6 +29,8 @@ export interface PayloadStashRedis {
     set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>
     get(key: string): Promise<string | null>
     del(...keys: string[]): Promise<number>
+    incrby(key: string, increment: number): Promise<number>
+    expire(key: string, seconds: number): Promise<number>
 }
 
 export class PayloadStash {
@@ -47,6 +49,25 @@ export class PayloadStash {
             // 128 random bits per nonce: a collision here is a bug (nonce reuse), not chance.
             throw new Error(`Payload stash entry already exists for nonce ${nonce}`)
         }
+    }
+
+    /**
+     * Charge `bytes` against the user's fixed-window stash quota and return
+     * the window's running total. First write in a window sets the expiry
+     * (same shape as the request rate limiter); the caller compares the
+     * total against `STASH_QUOTA_BYTES_PER_WINDOW` and refuses above it.
+     * The counter is deliberately not decremented on take or expiry —
+     * over-counting consumed entries keeps the bookkeeping one atomic
+     * INCRBY instead of a reconciliation problem, and the window is sized
+     * so legitimate use never notices.
+     */
+    async charge(sub: string, bytes: number, windowSeconds: number): Promise<number> {
+        const key = `${PAYLOAD_QUOTA_KEY_PREFIX}:${sub}`
+        const total = await this.redis.incrby(key, bytes)
+        if (total === bytes) {
+            await this.redis.expire(key, Math.max(1, Math.ceil(windowSeconds)))
+        }
+        return total
     }
 
     /**

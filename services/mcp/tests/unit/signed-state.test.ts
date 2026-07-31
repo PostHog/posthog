@@ -199,6 +199,8 @@ describe('PayloadStash', () => {
                 }
                 return 1
             },
+            incrby: async (_key: string, increment: number) => increment,
+            expire: async () => 1,
         })
         const winner = await stash.take('nonce-1')
         stored.set('mcp:signed-state:payload:nonce-1', '{"args":{}}')
