@@ -439,7 +439,8 @@ describe('sqlEditorLogic', () => {
         logic.actions.createTab()
         await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
 
-        expect(logic.values.queryInput).toBeNull()
+        // A bare createTab() resets the buffer to a blank query
+        expect(logic.values.queryInput).toEqual('')
 
         logic.actions.setSourceQuery({
             ...logic.values.sourceQuery,
@@ -1266,6 +1267,36 @@ describe('sqlEditorLogic', () => {
 
             expect(logic.values.queryInput).toEqual(edited)
             expect(logic.values.sourceQuery.builder?.baseQuery).toEqual(edited)
+        })
+
+        it('resets the editor to a blank tab after saving a builder insight', async () => {
+            // The redirect to the saved insight leaves the editor tab behind — without a reset,
+            // returning to the SQL editor resurrects a stale, unlinked copy of the insight
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR], {
+                [FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]: true,
+            })
+            const createSpy = jest.spyOn(insightsApi, 'create').mockResolvedValue({ ...MOCK_BUILDER_INSIGHT })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.createTab('select * from events_copied limit 300000;')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setSourceQuery(MOCK_BUILDER_INSIGHT_QUERY)
+
+            logic.actions.saveAsInsightSubmit('Rows by event')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.queryInput).toEqual('')
+            expect(logic.values.sourceQuery.builder).toBeUndefined()
+            expect(logic.values.sourceQuery.source.query).toEqual('')
+            expect(logic.values.activeTab?.insight).toBeUndefined()
+            expect(logic.values.outputActiveTab).toEqual(OutputTab.Results)
+            createSpy.mockRestore()
         })
 
         it('adopts an edited buffer as the new base on a whole-buffer run of a builder tab', async () => {

@@ -1732,8 +1732,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // What the buffer should hold for the object being opened. Mirror of the
                 // open_insight gate: the buffer holds the base SQL only while the builder flag is
-                // on — with it off the compiled SQL is what the user edits.
-                const nextBufferText: string | undefined = query
+                // on — with it off the compiled SQL is what the user edits. A bare createTab()
+                // resets the buffer to a blank query.
+                const nextBufferText: string = query
                     ? query
                     : draft
                       ? draft.query.query
@@ -1744,7 +1745,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             insightVisualizationQuery.builder?.enabled
                               ? insightVisualizationQuery.builder.baseQuery
                               : insightVisualizationQuery.source.query || ''
-                          : undefined
+                          : query
 
                 // The Monaco model is a pre-creation optimization (the editor also creates it from
                 // its `path` binding on mount), but the tab's identity — insight, view, name — must
@@ -1755,7 +1756,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
                     let model = props.monaco.editor.getModel(uri)
                     if (!model) {
-                        model = props.monaco.editor.createModel(nextBufferText ?? query, 'hogQL', uri)
+                        model = props.monaco.editor.createModel(nextBufferText, 'hogQL', uri)
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
                         props.editor?.setModel(model)
@@ -1767,7 +1768,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 language: 'hogQL',
                             })
                         )
-                    } else if (nextBufferText !== undefined && model.getValue() !== nextBufferText) {
+                    } else if (model.getValue() !== nextBufferText) {
                         // The browser tab reuses one model across opened objects. When the query
                         // pane is hidden (Visualization tab) the model can't sync from the buffer
                         // state, so switching insights would otherwise show the previous object's
@@ -1788,9 +1789,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (insightVisualizationQuery) {
                     actions.setLastRunQuery(insightVisualizationQuery)
                 }
-                if (nextBufferText !== undefined) {
-                    actions.setQueryInput(nextBufferText)
-                }
+                actions.setQueryInput(nextBufferText)
 
                 // Focus the editor after creating a new tab
                 props.editor?.focus()
@@ -2558,6 +2557,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const timeoutId = window.setTimeout(() => umount(), 1000 * 10) // keep mounted for 10 seconds while we redirect
                 cache.timeouts = cache.timeouts || []
                 cache.timeouts.push(timeoutId)
+
+                // A builder save consumes the whole tab session — reset the editor to a blank
+                // query before redirecting, so returning to the SQL editor doesn't resurrect a
+                // stale, unlinked copy of the insight that was just saved
+                if (isBuilderInsight) {
+                    actions.createTab()
+                    actions.setSourceQuery({
+                        kind: NodeKind.DataVisualizationNode,
+                        source: { kind: NodeKind.HogQLQuery, query: '' },
+                        display: ChartDisplayType.Auto,
+                    })
+                    actions.setActiveTab(OutputTab.Results)
+                }
 
                 if (dashboardId) {
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(insight)
