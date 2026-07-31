@@ -4704,6 +4704,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "ai_stage": "research",
+                "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
@@ -4748,6 +4750,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    # implementation provenance is what the self-driving review carve-outs trust
+                    "ai_stage": "implementation",
+                    # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
+                    "self_driving_head_branch": "posthog-self-driving/attacker-000000",
                     "runtime_adapter": "codex",
                     "provider": "openai",
                     "model": "claude-opus-4-8",
@@ -4778,6 +4784,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
+        assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
@@ -6386,7 +6394,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["artifacts"], run.artifacts)
+        returned_artifacts = response.json()["artifacts"]
+        # The finalize response augments each entry with a presigned download URL that is not
+        # persisted on the manifest, so compare the stored fields separately from the URL.
+        self.assertEqual([{k: v for k, v in a.items() if k != "url"} for a in returned_artifacts], run.artifacts)
+        self.assertTrue(all(a.get("url") for a in returned_artifacts))
         mock_head_object.assert_not_called()
         mock_tag.assert_not_called()
 
