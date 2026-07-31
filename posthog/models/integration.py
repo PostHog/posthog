@@ -471,6 +471,7 @@ class Integration(models.Model):
         PARDOT = "pardot"
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
+        POSTHOG = "posthog"
         REDDIT_ADS = "reddit-ads"
         RESEND = "resend"
         S3_COMPATIBLE = "s3-compatible"
@@ -529,7 +530,8 @@ class Integration(models.Model):
             # The OAuth id is a list of advertiser ids, so prefer whoever authorized the connection.
             return self.config.get("user_email") or self.config.get("user_display_name") or self.integration_id
         if self.kind in OauthIntegration.supported_kinds:
-            oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
+            region = self.config.get("region") if self.kind == "posthog" else None
+            oauth_config = OauthIntegration.oauth_config_for_kind(self.kind, region)
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
         if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"
@@ -661,9 +663,61 @@ def _salesforce_instance_host(instance_url: str | None) -> str | None:
 SALESFORCE_OAUTH_KINDS = ("salesforce", "pardot")
 
 
+# PostHog cross-region connector. Unlike every other OAuth kind — which points at a fixed
+# third-party provider — the `posthog` kind points at *another PostHog cell*, chosen by the user
+# at connect time. So its authorize/token/userinfo URLs and client credentials are resolved per
+# target region rather than baked into a static config. The connecting cell is the OAuth client;
+# the target cell is the authorization server (its /oauth/authorize, /oauth/token, /oauth/userinfo,
+# /oauth/revoke already exist). `openid`+`email` are always requested on top of the user-selected
+# scopes so /oauth/userinfo can identify the connected account (`sub`/`email`).
+POSTHOG_CROSS_REGION_KIND = "posthog"
+POSTHOG_CROSS_REGION_ALLOWED_REGIONS = ("US", "EU", "DEV")
+POSTHOG_CROSS_REGION_DEFAULT_SCOPES = ("task:read", "task:write")
+POSTHOG_CROSS_REGION_IDENTITY_SCOPES = ("openid", "email")
+# The set a user may pick from at connect time. Deliberately narrow: a cross-region grant is
+# standing delegated access into another cell, so it is capped at the task verbs for v1 rather
+# than exposing `full`. Widen only with a security review. Identity scopes are auto-added and are
+# not part of this user-selectable set.
+POSTHOG_CROSS_REGION_GRANTABLE_SCOPES = frozenset(POSTHOG_CROSS_REGION_DEFAULT_SCOPES)
+
+
+def _posthog_cross_region_target(region: str | None) -> tuple[str, str, str]:
+    """Resolve (base_url, client_id, client_secret) for a cross-region target cell.
+
+    Raises NotImplementedError for an unknown or unconfigured region so the connect/refresh
+    paths fail closed (surfaced to the user as a reconnect error) rather than silently hitting
+    the wrong cell.
+    """
+    normalized = (region or "").upper()
+    targets = {
+        "US": (
+            settings.POSTHOG_CROSS_REGION_BASE_URL_US,
+            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_US,
+            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_US,
+        ),
+        "EU": (
+            settings.POSTHOG_CROSS_REGION_BASE_URL_EU,
+            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_EU,
+            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_EU,
+        ),
+        "DEV": (
+            settings.POSTHOG_CROSS_REGION_BASE_URL_DEV,
+            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_ID_DEV,
+            settings.POSTHOG_CROSS_REGION_OAUTH_CLIENT_SECRET_DEV,
+        ),
+    }
+    if normalized not in targets:
+        raise NotImplementedError(f"PostHog cross-region OAuth not supported for region {region!r}")
+    base_url, client_id, client_secret = targets[normalized]
+    if not base_url or not client_id or not client_secret:
+        raise NotImplementedError(f"PostHog cross-region app not configured for region {normalized}")
+    return base_url.rstrip("/"), client_id, client_secret
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
+        "posthog",
         "salesforce",
         "hubspot",
         "google-ads",
@@ -695,8 +749,11 @@ class OauthIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
-        config = cls._build_oauth_config(kind)
+    def oauth_config_for_kind(cls, kind: str, region: str | None = None) -> OauthConfig:
+        # `region` only applies to the `posthog` cross-region kind, whose endpoints depend on the
+        # target cell. cache_for keys on all args, so each (kind, region) pair caches separately;
+        # every other kind is called without region and keeps its single cached entry.
+        config = cls._build_oauth_config(kind, region)
         fallback = settings.OAUTH_CLIENT_FALLBACKS.get(kind)
         if fallback and fallback.get("client_secret"):
             config.client_secret_fallback = fallback["client_secret"]
@@ -704,7 +761,24 @@ class OauthIntegration:
         return config
 
     @classmethod
-    def _build_oauth_config(cls, kind: str) -> OauthConfig:
+    def _build_oauth_config(cls, kind: str, region: str | None = None) -> OauthConfig:
+        if kind == "posthog":
+            base_url, client_id, client_secret = _posthog_cross_region_target(region)
+            return OauthConfig(
+                authorize_url=f"{base_url}/oauth/authorize",
+                token_url=f"{base_url}/oauth/token",
+                token_info_url=f"{base_url}/oauth/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_revoke_url=f"{base_url}/oauth/revoke",
+                client_id=client_id,
+                client_secret=client_secret,
+                # Default only; authorize_url overrides with the user-selected scopes (plus the
+                # identity scopes). Token exchange/refresh don't send scope, so this is unused there.
+                scope=" ".join([*POSTHOG_CROSS_REGION_DEFAULT_SCOPES, *POSTHOG_CROSS_REGION_IDENTITY_SCOPES]),
+                id_path="sub",
+                name_path="email",
+                pkce=True,
+            )
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -1089,8 +1163,17 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "", team_id: int | None = None) -> str:
-        oauth_config = cls.oauth_config_for_kind(kind)
+    def authorize_url(
+        cls,
+        kind: str,
+        token: str,
+        next: str = "",
+        *,
+        region: str | None = None,
+        scopes: list[str] | None = None,
+        team_id: int | None = None,
+    ) -> str:
+        oauth_config = cls.oauth_config_for_kind(kind, region)
 
         # Carry the initiating team through the OAuth round-trip. The fixed callback URL is not
         # project-scoped, so without this the SPA re-resolves to the user's default team on
@@ -1098,6 +1181,15 @@ class OauthIntegration:
         state_payload: dict[str, str] = {"next": next, "token": token}
         if team_id is not None:
             state_payload["team_id"] = str(team_id)
+
+        scope = oauth_config.scope
+        if kind == "posthog":
+            # The target cell is the authorization server, so the callback (which runs on the
+            # connecting cell) needs to know which region to exchange the code against — carry it
+            # in state. Always append the identity scopes so /oauth/userinfo can name the account.
+            state_payload["region"] = (region or "").upper()
+            requested = list(scopes) if scopes else list(POSTHOG_CROSS_REGION_DEFAULT_SCOPES)
+            scope = " ".join(dict.fromkeys([*requested, *POSTHOG_CROSS_REGION_IDENTITY_SCOPES]))
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -1109,7 +1201,7 @@ class OauthIntegration:
         else:
             query_params = {
                 "client_id": oauth_config.client_id,
-                "scope": oauth_config.scope,
+                "scope": scope,
                 "redirect_uri": cls.redirect_uri(kind),
                 "response_type": "code",
                 "state": urlencode(state_payload),
@@ -1133,7 +1225,13 @@ class OauthIntegration:
     def integration_from_oauth_response(
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
-        oauth_config = cls.oauth_config_for_kind(kind)
+        region: str | None = None
+        if kind == "posthog":
+            # The target region was stashed in state at authorize time; the token exchange must hit
+            # that same cell. Missing/invalid region fails closed via _posthog_cross_region_target.
+            region = (parse_qs(params.get("state", "")).get("region", [""])[0] or "").upper()
+
+        oauth_config = cls.oauth_config_for_kind(kind, region)
 
         code_verifier: str | None = None
         if oauth_config.pkce:
@@ -1410,6 +1508,13 @@ class OauthIntegration:
                 logger.exception("Failed to fetch Stripe account name")
                 config["account_name"] = str(integration_id)
 
+        # Persist the target region and namespace the dedup key by it, so the same PostHog account
+        # connected in two different cells yields two distinct integrations instead of colliding on
+        # `sub`. `region` also drives config/refresh/revoke lookups for the lifetime of the row.
+        if kind == "posthog" and integration_id:
+            config["region"] = region
+            integration_id = f"{region}:{integration_id}"
+
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
         elif isinstance(integration_id, list) and len(integration_id) > 0:
@@ -1506,7 +1611,8 @@ class OauthIntegration:
         after a disconnect. Callers treat this as best-effort — the local deletion proceeds
         regardless.
         """
-        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        region = self.integration.config.get("region") if self.integration.kind == "posthog" else None
+        oauth_config = self.oauth_config_for_kind(self.integration.kind, region)
         if not oauth_config.token_revoke_url:
             return
 
@@ -1665,7 +1771,8 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        region = self.integration.config.get("region") if self.integration.kind == "posthog" else None
+        oauth_config = self.oauth_config_for_kind(self.integration.kind, region)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
