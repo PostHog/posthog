@@ -1225,6 +1225,8 @@ export interface HogQLQueryModifiersApi {
     timings?: boolean | null
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
+    /** Route queries that read only from materialized views (no joins to other tables) to the dedicated endpoints ClickHouse cluster — the same isolated S3-delta read path materialized endpoints use. */
+    useEndpointsClusterForMaterializedViewOnlyQueries?: boolean | null
     useMaterializedViews?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
