@@ -166,6 +166,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "SiteavailObservatory/1.0",
         "appzbot/1.0",
         "Optimize Pilot Research Bot/1.0",
+        "Mozilla/5.0 (compatible; SolvedEarthPriceBot/2.0; +https://solved.earth)",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",

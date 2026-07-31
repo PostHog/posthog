@@ -672,6 +672,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "AffsignalCrawler": BotDefinition("Affsignal", "seo_crawler", "Bot", "Affsignal"),
     "RankyDockyBot": BotDefinition("RankyDocky", "seo_crawler", "Bot", "RankyDocky"),
     "pricingbrief-bot": BotDefinition("PricingBrief", "seo_crawler", "Bot", "PricingBrief"),
+    "SolvedEarthPriceBot": BotDefinition(
+        "SolvedEarth Price", "seo_crawler", "Bot", "solved.earth", documentation_url="https://solved.earth"
+    ),
     "SiteavailObservatory": BotDefinition("Siteavail", "seo_crawler", "Bot", "Siteavail"),
     "appzbot": BotDefinition("appzbot", "seo_crawler", "Bot", "Unknown"),
     "Optimize Pilot Research Bot": BotDefinition("Optimize Pilot", "seo_crawler", "Bot", "Optimize Pilot"),
