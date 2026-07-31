@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 from posthog.schema import (
     CachedLogsQueryResponse,
     FilterLogicalOperator,
-    HogQLFilters,
     IntervalType,
     LogPropertyFilter,
     LogPropertyFilterType,
@@ -668,7 +667,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
         results = []
