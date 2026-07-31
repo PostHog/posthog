@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { buildBucketKeys, formatBucketLabel, normalizeBucket } from './timeBuckets'
+import { buildBucketKeys, formatBucketLabel, lastBucketIsInProgress, normalizeBucket } from './timeBuckets'
 
 describe('timeBuckets', () => {
     describe('normalizeBucket', () => {
@@ -101,6 +101,36 @@ describe('timeBuckets', () => {
             expect(formatBucketLabel('2026-06-01 09:30:00', 'minute')).toBe('Jun 1, 09:30')
             expect(formatBucketLabel('2026-06-01 09:00:00', 'hour')).toBe('Jun 1, 09:00')
             expect(formatBucketLabel('2026-06-01 00:00:00', 'day')).toBe('Jun 1')
+        })
+    })
+
+    describe('lastBucketIsInProgress', () => {
+        const tz = 'UTC'
+        const keys = ['2026-06-27 00:00:00', '2026-06-28 00:00:00', '2026-06-29 00:00:00']
+
+        it('flags the tail when the last bucket is the interval containing now', () => {
+            const now = dayjs.tz('2026-06-29 09:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
+        })
+
+        it('leaves the tail solid when the window ends in the past', () => {
+            const now = dayjs.tz('2026-07-05 09:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(false)
+        })
+
+        it('does not dash when there is no segment to dash', () => {
+            const now = dayjs.tz('2026-06-29 09:15:00', tz)
+            expect(lastBucketIsInProgress(['2026-06-29 00:00:00'], tz, 'day', now)).toBe(false)
+            expect(lastBucketIsInProgress([], tz, 'day', now)).toBe(false)
+        })
+
+        // The project timezone decides which bucket "now" falls in: at 23:15 UTC on the 29th it is
+        // already the 30th in Athens, so a window ending on the 29th is settled there but still
+        // collecting in UTC. Reading the browser's zone instead would dash the wrong tail.
+        it('resolves the current bucket in the project timezone, not the browser', () => {
+            const now = dayjs.tz('2026-06-29 23:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
+            expect(lastBucketIsInProgress(keys, 'Europe/Athens', 'day', now)).toBe(false)
         })
     })
 })

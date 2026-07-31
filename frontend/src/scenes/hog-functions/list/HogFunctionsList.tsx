@@ -288,7 +288,7 @@ export function HogFunctionList({
             })
         }
 
-        if (props.type === 'transformation') {
+        if (props.type === 'transformation' || props.type === 'transformation_log') {
             // insert it in the second column
             columns.splice(1, 0, {
                 title: 'Prio',

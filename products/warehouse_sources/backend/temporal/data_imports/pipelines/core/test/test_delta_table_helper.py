@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DELTA_MERGE_CONFLICT_RETRIES,
     DeltaTableHelper,
     _delta_merge_spill_kwargs,
+    _deltalite_write_stats,
     _first_per_pk_table,
     _merge_predicate_ops,
     _realign_decimal_buffers,
@@ -1371,3 +1373,151 @@ class TestNullSafeMergePredicate:
         # Documents the pre-fix behaviour the null-safe predicate corrects.
         result = self._seed_then_merge(tmp_path / "unsafe", ["source.id = target.id", "source.seg = target.seg"])
         assert result.num_rows == 2
+
+
+class TestDeltaliteWritePath:
+    """Phase 2: deltalite performs the real incremental merge, gated solely by a per-schema flag, with
+    a hard fallback to the delta-rs MERGE so a deltalite failure can never fail a sync."""
+
+    _FLAG = (
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core."
+        "deltalite_write.is_deltalite_write_enabled"
+    )
+
+    @pytest.fixture(autouse=True)
+    def _preload_write_metrics(self):
+        # _write_via_deltalite lazily imports the pipeline_v3 metrics module. These tests fake the
+        # `deltalite` module via patch.dict(sys.modules, ...), which on exit restores the enter-time
+        # snapshot and thus evicts any module first imported *inside* the block. If the metrics module
+        # were first loaded there, the next test would re-execute it and hit "Duplicated timeseries" in
+        # the global Prometheus registry. Loading it here (at setup, before any patch.dict) keeps it in
+        # the snapshot so it survives. Imported at runtime — not module top — to keep the heavy
+        # pipeline_v3 chain off collection.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load import (  # noqa: F401
+            metrics,
+        )
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=_make_logger())
+
+    async def _call(self, helper: DeltaTableHelper) -> bool:
+        return await helper._write_via_deltalite(
+            existing_delta_table=MagicMock(),
+            data=pa.table({"id": pa.array([1], pa.int64())}),
+            normalized_primary_keys=["id"],
+            use_partitioning=False,
+            commit_metadata={"run_uuid": "abc"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_skips_without_primary_keys(self):
+        # No primary keys => nothing to key an upsert on; fall back without even evaluating the flag.
+        with patch(self._FLAG) as flag:
+            wrote = await self._helper()._write_via_deltalite(
+                existing_delta_table=MagicMock(),
+                data=pa.table({"id": pa.array([1], pa.int64())}),
+                normalized_primary_keys=[],
+                use_partitioning=False,
+                commit_metadata=None,
+            )
+        assert wrote is False
+        flag.assert_not_called()
+
+    def test_write_stats_flattens_scalar_getters_only(self):
+        # Enumerates scalar attributes (so future crate fields flow through) and drops methods/non-scalars.
+        stats = SimpleNamespace(version=7, rows_inserted=2, files_added=1, _private=9)
+        stats.helper = lambda: None  # callable attribute must be ignored
+        assert _deltalite_write_stats(stats) == {"version": 7, "rows_inserted": 2, "files_added": 1}
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_flag_disabled(self):
+        with patch(self._FLAG, return_value=False):
+            assert await self._call(self._helper()) is False
+
+    @pytest.mark.asyncio
+    async def test_writes_via_deltalite_when_enabled(self):
+        logger = _make_logger()  # captured so we can inspect the structured log without hitting the typed attr
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
+        existing = MagicMock()
+        # SimpleNamespace stands in for the pyo3 UpsertStats: predictable scalar getters for the structured log.
+        fake_stats = SimpleNamespace(
+            version=5, partitions_touched=1, rows_inserted=3, rows_updated=2, rows_copied=10, null_pk_rows=0
+        )
+        fake_table = MagicMock()
+        fake_table.upsert.return_value = fake_stats
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        with (
+            patch(self._FLAG, return_value=True),
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={"AWS_REGION": "us-east-1"}),
+        ):
+            wrote = await helper._write_via_deltalite(
+                existing_delta_table=existing,
+                data=pa.table({"id": pa.array([1], pa.int64())}),
+                normalized_primary_keys=["id"],
+                use_partitioning=True,
+                commit_metadata={"run_uuid": "abc"},
+            )
+        assert wrote is True
+        fake_deltalite.DeltaLiteTable.open.assert_called_once_with("s3://b/t", {"AWS_REGION": "us-east-1"})
+        fake_table.upsert.assert_called_once()
+        # PARTITION_KEY is passed as the partition arg when the table is partitioned.
+        assert fake_table.upsert.call_args.args[2] == PARTITION_KEY
+        existing.update_incremental.assert_called_once()
+        # The commit is logged with the UpsertStats fields as structured keys + a duration, so it's parseable.
+        logger.ainfo.assert_called_once()
+        log_kwargs = logger.ainfo.call_args.kwargs
+        assert log_kwargs["version"] == 5
+        assert log_kwargs["rows_inserted"] == 3
+        assert log_kwargs["partitions_touched"] == 1
+        assert "duration_ms" in log_kwargs
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_deltalite_raises(self):
+        helper = self._helper()
+        fake_table = MagicMock()
+        fake_table.upsert.side_effect = RuntimeError("commit conflict, retries exhausted")
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        with (
+            patch(self._FLAG, return_value=True),
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+        ):
+            wrote = await self._call(helper)
+        assert wrote is False  # deltalite blew up -> caller falls through to the delta-rs MERGE
+
+    @parameterized.expand([("refresh",), ("log",)])
+    @pytest.mark.asyncio
+    async def test_post_commit_failure_does_not_fall_back(self, failing_step: str):
+        # Once the upsert commits, NO post-commit step (handle refresh, log, metric) may raise into the
+        # caller — that would return False / bubble up and re-run the MERGE on top of deltalite's commit.
+        logger = _make_logger()  # set the side effect on the mock before it becomes the typed _logger attr
+        existing = MagicMock()
+        if failing_step == "refresh":
+            existing.update_incremental.side_effect = RuntimeError("post-commit refresh boom")
+        else:
+            logger.ainfo.side_effect = RuntimeError("post-commit log boom")
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
+        fake_table = MagicMock()
+        fake_table.upsert.return_value = MagicMock(version=5, rows_inserted=1, rows_updated=0, rows_copied=0)
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        with (
+            patch(self._FLAG, return_value=True),
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+        ):
+            wrote = await helper._write_via_deltalite(
+                existing_delta_table=existing,
+                data=pa.table({"id": pa.array([1], pa.int64())}),
+                normalized_primary_keys=["id"],
+                use_partitioning=False,
+                commit_metadata=None,
+            )
+        assert wrote is True  # committed; the post-commit failure is swallowed
+        fake_table.upsert.assert_called_once()

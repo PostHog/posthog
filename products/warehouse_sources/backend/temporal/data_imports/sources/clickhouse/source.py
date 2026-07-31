@@ -8,6 +8,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -114,7 +115,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
-            releaseStatus="beta",
+            keywords=["sql"],
+            releaseStatus=ReleaseStatus.GA,
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clickhouse",
@@ -292,6 +294,13 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "returned response code 502",
             "returned response code 503",
             "returned response code 504",
+            # urllib3 raises this when the source drops the connection mid-transfer while
+            # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
+            # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time
+            # drops above, this happens after the client is already constructed, so
+            # `_get_client`'s in-process retry never sees it; Temporal's activity retry
+            # reopens a fresh tunnel + client and resumes from the last committed cursor.
+            "Connection broken: IncompleteRead",
         }
 
     @contextmanager

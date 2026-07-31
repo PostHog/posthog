@@ -2,6 +2,7 @@ import os
 import logging
 from collections.abc import Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
 from typing import TYPE_CHECKING
@@ -88,18 +89,26 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
-__user_dict: Mapping[ClickHouseUser, tuple[str, str]] | None = None
+@dataclass(frozen=True)
+class ClickHouseCredentials:
+    user: str
+    password: str = field(repr=False)
 
 
-def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
+__user_dict: Mapping[ClickHouseUser, ClickHouseCredentials] | None = None
+
+
+def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
     user_dict = {
-        ClickHouseUser.DEFAULT: (data_stores.CLICKHOUSE_USER, data_stores.CLICKHOUSE_PASSWORD),
+        ClickHouseUser.DEFAULT: ClickHouseCredentials(
+            user=data_stores.CLICKHOUSE_USER, password=data_stores.CLICKHOUSE_PASSWORD
+        ),
     }
     for u in ClickHouseUser:
         user = os.getenv(f"CLICKHOUSE_{u.name.upper()}_USER")
         password = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD")
         if user and password:
-            user_dict[u] = (user, password)
+            user_dict[u] = ClickHouseCredentials(user=user, password=password)
         elif bool(user) != bool(password):
             logging.warning(f"only one of clickhouse user/password provided, check your config")
     user_names = ",".join([x.name for x in user_dict.keys()])
@@ -107,7 +116,7 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
     return user_dict
 
 
-def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
+def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     """
     Retrieve ClickHouse credentials for the specified user.
 
@@ -122,15 +131,11 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
     Args:
         user (ClickHouseUser): The user whose ClickHouse credentials need
                                to be retrieved.
-
-    Returns:
-        tuple[str, str]: A tuple containing the username and password associated
-                         with the specified user.
     """
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()
-    return __user_dict[user] if user in __user_dict else __user_dict[ClickHouseUser.DEFAULT]
+    return __user_dict.get(user, __user_dict[ClickHouseUser.DEFAULT])
 
 
 class ProxyClient:
@@ -224,8 +229,8 @@ def get_kwargs_for_client(
             "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
         }
 
-    (user, password) = get_clickhouse_creds(ch_user)
-    base_kwargs = {"user": user, "password": password}
+    creds = get_clickhouse_creds(ch_user)
+    base_kwargs = {"user": creds.user, "password": creds.password}
 
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]

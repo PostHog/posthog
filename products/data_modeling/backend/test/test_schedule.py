@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from parameterized import parameterized
 from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.models import Node
@@ -219,6 +220,49 @@ class TestMonthlySpec:
             spec = build_schedule_spec(entity_id, timedelta(days=30))
             days[spec.calendars[0].day_of_month[0].start] += 1
         assert len(days) == 28
+
+
+class TestTierPhaseAlignment:
+    """Cadence tiers of one DAG must not be phase-aligned.
+
+    All tiers of a DAG derive their bucket from the same entity_id, so unless the
+    interval participates in the salt, a coarser tier's fire times are a subset of
+    every finer tier's — every tier of a DAG piles onto the same minute/hour.
+    """
+
+    N = 500
+
+    @staticmethod
+    def _minute_set(spec) -> set[int]:
+        return {r.start for r in spec.calendars[0].minute}
+
+    @staticmethod
+    def _hour_set(spec) -> set[int]:
+        return {r.start for r in spec.calendars[0].hour}
+
+    @parameterized.expand(
+        [
+            ("15min_vs_30min", timedelta(minutes=15), timedelta(minutes=30), "_minute_set"),
+            ("15min_vs_1hr", timedelta(minutes=15), timedelta(hours=1), "_minute_set"),
+            ("30min_vs_1hr", timedelta(minutes=30), timedelta(hours=1), "_minute_set"),
+            ("6hr_vs_12hr", timedelta(hours=6), timedelta(hours=12), "_hour_set"),
+            ("6hr_vs_24hr", timedelta(hours=6), timedelta(hours=24), "_hour_set"),
+            ("12hr_vs_24hr", timedelta(hours=12), timedelta(hours=24), "_hour_set"),
+            ("24hr_vs_weekly", timedelta(hours=24), timedelta(days=7), "_hour_set"),
+        ]
+    )
+    def test_coarser_tier_not_contained_in_finer(self, _name, finer, coarser, extractor):
+        buckets = getattr(self, extractor)
+        aligned = 0
+        for i in range(self.N):
+            entity_id = uuid.UUID(int=i)
+            finer_set = buckets(build_schedule_spec(entity_id, finer))
+            coarser_set = buckets(build_schedule_spec(entity_id, coarser))
+            if coarser_set <= finer_set:
+                aligned += 1
+        # Incidental overlap is fine (expected ~1/interval-ratio of ids); systematic
+        # alignment is the defect.
+        assert aligned < self.N // 2, f"{aligned}/{self.N} ids have the coarser tier phase-aligned into the finer"
 
 
 class TestBuildScheduleSpecEdgeCases:

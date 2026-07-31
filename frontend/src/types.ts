@@ -1043,6 +1043,10 @@ export enum PropertyOperator {
     IsNot = 'is_not',
     IContains = 'icontains',
     NotIContains = 'not_icontains',
+    StartsWith = 'starts_with',
+    NotStartsWith = 'not_starts_with',
+    EndsWith = 'ends_with',
+    NotEndsWith = 'not_ends_with',
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
@@ -1868,6 +1872,7 @@ export enum PersonsTabType {
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
     EMAILS = 'emails',
+    PUSH_NOTIFICATIONS = 'pushNotifications',
 }
 
 export enum GroupsTabType {

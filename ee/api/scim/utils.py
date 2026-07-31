@@ -93,13 +93,13 @@ def enable_scim_for_config(config: IdentityProviderConfig) -> str:
     Enable SCIM for an IdentityProviderConfig and generate a new bearer token.
     Returns the plain text token (only shown once).
     """
-    plain_token, hashed_token = generate_scim_token()
+    token = generate_scim_token()
 
     config.scim_enabled = True
-    config.scim_bearer_token = hashed_token
+    config.scim_bearer_token = token.hashed
     config.save()
 
-    return plain_token
+    return token.plain
 
 
 def disable_scim_for_config(config: IdentityProviderConfig) -> None:
@@ -116,12 +116,12 @@ def regenerate_scim_token_for_config(config: IdentityProviderConfig) -> str:
     Regenerate SCIM bearer token for an IdentityProviderConfig.
     Returns the new plain text token (only shown once).
     """
-    plain_token, hashed_token = generate_scim_token()
+    token = generate_scim_token()
 
-    config.scim_bearer_token = hashed_token
+    config.scim_bearer_token = token.hashed
     config.save()
 
-    return plain_token
+    return token.plain
 
 
 def get_scim_base_url(domain: OrganizationDomain, request=None) -> str:
