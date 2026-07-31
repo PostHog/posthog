@@ -51,6 +51,11 @@ class AppStoreConnectEndpointConfig:
     # the DAILY/SUMMARY combination of each report type.
     report_version: str = ""
     report_frequency: str = "DAILY"
+    # Apple 404s a SALES report request for a date with no data. Subscription-family report types
+    # (SUBSCRIPTION, SUBSCRIPTION_EVENT) instead 400 with a misleading "Invalid vendor number
+    # specified" error for that same condition — a longstanding, publicly reported Apple API quirk,
+    # not an actual credentials problem. Treat both as "no report for this day" for those types.
+    missing_report_status_codes: tuple[int, ...] = (404,)
 
 
 _REPORT_DATE_FIELD: IncrementalField = incremental_field("report_date", IncrementalFieldType.Date)
@@ -139,6 +144,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
+        missing_report_status_codes=(404, 400),
     ),
     # Daily subscription lifecycle events (renewals, cancellations, upgrades).
     "subscription_event_reports": AppStoreConnectEndpointConfig(
@@ -151,6 +157,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
+        missing_report_status_codes=(404, 400),
     ),
 }
 
