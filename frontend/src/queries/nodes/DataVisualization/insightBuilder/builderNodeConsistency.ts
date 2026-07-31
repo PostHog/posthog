@@ -1,8 +1,30 @@
-import { DataVisualizationNode } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightBuilderConfig } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { effectiveWells } from './chartCapabilities'
-import { compileBuilderQuery } from './compileBuilderQuery'
+import { CompiledBuilderQuery, compileBuilderQuery } from './compileBuilderQuery'
+
+/**
+ * Compile a builder config exactly the way applyWells does for a given chart type: only the
+ * wells the chart can express participate (extras stay stashed in the config). Throws
+ * BuilderCompileError for unusable configs, like compileBuilderQuery.
+ */
+export function compileNodeBuilder(
+    builder: InsightBuilderConfig,
+    display: DataVisualizationNode['display']
+): CompiledBuilderQuery {
+    const effectiveDisplay = display && display !== ChartDisplayType.Auto ? display : ChartDisplayType.ActionsTable
+    const effective = effectiveWells(
+        { rows: builder.rows, columns: builder.columns, values: builder.values },
+        effectiveDisplay
+    )
+    return compileBuilderQuery({
+        ...builder,
+        rows: effective.rows,
+        columns: effective.columns,
+        values: effective.values,
+    })
+}
 
 // Whitespace-insensitive comparison: formatting-only changes to the compiler must not flag every
 // previously saved insight as edited. Structural drift (different fields, functions, clauses)
@@ -27,18 +49,7 @@ export function builderConfigMatchesQuery(node: DataVisualizationNode): boolean 
         return true
     }
     try {
-        const display =
-            node.display && node.display !== ChartDisplayType.Auto ? node.display : ChartDisplayType.ActionsTable
-        const effective = effectiveWells(
-            { rows: builder.rows, columns: builder.columns, values: builder.values },
-            display
-        )
-        const compiled = compileBuilderQuery({
-            ...builder,
-            rows: effective.rows,
-            columns: effective.columns,
-            values: effective.values,
-        })
+        const compiled = compileNodeBuilder(builder, node.display)
         return normalizeSql(compiled.sql) === normalizeSql(node.source.query)
     } catch {
         return false

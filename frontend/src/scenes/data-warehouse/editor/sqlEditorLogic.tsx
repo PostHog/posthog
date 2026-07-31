@@ -56,6 +56,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { compileNodeBuilder } from '~/queries/nodes/DataVisualization/insightBuilder/builderNodeConsistency'
+import { detectSelectAllTarget } from '~/queries/nodes/DataVisualization/insightBuilder/compileBuilderQuery'
 import { performQuery, queryExportContext } from '~/queries/query'
 import {
     DataTableNode,
@@ -66,6 +68,7 @@ import {
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLQuery,
+    InsightBuilderConfig,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
@@ -1988,8 +1991,47 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // insight opened with the feature flag off is a plain SQL tab: the buffer holds the
                 // compiled SQL and runs must execute (and save) the buffer, not the stored text.
                 const builderOwned = values.insightBuilderHosted && !!values.sourceQuery.builder?.enabled
+
+                // Builder tabs: an explicit whole-buffer Run means "this is my new base" — adopt
+                // the edited buffer into the builder config and recompile the wells against it,
+                // so the run (and the Source grid) reflect what the user just wrote. Only a
+                // partial selection is an ad-hoc run. Buffers the builder can't compile against
+                // (multiple statements, empty wells) fall through to running the stored insight.
+                let adoptedCompiledSql: string | null = null
+                if (builderOwned) {
+                    const buffer = values.queryInput ?? ''
+                    const wholeRun = !queryOverride || queryOverride.trim() === buffer.trim()
+                    const builder = values.sourceQuery.builder!
+                    if (wholeRun && buffer.trim() && buffer.trim() !== builder.baseQuery.trim()) {
+                        const editingView = values.editingView
+                        const baseView =
+                            detectSelectAllTarget(buffer) ??
+                            (editingView && buffer.trim() === (editingView.query?.query ?? '').trim()
+                                ? (editingView.name ?? null)
+                                : null)
+                        const newBuilder: InsightBuilderConfig = {
+                            ...builder,
+                            baseQuery: buffer,
+                            baseView: baseView ?? undefined,
+                        }
+                        try {
+                            const compiled = compileNodeBuilder(newBuilder, values.sourceQuery.display)
+                            actions.setSourceQuery({
+                                ...values.sourceQuery,
+                                builder: newBuilder,
+                                source: { ...values.sourceQuery.source, query: compiled.sql },
+                            })
+                            adoptedCompiledSql = compiled.sql
+                        } catch {
+                            // Not a usable base — run the stored insight as before
+                        }
+                    }
+                }
+
                 let query: string
-                if (queryOverride) {
+                if (adoptedCompiledSql) {
+                    query = adoptedCompiledSql
+                } else if (queryOverride) {
                     // Explicit override (e.g. user selected text and pressed Cmd+Enter). On a
                     // builder tab, selecting the whole buffer and running means "run the insight",
                     // exactly like the Run button — only a partial selection is an ad-hoc run.
@@ -2000,8 +2042,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } else if (builderOwned) {
                     // The builder owns execution while enabled: the Monaco buffer holds the *base*
                     // query, and running it would replace the compiled SQL and orphan the chart
-                    // (its settings reference compiled aliases). Run the compiled text — an edited
-                    // base flows in through the Data column's "Refresh fields" / tab-open refresh.
+                    // (its settings reference compiled aliases). Run the compiled text.
                     query = values.sourceQuery.source.query
                 } else {
                     // No override — find the query under the cursor

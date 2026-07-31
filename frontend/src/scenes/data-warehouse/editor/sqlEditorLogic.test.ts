@@ -1201,6 +1201,49 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.query).toEqual(compiled)
         })
 
+        it('adopts an edited buffer as the new base on a whole-buffer run of a builder tab', async () => {
+            // Editing the base SQL in Source and pressing Run must actually apply the edit —
+            // re-running the stored base looks like a refresh while silently ignoring the change
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR], {
+                [FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]: true,
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.createTab('')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT plan AS plan, count() AS count_star FROM (SELECT * FROM payments LIMIT 5000) GROUP BY plan',
+                },
+                display: ChartDisplayType.ActionsBar,
+                builder: {
+                    enabled: true,
+                    baseQuery: 'SELECT * FROM payments LIMIT 5000',
+                    rows: [],
+                    columns: [{ column: 'plan' }],
+                    values: [{ column: '*', aggregation: 'count' }],
+                },
+            })
+            const editedBase = 'SELECT * FROM payments WHERE amount > 0 LIMIT 2000'
+            logic.actions.setQueryInput(editedBase)
+
+            logic.actions.runQuery()
+
+            expect(logic.values.sourceQuery.builder?.baseQuery).toEqual(editedBase)
+            expect(logic.values.sourceQuery.source.query).toContain(`FROM (\n${editedBase}\n)`)
+            expect(logic.values.lastRunQuery?.source.query).toEqual(logic.values.sourceQuery.source.query)
+            // The Source grid follows the adopted base
+            expect(logic.values.basePreviewSource?.query).toEqual(editedBase)
+        })
+
         it('treats a builder insight as a plain SQL tab when the builder flag is off', async () => {
             // A builder insight edited with the flag off: the buffer holds the compiled SQL and
             // is the source of truth — runs must execute the edited buffer and write it into the
