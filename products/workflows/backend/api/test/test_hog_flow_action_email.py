@@ -110,7 +110,7 @@ def _webhook_action() -> dict:
 
 
 def _stored_email_value(flow: HogFlow, from_draft: bool = False) -> dict:
-    actions = (flow.draft or {}).get("actions") if from_draft else flow.actions
+    actions = ((flow.draft or {}).get("actions") if from_draft else flow.actions) or []
     action = next(a for a in actions if a["id"] == "email_1")
     return action["config"]["inputs"]["email"]["value"]
 
@@ -140,12 +140,10 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         return flow_id
 
     def _patch_email(self, flow_id: str, body: dict, action_id: str = "email_1", mcp: bool = True):
-        extra = {"HTTP_X_POSTHOG_CLIENT": "mcp"} if mcp else {}
-        return self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/actions/{action_id}/email",
-            body,
-            **extra,
-        )
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/actions/{action_id}/email"
+        if mcp:
+            return self.client.patch(url, body, HTTP_X_POSTHOG_CLIENT="mcp")
+        return self.client.patch(url, body)
 
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
     def test_design_op_updates_block_and_rerenders_html(self, mock_render):
@@ -291,6 +289,7 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
 
         flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
         draft_action = next(a for a in flow.draft["actions"] if a["id"] == "email_1")
         assert draft_action["name"] == "Renamed step"
         assert draft_action["config"]["inputs"]["email"]["value"]["subject"] == "Draft subject"
