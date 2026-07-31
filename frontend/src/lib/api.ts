@@ -3551,8 +3551,11 @@ const api = {
                             // If we can't read the response, just use the status
                         }
 
-                        // For any error, call onError and abort to prevent retries
-                        onError(new Error(errorMessage))
+                        // Carry the real HTTP status so callers can classify the failure by status code
+                        // rather than string-matching the message (which misfires on transient/stream errors).
+                        const error = new Error(errorMessage) as Error & { status?: number }
+                        error.status = response.status
+                        onError(error)
                         abortController.abort()
                         return
                     }
@@ -6265,8 +6268,16 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
-            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
+        authorizeUrl(params: { kind: string; next?: string; extraParams?: Record<string, string> }): string {
+            // `kind` and `next` are common to every integration; anything kind-specific (e.g. the
+            // posthog connection's `region`/`scopes`) rides along in `extraParams` rather than
+            // bloating this shared signature.
+            const { extraParams, ...common } = params
+            return new ApiRequest()
+                .integrations()
+                .withAction('authorize')
+                .withQueryString({ ...common, ...extraParams })
+                .assembleFullUrl(true)
         },
         async slackChannels(
             id: IntegrationType['id'],

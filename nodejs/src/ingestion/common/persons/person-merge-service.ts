@@ -247,6 +247,11 @@ export class PersonMergeService {
         //      the Distinct ID has been merged. This is important so that an event being processed
         //      concurrently for that Distinct ID doesn't emit an event and _miss_ that a different
         //      Person UUID needs to be used now. (See the `processPerson` code in `update` for more.)
+        //
+        // When `mergeAlwaysV1` is on for the team, check 1 is skipped: every merge-added mapping
+        // gets version 1 regardless of personless history. Version 1 is safe in both cases — the
+        // override either re-points real personless events or is a harmless transient row the
+        // squash job deletes. The upsert (check 2) still runs for the `is_merged` race hint.
 
         if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
             // Only one of the two Distinct IDs points at an existing Person
@@ -262,11 +267,10 @@ export class PersonMergeService {
             this.discardOverrideCounts()
             const result = await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctIdToAdd
-                )
-                const distinctIdVersion = insertedDistinctId ? 0 : 1
+                const insertedDistinctId = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctIdToAdd)
+                const distinctIdVersion = this.context.personlessRollout.mergeAlwaysV1 || !insertedDistinctId ? 1 : 0
                 this.recordOverrideCount('oneExists', distinctIdVersion > 0)
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
@@ -299,11 +303,14 @@ export class PersonMergeService {
 
             this.discardOverrideCounts()
             const result = await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
-
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
+                // See comment above about `distinctIdVersion`. With personless writes disabled the
+                // upserts are skipped; the always-v1 branch below never reads the results.
+                const insertedDistinctId1 = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
+                const insertedDistinctId2 = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
 
                 // `createPerson` uses the first Distinct ID provided to generate the Person
                 // UUID. That means the first Distinct ID definitely doesn't need an override,
@@ -312,7 +319,11 @@ export class PersonMergeService {
                 // need to actually write an override. (But mostly we're being verbose for
                 // documentation purposes)
                 let distinctId2Version = 0
-                if (insertedDistinctId1 && insertedDistinctId2) {
+                if (this.context.personlessRollout.mergeAlwaysV1) {
+                    // The upsert results are not consulted: the second Distinct ID always gets an
+                    // override, and no swap is needed since the first one derives the Person UUID.
+                    distinctId2Version = 1
+                } else if (insertedDistinctId1 && insertedDistinctId2) {
                     // We were the first to insert both (neither was used for Personless), so we
                     // can use either as the primary Person UUID and create no overrides.
                 } else if (insertedDistinctId1 && !insertedDistinctId2) {
@@ -605,8 +616,10 @@ export class PersonMergeService {
                 const addMessages: PersonMessage[] = []
                 for (const pair of missingPairs) {
                     // See mergeDistinctIds for the personless distinctIdVersion logic.
-                    const inserted = await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
-                    const distinctIdVersion = inserted ? 0 : 1
+                    const inserted = this.context.personlessRollout.writesDisabled
+                        ? false
+                        : await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
+                    const distinctIdVersion = this.context.personlessRollout.mergeAlwaysV1 || !inserted ? 1 : 0
                     this.recordOverrideCount('fold', distinctIdVersion > 0)
                     addMessages.push(...(await tx.addDistinctId(person, pair.anonDistinctId, distinctIdVersion)))
                 }
