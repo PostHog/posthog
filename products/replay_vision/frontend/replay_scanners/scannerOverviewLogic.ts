@@ -114,11 +114,11 @@ export interface scannerOverviewLogicActions {
         value: true
     }
     drillIntoObservations: (
-        day: string | number | undefined,
+        day: number | string | undefined,
         breakdown?: unknown
     ) => {
-        day: string | number | undefined
-        breakdown?: unknown
+        breakdown: unknown
+        day: number | string | undefined
     }
     loadOverviewImpact: () => any
     loadOverviewImpactFailure: (
