@@ -89,6 +89,21 @@ describe('canvas-size', () => {
                 plotHeight,
             })
         })
+
+        // `Math.max(0, NaN)` is NaN, so a non-finite rect/margin used to poison the plot size — a NaN
+        // pixel range maps every point and axis tick to NaN, blanking the chart while x-only tooltips
+        // still fire. Every dimension must stay finite and non-negative.
+        it.each([
+            { name: 'a NaN height', rect: { width: 600, height: NaN } },
+            { name: 'an infinite height', rect: { width: 600, height: Infinity } },
+            { name: 'a NaN width', rect: { width: NaN, height: 400 } },
+        ])('floors the plot size to a finite, non-negative value for $name', ({ rect }) => {
+            const d = buildDimensions(rect, DEFAULT_MARGINS)
+            expect(isFinite(d.plotWidth)).toBe(true)
+            expect(isFinite(d.plotHeight)).toBe(true)
+            expect(d.plotWidth).toBeGreaterThanOrEqual(0)
+            expect(d.plotHeight).toBeGreaterThanOrEqual(0)
+        })
     })
 
     describe('sameDimensions', () => {

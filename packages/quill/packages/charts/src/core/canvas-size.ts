@@ -48,14 +48,22 @@ export function syncCanvasSize(canvas: HTMLCanvasElement, rect: SizeRect, dpr: n
     return resized
 }
 
+// `Math.max(0, NaN)` is `NaN`, not `0` — so a single non-finite input (an unmeasured container, a
+// NaN margin) would silently poison the plot size. A NaN `plotWidth`/`plotHeight` flows straight
+// into the value-scale pixel range, mapping every point and axis tick to NaN: the chart paints
+// nothing while x-only pointer hit-testing still fires tooltips. Floor to a finite, non-negative size.
+function finitePlotSize(size: number): number {
+    return isFinite(size) && size > 0 ? size : 0
+}
+
 export function buildDimensions(rect: SizeRect, margins: ChartMargins): ChartDimensions {
     return {
         width: rect.width,
         height: rect.height,
         plotLeft: margins.left,
         plotTop: margins.top,
-        plotWidth: Math.max(0, rect.width - margins.left - margins.right),
-        plotHeight: Math.max(0, rect.height - margins.top - margins.bottom),
+        plotWidth: finitePlotSize(rect.width - margins.left - margins.right),
+        plotHeight: finitePlotSize(rect.height - margins.top - margins.bottom),
     }
 }
 
