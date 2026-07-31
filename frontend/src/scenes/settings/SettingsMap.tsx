@@ -2139,7 +2139,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'personal-integrations-posthog',
-                title: 'Another PostHog project',
+                title: 'PostHog project',
                 description:
                     'Connect another PostHog project (in another region or your own) to act in it through its API, for example to dispatch tasks that must run there.',
                 component: <PersonalPosthogConnections />,
