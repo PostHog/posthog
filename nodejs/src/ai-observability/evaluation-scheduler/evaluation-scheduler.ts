@@ -50,7 +50,7 @@ const evaluationSchedulerEventsProcessed = new Counter({
 const evaluationMatchesCounter = new Counter({
     name: 'evaluation_matches',
     help: 'Number of evaluation matches by outcome',
-    labelNames: ['outcome', 'type'], // matched, filtered, sampling_excluded, error × evaluation/tagger
+    labelNames: ['outcome', 'type'], // matched, filtered, sampling_excluded, error × evaluation/tagger; no_ai_session_id on evaluation only
 })
 
 const evaluationSchedulerMessagesReceived = new Counter({
