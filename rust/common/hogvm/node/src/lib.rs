@@ -108,6 +108,7 @@ pub fn execute_batch(
     let events = events
         .into_iter()
         .map(|event| {
+            // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
             unsafe { Value::from_napi_value(env.raw(), event.raw()) }.map_err(|e| e.reason)
         })
         .collect();
