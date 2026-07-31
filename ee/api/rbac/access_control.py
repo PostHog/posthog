@@ -219,7 +219,7 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
         if name_field is None:
             return {}
         try:
-            rows = model.objects.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
+            rows = model._default_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
             return {str(pk): name for pk, name in rows}
         except Exception:
             return {}
@@ -229,7 +229,7 @@ def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) 
     app_label, model_name, name_field = registry
     try:
         model = apps.get_model(app_label, model_name)
-        rows = model.objects.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
+        rows = model._default_manager.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
         return {str(pk): name for pk, name in rows}
     except Exception:
         # Type mismatch on pk (e.g. non-numeric id for an int pk), missing model, or missing team_id column
@@ -893,12 +893,12 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
     def _property_rules_response(self, team: Team, **rule_filter) -> Response:
         """Property restrictions belonging to one subject (anything below read & write)."""
-        from products.access_control.backend.models.property_access_control import (  # noqa: PLC0415 — product model, keep off import path
-            PropertyAccessControl,
-        )
+        # Resolved dynamically: `ee` cannot import `products.access_control` (the product depends
+        # on `ee`, so a static import would make the dependency circular)
+        PropertyAccessControl = apps.get_model("access_control", "PropertyAccessControl")
 
         rows = (
-            PropertyAccessControl.objects.filter(team=team, **rule_filter)
+            PropertyAccessControl._default_manager.filter(team=team, **rule_filter)
             .exclude(access_level="read_write")
             .select_related("property_definition")
         )

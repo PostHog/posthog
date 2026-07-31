@@ -95,9 +95,6 @@ export interface roleAccessControlLogicActions {
         name: string
         userUuid: string
     }
-    roleMembershipsChanged: () => {
-        value: true
-    }
     deleteRole: (roleId: RoleType['id']) => {
         roleId: string
     }
@@ -180,6 +177,9 @@ export interface roleAccessControlLogicActions {
         values?: {
             name: string
         }
+    }
+    roleMembershipsChanged: () => {
+        value: true
     }
     selectRoleId: (roleId: RoleType['id'] | null) => {
         roleId: string | null

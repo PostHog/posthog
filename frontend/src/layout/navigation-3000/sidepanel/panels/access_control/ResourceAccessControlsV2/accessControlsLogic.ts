@@ -483,9 +483,12 @@ export interface accessControlsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         allMembers: (sortedMembers: OrganizationMemberType[] | null) => OrganizationMemberType[]
         accessDetailPanelEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        panelOptionsSubject: (selectedTab: any, selectedTabOptions: any) => AccessDetailSubject | null
+        panelOptionsSubject: (
+            selectedTab: SidePanelTab | null,
+            selectedTabOptions: string | null
+        ) => AccessDetailSubject | null
         activePanelSubject: (
-            panelOptionsSubject: any,
+            panelOptionsSubject: AccessDetailSubject | null,
             panelSubject: AccessDetailSubject | null
         ) => AccessDetailSubject | null
         canUseRoles: (

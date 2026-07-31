@@ -201,6 +201,7 @@ export interface accessDetailLogicActions {
             | 'loop'
             | 'marketing_analytics'
             | 'mcp_analytics'
+            | 'mcp_builtin_agent'
             | 'metrics'
             | 'notebook'
             | 'organization'
