@@ -101,6 +101,7 @@ class TestSESProvider(TestCase):
             }
             assert any(arn.endswith(f"identity/{TEST_DOMAIN}") for arn in associated)
             assert any(arn.endswith("configuration-set/posthog-messaging") for arn in associated)
+            assert any(arn.endswith("configuration-set/posthog-messaging-untracked") for arn in associated)
 
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):

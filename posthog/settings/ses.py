@@ -19,5 +19,7 @@ SES_REGION = os.getenv("SES_REGION", "us-east-1")
 # references — the configuration set included, not just the sending identity — to be associated
 # with the tenant, so provisioning associates these with each tenant.
 SES_TENANT_CONFIGURATION_SETS: list[str] = [
-    cs.strip() for cs in os.getenv("SES_TENANT_CONFIGURATION_SETS", "posthog-messaging").split(",") if cs.strip()
+    cs.strip()
+    for cs in os.getenv("SES_TENANT_CONFIGURATION_SETS", "posthog-messaging,posthog-messaging-untracked").split(",")
+    if cs.strip()
 ]
