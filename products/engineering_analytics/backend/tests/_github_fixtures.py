@@ -13,6 +13,7 @@ import pandas as pd
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import (
+    ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
@@ -69,19 +70,30 @@ def create_warehouse_table_row(
 
 
 def connect_github_source_without_data(
-    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = ""
+    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = "", include_issue_events: bool = False
 ) -> GitHubTables:
     """A GitHub source with pull_requests/workflow_runs schemas over empty ORM tables.
 
     The resolver finds these without touching object storage; pair with a mocked query
-    when only resolution (not real warehouse data) matters.
+    when only resolution (not real warehouse data) matters. ``include_issue_events``
+    links the optional issue-events schema too, activating the transition reads.
     """
     source = create_github_source(team, prefix=prefix, repository=repository)
     pr_table = create_warehouse_table_row(team, name=f"{prefix}github_pull_requests", source=source)
     run_table = create_warehouse_table_row(team, name=f"{prefix}github_workflow_runs", source=source)
     link_schema(team, source, name=PULL_REQUESTS_SCHEMA, table=pr_table)
     link_schema(team, source, name=WORKFLOW_RUNS_SCHEMA, table=run_table)
-    return GitHubTables(pull_requests=pr_table.name, workflow_runs=run_table.name, repository=repository)
+    issue_events_table = None
+    if include_issue_events:
+        events_table = create_warehouse_table_row(team, name=f"{prefix}github_issue_events", source=source)
+        link_schema(team, source, name=ISSUE_EVENTS_SCHEMA, table=events_table)
+        issue_events_table = events_table.name
+    return GitHubTables(
+        pull_requests=pr_table.name,
+        workflow_runs=run_table.name,
+        issue_events=issue_events_table,
+        repository=repository,
+    )
 
 
 def repo_id(full_name: str) -> int:
@@ -146,6 +158,23 @@ def _pr_row(
         "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
         "base": _base(full_name, base_ref),
         "labels": _labels(*labels),
+    }
+
+
+def _issue_event_row(
+    event_id: int,
+    event: str,
+    pr_number: int,
+    created_at: str,
+    *,
+    login: str = "alice",
+) -> dict[str, Any]:
+    return {
+        "id": event_id,
+        "event": event,
+        "actor": _user(login),
+        "issue": f'{{"number": {pr_number}}}',
+        "created_at": created_at,
     }
 
 

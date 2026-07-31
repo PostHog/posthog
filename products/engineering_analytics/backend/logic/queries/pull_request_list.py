@@ -33,7 +33,9 @@ _SELECT = f"""
         pr.number, pr.title, pr.repo_owner, pr.repo_name,
         pr.author_handle, pr.author_avatar_url, pr.is_bot,
         pr.state, pr.is_draft, pr.created_at, pr.merged_at,
-        pr.open_to_merge_seconds, pr.labels,
+        pr.open_to_merge_seconds,
+        __READY_TO_MERGE__,
+        pr.labels,
         coalesce(ci.runs, 0) AS runs,
         coalesce(ci.passing, 0) AS passing,
         coalesce(ci.failing, 0) AS failing,
@@ -45,6 +47,7 @@ _SELECT = f"""
     LEFT JOIN ci_rollup AS ci ON ci.head_sha = pr.head_sha
     LEFT JOIN runs_by_pr AS rp
         ON rp.repo_owner = pr.repo_owner AND rp.repo_name = pr.repo_name AND rp.pr_number = pr.number
+    __READY_JOIN__
     WHERE (
             pr.state = 'open'
             OR pr.merged_at >= {{date_from}}
@@ -53,6 +56,25 @@ _SELECT = f"""
     ORDER BY pr.created_at DESC
     LIMIT {_LIMIT + 1}
 """
+
+# The ready-to-merge cycle time, resolved per PR when the issue-events table is synced:
+#   1. Last observed transition is a ready_for_review (for a merged PR it always is, since a draft
+#      can't merge) -> merged_at minus that last ready. Only the LAST switch counts, by definition.
+#   2. No transition rows AND the PR was created inside the observed event window -> the PR
+#      verifiably never left ready, so open-to-merge IS ready-to-merge.
+#   3. Otherwise NULL: unmerged, currently re-drafted, or created before the window (opened ready
+#      vs pre-window flips is unobservable) — "not observed", never a wrong number.
+# A missed join leaves the rollup columns NULL or 0 depending on join_use_nulls; the coalesce
+# guards normalize both to the fallback branch.
+_READY_TO_MERGE = """
+        multiIf(
+            pr.merged_at IS NULL, NULL,
+            coalesce(re.last_is_ready, 0) = 1, dateDiff('second', re.last_transition_at, pr.merged_at),
+            coalesce(re.pr_number, 0) = 0 AND pr.created_at >= __READY_WINDOW__, pr.open_to_merge_seconds,
+            NULL
+        ) AS ready_to_merge_seconds
+"""
+_READY_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 
 
 # Per-push CI rounds for the visible PRs, for the push-history sparkline. Verdicts collapse like
@@ -130,8 +152,22 @@ def query_pull_request_list(
     if author:
         author_clause = "AND pr.author_handle = {author}"
         placeholders["author"] = ast.Constant(value=author)
+    # The issue-events table is optional; without it the column degrades to NULL rather than
+    # referencing the absent ready_by_pr CTE.
+    window_scalar = curated.issue_events_window_scalar()
+    if window_scalar is not None:
+        ready_column = _READY_TO_MERGE.replace("__READY_WINDOW__", window_scalar)
+        ready_join = _READY_JOIN
+    else:
+        ready_column = "NULL AS ready_to_merge_seconds"
+        ready_join = ""
+    select = (
+        _SELECT.replace("__READY_TO_MERGE__", ready_column)
+        .replace("__READY_JOIN__", ready_join)
+        .replace("__AUTHOR__", author_clause)
+    )
     response = curated.run(
-        curated.pr_list_rollup_query(_SELECT.replace("__AUTHOR__", author_clause)),
+        curated.pr_list_rollup_query(select),
         query_type="engineering_analytics.pull_request_list",
         placeholders=placeholders,
     )
@@ -165,6 +201,7 @@ def _map_row(
         created_at,
         merged_at,
         open_to_merge_seconds,
+        ready_to_merge_seconds,
         labels,
         runs,
         passing,
@@ -190,6 +227,7 @@ def _map_row(
         created_at=created_at,
         merged_at=merged_at,
         open_to_merge_seconds=open_to_merge_seconds,
+        ready_to_merge_seconds=int(ready_to_merge_seconds) if ready_to_merge_seconds is not None else None,
         labels=list(labels),
         # A PR with no CI misses the LEFT JOIN; the array column then comes back empty or NULL
         # depending on join_use_nulls — normalize both to [].
