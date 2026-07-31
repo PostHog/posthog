@@ -102,6 +102,14 @@ DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS = get_from_env(
     "DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS", 20_000_000, type_cast=int
 )
 
+# Phase 2 (real writes): master switch for deltalite performing the *actual* incremental merge instead
+# of the delta-rs MERGE. Checked first (cheap) so nothing changes when off; per-schema canary targeting
+# is a PostHog flag on top (see deltalite_shadow.is_deltalite_write_enabled). A deltalite failure falls
+# back to the delta-rs MERGE, so this can only change which engine writes, never sync success. Off by default.
+DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED", False, type_cast=str_to_bool
+)
+
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")

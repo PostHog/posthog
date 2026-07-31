@@ -271,3 +271,21 @@ def test_flag_resolves_source_type_from_schema_when_not_passed():
         assert deltalite_shadow.is_deltalite_shadow_enabled(1, "sch-9") is True
     _, kwargs = fe.call_args
     assert kwargs["person_properties"]["source_type"] == "postgres"
+
+
+def test_write_and_shadow_flags_use_distinct_keys():
+    # The phase-2 write path and the phase-1 shadow share the same evaluation logic but must key off
+    # different flags, so one can be ramped without touching the other.
+    fake_team = MagicMock(uuid="u", organization_id="o")
+    with (
+        patch("posthog.models.Team") as team_cls,
+        patch.object(deltalite_shadow.posthoganalytics, "feature_enabled", return_value=True) as fe,
+    ):
+        team_cls.objects.only.return_value.get.return_value = fake_team
+        assert deltalite_shadow.is_deltalite_write_enabled(1, "sch-1", "stripe") is True
+        assert deltalite_shadow.is_deltalite_shadow_enabled(1, "sch-1", "stripe") is True
+    assert deltalite_shadow.WAREHOUSE_DELTALITE_WRITE_FLAG == "data-warehouse-deltalite-write"
+    assert [c.args[0] for c in fe.call_args_list] == [
+        deltalite_shadow.WAREHOUSE_DELTALITE_WRITE_FLAG,
+        deltalite_shadow.WAREHOUSE_DELTALITE_SHADOW_FLAG,
+    ]

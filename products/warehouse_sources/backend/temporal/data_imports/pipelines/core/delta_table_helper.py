@@ -584,6 +584,74 @@ class DeltaTableHelper:
         except Exception as e:  # noqa: BLE001 - shadow must never affect the sync
             await self._logger.awarning(f"deltalite shadow wrapper errored (ignored): {e}")
 
+    async def _write_via_deltalite(
+        self,
+        *,
+        existing_delta_table: deltalake.DeltaTable,
+        data: pa.Table,
+        normalized_primary_keys: list[str],
+        use_partitioning: bool,
+        commit_metadata: dict[str, str] | None,
+    ) -> bool:
+        """Phase 2: perform the incremental merge via deltalite instead of the delta-rs MERGE.
+
+        Returns True if deltalite committed the write (caller then skips the delta-rs MERGE), or False
+        to fall back to the MERGE. Falls back on *anything* — env/flag off, import failure, deltalite
+        error / commit conflict / refusal — so switching a schema to deltalite can only change which
+        engine writes, never whether the sync succeeds; the worst case is today's behaviour. Gated by
+        the master env switch (cheap, checked first) then a per-schema feature flag.
+        """
+        if not settings.DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED or not normalized_primary_keys:
+            return False
+        # Lazy imports: keep the heavy pipeline_v3 metrics chain (and deltalite_shadow) off this core
+        # module's import path, which would otherwise risk a circular import.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+            DELTALITE_WRITE_TOTAL,
+        )
+
+        try:
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_shadow import (
+                is_deltalite_write_enabled,
+            )
+
+            enabled = await database_sync_to_async_pool(is_deltalite_write_enabled)(
+                self._job.team_id, str(self._job.schema_id), None
+            )
+            if not enabled:
+                return False
+
+            import deltalite
+
+            uri = await self._get_delta_table_uri()
+            storage_options = self._get_credentials()
+            partition_key = PARTITION_KEY if use_partitioning else None
+
+            def _upsert() -> Any:
+                table = deltalite.DeltaLiteTable.open(uri, storage_options)
+                return table.upsert(
+                    data,
+                    list(normalized_primary_keys),
+                    partition_key,
+                    commit_metadata=commit_metadata,
+                )
+
+            stats = await asyncio.to_thread(_upsert)
+            # Refresh the in-memory delta-rs handle to deltalite's freshly committed version, so the
+            # table returned by write_to_deltalake (and any subsequent reads) reflects the real state.
+            await asyncio.to_thread(existing_delta_table.update_incremental)
+            await self._logger.ainfo(
+                f"deltalite write: committed v{stats.version} "
+                f"(+{stats.rows_inserted} inserted / ~{stats.rows_updated} updated / {stats.rows_copied} copied)"
+            )
+            DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
+            return True
+        except Exception as e:  # noqa: BLE001 - never fail the sync; fall back to the delta-rs MERGE
+            DELTALITE_WRITE_TOTAL.labels(outcome="fallback").inc()
+            await self._logger.awarning(
+                f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
+            )
+            return False
+
     async def write_to_deltalake(
         self,
         data: pa.Table,
@@ -660,7 +728,19 @@ class DeltaTableHelper:
                     normalized_primary_keys.append(n)
 
             predicate_ops = _merge_predicate_ops(normalized_primary_keys)
-            if use_partitioning:
+
+            # Phase 2 canary: try deltalite for the real merge. On success the delta-rs MERGE (and the
+            # now-redundant forward shadow) below are skipped; on any failure this returns False and we
+            # fall through to the MERGE, so a deltalite issue can never fail the sync.
+            deltalite_wrote = await self._write_via_deltalite(
+                existing_delta_table=existing_delta_table,
+                data=data,
+                normalized_primary_keys=normalized_primary_keys,
+                use_partitioning=use_partitioning,
+                commit_metadata=commit_metadata,
+            )
+
+            if not deltalite_wrote and use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
@@ -714,7 +794,7 @@ class DeltaTableHelper:
 
                     if progress_callback:
                         progress_callback()
-            else:
+            elif not deltalite_wrote:
                 # Single merge call → safe to tag directly; this is the terminal commit.
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
@@ -741,10 +821,10 @@ class DeltaTableHelper:
 
             # deltalite shadow verification (rollout canary, phase 1). Re-applies this exact batch
             # through the deltalite streaming upsert into a throwaway copy and compares the result to
-            # the merge above. deltalite never writes the real table; the call is best-effort and can
-            # never affect the sync. Master-switched off by default (cheap env check first), then
-            # gated per-schema by a feature flag.
-            if settings.DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED:
+            # the merge above. Best-effort and can never affect the sync. Skipped when deltalite did
+            # the real write (`deltalite_wrote`) — the real table would already be deltalite's output,
+            # so the comparison is trivially true and pointless. Master-switched off by default.
+            if not deltalite_wrote and settings.DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED:
                 # Version the merge just produced. delta-rs advances the table in place on commit; guard
                 # against it not advancing (fall back to latest) so we never read the pre-merge state.
                 version_after_merge: int | None = existing_delta_table.version()

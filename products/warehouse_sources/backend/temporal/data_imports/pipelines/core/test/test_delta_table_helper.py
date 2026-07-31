@@ -1371,3 +1371,83 @@ class TestNullSafeMergePredicate:
         # Documents the pre-fix behaviour the null-safe predicate corrects.
         result = self._seed_then_merge(tmp_path / "unsafe", ["source.id = target.id", "source.seg = target.seg"])
         assert result.num_rows == 2
+
+
+class TestDeltaliteWritePath:
+    """Phase 2: deltalite performs the real incremental merge, gated by env + per-schema flag, with a
+    hard fallback to the delta-rs MERGE so a deltalite failure can never fail a sync."""
+
+    _FLAG = (
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core."
+        "deltalite_shadow.is_deltalite_write_enabled"
+    )
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=_make_logger())
+
+    async def _call(self, helper: DeltaTableHelper) -> bool:
+        return await helper._write_via_deltalite(
+            existing_delta_table=MagicMock(),
+            data=pa.table({"id": pa.array([1], pa.int64())}),
+            normalized_primary_keys=["id"],
+            use_partitioning=False,
+            commit_metadata={"run_uuid": "abc"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_skips_when_env_switch_off(self):
+        # The env switch is the cheap master gate: off => no flag eval, no import, immediate fallback.
+        with override_settings(DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED=False):
+            assert await self._call(self._helper()) is False
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_flag_disabled(self):
+        with override_settings(DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED=True), patch(self._FLAG, return_value=False):
+            assert await self._call(self._helper()) is False
+
+    @pytest.mark.asyncio
+    async def test_writes_via_deltalite_when_enabled(self):
+        helper = self._helper()
+        existing = MagicMock()
+        fake_stats = MagicMock(version=5, rows_inserted=3, rows_updated=2, rows_copied=10)
+        fake_table = MagicMock()
+        fake_table.upsert.return_value = fake_stats
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        with (
+            override_settings(DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED=True),
+            patch(self._FLAG, return_value=True),
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={"AWS_REGION": "us-east-1"}),
+        ):
+            wrote = await helper._write_via_deltalite(
+                existing_delta_table=existing,
+                data=pa.table({"id": pa.array([1], pa.int64())}),
+                normalized_primary_keys=["id"],
+                use_partitioning=True,
+                commit_metadata={"run_uuid": "abc"},
+            )
+        assert wrote is True
+        fake_deltalite.DeltaLiteTable.open.assert_called_once_with("s3://b/t", {"AWS_REGION": "us-east-1"})
+        fake_table.upsert.assert_called_once()
+        # PARTITION_KEY is passed as the partition arg when the table is partitioned.
+        assert fake_table.upsert.call_args.args[2] == PARTITION_KEY
+        existing.update_incremental.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_falls_back_when_deltalite_raises(self):
+        helper = self._helper()
+        fake_table = MagicMock()
+        fake_table.upsert.side_effect = RuntimeError("commit conflict, retries exhausted")
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        with (
+            override_settings(DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED=True),
+            patch(self._FLAG, return_value=True),
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+        ):
+            wrote = await self._call(helper)
+        assert wrote is False  # deltalite blew up -> caller falls through to the delta-rs MERGE

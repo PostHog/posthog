@@ -70,16 +70,17 @@ WAREHOUSE_DELTALITE_SHADOW_FLAG = "data-warehouse-deltalite-shadow"
 # and is easy to grep/lifecycle-sweep. Lives under the same bucket as the real table.
 _SHADOW_SUFFIX = "__deltalite_shadow"
 
+# Phase 2: per-schema flag for deltalite performing the *real* incremental merge (see is_deltalite_write_enabled).
+WAREHOUSE_DELTALITE_WRITE_FLAG = "data-warehouse-deltalite-write"
 
-def is_deltalite_shadow_enabled(team_id: int, schema_id: str, source_type: str | None = None) -> bool:
-    """Evaluate the per-schema shadow rollout flag.
 
-    ``schema_id`` (and ``team_id`` / ``source_type``) are passed as person properties so the flag can
-    be released to a single table first — set a release condition ``schema_id = <id>`` to shadow one
-    schema before ramping by team / org / source. Mirrors ``is_auto_repartition_enabled``.
+def _is_deltalite_flag_enabled(team_id: int, schema_id: str, flag_key: str, source_type: str | None = None) -> bool:
+    """Evaluate a per-schema deltalite rollout flag.
 
-    Any evaluation failure returns False (fail closed): a flags-service blip must never accidentally
-    switch the shadow on.
+    ``schema_id`` / ``team_id`` / ``source_type`` are passed as person properties so a flag can be
+    released to a single table first (release condition ``schema_id = <id>``) before ramping by team /
+    org / source. Mirrors ``is_auto_repartition_enabled``. Any evaluation failure returns False
+    (fail closed): a flags-service blip must never accidentally switch a deltalite path on.
     """
     from posthog.models import Team
 
@@ -107,7 +108,7 @@ def is_deltalite_shadow_enabled(team_id: int, schema_id: str, source_type: str |
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                WAREHOUSE_DELTALITE_SHADOW_FLAG,
+                flag_key,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team_id)},
                 person_properties=person_properties,
@@ -121,6 +122,21 @@ def is_deltalite_shadow_enabled(team_id: int, schema_id: str, source_type: str |
         )
     except Exception:
         return False
+
+
+def is_deltalite_shadow_enabled(team_id: int, schema_id: str, source_type: str | None = None) -> bool:
+    """Per-schema flag for the deltalite shadow verification (phase 1, zero blast radius)."""
+    return _is_deltalite_flag_enabled(team_id, schema_id, WAREHOUSE_DELTALITE_SHADOW_FLAG, source_type)
+
+
+def is_deltalite_write_enabled(team_id: int, schema_id: str, source_type: str | None = None) -> bool:
+    """Per-schema flag for deltalite performing the REAL incremental merge (phase 2).
+
+    Also gated behind the ``DATA_WAREHOUSE_DELTALITE_WRITE_ENABLED`` env switch at the call site, and a
+    deltalite failure falls back to the delta-rs MERGE — so this can only change *which engine* writes,
+    never *whether* the sync succeeds.
+    """
+    return _is_deltalite_flag_enabled(team_id, schema_id, WAREHOUSE_DELTALITE_WRITE_FLAG, source_type)
 
 
 def _record(outcome: str) -> None:

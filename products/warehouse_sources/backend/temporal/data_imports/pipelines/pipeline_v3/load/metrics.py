@@ -63,3 +63,12 @@ DELTALITE_SHADOW_DURATION_SECONDS = Histogram(
     "warehouse_load_deltalite_shadow_duration_seconds",
     "Wall-clock time of a deltalite shadow verification (seed + upsert + compare)",
 )
+
+# deltalite real-write path (phase 2). `outcome` is one of:
+#   written    - deltalite performed the incremental merge and committed
+#   fallback   - deltalite was enabled but failed (or refused), so the delta-rs MERGE ran instead
+DELTALITE_WRITE_TOTAL = Counter(
+    "warehouse_load_deltalite_write_total",
+    "Incremental merges routed to deltalite's real write path, by outcome",
+    labelnames=["outcome"],
+)
