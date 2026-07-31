@@ -112,6 +112,11 @@ ORDER BY total_calls DESC
 LIMIT 50
 `
 
+// The harness breakdown is resolved server-side by the MCPHarnessBreakdownQuery
+// runner (products/mcp_analytics/backend/hogql_queries/harness_breakdown.py) — the
+// single source of truth for client → harness labelling — so the tile reads typed,
+// already-bucketed rows rather than re-deriving the labels in the browser.
+
 // The `__BUCKET__` expression the KPI query is built with. toString() is load-bearing: a bare
 // dateTrunc returns a typed DateTime that the query API serializes with the project's UTC offset
 // attached (2026-07-21T00:00:00-07:00), which the client then reads back as an instant and
