@@ -115,6 +115,9 @@ export function CustomPropertiesConfig(): JSX.Element {
         {
             title: 'Sync',
             render: (_, definition) => {
+                if (definition.is_canonical) {
+                    return <span className="text-secondary">Auto</span>
+                }
                 if (!definition.source) {
                     return <span className="text-secondary">Manual</span>
                 }
@@ -134,25 +137,30 @@ export function CustomPropertiesConfig(): JSX.Element {
         {
             title: '',
             width: 0,
-            render: (_, definition) => (
-                <div className="flex gap-1 justify-end">
-                    <LemonButton
-                        size="small"
-                        icon={<IconPencil />}
-                        tooltip="Edit"
-                        onClick={() => openEditModal(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                    <LemonButton
-                        size="small"
-                        status="danger"
-                        icon={<IconTrash />}
-                        tooltip="Delete"
-                        onClick={() => confirmDelete(definition)}
-                        disabledReason={restrictionReason}
-                    />
-                </div>
-            ),
+            render: (_, definition) => {
+                const canonicalReason = definition.is_canonical
+                    ? "PostHog sets this property automatically, so it can't be edited or deleted."
+                    : undefined
+                return (
+                    <div className="flex gap-1 justify-end">
+                        <LemonButton
+                            size="small"
+                            icon={<IconPencil />}
+                            tooltip="Edit"
+                            onClick={() => openEditModal(definition)}
+                            disabledReason={canonicalReason ?? restrictionReason}
+                        />
+                        <LemonButton
+                            size="small"
+                            status="danger"
+                            icon={<IconTrash />}
+                            tooltip="Delete"
+                            onClick={() => confirmDelete(definition)}
+                            disabledReason={canonicalReason ?? restrictionReason}
+                        />
+                    </div>
+                )
+            },
         },
     ]
 
