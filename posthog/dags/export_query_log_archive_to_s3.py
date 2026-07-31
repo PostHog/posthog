@@ -139,9 +139,9 @@ def export_query_log_archive_day(
     leaf_sums = ",\n        ".join(f"sum(`{column}`) AS `leaf_{column}`" for column in LEAF_SUM_COLUMNS)
     leaf_columns = ",\n    ".join(f"`leaf_{column}`" for column in LEAF_SUM_COLUMNS)
     # Leaf rows of a query straddling midnight land on the next event_date, hence the two-day window.
-    # The rollup GROUP BY holds millions of initial_query_id keys and the join builds a hash table of
-    # them, sharing the query memory cap with the log_comment-heavy scan; both must spill to disk or
-    # the query exceeds the cap.
+    # The rollup keeps only parents present in the day's initial rows so its join hash table stays
+    # small enough to hold in memory; spilling the join to disk instead OOMs or times out on the
+    # read-back of the wide probe rows.
     query = f"""
 INSERT INTO FUNCTION s3('{s3_url}', 'Parquet')
 SELECT
@@ -169,11 +169,13 @@ LEFT JOIN
         {leaf_sums}
     FROM {SOURCE_TABLE}
     WHERE event_date >= toDate('{day}') AND event_date <= toDate('{day}') + 1 AND NOT is_initial_query
+        AND initial_query_id IN (
+            SELECT query_id FROM {SOURCE_TABLE} WHERE event_date = toDate('{day}') AND is_initial_query
+        )
     GROUP BY leaf_initial_query_id
 ) AS leaf ON initial_rows.query_id = leaf.leaf_initial_query_id
 SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads},
-    join_algorithm = 'grace_hash', max_bytes_in_join = 1500000000,
-    max_bytes_before_external_group_by = 2000000000
+    join_algorithm = 'hash', max_bytes_before_external_group_by = 2000000000
 """
 
     def run(client: Client) -> str:
