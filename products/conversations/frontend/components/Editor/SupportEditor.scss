@@ -54,6 +54,10 @@
     .SupportEditor__content {
         display: flex;
         flex-direction: column;
+
+        // Break long unbreakable strings (URLs, tokens) so typing one can't grow the
+        // editor (and its modal) wider — matches .SupportRichContentPreview below.
+        overflow-wrap: anywhere;
         background-color: var(--color-bg-fill-input);
         border-top-left-radius: var(--radius);
         border-top-right-radius: var(--radius);
