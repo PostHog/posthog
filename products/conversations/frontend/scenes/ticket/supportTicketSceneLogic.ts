@@ -517,7 +517,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadKnowledgeGaps: true,
         dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
 
-        // Draft message state (persists across tab switches)
+        // Draft message state (persisted to local storage, so it survives tab switches,
+        // reloads, and closing/reopening the tab)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
         // Per-ticket draft mode override, seeded from the browser-local default on open
@@ -744,14 +745,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
+        // persist: true keys on the logic path, which includes the ticket id, so each ticket
+        // keeps its own draft in local storage and it is not lost on reload or tab close.
         draftContent: [
             null as JSONContent | null,
+            { persist: true },
             {
                 setDraftContent: (_, { content }) => content,
             },
         ],
         draftIsPrivate: [
             false,
+            { persist: true },
             {
                 setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
             },
@@ -1241,12 +1246,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         message: 'You have unsaved changes. Are you sure you want to leave?',
         onConfirm: () => {
-            // Re-sync guard-feeding state so hasPendingWork recomputes to false and the prompt
-            // does not re-fire on the next navigation: reset ticket metadata to the server copy
-            // and discard the unsent draft the user just agreed to leave behind.
-            if (values.draftContent !== null) {
-                actions.setDraftContent(null)
-            }
+            // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
+            // recomputes to false and the prompt does not re-fire on the next navigation. The
+            // draft is deliberately left intact: it is persisted to local storage, so it must
+            // survive the user leaving rather than be discarded here.
             if (values.ticket) {
                 actions.setTicket(values.ticket)
             }

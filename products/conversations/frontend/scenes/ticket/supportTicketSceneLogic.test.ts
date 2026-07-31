@@ -289,6 +289,8 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
 
     beforeEach(async () => {
         initKeaTests()
+        // draftContent/draftIsPrivate persist to local storage, so isolate cases from each other.
+        localStorage.clear()
         commentsCreateMock.mockReset().mockResolvedValue(undefined)
         ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
         ticketUpdateMock.mockReset()
