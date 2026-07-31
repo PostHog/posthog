@@ -10,6 +10,7 @@ import {
     getNewModelName,
     requireSpecialCost,
 } from './cost-model-matching'
+import { finiteNumberOrUndefined } from './cost-utils'
 import { calculateInputCost } from './input-costs'
 import { extractModalityTokens } from './modality-tokens'
 import { calculateOutputCost } from './output-costs'
@@ -21,18 +22,42 @@ export interface EventWithProperties extends PluginEvent {
     properties: Properties
 }
 
+const PRECALCULATED_COST_PROPERTIES = [
+    '$ai_input_cost_usd',
+    '$ai_output_cost_usd',
+    '$ai_request_cost_usd',
+    '$ai_web_search_cost_usd',
+    '$ai_total_cost_usd',
+] as const
+
+/**
+ * Replace each cost the client sent with its parsed number, dropping the ones
+ * `bigDecimal` can't use so they get recalculated instead of trusted. Checking a
+ * value in place isn't enough — the check and the arithmetic have to agree on the
+ * same value, or a string like `"0x10"` passes the check and still reaches
+ * `bigDecimal`.
+ */
+const parsePrecalculatedCosts = (properties: Properties): void => {
+    for (const key of PRECALCULATED_COST_PROPERTIES) {
+        if (properties[key] === undefined) {
+            continue
+        }
+        const parsed = finiteNumberOrUndefined(properties[key])
+        if (parsed === undefined) {
+            delete properties[key]
+        } else {
+            properties[key] = parsed
+        }
+    }
+}
+
 const setPropertyIfValidOrMissing = (properties: Properties, key: string, value: number): void => {
-    const existingValue = properties[key]
-    if (existingValue !== null && existingValue !== undefined && isBigDecimalInput(existingValue)) {
+    if (typeof properties[key] === 'number') {
         return
     }
     if (!Number.isNaN(value)) {
         properties[key] = value
     }
-}
-
-const isBigDecimalInput = (value: unknown): value is string | number => {
-    return typeof value === 'string' || typeof value === 'number'
 }
 
 const trackCostOutcome = (totalCost: number): void => {
@@ -58,8 +83,7 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
     setPropertyIfValidOrMissing(event.properties, '$ai_request_cost_usd', parseFloat(requestCost))
     setPropertyIfValidOrMissing(event.properties, '$ai_web_search_cost_usd', parseFloat(webSearchCost))
 
-    const existingTotal = event.properties['$ai_total_cost_usd']
-    if (existingTotal !== null && existingTotal !== undefined && isBigDecimalInput(existingTotal)) {
+    if (typeof event.properties['$ai_total_cost_usd'] === 'number') {
         return
     }
 
@@ -91,23 +115,25 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
     // First, extract modality tokens from raw usage if present
     extractModalityTokens(event)
 
+    parsePrecalculatedCosts(event.properties)
+
     const inputCost = event.properties['$ai_input_cost_usd']
     const outputCost = event.properties['$ai_output_cost_usd']
 
     // If we already have valid input and output costs, we can skip the rest of the logic
-    if (inputCost && outputCost && isBigDecimalInput(inputCost) && isBigDecimalInput(outputCost)) {
+    if (inputCost && outputCost) {
         if (!event.properties['$ai_total_cost_usd']) {
             let total = bigDecimal.add(inputCost, outputCost)
 
             // Add pre-calculated request cost if present
             const requestCost = event.properties['$ai_request_cost_usd']
-            if (requestCost && isBigDecimalInput(requestCost)) {
+            if (requestCost) {
                 total = bigDecimal.add(total, requestCost)
             }
 
             // Add pre-calculated web search cost if present
             const webSearchCost = event.properties['$ai_web_search_cost_usd']
-            if (webSearchCost && isBigDecimalInput(webSearchCost)) {
+            if (webSearchCost) {
                 total = bigDecimal.add(total, webSearchCost)
             }
 
@@ -120,22 +146,23 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
         return event
     }
 
-    // If custom token pricing is provided, use it to calculate costs
-    const hasCustomPricing =
-        event.properties['$ai_input_token_price'] !== undefined &&
-        event.properties['$ai_output_token_price'] !== undefined
+    // A non-numeric price throws inside js-big-decimal, so treat one as absent and
+    // fall back to model pricing rather than billing at a rate of zero.
+    const inputTokenPrice = finiteNumberOrUndefined(event.properties['$ai_input_token_price'])
+    const outputTokenPrice = finiteNumberOrUndefined(event.properties['$ai_output_token_price'])
 
-    if (hasCustomPricing) {
+    if (inputTokenPrice !== undefined && outputTokenPrice !== undefined) {
         const customCost: ResolvedModelCost = {
             model: 'custom',
             provider: 'custom',
             cost: {
-                prompt_token: event.properties['$ai_input_token_price'],
-                completion_token: event.properties['$ai_output_token_price'],
-                cache_read_token: event.properties['$ai_cache_read_token_price'],
-                cache_write_token: event.properties['$ai_cache_write_token_price'],
-                request: event.properties['$ai_request_price'],
-                web_search: event.properties['$ai_web_search_price'],
+                prompt_token: inputTokenPrice,
+                completion_token: outputTokenPrice,
+                cache_read_token: finiteNumberOrUndefined(event.properties['$ai_cache_read_token_price']),
+                cache_write_token: finiteNumberOrUndefined(event.properties['$ai_cache_write_token_price']),
+                cache_write_1h_token: finiteNumberOrUndefined(event.properties['$ai_cache_write_1h_token_price']),
+                request: finiteNumberOrUndefined(event.properties['$ai_request_price']),
+                web_search: finiteNumberOrUndefined(event.properties['$ai_web_search_price']),
             },
         }
 

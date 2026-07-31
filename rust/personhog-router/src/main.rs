@@ -67,7 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut manager = Manager::builder("personhog-router")
-        .with_global_shutdown_timeout(Duration::from_secs(30))
+        // Below the pod's 30s termination grace so shutdown always
+        // concludes process-side — reaching the routing table's lease
+        // revoke — rather than racing the kubelet's SIGKILL.
+        .with_global_shutdown_timeout(Duration::from_secs(25))
         .build();
 
     // Shutdown order is the inverse of the leader's: the gRPC server
@@ -199,6 +202,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 RESPONSE_SIZE_BUCKETS,
             )
             .unwrap()
+            // Handoff phase timings are a stall detector: healthy phases
+            // complete in seconds, and the interesting tail is minutes.
+            // Sub-second buckets at the bottom because the source is
+            // millisecond-precise; the top still reaches far past the
+            // handoff deadline so a stall is never collapsed into +Inf.
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Full(
+                    "personhog_coordination_handoff_phase_reached_ms".into(),
+                ),
+                &[
+                    50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
+                    300000.0, 600000.0,
+                ],
+            )
+            .unwrap()
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Full(
+                    "personhog_coordination_handoff_phase_duration_ms".into(),
+                ),
+                &[
+                    50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0,
+                    300000.0, 600000.0,
+                ],
+            )
+            .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
 
@@ -265,30 +293,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             router_name: config.pod_name.clone(),
             lease_ttl: config.lease_ttl,
             heartbeat_interval: config.heartbeat_interval(),
+            participant_stall_threshold: config.participant_stall_threshold(),
+            reconcile_failure_budget: config.router_reconcile_failure_budget,
+            run_retry_budget: config.router_run_retry_budget,
+            run_retry_backoff: Duration::from_millis(config.router_run_retry_backoff_ms),
+            reconcile_interval: config.router_reconcile_interval(),
         };
 
         let coordination_routing_table =
             RoutingTable::new(Arc::clone(&store), routing_table_config);
 
         let shared_table = coordination_routing_table.table_handle();
-        let leader_port = config.leader_port;
-        // Pods may register with an explicit `host:port` name (local
-        // multi-leader setups, where a single fleet-wide port cannot hold);
-        // those resolve as-is. Bare pod names resolve via DNS on the
-        // fleet-wide leader port.
+        // Addresses come from the same etcd records that carry ownership
+        // (each pod registers its advertised host:port, and the
+        // coordinator copies it into handoffs and assignments), so a
+        // routable owner is always dialable — there is no separate
+        // discovery or DNS step to lag behind the routing table.
+        let leader_addresses = coordination_routing_table.addresses_handle();
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
             Arc::new(move |pod_name: &str| {
-                if pod_name.contains(':') {
-                    Some(format!("http://{pod_name}"))
-                } else {
-                    Some(format!("http://{pod_name}:{leader_port}"))
-                }
+                leader_addresses
+                    .read()
+                    .expect("addresses lock poisoned")
+                    .get(pod_name)
+                    .map(|address| format!("http://{address}"))
             }),
             LeaderBackendConfig {
                 num_partitions,
                 timeout: config.backend_timeout(),
-                retry_config: config.retry_config(),
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
@@ -349,6 +382,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     election_retry_interval: config.coordinator_election_retry_interval(),
                     rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
                     reconcile_interval: config.coordinator_reconcile_interval(),
+                    handoff_deadline: config.coordinator_handoff_deadline(),
+                    warming_deadline: config.coordinator_warming_deadline(),
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,

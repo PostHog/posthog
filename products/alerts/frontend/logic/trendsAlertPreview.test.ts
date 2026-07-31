@@ -17,6 +17,16 @@ describe('deriveTrendsAlertPreviewSeries', () => {
         })
     })
 
+    it('returns an empty series when checks is undefined', () => {
+        expect(
+            deriveAlertCheckPreviewSeries(undefined, AlertConditionType.ABSOLUTE_VALUE, InsightThresholdType.ABSOLUTE)
+        ).toEqual({
+            values: [],
+            labels: [],
+            relative: false,
+        })
+    })
+
     it('builds a chronological percentage preview from completed alert checks', () => {
         expect(
             deriveAlertCheckPreviewSeries(

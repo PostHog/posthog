@@ -24,6 +24,20 @@ class ActivityLoggingStorage:
     def __init__(self):
         self._local = Local()
 
+    # ActivityLoggingMiddleware marks the storage as request-scoped and guarantees cleanup in a
+    # finally block. Code without its own cleanup path (e.g. DRF authentication classes) must only
+    # write here when the middleware owns the lifecycle, otherwise the thread-local leaks past the
+    # request and later activity gets attributed to a stale user.
+    def mark_request_scoped(self) -> None:
+        self._local.request_scoped = True
+
+    def is_request_scoped(self) -> bool:
+        return getattr(self._local, "request_scoped", False)
+
+    def clear_request_scoped(self) -> None:
+        if hasattr(self._local, "request_scoped"):
+            delattr(self._local, "request_scoped")
+
     def set_user(self, user: Any) -> None:
         self._local.user = user
 
@@ -75,6 +89,7 @@ class ActivityLoggingStorage:
             delattr(self._local, "trigger")
 
     def clear_all(self) -> None:
+        self.clear_request_scoped()
         self.clear_user()
         self.clear_was_impersonated()
         self.clear_client()

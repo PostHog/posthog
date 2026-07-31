@@ -159,11 +159,13 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
 class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPSessionSerializer
     scope_object = "mcp_analytics"
-    # tool_calls and activity_overview are GETs (read); generate_intent is a POST that computes +
-    # persists the intent summary, so it maps to the write scope. The default read/write action
-    # lists don't cover custom @action names, so APIScopePermission would otherwise reject token access.
-    scope_object_read_actions = ["list", "retrieve", "tool_calls", "activity_overview"]
-    scope_object_write_actions = ["generate_intent", "intent_digest"]
+    # tool_calls, activity_overview, and intent_digest are GETs in spirit (they just read/compute
+    # cached data, not persist a mutation the caller controls) even though intent_digest is wired
+    # as a POST; generate_intent actually persists a per-session summary, so it maps to the write
+    # scope. The default read/write action lists don't cover custom @action names, so
+    # APIScopePermission/AccessControlPermission would otherwise reject viewer-level access.
+    scope_object_read_actions = ["list", "retrieve", "tool_calls", "activity_overview", "intent_digest"]
+    scope_object_write_actions = ["generate_intent"]
     posthog_feature_flag = "mcp-analytics"
     permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination
@@ -257,8 +259,10 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="mcp_analytics_sessions_intent_digest",
         description=(
             "Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, "
-            "derived from the most recent recorded $mcp_intents across all sessions. Content-addressed cache: "
-            "only regenerates when new intents arrive. Powers the dashboard's low-volume activity stage."
+            "derived from the most recent recorded $mcp_intents across all sessions: a one-sentence summary "
+            "plus semantic themes, each sized and attributed to tools from the intents themselves. Cached by "
+            "intent corpus and by recency, so repeated calls are cheap and a busy server regenerates at a "
+            "bounded rate. Powers the dashboard's activity tab."
         ),
         request=None,
         responses={

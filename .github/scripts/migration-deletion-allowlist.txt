@@ -10,3 +10,8 @@
 # Examples (commented out, not active):
 #   products/old_product/backend/migrations/   # whole-product move
 #   posthog/migrations/0500_oops.py            # single revert
+
+# agent_platform is retired. Its tables only ever existed in the dedicated
+# agent_platform product database, which is destroyed wholesale rather than
+# migrated down, so there is no table left behind and no fresh-DB divergence.
+products/agent_platform/backend/migrations/

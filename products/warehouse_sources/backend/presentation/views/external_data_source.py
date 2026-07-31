@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Prefetch, Q
 from django.utils import timezone
+from django.utils.cache import patch_cache_control
 
 import structlog
 import temporalio
@@ -53,6 +54,7 @@ from posthog.permissions import (
     APIScopePermission,
     TeamMemberAccessPermission,
     TeamMemberAdminManagementPermission,
+    is_service_auth,
 )
 from posthog.rate_limit import (
     CustomSourceAIBuilderBurstThrottle,
@@ -60,7 +62,7 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderSustainedThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
@@ -468,10 +470,10 @@ def get_postgres_source_table_location(
 
 
 DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
-    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift"]
+DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse"]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -555,6 +557,11 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
     supports_hogql = serializers.SerializerMethodField(
         help_text="Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works.",
     )
+    description = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="User-set description of the source, shown as its display name in the connection picker when set.",
+    )
 
     @extend_schema_field(serializers.BooleanField())
     def get_supports_hogql(self, source: ExternalDataSource) -> bool:
@@ -565,8 +572,27 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataSource
-        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
-        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql"]
+        fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
+        read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
+
+
+class DirectConnectionSourceOptionSerializer(serializers.Serializer):
+    """A source type that can be added as a direct (live-query) connection, with display metadata."""
+
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        read_only=True,
+        help_text="The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse').",
+    )
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        read_only=True,
+        help_text="Human-readable name to show in the picker (falls back to the source type).",
+    )
+    icon_path = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Path to the source's icon asset, or null when the source ships no icon.",
+    )
 
 
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
@@ -767,7 +793,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
             "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls, "
-            "`wizard` for the setup wizard and `self_driving` for the PostHog Code app "
+            "`wizard` for the setup wizard and `self_driving` for the PostHog Desktop app "
             "(both derived server-side from the caller's user agent). "
             "Ignored on update."
         ),
@@ -1307,7 +1333,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
         # caller (that would let any client self-label as wizard- or self-driving-created). They
         # are derived server-side by upgrading a machine-injected `mcp` value based on the request
-        # transport (the wizard, PostHog Code, or the wizard's self-driving program).
+        # transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
         choices=[
             ExternalDataSource.CreatedVia.WEB,
             ExternalDataSource.CreatedVia.API,
@@ -1318,7 +1344,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text=(
             "Where the request came from: `web` for the in-app UI, `api` for direct API callers, "
             "`mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — "
-            "they are derived server-side for wizard- and PostHog Code-driven MCP calls. Defaults to `api`."
+            "they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`."
         ),
     )
     direct_query_enabled = serializers.BooleanField(
@@ -1731,6 +1757,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if obj.is_system_managed:
                 raise PermissionDenied("This source is managed by PostHog and cannot be changed through this API.")
 
+    def _assert_can_write_schemas(self, schemas: Iterable[ExternalDataSchema]) -> None:
+        """Per-table gate for source-level endpoints that write or sync schemas.
+
+        Editor on the source isn't enough: a table can be locked below that, and these endpoints
+        never resolve a schema through DRF's object permissions, so nothing else checks it. Each
+        schema resolves like the schema viewset's permission: through its table, which falls back
+        to the source via RESOURCE_FALLBACK_MAP.
+        """
+        # Service credentials are synthetic users UserAccessControl can't evaluate; they're gated by
+        # API scope + project membership. Mirror AccessControlPermission.
+        if is_service_auth(self.request):
+            return
+        uac = self.user_access_control
+        for schema in schemas:
+            level = uac.get_user_access_level(schema.table or schema.source)
+            if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                raise PermissionDenied("You do not have editor access to every table in this source.")
+
     def dangerously_get_permissions(self):
         # The account picker enumerates every account/site the connected provider exposes, so require
         # manage access even though it's a GET — a read-only member shouldn't discover unrelated
@@ -2038,7 +2082,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
 
-        # The setup wizard and PostHog Code drive creation through the MCP tools, which inject
+        # The setup wizard and PostHog Desktop drive creation through the MCP tools, which inject
         # `created_via=mcp` before the request reaches us — the agent can't set the field itself.
         # Upgrade that machine-injected value when the transport identifies one of them, so their
         # runs are distinguishable from other MCP clients. Explicit `web`/`api` values are left alone.
@@ -2594,7 +2638,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         # `source` (web/api/mcp/wizard/posthog_code) is derived from the request by report_user_action;
         # `created_via` is the caller's explicit intent (with one exception: the machine-injected `mcp`
-        # is upgraded above when the transport identifies the wizard or PostHog Code). They usually
+        # is upgraded above when the transport identifies the wizard or PostHog Desktop). They usually
         # agree but are kept separate so a transport change (e.g. a new wrapper UA) doesn't silently
         # rewrite historical attribution.
         report_user_action(
@@ -2702,6 +2746,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .all()
         )
 
+        # Deleting the source deletes every table it synced, so it needs editor on each of them.
+        self._assert_can_write_schemas(schemas)
+
         # Soft-delete source, schemas, tables, and companion _cdc tables atomically
         # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
@@ -2793,6 +2840,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if instance.is_direct_query:
             return self.refresh_schemas(request, *args, **kwargs)
+
+        # Syncs every enabled schema, so it needs editor on each - a table locked below the source
+        # would otherwise be refreshed here, and for a full refresh that drops and reloads it.
+        self._assert_can_write_schemas(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
+            .exclude(deleted=True)
+            .select_related("source", "table")
+        )
 
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
@@ -4356,7 +4411,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
             configs = {st: config for st, config in configs.items() if st in requested_types}
 
-        return Response(status=status.HTTP_200_OK, data=configs)
+        response = Response(status=status.HTTP_200_OK, data=configs)
+        # The catalog is deploy-static and identical for every user (no team/user input), so let the
+        # browser reuse it across navigations instead of re-downloading and re-parsing several hundred
+        # KB on each visit to the new-source page. `private` because the route is auth-gated; a new
+        # source ships at most once per deploy, so a short freshness window is safe.
+        patch_cache_control(response, private=True, max_age=600)
+        return response
 
     @extend_schema(
         parameters=[
@@ -4434,6 +4495,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
 
         serializer = ExternalDataSourceConnectionOptionSerializer(queryset, many=True)
+        return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+    @extend_schema(responses=DirectConnectionSourceOptionSerializer(many=True))
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    def direct_connection_options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Source types the user can add as a direct connection, driven by the direct-SQL capability
+        surface so the picker never drifts from the engines we actually support."""
+        direct_types = direct_capable_source_types()
+        options = [
+            {
+                "source_type": source_type,
+                "label": config.get("label") or source_type,
+                "icon_path": config.get("iconPath"),
+            }
+            for source_type, config in build_source_configs(include_tables=False).items()
+            if source_type in direct_types
+        ]
+        options.sort(key=lambda option: str(option["label"]).lower())
+
+        serializer = DirectConnectionSourceOptionSerializer(options, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
     @action(methods=["PATCH"], detail=True)
@@ -4843,6 +4924,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if len(source_schemas_by_id) != len(schema_ids):
             raise ValidationError("One or more schemas could not be found for this source")
+
+        # Reject up front rather than per-schema, so a batch touching a locked table writes nothing.
+        self._assert_can_write_schemas(source_schemas_by_id.values())
 
         # Items that ask for sync defaults on a not-yet-configured schema get them discovered and
         # filled in up front. Tables that can't get defaults (dropped from the source, webhook-only)

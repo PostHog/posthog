@@ -10,26 +10,29 @@ from requests.exceptions import (
     ChunkedEncodingError,
     ConnectionError as RequestsConnectionError,
     HTTPError,
+    ReadTimeout,
     RequestException,
 )
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
     make_tracked_session,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 logger = logging.getLogger(__name__)
 
 # Convex deployments are served behind Cloudflare, which surfaces transient edge/origin
 # problems as the 52x family (520 Unknown Error, 521 Web Server Down, 522 Connection Timed
-# Out, 523 Origin Unreachable, 524 Timeout). These are retryable just like the standard 5xx
-# codes, but urllib3's default forcelist doesn't include them — so a single transient 520
-# would otherwise fail the whole sync. All Convex requests are idempotent GETs, so retrying
-# them is safe. Derive from DEFAULT_RETRY so backoff/total/allowed-methods stay in sync.
-_CLOUDFLARE_TRANSIENT_STATUSES = frozenset({520, 521, 522, 523, 524})
+# Out, 523 Origin Unreachable, 524 Timeout) plus 530, which Cloudflare emits for edge-side
+# DNS resolution hiccups reaching the origin (its 1xxx error subcodes). These are retryable
+# just like the standard 5xx codes, but urllib3's default forcelist doesn't include them —
+# so a single transient 520/530 would otherwise fail the whole sync. All Convex requests are
+# idempotent GETs, so retrying them is safe. Derive from DEFAULT_RETRY so backoff/total/
+# allowed-methods stay in sync.
+_CLOUDFLARE_TRANSIENT_STATUSES = frozenset({520, 521, 522, 523, 524, 530})
 _CONVEX_RETRY = DEFAULT_RETRY.new(
     status_forcelist=frozenset(DEFAULT_RETRY.status_forcelist) | _CLOUDFLARE_TRANSIENT_STATUSES
 )
@@ -110,16 +113,18 @@ _COMPONENT_TABLE_DELIMITER = "."
 
 
 @retry(
-    retry=retry_if_exception_type(ChunkedEncodingError),
+    # ChunkedEncodingError is a mid-stream connection break (after response headers, so
+    # _CONVEX_RETRY — a urllib3 Retry, which only covers pre-response failures — never sees it).
+    # ReadTimeout/ConnectionError can also reach here after _CONVEX_RETRY exhausts its own
+    # (much shorter) backoff; retrying them here too gives large snapshot/delta pages a longer
+    # backoff window before failing the whole sync. Every Convex read is an idempotent GET, so a
+    # fresh request safely re-fetches the page.
+    retry=retry_if_exception_type((ChunkedEncodingError, ReadTimeout, RequestsConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
 def _convex_get(url: str, deploy_key: str, params: dict[str, Any], timeout: int) -> Response:
-    # requests reads the body eagerly (stream=False), so a connection broken mid-chunk surfaces
-    # here as ChunkedEncodingError — it happens after the response headers, so _CONVEX_RETRY (a
-    # urllib3 Retry, which only covers pre-response failures) never sees it. It's transient and
-    # every Convex read is an idempotent GET, so a fresh request re-fetches the page.
     return make_tracked_session(retry=_CONVEX_RETRY).get(
         url, headers=_headers(deploy_key), params=params, timeout=timeout
     )

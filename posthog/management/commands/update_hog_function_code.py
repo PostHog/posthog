@@ -61,6 +61,20 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Google Ads API v21 sunsets 2026-08-05 (VERSION_SUNSET). Bump v19-v23 destinations to v24
+            # so the v21 majority keeps working past the sunset. v18 is deliberately excluded: Google
+            # has already removed it, so those destinations 404 today; bumping them would abruptly
+            # revive dormant-but-enabled dead destinations and resume conversions into customers'
+            # Google Ads accounts without warning. Reviving v18 (and older v17) destinations is handled
+            # separately with customer awareness. Destinations carry whatever version the template
+            # pinned at creation; only one matches per destination, and a v24 no-op is skipped.
+            "google-ads-api-version-update": {
+                "template_id": "template-google-ads",
+                "replacements": [
+                    {"from_string": f"googleads.googleapis.com/v{v}/", "to_string": "googleads.googleapis.com/v24/"}
+                    for v in range(19, 24)
+                ],
+            },
             # Microsoft migrated Teams/Power Automate HTTP triggers to environment.api.powerplatform.com.
             # The current template accepts that host, but functions created earlier keep their frozen code
             # and reject the new URL. These swap the stale validation block for the current one: the

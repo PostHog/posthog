@@ -19,54 +19,60 @@ class FlakyTestItemSerializer(DataclassSerializer):
     class Meta:
         dataclass = FlakyTestItem
         extra_kwargs = {
+            "runner": {"help_text": "Test runner that emitted this signal: 'pytest' or 'jest'."},
             "nodeid": {
-                "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
-                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
-                "selector — use `selector` to run or quarantine the test.",
+                "help_text": "Runner-specific stable test identity (the CI span name). This is a grouping key, "
+                "not necessarily runnable; use `selector` to run or quarantine the test.",
             },
             "selector": {
-                "help_text": "Runnable pytest selector, e.g. "
-                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
-                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
+                "help_text": "Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older "
+                "pytest spans use a best-effort reconstruction from the nodeid.",
             },
-            "rerun_passed_count": {
-                "help_text": "Times the test failed, then passed on an automatic retry — the strongest flaky "
-                "signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane "
-                "shows up in failed_count instead.",
+            "classification": {
+                "help_text": "confirmed_flake: one commit both failed and passed the test (a re-run attempt went "
+                "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a "
+                "tolerated failure was recorded while it was masked. suspected_regression: only failures were "
+                "recorded, which is absence of proof, not proof that it is a real break.",
             },
-            "failed_count": {
-                "help_text": "Spans whose final outcome was 'failed' or 'error' in the window. An absolute "
-                "count, not a rate — fast passing runs are not emitted, so denominators are biased.",
+            "same_commit_recovery_run_count": {
+                "help_text": "Runs where one commit both failed and passed the test: a 'Re-run failed jobs' "
+                "attempt went green on the same commit, or an in-job pytest retry (tests hand-marked "
+                "@pytest.mark.flaky(reruns=N)) recovered it. A pass in a different run is a different commit "
+                "and never counts.",
+            },
+            "failed_run_count": {
+                "help_text": "Distinct CI runs whose recorded outcome was failed or error. A run counts once "
+                "however many matrix legs it failed in.",
             },
             "failed_pr_count": {
-                "help_text": "Distinct pull requests among the failed/error spans. Failures on master or "
-                "unattributed branches carry no PR number and are excluded here (still in failed_count).",
+                "help_text": "Distinct pull requests among the failed runs. Failures on master or unattributed "
+                "branches carry no PR number and are excluded here (still in failed_run_count).",
             },
-            "master_failed_count": {
-                "help_text": "Failed/error spans on the default branch (master/main approximation) — the "
-                "'matters right now' signal that a flake is breaking the trunk, not just PR branches.",
+            "master_failed_run_count": {
+                "help_text": "Failed runs on the default branch (master/main approximation): the 'matters right "
+                "now' signal that a test is breaking the trunk, not just PR branches.",
             },
-            "branch_count": {
-                "help_text": "Distinct git branches across all of the test's flaky-signal spans in the window.",
+            "quarantined_failed_run_count": {
+                "help_text": "Runs where the test recorded a tolerated failure while quarantined: already masked "
+                "in CI, still failing.",
             },
-            "xfailed_count": {
-                "help_text": "Runs where the test failed while quarantined (xfail) — already masked in CI "
-                "but still flaky.",
+            "last_signal_at": {
+                "help_text": "Most recent failure, recovery, or quarantined-failure run for this test in the window.",
             },
-            "last_seen_at": {"help_text": "Most recent flaky-signal span for this test in the window."},
         }
 
 
 class FlakyTestListSerializer(DataclassSerializer):
     items = FlakyTestItemSerializer(
-        many=True, help_text="Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`."
+        many=True,
+        help_text="Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs.",
     )
 
     class Meta:
         dataclass = FlakyTestList
         extra_kwargs = {
             "truncated": {
-                "help_text": "True when more tests qualified than the cap; `items` is the strongest `limit` rows.",
+                "help_text": "True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows.",
             },
             "limit": {"help_text": "Maximum number of tests returned in `items`."},
         }
@@ -210,6 +216,13 @@ class QuarantineRequestSerializer(DataclassSerializer):
             "selector": {
                 "help_text": "Test selector to act on: an exact test id, a file, a directory, a class prefix, or "
                 "'product:<dashed-name>'.",
+            },
+            "runner": {
+                "help_text": "Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries "
+                "and Jest file extensions are inferred for older clients that omit it; other selectors default to "
+                "'pytest'.",
+                "required": False,
+                "allow_null": True,
             },
             "repo": {
                 "help_text": "Optional 'owner/name' repository override; defaults to the team's most active repo.",

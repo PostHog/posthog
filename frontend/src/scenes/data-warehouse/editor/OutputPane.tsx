@@ -53,8 +53,8 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
+import { SqlChart } from '~/queries/nodes/DataVisualization/Components/Charts/SqlChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -1096,7 +1096,7 @@ export function InternalDataTableVisualization(
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
-            <LineGraph
+            <SqlChart
                 className="p-2"
                 xData={_xData}
                 yData={_yData}
@@ -1114,7 +1114,6 @@ export function InternalDataTableVisualization(
         component = (
             <PieChart
                 className="p-2"
-                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
                 xData={_xData}
                 yData={_yData}
                 chartSettings={chartSettings}

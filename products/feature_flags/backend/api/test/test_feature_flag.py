@@ -64,7 +64,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagDashboards,
     get_feature_flags_for_team_in_cache,
 )
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -2365,6 +2365,44 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(shadow.call_args.kwargs["key"], "my-remote-config-flag")
         self.assertIn("project_id", shadow.call_args.kwargs)
 
+    def test_remote_config_returns_typed_error_when_payload_cannot_be_decrypted(self):
+        # A payload that predates a FLAGS_SECRET_KEYS rotation (or is otherwise corrupt) fails to
+        # decrypt with any configured key. Without explicit handling this becomes an unhandled 500
+        # with an HTML body that SDKs can't parse as JSON, so assert it returns a typed JSON error.
+        # Decryption only runs on the personal-API-key path; a secret token gets the redacted
+        # marker and never reaches the decrypt call, so authenticate with a personal API key here.
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="my-remote-config-flag",
+            name="Remote Config Flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": "not-a-valid-fernet-token"},
+            },
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+        auth_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token))
+        self.client.logout()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Mirrors the envelope the Rust feature-flags service returns for this failure so the
+        # phase-2 shadow-compare treats both paths as a match.
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "server_error",
+                "code": "remote_config_decrypt_failed",
+                "detail": "Failed to decrypt the remote config payload. Please contact support if the problem persists.",
+                "attr": None,
+            },
+        )
+
     # Encrypted remote config payloads are decrypted only for personal API keys; project
     # secret keys get the redacted marker. This is the parity oracle for the Rust port,
     # which must replicate both.
@@ -2891,6 +2929,34 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         }
         conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
         self.assertEqual(conflicts, ["name", "filters"])
+
+    @parameterized.expand(
+        [
+            ("list", ["active"]),
+            ("string", "active"),
+            ("number", 1),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_with_non_dict_original_flag(
+        self, _name, original_flag, mock_report_user_action
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": "original name", "key": "a-flag-with-a-bad-original-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # A stale version enters the conflict branch, where original_flag is indexed by field name.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            data={"active": False, "version": 999, "original_flag": original_flag},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(FeatureFlag.objects.get(id=flag_id).active)
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_treats_null_version_as_zero(self, mock_report_user_action):
@@ -6361,6 +6427,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
         assert activity == expected
 
@@ -8894,6 +8962,58 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
 
+    @parameterized.expand(
+        [
+            (
+                "event_filter_in_person_scope",
+                {"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"},
+                "does not work in 'person' scope",
+            ),
+            (
+                "non_numeric_cohort_id",
+                {"key": "id", "type": "cohort", "value": "not-a-cohort-id"},
+                "expected a number",
+            ),
+            (
+                "missing_cohort",
+                {"key": "id", "type": "cohort", "value": 999999999},
+                "does not exist",
+            ),
+        ]
+    )
+    def test_user_blast_radius_rejects_unevaluable_filters(self, _name, prop, message_fragment):
+        from rest_framework.exceptions import ValidationError  # noqa: PLC0415
+
+        with self.assertRaises(ValidationError) as ctx:
+            get_user_blast_radius(self.team, {"properties": [prop]})
+        self.assertIn(message_fragment, str(ctx.exception))
+
+    def test_user_blast_radius_execution_value_error_is_not_masked_as_caller_error(self):
+        # A bare ValueError from query execution is a server fault, not invalid filters.
+        with (
+            patch(
+                "products.feature_flags.backend.user_blast_radius._get_person_blast_radius",
+                side_effect=ValueError("could not load timezone"),
+            ),
+            self.assertRaises(ValueError),
+        ):
+            get_user_blast_radius(
+                self.team,
+                {"properties": [{"key": "group", "type": "person", "value": ["1"], "operator": "exact"}]},
+            )
+
+    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+
     def test_user_blast_radius_with_flag_dependency(self):
         for i in range(10):
             _create_person(
@@ -9762,6 +9882,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             ("regex", "^org-(prod|staging)-\\d+$", "regex", 2, 3),
             ("not_regex", "^org-(prod|staging)-\\d+$", "not_regex", 1, 3),
             ("not_icontains", "ORG", "not_icontains", 1, 3),
+            ("starts_with", "org-", "starts_with", 2, 3),
+            ("not_starts_with", "org-", "not_starts_with", 1, 3),
+            ("ends_with", "001", "ends_with", 1, 3),
+            ("not_ends_with", "001", "not_ends_with", 2, 3),
         ]
     )
     def test_user_blast_radius_with_group_key_operators(
@@ -10163,6 +10287,48 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                                 "beta",
                             ],  # List not supported for icontains
                             "operator": "icontains",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("does not support list values", response.json()["detail"].lower())
+
+    def test_user_blast_radius_with_group_key_starts_with_list_values_raises_error(self):
+        """Test that starts_with/ends_with operators with list values raise a validation error.
+
+        The four operators share a single list-value guard in _build_group_query, so one
+        representative operator is enough to cover it.
+        """
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org-alpha",
+            properties={},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "$group_key",
+                            "type": "group",
+                            "value": ["alpha", "beta"],  # List not supported for starts_with
+                            "operator": "starts_with",
                             "group_type_index": 0,
                         }
                     ],

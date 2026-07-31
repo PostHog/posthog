@@ -1007,6 +1007,7 @@ export type ActivityLogListParams = {
      * * `ExternalDataSource` - ExternalDataSource
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
+     * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
@@ -1015,6 +1016,7 @@ export type ActivityLogListParams = {
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
+     * * `LogsRetentionRule` - LogsRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -1096,6 +1098,7 @@ export const ActivityLogListScope = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
@@ -1104,6 +1107,7 @@ export const ActivityLogListScope = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    LogsRetentionRule: 'LogsRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
@@ -1172,6 +1176,7 @@ export const ActivityLogListScope = {
  * * `ExternalDataSource` - ExternalDataSource
  * * `ExternalDataSchema` - ExternalDataSchema
  * * `Evaluation` - Evaluation
+ * * `LLMPrompt` - LLMPrompt
  * * `LLMPromptLabel` - LLMPromptLabel
  * * `LLMTrace` - LLMTrace
  * * `AIGatewayCredit` - AIGatewayCredit
@@ -1180,6 +1185,7 @@ export const ActivityLogListScope = {
  * * `Log` - Log
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
+ * * `LogsRetentionRule` - LogsRetentionRule
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
@@ -1249,6 +1255,7 @@ export const ActivityLogListScopesItem = {
     ExternalDataSource: 'ExternalDataSource',
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
+    LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
@@ -1257,6 +1264,7 @@ export const ActivityLogListScopesItem = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    LogsRetentionRule: 'LogsRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',

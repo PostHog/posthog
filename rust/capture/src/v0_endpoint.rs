@@ -68,6 +68,7 @@ pub async fn event(
                 state.global_rate_limiter_token_distinctid.clone(),
                 state.overflow_limiter.clone(),
                 state.ai_events_overflow_limiter.clone(),
+                state.ingestion_warning_emitter.clone(),
                 &state.ai_routing,
                 events,
                 &context,

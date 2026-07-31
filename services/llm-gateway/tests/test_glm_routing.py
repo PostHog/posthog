@@ -16,6 +16,7 @@ from llm_gateway.glm_routing import (
 from llm_gateway.request_context import RequestContext, set_request_context
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
+KIMI_MODEL = "@cf/moonshotai/kimi-k2.6"
 PRODUCT = "posthog_code"
 
 SURFACES = [
@@ -33,6 +34,7 @@ def _settings(**overrides: Any) -> Settings:
     base: dict[str, Any] = {
         "cloudflare_api_key": "cf-key",
         "cloudflare_account_id": "cf-account",
+        "baseten_api_base": "https://inference.baseten.co/v1",
         "modal_api_base": "https://posthog--glm.us-east.modal.direct/v1",
         "modal_key": "wk-test",
         "modal_secret": "ws-test",
@@ -96,29 +98,16 @@ async def test_normalizes_supported_reasoning_effort_for_anthropic_requests(effo
     }
 
 
-@pytest.mark.parametrize(
-    ("edits", "expected_context_management"),
-    [
-        ([{"type": "clear_thinking_20251015", "keep": "all"}], None),
-        (
-            [
-                {"type": "clear_thinking_20251015", "keep": "all"},
-                {"type": "clear_tool_uses_20250919"},
-            ],
-            {"edits": [{"type": "clear_tool_uses_20250919"}]},
-        ),
-    ],
-)
-def test_drops_clear_thinking_when_thinking_is_not_enabled(
-    edits: list[dict[str, str]], expected_context_management: dict[str, Any] | None
-) -> None:
+def test_drops_clear_thinking_when_no_effort_enables_thinking() -> None:
+    # Edit-level rules live in test_anthropic_request.py; this pins that GLM still applies them
+    # once its effort upgrade has had a chance to enable thinking.
     request = {
         "model": GLM_MODEL,
         "messages": [{"role": "user", "content": "hi"}],
-        "context_management": {"edits": edits},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
     }
 
-    assert normalize_glm_anthropic_request(request).get("context_management") == expected_context_management
+    assert "context_management" not in normalize_glm_anthropic_request(request, product=PRODUCT)
 
 
 async def test_routes_to_modal_when_fraction_one_without_flag_roundtrip() -> None:
@@ -155,9 +144,9 @@ async def test_each_surface_routes_to_its_provider_configs(
     assert handle.call_args.kwargs["provider_config"].endpoint_name == cloudflare_endpoint
 
 
-@pytest.mark.parametrize("product", ["twig", "array"])
+@pytest.mark.parametrize("product", ["twig", "array", "custom_image_scans"])
 async def test_alias_products_ramp_through_canonical_fraction(product: str) -> None:
-    # twig/array requests must follow posthog_code's per-product ramp end to end.
+    # These requests must follow posthog_code's per-product ramp end to end.
     handle = AsyncMock(return_value={"ok": True})
     settings = _settings(glm_modal_product_traffic_fractions={"posthog_code": 1.0})
     _, evaluate = await _send(settings, handle, product=product)
@@ -167,8 +156,55 @@ async def test_alias_products_ramp_through_canonical_fraction(product: str) -> N
 
 async def test_flag_opts_into_modal_at_fraction_zero() -> None:
     handle = AsyncMock(return_value={"ok": True})
-    _, _ = await _send(_settings(), handle, flag=True)
+    await _send(_settings(), handle, flag=True)
     assert _called_providers(handle) == ["modal"]
+
+
+@pytest.mark.parametrize(
+    ("send_fn", "endpoint"), [(row[0], f"baseten_{row[2].removeprefix('cloudflare_')}") for row in SURFACES]
+)
+async def test_baseten_flag_routes_each_surface(send_fn: Any, endpoint: str) -> None:
+    handle = AsyncMock(return_value={"ok": True})
+    settings = _settings(baseten_api_key="baseten-key")
+
+    _, evaluate = await _send(settings, handle, flag=True, send_fn=send_fn)
+
+    assert handle.call_args.kwargs["provider_config"].endpoint_name == endpoint
+    evaluate.assert_awaited_once_with("tasks-glm-baseten-inference", "d-1")
+
+
+async def test_modal_flag_is_evaluated_without_baseten_credentials() -> None:
+    handle = AsyncMock(return_value={"ok": True})
+
+    _, evaluate = await _send(_settings(), handle, flag=False)
+
+    evaluate.assert_awaited_once_with("tasks-glm-modal-inference", "d-1")
+
+
+async def test_baseten_flag_does_not_rewrite_other_cloudflare_models() -> None:
+    handle = AsyncMock(return_value={"ok": True})
+    request = {"model": KIMI_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+
+    _, evaluate = await _send(_settings(baseten_api_key="baseten-key"), handle, flag=True, request_data=request)
+
+    assert _called_providers(handle) == ["cloudflare"]
+    assert handle.call_args.kwargs["model"] == KIMI_MODEL
+    evaluate.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected_provider"),
+    [
+        (_settings(baseten_api_key="baseten-key"), "cloudflare"),
+        (_settings(baseten_api_key="baseten-key", glm_modal_traffic_fraction=1.0), "modal"),
+    ],
+)
+async def test_baseten_flag_off_preserves_existing_routing(settings: Settings, expected_provider: str) -> None:
+    handle = AsyncMock(return_value={"ok": True})
+
+    await _send(settings, handle, flag=False)
+
+    assert _called_providers(handle) == [expected_provider]
 
 
 async def test_forwarded_flag_header_cannot_force_modal() -> None:
@@ -180,15 +216,22 @@ async def test_forwarded_flag_header_cannot_force_modal() -> None:
     assert _called_providers(handle) == ["cloudflare"]
 
 
-async def test_modal_failure_propagates_without_cross_backend_retry() -> None:
-    # A silent Cloudflare retry would mask Modal degradation from the rollback decision and double
-    # provider spend under a Modal outage.
+@pytest.mark.parametrize(
+    ("settings", "flag", "expected_provider"),
+    [
+        (_settings(glm_modal_traffic_fraction=1.0), None, "modal"),
+        (_settings(baseten_api_key="baseten-key"), True, "baseten"),
+    ],
+)
+async def test_provider_failure_propagates_without_cross_backend_retry(
+    settings: Settings, flag: bool | None, expected_provider: str
+) -> None:
     handle = AsyncMock(
         side_effect=ProviderError(
             status_code=502, detail={"error": {"message": "boom", "type": "api_error", "code": None}}
         )
     )
     with pytest.raises(HTTPException) as exc_info:
-        await _send(_settings(glm_modal_traffic_fraction=1.0), handle)
+        await _send(settings, handle, flag=flag)
     assert exc_info.value.status_code == 502
-    assert _called_providers(handle) == ["modal"]
+    assert _called_providers(handle) == [expected_provider]

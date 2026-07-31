@@ -309,7 +309,12 @@ export type insightBuilderLogicType = MakeLogicType<
 function hydrateIfNeeded(
     node: DataVisualizationNode,
     values: Pick<insightBuilderLogicValues, 'builderConfig'>,
-    actions: Pick<insightBuilderLogicActions, 'hydrateFromNode' | 'loadBaseColumns'>
+    // Structural shape rather than Pick<insightBuilderLogicActions, ...>: the interface types
+    // action *creators* (returning payloads), while listeners receive *bound* actions (void)
+    actions: {
+        hydrateFromNode: (builder: InsightBuilderConfig, display?: ChartDisplayType) => void
+        loadBaseColumns: () => void
+    }
 ): 'hydrated' | 'stale' | 'no-op' {
     const builder = node.builder
     if (!builder?.enabled) {

@@ -12,13 +12,13 @@ interface AlertCheckPreviewInput {
 }
 
 export function deriveAlertCheckPreviewSeries(
-    checks: AlertCheckPreviewInput[],
+    checks: AlertCheckPreviewInput[] | undefined,
     conditionType: AlertConditionType,
     thresholdType: InsightThresholdType
 ): TrendsAlertPreviewSeries {
     const percentageChange =
         conditionType !== AlertConditionType.ABSOLUTE_VALUE && thresholdType === InsightThresholdType.PERCENTAGE
-    const points = checks
+    const points = (checks ?? [])
         .filter(
             (check): check is AlertCheckPreviewInput & { calculated_value: number } =>
                 check.calculated_value != null && Number.isFinite(check.calculated_value)

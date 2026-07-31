@@ -16,6 +16,10 @@ on:
         paths-ignore:
             - 'rust/**'
             - 'livestream/**'
+    # Break-glass: a manual dispatch must run from master. The ECR publish role
+    # (AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE) is OIDC-trusted only for
+    # refs/heads/master, so a dispatch from any other branch is denied at
+    # AssumeRoleWithWebIdentity — deliberate, so prod images only ship from master.
     workflow_dispatch:
 
 # Serialize runs for the same commit so a push racing a manual re-run/dispatch can't both
@@ -63,7 +67,7 @@ jobs:
                   # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
                   push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
-                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -136,7 +140,7 @@ jobs:
               if: steps.build.outcome == 'failure'
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   aws-region: us-east-1
 
             - name: Re-login to Amazon ECR (retry)
@@ -439,7 +443,7 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/logic/job_logs/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^products/engineering_analytics/backend/|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/delete_teams|^posthog/temporal/ingestion_acceptance_test|^posthog/temporal/backfill_group_type_created_at|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -475,7 +479,7 @@ jobs:
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/review_hog/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/signals/skills/|^products/review_hog/backend/|^products/business_knowledge/backend/|^products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals|^products/signals/backend/emission/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -506,8 +510,12 @@ jobs:
                   filters: |
                       changed:
                         - 'products/error_tracking/backend/temporal/**'
-                        - 'products/error_tracking/backend/recommendations/**'
+                        - 'products/error_tracking/backend/logic/**'
                         - 'products/error_tracking/backend/models.py'
+                        - 'products/error_tracking/backend/weekly_digest.py'
+                        - 'products/error_tracking/backend/indexed_embedding.py'
+                        - 'posthog/tasks/email.py'
+                        - 'posthog/tasks/email_utils.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/temporal/schedule.py'
                         - 'posthog/settings/temporal.py'
@@ -787,6 +795,7 @@ jobs:
                         - bin/temporal-django-worker
                       logsAlerting:
                         - 'posthog/temporal/logs_alerting/**'
+                        - 'products/alerts/backend/state_machine.py'
                         - 'products/logs/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -1050,7 +1059,7 @@ jobs:
             - name: Check for changes that affect warehouse-sources-load
               id: check_changes_warehouse_sources_load
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/warehouse/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v2/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/core/|^posthog/warehouse/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -1080,7 +1089,7 @@ jobs:
             - name: Check for changes that affect warehouse-sources-duckgres-load
               id: check_changes_warehouse_sources_duckgres_load
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/|^posthog/management/commands/run_warehouse_sources_duckgres_load\.py$|^posthog/warehouse/|^posthog/ducklake/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^products/warehouse_sources_queue/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v2/|^products/warehouse_sources/backend/temporal/data_imports/pipelines/core/|^posthog/management/commands/run_warehouse_sources_duckgres_load\.py$|^posthog/warehouse/|^posthog/ducklake/|^products/data_warehouse/backend/|^products/warehouse_sources/backend/|^products/warehouse_sources_queue/backend/|^pyproject\.toml$|^Dockerfile$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

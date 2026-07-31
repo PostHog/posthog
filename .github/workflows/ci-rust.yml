@@ -139,6 +139,9 @@ jobs:
                       "cyclotron-janitor": 139,
                       "cyclotron-node": 31,
                       "cymbal": 168,
+                      # Compile-heavy (deltalake dependency tree), light tests.
+                      "deltalite-core": 180,
+                      "deltalite-python": 60,
                       "embedding-worker": 25,
                       "feature-flags": 181,
                       "health": 27,
@@ -150,6 +153,7 @@ jobs:
                       "lifecycle": 17,
                       "limiters": 25,
                       "personhog-coordination": 24,
+                      "personhog-identity": 40,
                       "personhog-leader": 115,
                       "personhog-replica": 140,
                       "personhog-router": 38,
@@ -359,11 +363,21 @@ jobs:
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -559,7 +573,7 @@ jobs:
                   sqlx migrate run --source persons_migrations/
 
             - name: Build the personhog stack and harness
-              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-test-harness
+              run: cargo build -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness
 
             # Unit tests for the harness's own verification logic — a
             # false-negative verifier would pass gates that lost data.
@@ -570,6 +584,22 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 2 --partitions 4 --persons 100 --concurrency 10 --duration 10s
+
+            # The identity-service create path: persons are created through
+            # GetOrCreatePersonsByDistinctIds (stub insert on the primary,
+            # then initial properties through the router to the owning
+            # leader) and then updated through the router. Create acks are
+            # journaled and held to the same visibility invariant as update
+            # acks, through a leader kill and a scale-up. The identity
+            # service writes the real posthog_person table (its distinct id
+            # FKs require it), so the whole stack targets it here instead of
+            # the default personhog_person_tmp.
+            - name: Run the e2e gate creating persons via the identity service
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --create-via-identity --pg-target-table posthog_person \
+                    --leaders 3 --partitions 8 --persons 100 \
+                    --concurrency 10 --duration 15s --kill-after 5s --scale-up-after 8s
 
             # Regression gate for eviction under writer lag: the cache is
             # sized far below the person count so dirty entries evict while
@@ -733,9 +763,9 @@ jobs:
         steps:
             - name: Check all Rust jobs
               run: |
-                  # Fail if change detection or affected computation failed
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  # Fail if change detection failed, affected computation failed, or either was cancelled (outputs are empty on cancel, so the exit below would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
@@ -745,8 +775,8 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.affected.result }}" == "failure" ]]; then
-                    echo "Affected crate computation failed."
+                  if [[ "${{ needs.affected.result }}" != "success" && "${{ needs.affected.result }}" != "skipped" ]]; then
+                    echo "Affected crate computation did not succeed (result: ${{ needs.affected.result }})."
                     exit 1
                   fi
 

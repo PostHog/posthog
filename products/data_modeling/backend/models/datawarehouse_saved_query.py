@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
@@ -31,6 +32,7 @@ from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
+    LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
     reconstruct_ordered_columns,
@@ -181,10 +183,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def schedule_materialization(self, unpause: bool = False, reconcile: bool = True):
+    def schedule_materialization(
+        self, unpause: bool = False, reconcile: bool = True, trigger_immediate_run: bool = False
+    ):
         """
         It will schedule the saved query workflow to run at the configured frequency.
         If unpause is True, it will unpause the saved query workflow if it already exists.
+
+        trigger_immediate_run is for callers enabling materialization: on v2 it starts the first
+        materialization right away instead of waiting for the next scheduled DAG tick, matching
+        v1 schedule creation (which triggers immediately). Callers merely updating frequency
+        must leave it False. Best-effort: a failed start never disables materialization, since
+        the DAG schedule still covers the query.
 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
@@ -222,6 +232,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 if self.sync_frequency_interval is not None:
                     self.sync_frequency_interval = None
                     self.save(update_fields=["sync_frequency_interval"])
+                if trigger_immediate_run:
+                    # Deferred to commit so the run sees the enable's writes (endpoints enable
+                    # runs inside an atomic block); immediate under autocommit.
+                    transaction.on_commit(self._start_immediate_materialization)
                 return
 
             self.setup_model_paths()
@@ -247,6 +261,19 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # We can re-enable schedules via the resume_schedule API endpoint
             self.is_materialized = False
             self.save(update_fields=["is_materialized"])
+
+    def _start_immediate_materialization(self) -> None:
+        from products.data_modeling.backend.logic.node_materialization import materialize_saved_query
+
+        try:
+            materialize_saved_query(self)
+        except Exception as e:
+            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.exception(
+                "failed_to_start_initial_materialization",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+            )
 
     def revert_materialization(self):
         from products.data_modeling.backend.logic.schedule_reconcile import (
@@ -417,6 +444,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         DirectMySQLTable,
         DirectSnowflakeTable,
         DirectRedshiftTable,
+        DirectClickHouseTable,
     ]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
@@ -447,7 +475,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # Support for 'old' style columns
             if isinstance(type, str):
                 hogql_type_str = clickhouse_type.partition("(")[0]
-                fields[column] = CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
+                fields[column] = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column)
             elif isinstance(type, dict):
                 fields[column] = STR_TO_HOGQL_MAPPING[type["hogql"]](name=column)
             else:

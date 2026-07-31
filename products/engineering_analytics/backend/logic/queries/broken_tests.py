@@ -1,6 +1,6 @@
 """Broken-tests classifier: rank live CI failures by how they're behaving right now.
 
-The flaky-test leaderboard answers "which tests are unreliable over a week". This answers a
+The test-health queue answers "which tests are unreliable over a week". This answers a
 sharper, more urgent question: of the failures happening *right now*, which are breaking trunk,
 which are a new failure catching on, which are just one PR's problem. It reads the fingerprinted
 failure lines (``engineering_analytics_ci_failures`` — the Logs-backed view) over a short window,

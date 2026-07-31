@@ -1,5 +1,7 @@
 import dataclasses
+from collections.abc import Sequence
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import transaction
@@ -18,6 +20,9 @@ from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.models import SignalSourceConfig
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 logger = structlog.get_logger(__name__)
 
@@ -57,7 +62,8 @@ def set_signal_source_types_enabled(
     config: dict | None = None,
 ) -> None:
     """Atomically update a product-owned bundle of signal-source types. Every enable refreshes
-    ``created_by`` (and ``config`` only when provided, so re-enables can't wipe stored config)."""
+    ``created_by``. Provided ``config`` keys are merged into each row's stored config rather than
+    replacing it, so re-enables can't wipe keys they don't manage (e.g. an operator's ``dry_run``)."""
     with transaction.atomic():
         Team.objects.select_for_update().only("id").get(id=team_id)
         if not enabled:
@@ -67,16 +73,18 @@ def set_signal_source_types_enabled(
                 source_type__in=source_types,
             ).update(enabled=False)
             return
-        defaults: dict = {"enabled": True, "created_by_id": created_by_id}
-        if config is not None:
-            defaults["config"] = config
         for source_type in source_types:
-            SignalSourceConfig.objects.update_or_create(
+            row, _ = SignalSourceConfig.objects.update_or_create(
                 team_id=team_id,
                 source_product=source_product,
                 source_type=source_type,
-                defaults=defaults,
+                defaults={"enabled": True, "created_by_id": created_by_id},
             )
+            if config is not None:
+                merged = {**row.config, **config} if isinstance(row.config, dict) else dict(config)
+                if merged != row.config:
+                    row.config = merged
+                    row.save(update_fields=["config"])
 
 
 def _token_count(text: str) -> int:
@@ -133,6 +141,15 @@ def dismiss_report_from_slack(
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
+    """Facade entrypoint for a report's latest repo selection. See select_repo.persisted_repo_selection."""
+    from products.signals.backend.report_generation.select_repo import (
+        persisted_repo_selection as persisted_repo_selection_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return persisted_repo_selection_impl(report_id)
 
 
 def get_default_slack_notification_channel(team_id: int) -> str | None:
@@ -502,3 +519,39 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+
+def forward_report_discussion_note(
+    *,
+    team: Team,
+    report_id: str | None,
+    relationship: str | None,
+    text: str,
+    user_id: int | None,
+    scoped_team_ids: Sequence[int] | None,
+    api_scopes: Sequence[str] | None,
+) -> str | None:
+    """Forward an inbox "Discuss" question to the report's scout as a steering note.
+
+    Called by the tasks presentation layer once a discussion task exists, with the calling
+    credential's reach (`scoped_team_ids`, `api_scopes`) read off the request there — the note write
+    is gated on authorization the task creation itself doesn't require. Only a `discussion`
+    relationship forwards, so an implementation or research kickoff never leaves a note. Best-effort:
+    returns the note id, or None when nothing was forwarded.
+    """
+    from products.signals.backend.artefact_schemas import (  # noqa: PLC0415 — keeps the notes stack off this module's import path
+        TASK_RUN_TYPE_DISCUSSION,
+    )
+    from products.signals.backend.discussion_notes import forward_discussion_note  # noqa: PLC0415 — same
+
+    if relationship != TASK_RUN_TYPE_DISCUSSION or not report_id:
+        return None
+
+    return forward_discussion_note(
+        team=team,
+        report_id=report_id,
+        text=text,
+        user_id=user_id,
+        scoped_team_ids=scoped_team_ids,
+        api_scopes=api_scopes,
+    )

@@ -177,10 +177,12 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
     Converging a covered DAG to zero schedules is refused only while it still has just legacy
-    (non-tier) schedules — an empty tier set there almost always means unseeded targets. Once tier
-    schedules exist, an empty tier set is a deliberate wind-down (last target reverted/cleared) and
-    those tiers are torn down. With `require_tiered`, a DAG that has no tiered schedule yet (legacy
-    single schedule or nothing) is left untouched.
+    (non-tier) schedules AND schedulable nodes — an empty tier set there almost always means
+    unseeded targets. A DAG with no schedulable nodes has nothing to seed, so its legacy schedule
+    is swept rather than left firing no-op runs. Once tier schedules exist, an empty tier set is a
+    deliberate wind-down (last target reverted/cleared) and those tiers are torn down. With
+    `require_tiered`, a DAG that has no tiered schedule yet (legacy single schedule or nothing) is
+    left untouched.
     """
     team = dag.team
     if graph is None:
@@ -197,6 +199,7 @@ def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False, graph: Fr
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
         require_tiered=require_tiered,
+        has_schedulable_nodes=bool(graph.nodes),
     )
 
 
@@ -290,7 +293,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
     effective = compute_effective_cadences(nodes=graph.nodes, edges=graph.edges, declared_targets=declared)
     effective, clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
     desired_tiers = bucket_into_cadence_tiers(effective)
-    existing_ids = _list_existing_schedule_ids(str(dag.id))
+    existing_ids = list_existing_schedule_ids(str(dag.id))
     plan = plan_schedule_reconciliation(str(dag.id), desired_tiers, existing_ids)
     return DagSchedulePreview(
         effective=effective,
@@ -307,7 +310,7 @@ def preview_dag_schedules(dag: DAG, *, seed: bool = False) -> DagSchedulePreview
 
 
 @async_to_sync
-async def _list_existing_schedule_ids(dag_id: str) -> set[str]:
+async def list_existing_schedule_ids(dag_id: str) -> set[str]:
     temporal = await async_connect()
     return await _list_execute_dag_schedule_ids(temporal, dag_id)
 
@@ -321,6 +324,7 @@ async def _apply_reconciliation(
     team_timezone: str,
     desired_tiers: dict[timedelta, set[str]],
     require_tiered: bool = False,
+    has_schedulable_nodes: bool = True,
 ) -> None:
     unsupported = sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS)
     if unsupported:
@@ -335,10 +339,17 @@ async def _apply_reconciliation(
         logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
         return
     # An empty tier set on a DAG that still has only legacy (non-tier) schedules means an unseeded
-    # conversion — protect it. Once tier schedules exist, empty desired is a deliberate wind-down
-    # (last target reverted/cleared/"never"), so let the teardown sweep the stale tiers instead of
-    # leaving them firing execute-dag on node_ids that no longer materialize.
-    if not desired_tiers and existing_ids and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
+    # conversion — protect it, but only when there is anything to seed: a DAG with no schedulable
+    # nodes gets its legacy schedule swept instead of firing no-op runs forever. Once tier
+    # schedules exist, empty desired is a deliberate wind-down (last target reverted/cleared/
+    # "never"), so let the teardown sweep the stale tiers instead of leaving them firing
+    # execute-dag on node_ids that no longer materialize.
+    if (
+        not desired_tiers
+        and has_schedulable_nodes
+        and existing_ids
+        and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids)
+    ):
         logger.warning(
             "Refusing to unschedule an unseeded DAG with only legacy schedules",
             dag_id=dag_id,

@@ -199,12 +199,16 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         buckets: [{ bucket_start: '2026-05-30T00:00:00Z', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
         run_count: 100,
+        successful_run_count: 90,
+        conclusive_run_count: 94,
         success_rate: 0.95,
         p50_seconds: 120,
         p95_seconds: 600,
         last_failure_at: '2026-05-30T00:00:00Z',
         latest_run_failed: false,
         latest_run_conclusion: 'success',
+        latest_run_id: 123456,
+        latest_run_attempt: 1,
     },
 ]
 function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealthRow {
@@ -702,6 +706,7 @@ describe('engineeringAnalyticsLogic', () => {
             duration_seconds: 300,
             run_attempt: 1,
             pr_number: 10,
+            commit_pr_number: null,
             ...overrides,
         })
         const groups = groupRunsByCommit([
@@ -902,6 +907,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.openQuarantineModal({
             action: 'extend',
             selector: 'a/b.py::T::t',
+            runner: 'pytest',
             reason: 'flaky',
             owner: '@team/x',
             issue: 'https://github.com/PostHog/posthog/issues/7',
@@ -921,7 +927,8 @@ describe('engineeringAnalyticsLogic', () => {
 
         logic.actions.openQuarantineModal({
             action: 'quarantine',
-            selector: 'a/b.py::T::t',
+            selector: 'frontend/src/a.test.ts::renders',
+            runner: 'jest',
             reason: 'flaky',
             owner: '@team/x',
             issue: '',
@@ -930,7 +937,8 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.submitQuarantine({
             input: {
                 action: 'quarantine',
-                selector: 'a/b.py::T::t',
+                selector: 'frontend/src/a.test.ts::renders',
+                runner: 'jest',
                 reason: 'flaky',
                 owner: '@team/x',
                 issue: '',
@@ -944,10 +952,33 @@ describe('engineeringAnalyticsLogic', () => {
         // The viewed repo is threaded into the write so the PR targets it.
         expect(mockQuarantineRequest).toHaveBeenCalledWith(
             '1',
-            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog' })
+            expect.objectContaining({ operation: 'quarantine', repo: 'PostHog/posthog', runner: 'jest' })
         )
         expect(logic.values.quarantineModal).toBeNull()
         expect(logic.values.quarantineSubmitLoading).toBe(false)
+    })
+
+    it('omits the runner when removing a forward-compatible quarantine entry', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        logic.actions.submitQuarantine({
+            input: {
+                action: 'remove',
+                selector: 'future/runner/test',
+                reason: '',
+                owner: '',
+                issue: '',
+                expires: null,
+                mode: 'run',
+            },
+        })
+        await expectLogic(logic).toDispatchActions(['submitQuarantineSuccess'])
+
+        expect(mockQuarantineRequest).toHaveBeenCalledWith(
+            '1',
+            expect.not.objectContaining({ runner: expect.anything() })
+        )
     })
 
     it('a failed submit keeps the modal open so the user can retry', async () => {
@@ -959,6 +990,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.openQuarantineModal({
             action: 'quarantine',
             selector: 'a/b.py::T::t',
+            runner: 'pytest',
             reason: 'flaky',
             owner: '@team/x',
             issue: '',
@@ -968,6 +1000,7 @@ describe('engineeringAnalyticsLogic', () => {
             input: {
                 action: 'quarantine',
                 selector: 'a/b.py::T::t',
+                runner: 'pytest',
                 reason: 'flaky',
                 owner: '@team/x',
                 issue: '',

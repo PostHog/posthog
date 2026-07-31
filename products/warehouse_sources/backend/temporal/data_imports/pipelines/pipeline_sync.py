@@ -20,6 +20,7 @@ from clickhouse_driver.errors import ServerException
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -28,6 +29,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
     resolve_table_and_folder_names,
@@ -113,11 +117,14 @@ class PipelineInputs:
 
 async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
     @database_sync_to_async_pool
+    @retry_on_operational_error
     def _update():
         job = ExternalDataJob.objects.get(pk=job_id)
         schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
         schema.last_synced_at = job.created_at
-        schema.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT that also needs a pooler connection (see save()).
+        schema.save(skip_activity_log=True)
 
     await _update()
 
@@ -199,17 +206,20 @@ async def validate_schema_and_update_table(
             # exhausted the connection pool.
             table_created: DataWarehouseTable | None = external_data_schema.table
             if table_created:
-                table_created.format = table_params["format"]
-                table_created.url_pattern = new_url_pattern
-                table_created.queryable_folder = queryable_folder
+                table = table_created
+                table.format = table_params["format"]
+                table.url_pattern = new_url_pattern
+                table.queryable_folder = queryable_folder
                 if external_data_schema.table_row_count_is_cumulative:
-                    table_created.row_count = table_created.get_count()
+                    table.row_count = table.get_count()
                 else:
-                    table_created.row_count = row_count
-                # Scope to the fields changed here. This save is now outside the transaction, so a
-                # full save would rewrite `columns` with its pre-merge value and could clobber a
-                # concurrent sync's column update before the select_for_update merge below runs.
-                table_created.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+                    table.row_count = row_count
+                # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
+                # enough for the pooled Postgres connection to be recycled underneath us. Retry once
+                # on a fresh connection rather than let this escape as error-tracking noise.
+                retry_on_db_connection_drop(
+                    lambda: table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+                )
 
             if not table_created:
                 # Check if we already have an orphaned table that we can repurpose
@@ -234,40 +244,47 @@ async def validate_schema_and_update_table(
             raw_db_columns = table_created.get_columns()
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
 
-            with transaction.atomic():
-                # select_for_update prevents two concurrent sync operations from
-                # causing a lost-update: both would read the current columns,
-                # merge independently, and one write would overwrite the other.
-                # Use raw_objects to skip the default manager's select_related —
-                # its nullable LEFT JOINs are rejected by Postgres under FOR UPDATE.
-                table_for_update = DataWarehouseTable.raw_objects.select_for_update().get(id=table_created.id)
-                existing_columns = table_for_update.columns or {}
-                columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
-                # Project to enabled_columns so disabled columns the user already deselected don't
-                # creep back into HogQL via the Delta schema (which still contains them historically).
-                # Prefer source-detected PKs (always present) over the schema model's PKs (only set
-                # for CDC and user-picked incremental keys) so non-CDC schemas don't drop their PKs.
-                effective_primary_keys = primary_keys or external_data_schema.primary_key_columns
-                columns = filter_dwh_columns_by_enabled_columns(
-                    columns,
-                    external_data_schema.enabled_columns,
-                    effective_primary_keys,
-                    external_data_schema.incremental_field,
-                )
-                table_for_update.columns = columns
-                table_for_update.save(update_fields=["columns"])
-                # Keep local reference in sync
-                table_created.columns = columns
+            def _persist_columns() -> None:
+                with transaction.atomic():
+                    # select_for_update prevents two concurrent sync operations from
+                    # causing a lost-update: both would read the current columns,
+                    # merge independently, and one write would overwrite the other.
+                    # Use raw_objects to skip the default manager's select_related —
+                    # its nullable LEFT JOINs are rejected by Postgres under FOR UPDATE.
+                    table_for_update = DataWarehouseTable.raw_objects.select_for_update().get(id=table_created.id)
+                    existing_columns = table_for_update.columns or {}
+                    columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+                    # Project to enabled_columns so disabled columns the user already deselected don't
+                    # creep back into HogQL via the Delta schema (which still contains them historically).
+                    # Prefer source-detected PKs (always present) over the schema model's PKs (only set
+                    # for CDC and user-picked incremental keys) so non-CDC schemas don't drop their PKs.
+                    effective_primary_keys = primary_keys or external_data_schema.primary_key_columns
+                    columns = filter_dwh_columns_by_enabled_columns(
+                        columns,
+                        external_data_schema.enabled_columns,
+                        effective_primary_keys,
+                        external_data_schema.incremental_field,
+                    )
+                    table_for_update.columns = columns
+                    table_for_update.save(update_fields=["columns"])
+                    # Keep local reference in sync
+                    table_created.columns = columns
 
-                # schema could have been deleted by this point
-                schema_model = (
-                    ExternalDataSchema.objects.prefetch_related("source")
-                    .exclude(deleted=True)
-                    .get(id=_schema_id, team_id=team_id)
-                )
+                    # schema could have been deleted by this point
+                    schema_model = (
+                        ExternalDataSchema.objects.prefetch_related("source")
+                        .exclude(deleted=True)
+                        .get(id=_schema_id, team_id=team_id)
+                    )
 
-                schema_model.table = table_created
-                schema_model.save()
+                    schema_model.table = table_created
+                    schema_model.save()
+
+            # get_columns() above retries against ClickHouse the same way and can also block for
+            # minutes, long enough for the pooled connection used by select_for_update() below to go
+            # stale. A dropped connection mid-atomic-block rolls the block back, so retrying it whole
+            # is safe.
+            retry_on_db_connection_drop(_persist_columns)
 
         except ServerException as err:
             if err.code == 636:
@@ -347,13 +364,19 @@ async def register_cdc_companion_table(
             ).first()
 
             if companion_table:
-                companion_table.format = table_format
-                companion_table.url_pattern = new_url_pattern
-                companion_table.queryable_folder = queryable_folder
-                companion_table.row_count = companion_table.get_count()
+                table = companion_table
+                table.format = table_format
+                table.url_pattern = new_url_pattern
+                table.queryable_folder = queryable_folder
+                table.row_count = table.get_count()
                 # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
                 # `columns` with its pre-merge value before the column save below.
-                companion_table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+                # get_count() above can retry against a degraded ClickHouse cluster for minutes, long
+                # enough for the pooled Postgres connection to be recycled underneath us. Retry once
+                # on a fresh connection rather than let this escape as error-tracking noise.
+                retry_on_db_connection_drop(
+                    lambda: table.save(update_fields=["format", "url_pattern", "queryable_folder", "row_count"])
+                )
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(
@@ -365,12 +388,18 @@ async def register_cdc_companion_table(
             existing_columns = companion_table.columns or {}
             columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
 
-            with transaction.atomic():
-                companion_table.columns = columns
-                companion_table.save(update_fields=["columns"])
+            def _persist_columns() -> None:
+                with transaction.atomic():
+                    companion_table.columns = columns
+                    companion_table.save(update_fields=["columns"])
 
-                if set_as_schema_table:
-                    ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(table=companion_table)
+                    if set_as_schema_table:
+                        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(table=companion_table)
+
+            # get_columns() above retries against ClickHouse the same way and can also block for
+            # minutes, long enough for the pooled connection to go stale. A dropped connection rolls
+            # the atomic block back, so retrying it whole is safe.
+            retry_on_db_connection_drop(_persist_columns)
 
         except Exception as e:
             logger.exception(

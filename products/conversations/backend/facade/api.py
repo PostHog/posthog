@@ -8,11 +8,19 @@ team's Slack credentials directly.
 
 from typing import Any
 
-from pydantic.dataclasses import dataclass
+from django.conf import settings
+from django.db.models import F
+
 from slack_sdk.errors import SlackApiError
 
+from posthog.models.comment import Comment
 from posthog.models.team import Team
 
+from products.conversations.backend.facade.types import (
+    SupportChannel as SupportChannel,
+    TicketSummary as TicketSummary,
+)
+from products.conversations.backend.models import Ticket
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
@@ -32,15 +40,6 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
-
-
-@dataclass(frozen=True)
-class SupportChannel:
-    """A Slack channel visible to the SupportHog bot."""
-
-    id: str
-    name: str
-    is_member: bool
 
 
 def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> list[SupportChannel]:
@@ -106,3 +105,57 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     if not ts:
         raise SupportMessageSendError("missing_ts")
     return ts
+
+
+def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, dedupe_key: str) -> str | None:
+    """Add a team-only note to a ticket, as the AI author. Returns the new comment's id, or None when
+    nothing was written because the ticket doesn't exist for this team or this ``dedupe_key`` already
+    posted a note.
+
+    Always private: callers use this to hand agent findings to a support teammate, who decides what
+    (if anything) reaches the customer. ``dedupe_key`` identifies the thing that produced the note so
+    a retrying caller doesn't post twice.
+    """
+    if not Ticket.objects.filter(team_id=team_id, id=ticket_id).exists():
+        return None
+    already_posted = Comment.objects.filter(
+        team_id=team_id,
+        scope="conversations_ticket",
+        item_id=ticket_id,
+        item_context__internal_note_key=dedupe_key,
+        deleted=False,
+    ).exists()
+    if already_posted:
+        return None
+    comment = Comment.objects.create(
+        team_id=team_id,
+        scope="conversations_ticket",
+        item_id=ticket_id,
+        content=content,
+        item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
+    )
+    return str(comment.id)
+
+
+def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50) -> list[TicketSummary]:
+    """Support tickets whose resolved customer org matches ``organization_id``, newest activity first.
+
+    ``organization_id`` is the customer's group key (a customer-analytics account's
+    ``external_id``). An empty key matches nothing — never every ticket for the team.
+    """
+    if not organization_id:
+        return []
+    tickets = Ticket.objects.filter(team_id=team_id, organization_id=organization_id).order_by(
+        F("last_message_at").desc(nulls_last=True)
+    )[:limit]
+    return [
+        TicketSummary(
+            id=str(ticket.id),
+            ticket_number=ticket.ticket_number,
+            status=ticket.status,
+            last_message_at=ticket.last_message_at,
+            last_message_text=ticket.last_message_text,
+            deep_link=f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.ticket_number}",
+        )
+        for ticket in tickets
+    ]

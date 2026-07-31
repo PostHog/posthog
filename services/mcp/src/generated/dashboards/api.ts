@@ -12,7 +12,7 @@ export const DashboardTemplatesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -50,7 +50,7 @@ export const DashboardTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -58,7 +58,7 @@ export const DashboardsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -67,7 +67,7 @@ export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included."
+            "Optional. Return only dashboards filed directly in this project-tree folder, e.g. 'Unfiled\/Dashboards'. An empty string matches dashboards at the project root. Nested sub-folders are not included."
         ),
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -84,7 +84,7 @@ export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -114,7 +114,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .union([zod.literal(21), zod.literal(37)])
             .optional()
             .describe(
-                '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
+                '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
             ),
         quick_filter_ids: zod
             .array(zod.string())
@@ -137,7 +137,7 @@ export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -159,7 +159,7 @@ export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {\"<variable_id>\": {\"code_name\": \"<code_name>\", \"variableId\": \"<variable_id>\", \"value\": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
         ),
 })
 
@@ -168,7 +168,7 @@ export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -245,7 +245,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                     .string()
                     .nullish()
                     .describe(
-                        "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now."
+                        "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null\/omitted means up to now."
                     ),
                 properties: zod
                     .unknown()
@@ -255,7 +255,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                     ),
             })
             .describe(
-                "OpenAPI-only shape for a dashboard's filters object (agents/MCP).\n\nDocuments the dashboard-level filters that act as the single source of truth for the\ndashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so\nextra keys are accepted, but these are the ones agents should set."
+                "OpenAPI-only shape for a dashboard's filters object (agents\/MCP).\n\nDocuments the dashboard-level filters that act as the single source of truth for the\ndashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so\nextra keys are accepted, but these are the ones agents should set."
             )
             .optional()
             .describe(
@@ -290,11 +290,11 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                     'survey_results',
                                 ])
                                 .describe(
-                                    '* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results'
+                                    '\* `activity_events_list` - activity_events_list\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results'
+                                    'Widget type identifier (cannot be changed on update).\n\n\* `activity_events_list` - activity_events_list\n\* `error_tracking_list` - error_tracking_list\n\* `experiment_results` - experiment_results\n\* `experiments_list` - experiments_list\n\* `logs_list` - logs_list\n\* `session_replay_list` - session_replay_list\n\* `survey_results` - survey_results'
                                 ),
                             config: zod
                                 .union([
@@ -336,6 +336,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -415,6 +419,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                                 'is_not',
                                                                 'icontains',
                                                                 'not_icontains',
+                                                                'starts_with',
+                                                                'not_starts_with',
+                                                                'ends_with',
+                                                                'not_ends_with',
                                                                 'regex',
                                                                 'not_regex',
                                                                 'gt',
@@ -524,6 +532,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -647,6 +659,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                             'is_not',
                                                             'icontains',
                                                             'not_icontains',
+                                                            'starts_with',
+                                                            'not_starts_with',
+                                                            'ends_with',
+                                                            'not_ends_with',
                                                             'regex',
                                                             'not_regex',
                                                             'gt',
@@ -907,7 +923,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('When deleting, also delete insights that are only on this dashboard.'),
     })
     .describe(
-        'OpenAPI-only PATCH body for dashboards (agents/MCP).\n\nMust be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``\nreplaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.'
+        'OpenAPI-only PATCH body for dashboards (agents\/MCP).\n\nMust be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``\nreplaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.'
     )
 
 /**
@@ -918,7 +934,7 @@ export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -934,7 +950,7 @@ export const DashboardsCopyTileCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -958,7 +974,7 @@ export const DashboardsCreateTextTileCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1022,7 +1038,7 @@ export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1039,7 +1055,7 @@ export const DashboardsMoveTilePartialUpdateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1062,7 +1078,7 @@ export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1079,10 +1095,10 @@ export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
     layout: zod
         .enum(['preserve', 'two_column', 'full_width'])
-        .describe('* `preserve` - preserve\n* `two_column` - two_column\n* `full_width` - full_width')
+        .describe('\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width')
         .default(dashboardsReorderTilesCreateBodyLayoutDefault)
         .describe(
-            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n* `preserve` - preserve\n* `two_column` - two_column\n* `full_width` - full_width"
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
         ),
 })
 
@@ -1094,7 +1110,7 @@ export const DashboardsRunInsightsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1122,7 +1138,7 @@ export const DashboardsRunInsightsRetrieveQueryParams = /* @__PURE__ */ zod.obje
         .string()
         .optional()
         .describe(
-            'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {\"<variable_id>\": {\"code_name\": \"<code_name>\", \"variableId\": \"<variable_id>\", \"value\": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
         ),
 })
 
@@ -1131,7 +1147,7 @@ export const DashboardsRunWidgetsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1148,7 +1164,7 @@ export const DashboardsUpdateTextTileCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1206,7 +1222,7 @@ export const DashboardsWidgetsBatchCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -1373,6 +1389,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1448,6 +1468,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                                         'is_not',
                                                         'icontains',
                                                         'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
                                                         'regex',
                                                         'not_regex',
                                                         'gt',
@@ -1616,6 +1640,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -1785,6 +1813,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2259,7 +2291,7 @@ export const DashboardsUpdateWidgetsBatchParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -2384,6 +2416,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2459,6 +2495,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                                         'is_not',
                                                         'icontains',
                                                         'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
                                                         'regex',
                                                         'not_regex',
                                                         'gt',
@@ -2586,6 +2626,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -2714,6 +2758,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                                     'is_not',
                                                     'icontains',
                                                     'not_icontains',
+                                                    'starts_with',
+                                                    'not_starts_with',
+                                                    'ends_with',
+                                                    'not_ends_with',
                                                     'regex',
                                                     'not_regex',
                                                     'gt',
@@ -3019,7 +3067,7 @@ export const DashboardsWidgetCatalogRetrieveParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
