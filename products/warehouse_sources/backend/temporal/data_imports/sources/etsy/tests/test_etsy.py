@@ -62,6 +62,7 @@ class _FakeSession:
     def __init__(self, get_responses: list[Response], post_responses: Optional[list[Response]] = None) -> None:
         self.get_calls: list[tuple[str, dict[str, Any], dict[str, str]]] = []
         self.post_bodies: list[dict[str, Any]] = []
+        self.post_form_bodies: list[dict[str, Any]] = []
         self._get_responses = list(get_responses)
         self._post_responses = list(post_responses) if post_responses is not None else [_token()]
 
@@ -77,8 +78,15 @@ class _FakeSession:
             raise AssertionError(f"unexpected extra GET: {url} {params}")
         return self._get_responses.pop(0)
 
-    def post(self, url: str, json: Optional[dict[str, Any]] = None, timeout: Optional[float] = None) -> Response:  # noqa: A002 — matches requests' keyword name
+    def post(
+        self,
+        url: str,
+        json: Optional[dict[str, Any]] = None,
+        data: Optional[dict[str, Any]] = None,
+        timeout: Optional[float] = None,
+    ) -> Response:  # noqa: A002 — matches requests' keyword names
         self.post_bodies.append(dict(json or {}))
+        self.post_form_bodies.append(dict(data or {}))
         if not self._post_responses:
             raise AssertionError("unexpected extra token request")
         return self._post_responses.pop(0)
@@ -131,13 +139,14 @@ def _collect(
 
 
 class TestEtsyTransport:
-    def test_token_is_minted_from_the_refresh_token_and_reused(self) -> None:
+    def test_token_refresh_is_form_encoded_and_reused(self) -> None:
         session = _FakeSession([_page(_rows(1), 1)])
         _collect(session, "shop_sections")
 
-        assert session.post_bodies == [
+        assert session.post_form_bodies == [
             {"grant_type": "refresh_token", "client_id": _API_KEY, "refresh_token": _REFRESH_TOKEN}
         ]
+        assert session.post_bodies == [{}]
         assert session.get_calls[0][2]["Authorization"] == "Bearer token-1"
 
     def test_secrets_are_redacted_and_api_key_header_is_set(self) -> None:
