@@ -140,7 +140,7 @@ async def deliver_email(
         # non-retryable — retrying then could never succeed.
         # Bound the error details: a huge recipient list with a domain-wide bounce would
         # otherwise exceed Temporal's gRPC payload cap and wedge the workflow mid-failure.
-        details = [
+        details: list[dict[str, Any]] = [
             {
                 "recipient": result.recipient,
                 "status": result.status,
