@@ -234,9 +234,13 @@ pub async fn run_probers(
                 let mut written = HashMap::new();
                 written.insert(key.clone(), serde_json::Value::String(marker.clone()));
                 match response.person {
-                    Some(person) => {
+                    Some(person) if response.updated => {
                         state.record_write(person_id, person.version, written).await;
                     }
+                    // A no-change ack (an at-least-once replay whose first
+                    // application landed) echoes a version owned by some
+                    // other write — assert the keys, claim no version.
+                    Some(_) => state.record_write_no_change(person_id, written).await,
                     None => {
                         // Already flagged as a violation by the journal; the
                         // keys still get end-of-run verification.

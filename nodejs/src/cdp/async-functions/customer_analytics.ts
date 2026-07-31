@@ -184,3 +184,60 @@ registerAsyncFunction('postHogSetAccountProperties', {
         }
     },
 })
+
+registerAsyncFunction('postHogCreateAccount', {
+    execute: async (args, context, result) => {
+        const [opts] = args as [Record<string, any> | undefined]
+        const externalId = opts?.external_id
+
+        if (!externalId || typeof externalId !== 'string') {
+            throw new Error("[HogFunction] - postHogCreateAccount call missing 'external_id' property")
+        }
+
+        const team = await getTeamWithSecretToken(context, 'postHogCreateAccount')
+
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${team.secret_api_token}`,
+        }
+
+        const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
+        if (hogFlow?.id) {
+            headers['X-PostHog-Hog-Flow-Id'] = hogFlow.id
+        }
+
+        result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
+            type: 'fetch',
+            url: `${context.siteUrl}/api/customer_analytics/external/account`,
+            method: 'POST',
+            body: JSON.stringify({ external_id: externalId }),
+            headers,
+        })
+    },
+
+    mock: (args, logs) => {
+        logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `Async function 'postHogCreateAccount' was mocked with arguments:`,
+        })
+        logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: `postHogCreateAccount(${JSON.stringify(args[0], null, 2)})`,
+        })
+
+        return {
+            status: 201,
+            body: {
+                id: 'mock-account-id',
+                external_id: args[0]?.external_id ?? 'mock-external-id',
+                name: 'Mock Account',
+                properties: {},
+                tags: [],
+                relationships: {},
+                custom_properties: {},
+            },
+        }
+    },
+})

@@ -145,15 +145,6 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.agent_platform"
-depends_on = [
-    "posthog",
-    "products.mcp_store",
-    "products.skills",
-]
-layer = "modules"
-
-[[modules]]
 path = "products.ai_gateway"
 depends_on = ["posthog"]
 layer = "modules"
@@ -615,6 +606,7 @@ path = "products.review_hog"
 depends_on = [
     "ee",
     "posthog",
+    "products.engineering_analytics",
     "products.signals",
     "products.skills",
     "products.tasks",
@@ -661,6 +653,7 @@ layer = "modules"
 path = "products.slack_app"
 depends_on = [
     "posthog",
+    "products.alerts",
     "products.conversations",
     "products.dashboards",
     "products.product_analytics",
@@ -706,6 +699,7 @@ depends_on = [
     "products.access_control",
     "products.actions",
     "products.analytics_platform", "products.warehouse_sources",
+    "products.feature_flags",
 ]
 layer = "modules"
 

@@ -4,9 +4,36 @@ import { sanitizeEvent } from '~/common/utils/event'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUID } from '~/common/utils/utils'
+import { TopHogMetricFactory, count, max, sum, timer } from '~/ingestion/framework/extensions/tophog'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { IncomingEvent, PipelineEvent } from '~/types'
+import { EventHeaders, IncomingEvent, PipelineEvent } from '~/types'
+
+/**
+ * TopHog metrics for the parse step: parse timing and raw message sizes,
+ * keyed by token (the team is not resolved yet at parse time). Sizes are
+ * recorded from the raw Kafka message, so malformed events that DLQ at parse
+ * still show up — this is the earliest per-sender visibility the pipeline
+ * has. Wire via `.parseMessage({ wrap: (step) => topHog(step, parseMessageTopHogMetrics()) })`.
+ */
+export function parseMessageTopHogMetrics<
+    TInput extends { message: Message; headers: EventHeaders },
+    TOutput,
+>(): TopHogMetricFactory<TInput, TOutput>[] {
+    const byToken = (input: TInput) => ({ token: input.headers.token ?? 'unknown' })
+    const messageBytes = (input: TInput) => input.message.value?.length ?? 0
+    return [
+        count('messages_by_token', byToken),
+        timer('parse_time_ms_by_token', byToken),
+        sum('message_size_by_token', byToken, messageBytes),
+        max('max_message_size_by_token', byToken, messageBytes),
+        sum(
+            'message_size_by_token_per_partition',
+            (input) => ({ ...byToken(input), partition: String(input.message.partition) }),
+            messageBytes
+        ),
+    ]
+}
 
 export function createParseKafkaMessageStep<T extends { message: Message }>(): ProcessingStep<
     T,

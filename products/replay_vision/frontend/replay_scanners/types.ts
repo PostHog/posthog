@@ -12,7 +12,7 @@ import type {
     UserBasicApi,
     VisionObservationsRetrieveParams,
 } from '../generated/api.schemas'
-import { formatCredits } from '../utils/credits'
+import { formatCreditCount } from '../utils/credits'
 
 export type ScannerType = ScannerTypeEnumApi
 
@@ -155,14 +155,14 @@ export const OBSERVATION_CREDITS_BY_MODEL: Record<ScannerModelEnumApi, number> =
 
 const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
     [ScannerModelEnumApi.Gemini35FlashLite]: 'Gemini 3.5 Flash Lite',
-    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash (preview)',
+    [ScannerModelEnumApi.Gemini3FlashPreview]: 'Gemini 3 Flash',
     [ScannerModelEnumApi.Gemini36Flash]: 'Gemini 3.6 Flash',
 }
 
 export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
     (value) => ({
         value,
-        label: `${MODEL_NAMES[value]} (${formatCredits(OBSERVATION_CREDITS_BY_MODEL[value])}/observation)`,
+        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
     })
 )
 

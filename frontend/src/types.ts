@@ -76,10 +76,12 @@ import type {
     SharingConfigurationSettings,
     TileFilters,
     UserProductListItem,
+    UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { DataWarehouseSavedQueryApiSuspended } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -290,8 +292,10 @@ export enum AccessControlResourceType {
     LlmAnalytics = 'llm_analytics',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
+    LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
+    Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
@@ -381,6 +385,8 @@ export interface UserType extends UserBaseType {
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     hide_mcp_hints?: boolean
+    /** Per-user UI customization. Null means no customization: every element is shown. */
+    ui_configuration?: UserUIConfiguration | null
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: HedgehogConfig
@@ -766,6 +772,8 @@ export interface ConversationsSettings {
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
     slack_nudge_enabled?: boolean
+    /** Bot scopes Slack granted at install. Absent for installs authorized before we recorded them. */
+    slack_scopes?: string[] | null
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -1035,6 +1043,10 @@ export enum PropertyOperator {
     IsNot = 'is_not',
     IContains = 'icontains',
     NotIContains = 'not_icontains',
+    StartsWith = 'starts_with',
+    NotStartsWith = 'not_starts_with',
+    EndsWith = 'ends_with',
+    NotEndsWith = 'not_ends_with',
     Regex = 'regex',
     NotRegex = 'not_regex',
     GreaterThan = 'gt',
@@ -1440,6 +1452,7 @@ export enum SessionRecordingSidebarTab {
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
+    SESSIONS = 'sessions',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1816,6 +1829,8 @@ export interface CohortType {
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
     filters: {
         properties: CohortCriteriaGroupFilter
+        /** Exclude internal and test users (person-scoped team filters) at calculation time */
+        filterTestAccounts?: boolean
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
@@ -5463,6 +5478,7 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'pardot',
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
@@ -5708,8 +5724,6 @@ export const API_SCOPE_OBJECTS = [
     'access_control',
     'account',
     'activity_log',
-    'agents',
-    'agent_approvals',
     'alert',
     'annotation',
     'approvals',
@@ -5762,6 +5776,7 @@ export const API_SCOPE_OBJECTS = [
     'llm_analytics',
     'ai_observability_clusters',
     'llm_gateway',
+    'llm_playground',
     'llm_prompt',
     'llm_provider_key',
     'llm_skill',
@@ -5783,6 +5798,7 @@ export const API_SCOPE_OBJECTS = [
     'query',
     'query_performance',
     'replay_scanner',
+    'review_hog',
     'revenue_analytics',
     'session_recording',
     'session_recording_playlist',
@@ -5882,6 +5898,11 @@ export type AccessControlResponseType = {
     default_access_level: AccessControlLevel
     minimum_access_level?: AccessControlLevel
     user_can_edit_access_levels: boolean
+    /** Resource whose project-wide rules apply while the object carries no override of its own. */
+    inherited_resource?: APIScopeObject | null
+    /** The level that applies while the object carries no override: the project-wide rule for
+     * `inherited_resource`, or its built-in default when no rule is set. */
+    inherited_access_level?: AccessControlLevel | null
 }
 
 export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
@@ -6114,6 +6135,8 @@ export interface DataModelingDAG {
     name: string
     description: string
     sync_frequency: DataModelingSyncInterval | null
+    /** True when per-model freshness targets drive scheduling, making the DAG-level frequency read-only */
+    frequency_managed_by_nodes?: boolean
     node_count: number
     created_at: string
     updated_at: string
@@ -6137,6 +6160,8 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
+    suspended?: DataWarehouseSavedQueryApiSuspended
     upstream_dependency_count?: number
     downstream_dependency_count?: number
     created_at?: string
@@ -6440,12 +6465,15 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version?: string | null
     /** Set when this schema's version override is deprecated by the vendor */
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
+    /** The requesting user's effective access level for this table (inherits the source). */
+    user_access_level?: AccessControlLevel
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
 export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
+    access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
@@ -6900,6 +6928,7 @@ export enum SDKKey {
     DOTNET = 'dotnet',
     DSPY = 'dspy',
     ELIXIR = 'elixir',
+    EVE = 'eve',
     FRAMER = 'framer',
     FIREWORKS_AI = 'fireworks_ai',
     FLUTTER = 'flutter',
@@ -7176,6 +7205,7 @@ export type HogFunctionTypeType =
     | 'site_destination'
     | 'site_app'
     | 'transformation'
+    | 'transformation_log'
 
 export type HogFunctionType = {
     id: string
@@ -7218,6 +7248,7 @@ export type HogFunctionConfigurationContextId =
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
+    | 'mcp-tool-error'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'
@@ -7336,6 +7367,21 @@ export type CyclotronJobInvocationGlobals = {
         body: Record<string, any>
         headers: Record<string, string>
         ip?: string
+    }
+    // Only applies to log transformations (see buildLogRecordGlobals)
+    record?: {
+        body: string | null
+        attributes: Record<string, string>
+        resource_attributes: Record<string, string>
+        severity_text: string | null
+        severity_number: number | null
+        service_name: string | null
+        instrumentation_scope: string | null
+        event_name: string | null
+        timestamp: number | null
+        observed_timestamp: number | null
+        trace_id: string | null
+        span_id: string | null
     }
     // For HogFlows, workflow-level variables
     variables?: Record<string, any>
@@ -7595,8 +7641,8 @@ export interface ProductManifest {
     treeItemsMetadata?: FileSystemImport[]
     /**
      * Boot-time setup-status probe for this product's empty state. Aggregated across
-     * manifests into `productSetupProbes` and answered by one combined event-count
-     * query at app boot (see `productSetupPreloadLogic`).
+     * manifests into `productSetupProbes` and answered by one property-definition
+     * request at app boot (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
 }

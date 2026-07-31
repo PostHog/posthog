@@ -33,6 +33,8 @@ const CREATED_SCOUT: SignalScoutCreateResponseApi = {
         description: 'Investigates recurring checkout failures.',
         scout_origin: 'custom',
         enabled: false,
+        status: 'paused_by_user',
+        pause_reason: null,
         emit: false,
         run_interval_minutes: 60,
         run_cron_schedule: null,
@@ -70,6 +72,12 @@ describe('scoutCreateModalLogic', () => {
                     enabled: false,
                     emit: false,
                     run_interval_minutes: 60,
+                    output_destinations: {
+                        slack: {
+                            integration_id: 42,
+                            channel: 'C123|#ai-observability',
+                        },
+                    },
                 },
             },
             onClose,
@@ -87,6 +95,12 @@ describe('scoutCreateModalLogic', () => {
                 emit: false,
                 run_interval_minutes: 60,
                 run_cron_schedule: null,
+                output_destinations: {
+                    slack: {
+                        integration_id: 42,
+                        channel: 'C123|#ai-observability',
+                    },
+                },
             },
         })
 
@@ -101,6 +115,12 @@ describe('scoutCreateModalLogic', () => {
                 emit: false,
                 run_interval_minutes: 60,
                 run_cron_schedule: null,
+                output_destinations: {
+                    slack: {
+                        integration_id: 42,
+                        channel: 'C123|#ai-observability',
+                    },
+                },
             },
         })
         expect(onCreated).toHaveBeenCalledWith(CREATED_SCOUT)

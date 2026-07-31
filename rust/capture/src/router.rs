@@ -29,8 +29,8 @@ use limiters::token_dropper::TokenDropper;
 
 use crate::config::{AiRouting, CaptureMode};
 use crate::metrics_middleware::track_metrics;
-use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::CaptureQuotaLimiter;
+use metrics_exporter_prometheus::PrometheusHandle;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -111,6 +111,10 @@ pub struct State {
     /// `overflow_limiter` / `event_restriction_service`. Never awaited and
     /// never allowed to fail a request.
     pub ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    /// Deployment capture mode. Threaded into the analytics processing paths
+    /// (legacy and v1) so mode-specific policy — Import skips the global rate
+    /// limiter and drops non-historical batches — lives with the pipeline.
+    pub capture_mode: CaptureMode,
 }
 
 #[derive(Clone, Copy)]
@@ -160,9 +164,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     event_restriction_service: Option<EventRestrictionService>,
-    metrics: bool,
+    recorder_handle: Option<PrometheusHandle>,
     capture_mode: CaptureMode,
-    deploy_role: String,
     concurrency_limit: Option<usize>,
     event_payload_size_limit: usize,
     enable_historical_rerouting: bool,
@@ -215,6 +218,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_routing,
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
+        capture_mode,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -396,6 +400,16 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
             .merge(test_router)
             .merge(ai_router)
             .merge(otel_router),
+        // Import must not register ai_router/otel_router: those handlers build
+        // their own ProcessingContext with historical_migration: false, so they
+        // sidestep both Import gates (historical-only drop and GRL bypass) and
+        // would return a false 200 for events this deployment silently discards.
+        // The /i/v0/ai/batch path stays reachable via batch_router, which
+        // dispatches to the gated v0_endpoint::event handler.
+        CaptureMode::Import => Router::new()
+            .merge(batch_router)
+            .merge(event_router)
+            .merge(test_router),
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 
@@ -419,9 +433,15 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // Merged after every legacy layer above: the v1 router owns its full
     // middleware stack (CORS, limits) and applies the same per-route
     // concurrency cap to its own routes.
-    if matches!(capture_mode, CaptureMode::Events | CaptureMode::Ai)
-        && state.v1_sink_router.is_some()
-    {
+    //
+    // Matched exhaustively, like the legacy route gating above: a new capture
+    // mode must declare whether it serves the v1 analytics endpoint instead of
+    // silently defaulting to "no v1 routes" and 404ing its traffic.
+    let serves_v1_analytics = match capture_mode {
+        CaptureMode::Events | CaptureMode::Ai | CaptureMode::Import => true,
+        CaptureMode::Recordings => false,
+    };
+    if serves_v1_analytics && state.v1_sink_router.is_some() {
         router = router.merge(crate::v1::router::router(crate::v1::router::RouterConfig {
             concurrency_limit,
             max_compressed_body_bytes: state.capture_v1_max_compressed_body_bytes,
@@ -433,11 +453,10 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
-    // Don't install metrics unless asked to
-    // Installing a global recorder when capture is used as a library (during tests etc)
-    // does not work well.
-    if metrics {
-        let recorder_handle = setup_metrics_recorder(deploy_role, capture_mode.as_tag());
+    // The caller installs the recorder, before anything can emit; here we only
+    // expose its output. `None` for tests and library use, which have no
+    // recorder of their own.
+    if let Some(recorder_handle) = recorder_handle {
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router
