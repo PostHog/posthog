@@ -1,4 +1,5 @@
 import uuid
+import contextlib
 from typing import Any
 
 import pytest
@@ -248,6 +249,30 @@ def test_author_permission_skip_retracts_stale_approvals_on_head_change(team, re
     dismiss.assert_called_once()
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 1  # no second run was queued
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_carve_out_failure_still_dismisses_stale_approval_on_head_change(team, repo_config):
+    # The carve-out resolution is cross-product and fallible (tasks facade + review_hog resolver). If
+    # it throws on a head-changing bot-PR delivery, the stale-approval dismissal must still run — the
+    # safety retraction is never gated on the carve-out succeeding, or a stale approval keeps
+    # satisfying required reviews over unreviewed commits until retries exhaust.
+    _sync_repo_config(team.id, repo_config)
+    with team_scope(team.id):
+        pr_obj = PullRequest.objects.create(team_id=team.id, repo_config=repo_config, pr_number=42)
+        ReviewRun.objects.create(team_id=team.id, pull_request=pr_obj, head_sha="sha-1", posted_review_id=9)
+
+    with (
+        patch(_FIND_RUN, side_effect=RuntimeError("tasks DB unavailable")),
+        patch(_RESOLVER_SLOT, lambda team_id, report_id, created_by: 777),
+        patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss,
+    ):
+        # The delivery still retries afterwards to re-attempt the re-review (suppressed here); the
+        # point is that the dismissal fired before that retry.
+        with contextlib.suppress(Exception):
+            _run_task(_selfdriving_payload(), "delivery-carveout-throws", team.id)
+
+    dismiss.assert_called_once()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

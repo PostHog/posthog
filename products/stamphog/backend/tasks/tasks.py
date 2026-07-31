@@ -908,14 +908,17 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # the toggle is its gate and the review-mode/write-permission gates below don't apply either.
     skip_reason = _review_skip_reason(pr)
     carve_out = _InboxCarveOut()
+    carve_out_error: Exception | None = None
     if skip_reason is not None:
-        # Retry (don't drop) on failure: a transient DB blip during the carve-out resolution must
-        # not silently drop a legitimate re-review (the webhook is already ACKed).
+        # A carve-out resolution failure must NOT skip the stale-approval dismissal below: that
+        # safety retraction is invariant-critical and has to run for a head-changing skip whether or
+        # not the (cross-product, fallible) carve-out resolves. Record the error, fall through to the
+        # dismissal, then retry so the re-review is re-attempted once the dependency recovers.
         try:
             carve_out = _inbox_rereview_carve_out(installation_id, repo, pr, action, base_retargeted)
         except Exception as e:
             logger.exception("stamphog_pr_event_inbox_carve_out_failed", delivery_id=delivery_id, error=str(e))
-            raise cast(Any, process_pull_request_event).retry(exc=e)
+            carve_out_error = e
     inbox_review = carve_out.provenance
     if skip_reason is not None and inbox_review is None:
         # A head-changing event skipped here still invalidates any standing approval — the author may
@@ -940,6 +943,11 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                     "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
                 )
                 raise cast(Any, process_pull_request_event).retry(exc=e)
+        if carve_out_error is not None:
+            # Dismissal is done (or the action isn't head-changing); now retry to re-attempt the
+            # carve-out re-review once the transient failure clears. The dismissal above already ran,
+            # so the stale-approval invariant holds even if every retry keeps failing here.
+            raise cast(Any, process_pull_request_event).retry(exc=carve_out_error)
         logger.info(
             "stamphog_pr_event_skipped",
             repo=repo,
