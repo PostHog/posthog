@@ -54,8 +54,8 @@ def bucket_name(request) -> str:
 
 
 @pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
+async def object_storage_client(bucket_name):
+    """Manage an S3 client to interact with a local object storage bucket.
 
     Yields the client after creating a bucket. Upon resuming, we delete
     the contents and the bucket itself.
@@ -65,24 +65,24 @@ async def minio_client(bucket_name):
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-    ) as minio_client:
-        await minio_client.create_bucket(Bucket=bucket_name)
+    ) as object_storage_client:
+        await object_storage_client.create_bucket(Bucket=bucket_name)
 
-        yield minio_client
+        yield object_storage_client
 
-        await delete_all_from_s3(minio_client, bucket_name, key_prefix="")
+        await delete_all_from_s3(object_storage_client, bucket_name, key_prefix="")
 
-        await minio_client.delete_bucket(Bucket=bucket_name)
+        await object_storage_client.delete_bucket(Bucket=bucket_name)
 
 
-async def test_upload_manifest_file(minio_client, bucket_name):
+async def test_upload_manifest_file(object_storage_client, bucket_name):
     """Test the a correctly formatted manifest is uploaded with the necessary contents."""
     test_prefix = uuid.uuid4()
 
     files_uploaded = []
     for file_number in range(3):
         key = f"{test_prefix}/file_{file_number}"
-        await minio_client.put_object(
+        await object_storage_client.put_object(
             Bucket=bucket_name,
             Key=key,
             Body=b"0",
@@ -106,7 +106,7 @@ async def test_upload_manifest_file(minio_client, bucket_name):
         manifest_key=manifest_key,
     )
 
-    obj = await minio_client.get_object(Bucket=bucket_name, Key=manifest_key)
+    obj = await object_storage_client.get_object(Bucket=bucket_name, Key=manifest_key)
     body = await obj["Body"].read()
     loaded = json.loads(body)
 
@@ -118,7 +118,7 @@ async def test_upload_manifest_file(minio_client, bucket_name):
     assert total_content_length == 3
 
 
-async def test_upload_manifest_file_raises_on_client_error(minio_client, bucket_name):
+async def test_upload_manifest_file_raises_on_client_error(object_storage_client, bucket_name):
     """Test a ClientErrorGroup is raised when tasks fail."""
     test_prefix = uuid.uuid4()
 
