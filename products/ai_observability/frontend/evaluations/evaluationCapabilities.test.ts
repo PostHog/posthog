@@ -1,4 +1,8 @@
-import { evaluationSupportsReports, evaluationSupportsRunSummary } from './evaluationCapabilities'
+import {
+    evaluationOffersSessionTarget,
+    evaluationSupportsReports,
+    evaluationSupportsRunSummary,
+} from './evaluationCapabilities'
 import type { EvaluationOutputType, EvaluationTarget } from './types'
 
 describe('evaluationCapabilities', () => {
@@ -18,4 +22,19 @@ describe('evaluationCapabilities', () => {
             expect(evaluationSupportsRunSummary(evaluation)).toBe(supportsSummary)
         }
     )
+
+    // An evaluation already targeting a session must keep the option listed even with the flag off,
+    // since the API and MCP can create one. Otherwise the picker renders the raw 'session' value.
+    it.each<[target: EvaluationTarget | null, settlingStrategyEnabled: boolean, offered: boolean]>([
+        ['generation', true, true],
+        ['generation', false, false],
+        ['trace', false, false],
+        ['session', false, true],
+        ['session', true, true],
+        [null, false, false],
+    ])('offers the session target for a %s evaluation when the flag is %s', (target, flagEnabled, offered) => {
+        const evaluation = target === null ? null : { target }
+
+        expect(evaluationOffersSessionTarget(evaluation, flagEnabled)).toBe(offered)
+    })
 })

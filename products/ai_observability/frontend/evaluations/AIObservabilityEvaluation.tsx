@@ -44,6 +44,7 @@ import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { EVALUATION_PASSED_HOGQL, EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
+    evaluationOffersSessionTarget,
     evaluationSupportsReports,
     evaluationSupportsRunSummary,
     evaluationTypeHasEditableCriteria,
@@ -120,6 +121,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const isSentiment = evaluation.evaluation_type === 'sentiment'
     const isAggregateTarget = evaluation.target === 'trace' || evaluation.target === 'session'
     const isSessionTarget = evaluation.target === 'session'
+    const offersSessionTarget = evaluationOffersSessionTarget(evaluation, settlingStrategyEnabled)
     const effectiveStrategy: EvaluationSettleStrategy = settlingStrategyEnabled
         ? (evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window'))
         : 'fixed_window'
@@ -512,7 +514,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                                     value: 'trace',
                                                                     label: 'Whole trace',
                                                                 },
-                                                                ...(settlingStrategyEnabled
+                                                                ...(offersSessionTarget
                                                                     ? [
                                                                           {
                                                                               value: 'session' as const,

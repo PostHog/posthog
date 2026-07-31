@@ -26,6 +26,16 @@ export function evaluationTypeUsesModelConfiguration(evaluationType: EvaluationT
     return evaluationType === 'llm_judge'
 }
 
+// Sessions are creatable through the API and MCP regardless of the UI flag, so an evaluation that
+// already targets one must keep the option listed even for a flag-off user. Without it the picker
+// falls back to rendering the raw 'session' value, and saving would silently drop the target.
+export function evaluationOffersSessionTarget(
+    evaluation: Pick<EvaluationConfig, 'target'> | null | undefined,
+    settlingStrategyEnabled: boolean
+): boolean {
+    return settlingStrategyEnabled || evaluation?.target === 'session'
+}
+
 export function isLLMJudgeEvaluation(
     evaluation: EvaluationConfig | null | undefined
 ): evaluation is LLMJudgeEvaluation {

@@ -36,9 +36,10 @@ export interface EvaluationOutputConfig {
     allows_na?: boolean
 }
 
-/** Settle config for aggregate targets (trace, session). Rows saved before strategies existed
- * have no `strategy` key and mean 'fixed_window'. Accepted ranges differ per target, enforced by
- * the backend's `validate_target_config`. */
+/** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
+ * 'fixed_window' for a trace, because rows saved before strategies existed mean exactly that, and
+ * 'inactivity' for a session, which has no such rows. Accepted ranges also differ per target, both
+ * enforced by the backend's `validate_target_config`. */
 export interface EvaluationTargetConfig {
     strategy?: EvaluationSettleStrategy
     /** fixed_window: seconds to wait after the first matching generation before evaluating. */
