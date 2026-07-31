@@ -7623,17 +7623,17 @@ snapshots:
     scenes-other-onboarding-legacy-product-selection--base--light:
         hash: v1.k794b7964.d5a6e4d5e44b84e7a1b0a9eb095fb62a08eea227968860911c9e23757eb99d33.mrMEqKjXZgfMivqJdaamdN2nJVc-I_8Sccv6XXQylg8
     scenes-other-onboarding-shared-installation-progress--all-states--dark:
-        hash: v1.k794b7964.ebc77004f3ed2739bf9f824cc8291f1516fd30ae503a2f13e5a322a7cdf57613.ZHmXxoJNvy8sinEkadiq2GQsihmvPseDr7WiIY1wO5g
+        hash: v1.k794b7964.701a00d919735a8e926d138dbf37d3f999ffe860a38366ffad441d2ea9007dc3.At1SVb1kbXJdi1oQ6SNRG2h9FaXngLNhQiIfeDfBvag
     scenes-other-onboarding-shared-installation-progress--all-states--light:
-        hash: v1.k794b7964.d4d3b47f954d5f43a73a66dc29e885e94e5a09575d21cbfba9d8209b8284d9a2.fP9Jt39r3NTu_IElQmz-pISGpEjruyU-fe8xgvghp08
+        hash: v1.k794b7964.851e5525b9f7c4955768768dbe9be7e523626507c62719983a9987d88f377d28.N_3uzrW7wz7rBbjVkEfSPqnZCm37zpUXHdQC8c8tLEo
     scenes-other-onboarding-shared-installation-progress--completed--dark:
-        hash: v1.k794b7964.d2fdb0dfb10d93ae58d7d9a5cca2b0078ddb92de8f07340f99abbe970b204c29.Wml3hzGqTjQVPrTV50wkCSK4mqqx6wVkbpNM07WdbJc
+        hash: v1.k794b7964.a5c39954664721c5f485671e2144a599f4bee52af9d43d3eba9d5469d10b34fb.RwKIupLIPaIjkqA-87qce-fCE6iJ9J4FlanTULVNY24
     scenes-other-onboarding-shared-installation-progress--completed--light:
-        hash: v1.k794b7964.74b0637f974fc0281ca86808393158b9d5949394896c369a0454b54db6416303.UgEYkmdUPnElm5kCjQC7Nqtk0BVXpYqvS_iQxMQII74
+        hash: v1.k794b7964.bcf5d2def507944709285c026e238335307c02ad344b7216536be2b9e29b344f.PO-TsJat5OfrttiFuq4wkZMAOx3I5QROXVLzBPvGg18
     scenes-other-onboarding-shared-installation-progress--completed-local-handoff--dark:
-        hash: v1.k794b7964.a1bbfc19bd743396afb9f0fc6c754fec526b3fa6365df8cf7d1ddab0113580a3.spFKy1nJRNCPBrgKdpMlhaVjXrRvup7VhCD2t6ECO4Q
+        hash: v1.k794b7964.bbc57991c178d0788c6fab71dd72d254361384e0399da3c68e13d045ed1d17da.29t13LRsYq53GL20sxOGDEheK9WcztzEdoPAqVjAcaw
     scenes-other-onboarding-shared-installation-progress--completed-local-handoff--light:
-        hash: v1.k794b7964.b70acf5dde641c02c9e5dc873e4e5645d5e9e8d310e30a6fa7515eef50b2c883.I306JX9K5dYkqwtcrwVjlgYVHwpuaZ-sM25phr676EU
+        hash: v1.k794b7964.8ea61ff9bac8ab7b7d8c9b21deae5a8f6082d3ae397de87d12f6363bd2002f3a._AVZdbGBN7ZivWe9YKDJr0zGoX164EHUTgIUdG7rRkw
     scenes-other-onboarding-shared-installation-progress--completed-merged--dark:
         hash: v1.k794b7964.e41a47c6d198618b61635ee98c7424dcd8893284a69cf72c2cd18bbcbf1bce4c.Q8Ahyvmp_7fhazPC-B3XSNQd9igBc1zLpI5tzQYOMqc
     scenes-other-onboarding-shared-installation-progress--completed-merged--light:
@@ -7718,10 +7718,14 @@ snapshots:
         hash: v1.k794b7964.5a35f0677ffb11febcba8084a0ccb558ecff39d861a8cd8c6501671f47a1fac2.Of5i_K-cfe3g96_a6dHtRI0PeaDjaJ0rdWZMi6O4aG0
     scenes-other-onboarding-shared-wizard-cloud-run--run-it-yourself--light:
         hash: v1.k794b7964.8cff144ac77c6006b48a62a014070b994affcef9058056e2a95b8f4e22084c76.hP6I6QLsGi3k_TebVwrWapvf_CjCVBsmTFQ81_8HVfo
+    scenes-other-onboarding-shared-wizard-handoff-dialog--opened--dark:
+        hash: v1.k794b7964.810fb1774d7f9ebf7b63cab5e3b5a45606bb9f498c3aff4ee6ee4d45bbb33123.jD9rqBcIaYTHx4mQTQs73wzG3zM_WtCv8UutSWtnny0
+    scenes-other-onboarding-shared-wizard-handoff-dialog--opened--light:
+        hash: v1.k794b7964.4d516d425a6ca045ff7bcc0645341bd4c2e4ed0d1a4a5be97c8ae6ed27ea4839.L7gQvpwmqU9bjiJVp5-SCjjQsl8zwTkNhKAzGc4TidM
     scenes-other-onboarding-shared-wizard-sync-card--all-states--dark:
-        hash: v1.k794b7964.65526a55e7a2c0658e60e0c330a015430f561d3d80b3c2463408d6120b6cd078.a3tsBW_wyWyuhTAvUbgNVRx6rqStiMURSToOppQEIbg
+        hash: v1.k794b7964.4de365c2b65ca7d49ff0f39a2a040b2e08ba2e5d8f7cb7ca9fde78b966fc038b.RAPRNUnyG1v_M-N5gkvUBP7EQpdV3HlqmTYmRAbxzRo
     scenes-other-onboarding-shared-wizard-sync-card--all-states--light:
-        hash: v1.k794b7964.f744986e88baa2e34e13bb3c2dd9cfdec58e6e1741599ef7be96174720f3396a.IU3v7Hpl82zzZjvuQxEnRkXUTF0GEPAF2NBWdwCqcZg
+        hash: v1.k794b7964.920b94b7310ba6ca3c115f434164d806fd25300237347e583ec8c46d9cc01b1d.MBbUyGnBshoWMOTUiPa01Ngs6G8SPFQFBZjy2iDl27o
     scenes-other-onboarding-shared-wizard-sync-card--cloud-keeping-ci-green--dark:
         hash: v1.k794b7964.fba9c3af456f60a00dec760305609433d1d8ffb609f1573352f71cb29f1fa6b2.2tmy7T0O1t2rw1SYTOXCMCePVPleYZWjuUnc4EU5a7Q
     scenes-other-onboarding-shared-wizard-sync-card--cloud-keeping-ci-green--light:
@@ -7735,9 +7739,9 @@ snapshots:
     scenes-other-onboarding-shared-wizard-sync-card--completed--light:
         hash: v1.k794b7964.466de6282ec983ff5917df90ea8d0e65106e91957af246554375d8ea140b22f5.Nn7X9ZeY0nRHXoYWbI7DphrUf5qfvB-31Pr8bn-a9LQ
     scenes-other-onboarding-shared-wizard-sync-card--completed-local--dark:
-        hash: v1.k794b7964.33d722e02d5a53770da3e3d9358fae107fe29d3cdb98f8dc7945f4f6e82dbfb2.t7QGs-4jsBwmqsmcGHK7eW33QvNrDQg6Ph9CeN5Hy4o
+        hash: v1.k794b7964.5be2ade3340eb7d67a5996891d3c3d2575f94b9abd4a462f1276ee3466cf4425.E2i7G97orrTue7-H34-0pofN2nuykAjrbge_a_79EHo
     scenes-other-onboarding-shared-wizard-sync-card--completed-local--light:
-        hash: v1.k794b7964.8f248577fa64ea554f49153a5e139bc874561111328e10f7fb94ae55f6f31d2e.TW1BWApDo6cYwwv5TfISjmQWk1XeY-gQr-rFe3kntpg
+        hash: v1.k794b7964.c33efb6554e27c18637f34cb1282973d7919a237fe5ee632ccc8bda15e1210d1.NM3GIOLmjmkD8NfAV0ud6NHgstOSbmiteNlBicx8SEo
     scenes-other-onboarding-shared-wizard-sync-card--connecting--dark:
         hash: v1.k794b7964.61398434096848c5eb49dc43a6649548981357049ad0e237bee837e83da9eaf7.wPw2Z4LDdDur-vsryi8JhcHJ-LFpgwc1rVX6rmn1Ng0
     scenes-other-onboarding-shared-wizard-sync-card--connecting--light:
