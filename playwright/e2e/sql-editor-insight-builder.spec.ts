@@ -114,6 +114,19 @@ test.describe('SQL editor insight builder', () => {
             insightShortId = new URLSearchParams(hash.slice(1)).get('insight')
             expect(insightShortId).toBeTruthy()
         })
+
+        await test.step('a hard reload straight into Visualization hydrates the chart', async () => {
+            // The reload-style URL (#q=...&output_tab=visualization&insight=...) races the lazy
+            // canvas chunk, the insight fetch, and feature flags — the canvas must come back
+            // showing the chart, never the "pick fields" empty state
+            await page.getByTestId('sql-builder-scene-tabs').getByText('Visualization').click()
+            await page.reload()
+            await expect(page.getByTestId('editor-scene')).toBeVisible({ timeout: 60000 })
+            await dismissQuickStart(page)
+            await expect(page.getByTestId('sql-builder-canvas')).toBeVisible({ timeout: 60000 })
+            await expect(page.getByTestId('sql-builder-status-bar')).toContainText('1 row', { timeout: 60000 })
+            await expect(page.getByText('Pick fields to chart')).toHaveCount(0)
+        })
     })
 
     test('a builder insight degrades to a plain SQL tab with the flag off, and recovers with it on', async ({
@@ -137,6 +150,16 @@ test.describe('SQL editor insight builder', () => {
             await dismissQuickStart(page)
             await page.getByRole('button', { name: 'Update insight', exact: true }).click()
             await expect(page.getByText('Insight updated')).toBeVisible({ timeout: 60000 })
+        })
+
+        await test.step('flag off: the save strips the stale builder config from the persisted insight', async () => {
+            // Not just a UI concern — the persisted query must lose `builder`, or the insight
+            // reopens in the builder with a visual setup that no longer matches its SQL
+            const response = await page.request.get(`/api/environments/@current/insights/?short_id=${insightShortId}`)
+            expect(response.ok()).toBeTruthy()
+            const { results } = await response.json()
+            expect(results).toHaveLength(1)
+            expect(results[0].query.builder).toBeUndefined()
         })
 
         await test.step('flag back on: the edited insight opens the classic way, SQL first', async () => {

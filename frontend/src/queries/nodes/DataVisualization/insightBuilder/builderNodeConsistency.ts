@@ -49,6 +49,13 @@ export function builderConfigMatchesQuery(node: DataVisualizationNode): boolean 
     if (!builder?.enabled) {
         return true
     }
+    // The saved compile snapshot is the reliable signal: comparing against it survives compiler
+    // output changes between releases, which recompiling cannot (any drift would misread every
+    // older insight as externally edited and silently degrade it to classic).
+    if (builder.compiledQuery) {
+        return normalizeSql(builder.compiledQuery) === normalizeSql(node.source.query)
+    }
+    // Configs saved before compiledQuery existed: recompile and compare
     try {
         const compiled = compileNodeBuilder(builder, node.display)
         return normalizeSql(compiled.sql) === normalizeSql(node.source.query)

@@ -138,28 +138,18 @@ describe('dataVisualizationLogic', () => {
 
     // Guessed axes would surface in the FORMAT panel as if the user picked them and get
     // persisted into the query via axesChanged — the builder's wells are the only axis source.
-    test.each([
-        ['a builder-hosted editor session', { insightBuilderHosted: true }, defaultQuery],
-        [
-            'a saved builder query',
-            {},
-            {
-                ...defaultQuery,
-                builder: { enabled: true, baseQuery: 'select 1', rows: [], columns: [], values: [] },
-            } as DataVisualizationNode,
-        ],
-    ])('never auto-seeds axes for %s', async (_name, extraProps, query) => {
+    it('never auto-seeds axes for a builder-hosted editor session', async () => {
         const key = 'test-builder-owned-no-axis-guess'
         const builderLogic = dataVisualizationLogic({
             key,
-            query,
+            query: defaultQuery,
             dataNodeCollectionId,
-            ...extraProps,
+            insightBuilderHosted: true,
         } as DataVisualizationLogicProps)
         builderLogic.mount()
 
         // The exact response shape that triggers the x/y guess on the legacy path above
-        dataNodeLogic({ key, query: query.source, dataNodeCollectionId }).actions.setResponse({
+        dataNodeLogic({ key, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['fruit', 'count'],
             types: [
                 ['fruit', 'String'],
@@ -177,6 +167,53 @@ describe('dataVisualizationLogic', () => {
         })
 
         builderLogic.unmount()
+    })
+
+    it('keeps classic axis behavior for a saved builder query on surfaces that do not pass the prop', async () => {
+        // Dashboards and the insight scene never pass insightBuilderHosted — their behavior must
+        // stay byte-identical to before the builder existed, even when the saved node carries a
+        // builder config. (Real saved builder insights ship compiled chartSettings, so the seeded
+        // guess never actually surfaces there; this pins the flag-off containment contract.)
+        const key = 'test-builder-query-without-prop-classic'
+        const query = {
+            ...defaultQuery,
+            builder: { enabled: true, baseQuery: 'select 1', rows: [], columns: [], values: [] },
+        } as DataVisualizationNode
+        const readOnlyLogic = dataVisualizationLogic({
+            key,
+            query,
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        readOnlyLogic.mount()
+
+        dataNodeLogic({ key, query: query.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['fruit', 'count'],
+            types: [
+                ['fruit', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['banana', 1],
+                ['pineapple', 2],
+            ],
+        })
+
+        await expectLogic(readOnlyLogic).toMatchValues({
+            selectedXAxis: 'fruit',
+            selectedYAxis: [
+                {
+                    name: 'count',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+            ],
+        })
+
+        readOnlyLogic.unmount()
     })
 
     it('auto-seeds axes for a builder query in the editor once the builder flag is off', async () => {

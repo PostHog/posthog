@@ -1397,6 +1397,12 @@ export interface InsightBuilderConfig {
     values: InsightBuilderMeasure[]
     /** Conditions on the base query's columns, applied before grouping */
     filters?: InsightBuilderFilter[]
+    /**
+     * Snapshot of the SQL this config compiled to when saved. Edit detection compares
+     * source.query against this text, so compiler output changes in later releases don't
+     * misread older saved insights as externally edited.
+     */
+    compiledQuery?: string
 }
 
 export interface DataVisualizationNode extends Node<never> {

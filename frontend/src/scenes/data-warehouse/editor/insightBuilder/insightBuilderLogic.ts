@@ -85,15 +85,15 @@ export interface insightBuilderLogicValues {
     baseOutOfSync: boolean
     baseQuery: string
     baseViewName: string | null
-    builderView: BuilderPreviewView
-    buildModeDisabledReason: string | null
     builderConfig: InsightBuilderConfig
     builderDisplay: ChartDisplayType
+    builderView: BuilderPreviewView
     canCompile: boolean
     collapsedColumns: Partial<Record<BuilderColumn, boolean>>
     columnDims: InsightBuilderDimension[]
     filterItems: InsightBuilderFilter[]
     hasAnyField: boolean
+    hydrated: boolean
     measures: InsightBuilderMeasure[]
     rows: InsightBuilderDimension[]
     wellProblems: string[]
@@ -105,35 +105,34 @@ export interface insightBuilderLogicActions {
     setActiveTab: (tab: OutputTab) => {
         tab: OutputTab
     } // outputPaneLogic
-    setQueryInput: (queryInput: string | null) => {
-        queryInput: string | null
+    createTab: (
+        query?: string | undefined,
+        view?: DataWarehouseSavedQuery | undefined,
+        insight?:
+            | QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
+            | undefined,
+        draft?: DataWarehouseSavedQueryDraft | undefined
+    ) => {
+        draft: DataWarehouseSavedQueryDraft | undefined
+        insight: QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | undefined
+        query: string | undefined
+        view: DataWarehouseSavedQuery | undefined
     } // sqlEditorLogic
     runQuery: (
         queryOverride?: string | undefined,
         switchTab?: boolean | undefined,
-        refreshMode?: ('async' | 'force_async') | undefined
+        refreshMode?: 'async' | 'force_async' | undefined
     ) => {
         queryOverride: string | undefined
         refreshMode: 'async' | 'force_async' | undefined
         switchTab: boolean | undefined
     } // sqlEditorLogic
+    setQueryInput: (queryInput: string | null) => {
+        queryInput: string | null
+    } // sqlEditorLogic
     setSourceQuery: (sourceQuery: DataVisualizationNode) => {
         sourceQuery: DataVisualizationNode
     } // sqlEditorLogic
-    createTab: (
-        query?: string,
-        view?: DataWarehouseSavedQuery,
-        insight?: QueryBasedInsightModel,
-        draft?: DataWarehouseSavedQueryDraft
-    ) => {
-        draft: DataWarehouseSavedQueryDraft | undefined
-        insight: QueryBasedInsightModel | undefined
-        query: string | undefined
-        view: DataWarehouseSavedQuery | undefined
-    } // sqlEditorLogic
-    resetBuilder: () => {
-        value: true
-    }
     addField: (
         well: BuilderWell,
         column: string,
@@ -216,6 +215,9 @@ export interface insightBuilderLogicActions {
         index: number
         well: BuilderWell
     }
+    resetBuilder: () => {
+        value: true
+    }
     seedBuilderDisplay: (display: ChartDisplayType) => {
         display: ChartDisplayType
     }
@@ -233,11 +235,11 @@ export interface insightBuilderLogicActions {
         baseQuery: string
         baseViewName: string | null
     }
-    setBuilderView: (view: BuilderPreviewView) => {
-        view: BuilderPreviewView
-    }
     setBuilderDisplay: (display: ChartDisplayType) => {
         display: ChartDisplayType
+    }
+    setBuilderView: (view: BuilderPreviewView) => {
+        view: BuilderPreviewView
     }
     setDateGrain: (
         well: 'columns' | 'rows',
@@ -287,11 +289,6 @@ export interface insightBuilderLogicMeta {
         hasAnyField: (wells: BuilderWells) => boolean
         wellProblems: (wells: BuilderWells, builderDisplay: ChartDisplayType) => string[]
         canCompile: (hasAnyField: boolean, baseQuery: string) => boolean
-        buildModeDisabledReason: (
-            isMultiQuery: boolean,
-            queryInput: string | null,
-            sourceQuery: DataVisualizationNode
-        ) => string | null
         baseOutOfSync: (activeTab: OutputTab, queryInput: string | null, baseQuery: string) => boolean
     }
 }
@@ -302,6 +299,35 @@ export type insightBuilderLogicType = MakeLogicType<
     InsightBuilderLogicProps,
     insightBuilderLogicMeta
 >
+
+/**
+ * The single place that decides whether a node's builder config can hydrate the wells.
+ * 'hydrated': wells now reflect the node. 'stale': the SQL was edited outside the builder,
+ * so the config must not be trusted (callers decide whether to strip it — the SQL wins).
+ * 'no-op': nothing to do (no builder config, or the wells already match).
+ */
+function hydrateIfNeeded(
+    node: DataVisualizationNode,
+    values: Pick<insightBuilderLogicValues, 'builderConfig'>,
+    actions: Pick<insightBuilderLogicActions, 'hydrateFromNode' | 'loadBaseColumns'>
+): 'hydrated' | 'stale' | 'no-op' {
+    const builder = node.builder
+    if (!builder?.enabled) {
+        return 'no-op'
+    }
+    // compiledQuery is a save-time snapshot, never part of the live builderConfig selector —
+    // ignore it when checking whether the wells already match the node
+    const { compiledQuery: _ignored, ...essentials } = builder
+    if (objectsEqual(essentials, values.builderConfig)) {
+        return 'no-op'
+    }
+    if (!builderConfigMatchesQuery(node)) {
+        return 'stale'
+    }
+    actions.hydrateFromNode(builder, node.display)
+    actions.loadBaseColumns()
+    return 'hydrated'
+}
 
 const moveInList = <T>(list: T[], fromIndex: number, toIndex: number): T[] => {
     if (fromIndex === toIndex || fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length) {
@@ -564,6 +590,19 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 resetBuilder: () => 'chart' as BuilderPreviewView,
             },
         ],
+        // Whether the wells reflect the tab's current object. False means a builder-carrying
+        // node may have landed before this logic mounted (lazy canvas chunk, insight fetch,
+        // feature flags — all race on a cold reload) and hydration hasn't caught up yet: the
+        // preview must show a loader there, not the "pick fields" empty state.
+        hydrated: [
+            false,
+            {
+                hydrateFromNode: () => true,
+                applyWells: () => true,
+                adoptNodeDisplay: () => true,
+                resetBuilder: () => false,
+            },
+        ],
     }),
     selectors({
         wells: [
@@ -603,21 +642,6 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         canCompile: [
             (s) => [s.hasAnyField, s.baseQuery],
             (hasAnyField: boolean, baseQuery: string): boolean => hasAnyField && isCompilableBase(baseQuery),
-        ],
-        buildModeDisabledReason: [
-            (s) => [s.isMultiQuery, s.queryInput, s.sourceQuery],
-            (isMultiQuery: boolean, queryInput: string | null, sourceQuery: DataVisualizationNode): string | null => {
-                if (sourceQuery.source.sendRawQuery) {
-                    return "The insight builder isn't available for raw SQL queries"
-                }
-                if (isMultiQuery) {
-                    return 'The insight builder needs a single SELECT statement — remove extra statements in the Source tab'
-                }
-                if (!queryInput?.trim() && !sourceQuery.builder?.enabled) {
-                    return 'Write and run a query in the Source tab first'
-                }
-                return null
-            },
         ],
         baseOutOfSync: [
             (s) => [s.activeTab, s.queryInput, s.baseQuery],
@@ -720,7 +744,10 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                     values.builderDisplay,
                     effectiveConfig
                 ),
-                builder: values.builderConfig,
+                // compiledQuery snapshots what this config compiled to, so edit detection on a
+                // later open compares against it instead of recompiling — compiler output changes
+                // between releases must not misread saved insights as externally edited
+                builder: { ...values.builderConfig, compiledQuery: compiled.sql },
                 source: { ...prev.source, query: compiled.sql },
             }
             actions.setSourceQuery(next)
@@ -775,10 +802,8 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             // canvas already mounted (reloading straight into Visualization), the reset above
             // just cleared that hydration and the node's value won't change again — re-hydrate
             // from the node the tab now owns, or the canvas sits empty until a tab flip.
-            const node = values.sourceQuery
-            if (insight && node.builder?.enabled && builderConfigMatchesQuery(node)) {
-                actions.hydrateFromNode(node.builder, node.display)
-                actions.loadBaseColumns()
+            if (insight) {
+                hydrateIfNeeded(values.sourceQuery, values, actions)
             }
         },
         resetBuilder: () => {
@@ -802,13 +827,12 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             posthog.capture('sql-editor-builder-opened')
 
             const node = values.sourceQuery
-            if (node.builder?.enabled && !objectsEqual(node.builder, values.builderConfig)) {
-                if (!builderConfigMatchesQuery(node)) {
-                    // The sourceQuery subscription drops the stale visual setup — nothing to hydrate
-                    return
-                }
-                actions.hydrateFromNode(node.builder, node.display)
-            } else if (!node.builder?.enabled) {
+            const outcome = hydrateIfNeeded(node, values, actions)
+            if (outcome === 'stale') {
+                // The sourceQuery subscription drops the stale visual setup — nothing to hydrate
+                return
+            }
+            if (!node.builder?.enabled) {
                 actions.adoptNodeDisplay()
             }
 
@@ -832,18 +856,16 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
     // config, so our own updates no-op here.
     subscriptions(({ actions, values }) => ({
         sourceQuery: (sourceQuery: DataVisualizationNode | undefined) => {
-            const builder = sourceQuery?.builder
-            if (sourceQuery && builder?.enabled && !objectsEqual(builder, values.builderConfig)) {
-                if (!builderConfigMatchesQuery(sourceQuery)) {
-                    // The SQL was edited outside the builder (e.g. in the classic editor with the
-                    // flag off), so the SQL wins: drop the stale visual setup and let the insight
-                    // behave like a classic SQL insight. Persists only when the user saves.
-                    actions.setSourceQuery({ ...sourceQuery, builder: undefined })
-                    actions.setQueryInput(sourceQuery.source.query)
-                    return
-                }
-                actions.hydrateFromNode(builder, sourceQuery.display)
-                actions.loadBaseColumns()
+            if (!sourceQuery) {
+                return
+            }
+            const outcome = hydrateIfNeeded(sourceQuery, values, actions)
+            if (outcome === 'stale') {
+                // The SQL was edited outside the builder (e.g. in the classic editor with the
+                // flag off), so the SQL wins: drop the stale visual setup and let the insight
+                // behave like a classic SQL insight. Persists only when the user saves.
+                actions.setSourceQuery({ ...sourceQuery, builder: undefined })
+                actions.setQueryInput(sourceQuery.source.query)
             }
         },
     })),

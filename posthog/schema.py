@@ -17082,6 +17082,14 @@ class InsightBuilderConfig(BaseModel):
         description=("Saved view name. When set, compiles FROM <view> so the insight tracks view updates."),
     )
     columns: list[InsightBuilderDimension]
+    compiledQuery: str | None = Field(
+        default=None,
+        description=(
+            "Snapshot of the SQL this config compiled to when saved. Edit detection"
+            " compares source.query against this text, so compiler output changes in"
+            " later releases don't misread older saved insights as externally edited."
+        ),
+    )
     enabled: bool = Field(
         ...,
         description=(

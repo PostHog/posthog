@@ -96,6 +96,8 @@ describe('insightBuilderLogic', () => {
             rows: [],
             columns: [{ column: 'event', dateGrain: undefined }],
             values: [{ column: 'amount', aggregation: 'sum' }],
+            // Snapshot of what the config compiled to — edit detection compares against this
+            compiledQuery: node.source.query,
         })
         expect(node.source.query).toContain('sum(amount) AS sum_amount')
         expect(node.source.query).toContain(`FROM (\n${BASE_QUERY}\n)`)
@@ -270,7 +272,63 @@ describe('insightBuilderLogic', () => {
                 rows: [{ column: 'plan' }],
                 baseQuery: 'SELECT * FROM payments',
                 builderDisplay: ChartDisplayType.ActionsLineGraph,
+                hydrated: true,
             })
+    })
+
+    it('reports unhydrated between a reset and re-hydration, so the preview loads instead of showing empty wells', async () => {
+        // On a cold reload the canvas can render between the insight landing and hydration
+        // running — `hydrated` is what keeps BuilderPreview on a spinner there instead of the
+        // misleading "pick fields" empty state. A fresh non-builder tab counts as hydrated
+        // (afterMount seeds it): there is nothing to wait for.
+        expect(builderLogic.values.hydrated).toEqual(true)
+
+        // A new object in the tab drops the flag with the wells...
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.resetBuilder()
+        }).toMatchValues({ hydrated: false })
+
+        // ...and an insight open (reset + immediate re-hydration) lands back on true
+        sqlLogic.actions.setSourceQuery(BUILDER_NODE)
+        await expectLogic(builderLogic, () => {
+            sqlLogic.actions.createTab('SELECT * FROM payments', undefined, {
+                short_id: 'abc123',
+                name: 'Builder insight',
+                query: BUILDER_NODE,
+            } as unknown as QueryBasedInsightModel)
+        })
+            .toDispatchActions(['resetBuilder', 'hydrateFromNode'])
+            .toMatchValues({ hydrated: true })
+    })
+
+    it('snapshots the compiled SQL into the config so compiler drift cannot orphan saved insights', async () => {
+        sqlLogic.actions.setQueryInput(BASE_QUERY)
+        builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.addField('columns', 'event')
+            builderLogic.actions.addField('values', 'amount', { aggregation: 'sum' })
+        }).toDispatchActions(sqlLogic, ['setSourceQuery'])
+
+        const node = sqlLogic.values.sourceQuery
+        expect(node.builder?.compiledQuery).toEqual(node.source.query)
+
+        // A node whose snapshot matches its SQL hydrates even when today's compiler would emit
+        // different SQL for the same config (e.g. an alias was renamed since the insight saved)
+        const savedWithOldCompiler: DataVisualizationNode = {
+            ...BUILDER_NODE,
+            source: { ...BUILDER_NODE.source, query: 'SELECT plan, sum(amount) AS legacy_alias FROM payments' },
+            builder: {
+                ...BUILDER_NODE.builder!,
+                compiledQuery: 'SELECT plan, sum(amount) AS legacy_alias FROM payments',
+            },
+        }
+        await expectLogic(builderLogic, () => {
+            sqlLogic.actions.setSourceQuery(savedWithOldCompiler)
+        })
+            .toDispatchActions(['hydrateFromNode'])
+            .toMatchValues({ rows: [{ column: 'plan' }] })
+        expect(sqlLogic.values.sourceQuery.builder).not.toBeUndefined()
     })
 
     it('does not hydrate again when an identical node round-trips through setSourceQuery', async () => {

@@ -104,7 +104,9 @@ function BuilderStatusBar({ tabId, chartInSync }: { tabId: string; chartInSync: 
 
 /** The chart itself — the always-visible Visualization column of the builder canvas. */
 export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
-    const { hasAnyField, wellProblems, builderDisplay, builderView } = useValues(insightBuilderLogic({ tabId }))
+    const { hasAnyField, hydrated, wellProblems, builderDisplay, builderView } = useValues(
+        insightBuilderLogic({ tabId })
+    )
     const { setBuilderView } = useActions(insightBuilderLogic({ tabId }))
     const { sourceQuery, dataLogicKey, insightLoading } = useValues(sqlEditorLogic({ tabId }))
     const { setSourceQuery } = useActions(sqlEditorLogic({ tabId }))
@@ -123,9 +125,11 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
     const chartInSync = responseLoading || responseSupportsChart(sourceQuery, responseColumnsOf(response))
 
     let content: JSX.Element
-    if (insightLoading) {
+    if (insightLoading || (sourceQuery.builder?.enabled && !hydrated)) {
         // The Visualization tab opens before the insight fetch resolves — show a loader instead
-        // of a flash of empty wells that snap into the hydrated chart
+        // of a flash of empty wells that snap into the hydrated chart. Same for a builder node
+        // whose hydration hasn't caught up (the canvas chunk, insight fetch, and feature flags
+        // all race on a cold reload): "pick fields" would misread loading as an empty canvas.
         content = (
             <div className="flex flex-1 items-center justify-center p-8">
                 <Spinner className="text-2xl" />

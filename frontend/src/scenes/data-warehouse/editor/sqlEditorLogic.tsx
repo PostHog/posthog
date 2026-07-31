@@ -18,6 +18,7 @@ import {
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import { waitForAction } from 'kea-waitfor'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 import { Suspense } from 'react'
@@ -41,6 +42,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import { delay } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -2667,10 +2669,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const insightName = values.activeTab?.name
                 const insightDescription = values.activeTab?.description
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
+                const isBuilderInsight = values.insightBuilderHosted && !!currentVisualizationQuery.builder?.enabled
 
                 const insightRequest: Partial<QueryBasedInsightModel> = {
                     description: insightDescription ?? values.editingInsight.description ?? '',
-                    query: currentVisualizationQuery,
+                    // Updating from the plain SQL editor (builder flag off, or a degraded tab)
+                    // must not persist a visual setup that no longer describes the edited query —
+                    // mirrors the same strip in saveAsInsightSubmit
+                    query: isBuilderInsight
+                        ? currentVisualizationQuery
+                        : { ...currentVisualizationQuery, builder: undefined },
                 }
                 // Only send `name` on an actual rename — the tab name falls back to derived_name
                 // (or "Untitled"), and writing that back would materialize it as the insight's name
@@ -3446,6 +3454,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Captured before editInsight/createTab, which reset lastRunQuery to the
                     // incoming insight's query — this is the text the current response answers
                     const previousRunText = values.lastRunQuery?.source.query?.trim()
+
+                    // The builder-vs-classic decision below is one-shot, but on a cold reload
+                    // posthog-js may not have delivered flags yet (console overrides only arrive
+                    // with its callback) — deciding early would open a builder insight the classic
+                    // way and flip the layout mid-hydration once the flag lands. Bounded wait so a
+                    // broken flags request can never hang insight opens.
+                    if (insightVisualizationQuery?.builder?.enabled && !featureFlagLogic.values.receivedFeatureFlags) {
+                        await Promise.race([waitForAction(featureFlagLogic.actionTypes.setFeatureFlags), delay(2000)])
+                    }
 
                     // Builder insights hold compiled SQL in source.query — the Monaco buffer gets
                     // the base query, and runs go through the compiled text explicitly

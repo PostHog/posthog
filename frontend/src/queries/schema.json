@@ -28151,6 +28151,10 @@
                     },
                     "type": "array"
                 },
+                "compiledQuery": {
+                    "description": "Snapshot of the SQL this config compiled to when saved. Edit detection compares source.query against this text, so compiler output changes in later releases don't misread older saved insights as externally edited.",
+                    "type": "string"
+                },
                 "enabled": {
                     "description": "When true, the SQL editor opens this insight in the builder and treats source.query as compiled output",
                     "type": "boolean"

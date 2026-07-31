@@ -1210,17 +1210,17 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (columns: Column[]): boolean => columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name)),
         ],
         dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
-        // The insight builder's wells own axis/series config: true for saved builder queries anywhere
-        // (query carries the config) and for builder-hosted editor sessions even before a well is filled.
+        // The insight builder's wells own axis/series config — but only while the SQL editor's
+        // builder actually hosts the session (it states ownership explicitly via the prop).
         isBuilderOwnedQuery: [
             (s) => [s.query, (_, props: DataVisualizationLogicProps) => props.insightBuilderHosted],
-            (query: DataVisualizationNode, insightBuilderHosted: boolean | undefined): boolean =>
-                // The SQL editor states ownership explicitly — false means the builder no longer
-                // hosts the tab (flag off, embedded, legacy insight), even when the query still
-                // carries a builder config, so the classic Series tab and axis recovery come back.
-                // Surfaces that don't pass the prop (insight scene, dashboards) infer it from the
-                // saved node so its compiled chart config stays authoritative.
-                insightBuilderHosted ?? !!query?.builder?.enabled,
+            (_query: DataVisualizationNode, insightBuilderHosted: boolean | undefined): boolean =>
+                // Surfaces that don't pass the prop (insight scene, dashboards, flag-off editors)
+                // keep the classic Series tab and axis behavior even when the saved node carries a
+                // builder config: a compiled builder insight's chartSettings and columns are
+                // self-consistent, so the classic path renders it correctly — and behavior for
+                // users outside the feature flag stays identical to before the builder existed.
+                !!insightBuilderHosted,
         ],
         showEditingUI: [
             (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],

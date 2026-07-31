@@ -1381,6 +1381,39 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.query).toEqual(edited)
             expect(logic.values.isSourceQueryLastRun).toEqual(true)
         })
+
+        it('updateInsight strips the builder config when the builder does not host the tab', async () => {
+            // Editing a builder insight with the flag off and pressing "Update insight" persists
+            // the edited SQL — the stored visual setup no longer describes it and must not be
+            // saved alongside, or the insight opens in the builder again once the flag returns.
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_BUILDER_INSIGHT)
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.editInsight(MOCK_BUILDER_INSIGHT_QUERY.source.query, MOCK_BUILDER_INSIGHT)
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'updateTab'])
+                .toMatchValues({ editingInsight: partial({ short_id: MOCK_BUILDER_INSIGHT_SHORT_ID }) })
+
+            const edited = `${MOCK_BUILDER_INSIGHT_QUERY.source.query} LIMIT 5`
+            logic.actions.setQueryInput(edited)
+            logic.actions.runQuery()
+
+            logic.actions.updateInsight()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+            const [, updatePayload] = updateSpy.mock.calls[0]
+            const updatedQuery = updatePayload.query as DataVisualizationNode
+            expect(updatedQuery.builder).toBeUndefined()
+            expect(updatedQuery.source.query).toEqual(edited)
+        })
     })
 
     describe('activeTabMatchesUrlTarget', () => {
