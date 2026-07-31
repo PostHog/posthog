@@ -840,12 +840,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
         Passing neither a member nor a role targets the project-wide rules, the ones that apply to
         everyone without a rule of their own.
 
-        Each rule carries the level that would take over if the rule were removed, resolved the same
-        way `UserAccessControl` resolves object access: other explicit rules on the object win, then
-        the subject's access to the resource, then a project-wide rule on the object, then the built-in
-        default.
+        Deliberately returns only the subject's own rules, without resolving what would apply in
+        their absence — object-level resolution differs between code paths today (explicit-wins vs
+        max), so surfacing a computed fallback here would be wrong in edge cases. Revisit once
+        resolution returns the level together with its source.
         """
-        is_project_default = membership is None and role is None
         rule_filter: dict[str, Any]
         if membership is not None:
             rule_filter = {"organization_member": membership}
@@ -869,104 +868,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
         }
 
-        # Role rules are inert unless the organization has the feature, so they must not colour the fallback
-        role_based_access_supported = team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
-        subject_role_ids: set[str] = set()
-        is_org_admin = False
-        if membership is not None:
-            is_org_admin = membership.level >= OrganizationMembership.Level.ADMIN
-            if role_based_access_supported:
-                subject_role_ids = {str(rm.role_id) for rm in membership.role_memberships.all()}
-        elif role is not None and role_based_access_supported:
-            subject_role_ids = {str(role.id)}
-
-        # Children like warehouse_table take their resource-level access from an umbrella scope,
-        # so those rows have to come along for the fallback to match runtime resolution.
-        resource_scopes = set(ids_by_resource.keys()) | {
-            RESOURCE_INHERITANCE_MAP.get(cast(APIScopeObject, resource), cast(APIScopeObject, resource))
-            for resource in ids_by_resource
-        }
-        context = AccessControl.objects.filter(team=team, resource__in=resource_scopes).filter(
-            Q(resource_id__in={ac.resource_id for ac in rows}) | Q(resource_id__isnull=True)
-        )
-
-        object_default_levels: dict[tuple[str, str], AccessControlLevel] = {}
-        object_other_levels: dict[tuple[str, str], list[AccessControlLevel]] = defaultdict(list)
-        resource_default_levels: dict[str, AccessControlLevel] = {}
-        resource_role_levels: dict[str, list[AccessControlLevel]] = defaultdict(list)
-        resource_member_levels: dict[str, AccessControlLevel] = {}
-        subject_member_id = str(membership.id) if membership is not None else None
-        own_role_id = str(role.id) if role is not None else None
-
-        for ac in context:
-            level = cast(AccessControlLevel, ac.access_level)
-            role_id = str(ac.role_id) if ac.role_id else None
-            member_id = str(ac.organization_member_id) if ac.organization_member_id else None
-            if ac.resource_id is None:
-                if not role_id and not member_id:
-                    resource_default_levels[ac.resource] = level
-                elif role_id and role_id in subject_role_ids:
-                    resource_role_levels[ac.resource].append(level)
-                elif member_id and member_id == subject_member_id:
-                    resource_member_levels[ac.resource] = level
-                continue
-            key = (ac.resource, ac.resource_id)
-            if not role_id and not member_id:
-                # For the project-wide scope this row is the rule itself, not something it falls back to
-                if not is_project_default:
-                    object_default_levels[key] = level
-            elif role_id and role_id in subject_role_ids and role_id != own_role_id:
-                # Another of the member's roles — it still applies once the subject's own rule is gone
-                object_other_levels[key].append(level)
-
-        def resource_level(resource: str) -> AccessControlLevel | None:
-            scope = RESOURCE_INHERITANCE_MAP.get(cast(APIScopeObject, resource), cast(APIScopeObject, resource))
-            if scope in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
-                return None
-            if membership is not None:
-                return get_effective_access_level_for_member(
-                    resource=scope,
-                    default_level=resource_default_levels.get(scope),
-                    role_levels=resource_role_levels[scope],
-                    member_level=resource_member_levels.get(scope),
-                    is_org_admin=is_org_admin,
-                ).effective_access_level
-            return get_effective_access_level_for_role(
-                resource=scope,
-                default_level=resource_default_levels.get(scope),
-                role_level=next(iter(resource_role_levels[scope]), None),
-            ).effective_access_level
-
-        def inherited_for(ac: AccessControl) -> tuple[AccessControlLevel | None, str]:
-            scope = cast(APIScopeObject, ac.resource)
-            if is_org_admin:
-                return highest_access_level(scope), "organization_admin"
-            key = (ac.resource, cast(str, ac.resource_id))
-            others = object_other_levels.get(key)
-            if others:
-                levels = ordered_access_levels(scope)
-                return max(others, key=levels.index), "role"
-            from_resource = resource_level(ac.resource)
-            if from_resource:
-                return from_resource, "resource"
-            object_default = object_default_levels.get(key)
-            if object_default:
-                return object_default, "object_default"
-            return default_access_level(scope), "built_in"
-
-        results = []
-        for ac in rows:
-            inherited_level, inherited_source = inherited_for(ac)
-            results.append(
-                {
-                    "resource": ac.resource,
-                    "resource_id": ac.resource_id,
-                    "name": names_by_resource.get(ac.resource, {}).get(str(ac.resource_id)) or ac.resource_id,
-                    "access_level": ac.access_level,
-                    "inherited_access_level": inherited_level,
-                    "inherited_access_level_source": inherited_source,
-                }
-            )
+        results = [
+            {
+                "resource": ac.resource,
+                "resource_id": ac.resource_id,
+                "name": names_by_resource.get(ac.resource, {}).get(str(ac.resource_id)) or ac.resource_id,
+                "access_level": ac.access_level,
+            }
+            for ac in rows
+        ]
         results.sort(key=lambda r: (r["resource"], (r["name"] or "").lower()))
         return Response({"results": results})
 

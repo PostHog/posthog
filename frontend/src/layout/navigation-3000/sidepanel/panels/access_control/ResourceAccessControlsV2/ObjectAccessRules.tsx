@@ -8,12 +8,10 @@ import { urls } from 'scenes/urls'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import type { InheritedAccess } from '../accessControlLogic'
 import { AccessLevelSelect } from '../AccessLevelSelect'
 import { AccessObjectRule, OBJECT_RULE_RESOURCES, accessDetailLogic } from './accessDetailLogic'
 import { AccessDetailSection } from './AccessDetailSection'
 import { addObjectOverrideModalLogic } from './addObjectOverrideModalLogic'
-import { humanizeAccessControlLevel } from './helpers'
 import { ScopeIcon } from './ScopeIcon'
 import type { ScopeType } from './types'
 
@@ -31,32 +29,6 @@ export interface ObjectAccessRulesProps {
     /** How the subject is called in copy, e.g. "member" or "role". */
     subjectNoun: string
     canEdit: boolean
-}
-
-/** How to name the resource in copy, e.g. "dashboard" or "feature flag". */
-function resourceNoun(resource: string): string {
-    return (OBJECT_RULE_RESOURCES.find((r) => r.value === resource)?.label ?? resource.replace(/_/g, ' ')).toLowerCase()
-}
-
-/** What takes over on this object once the subject's own rule is gone. */
-function inheritedFor(o: AccessObjectRule, scopeType: ScopeType, subjectNoun: string): InheritedAccess | null {
-    if (!o.inherited_access_level) {
-        return null
-    }
-    const reasons: Record<AccessObjectRule['inherited_access_level_source'], string> = {
-        role: 'Based on role permissions for this object',
-        resource:
-            scopeType === 'default'
-                ? `Based on the default for ${resourceNoun(o.resource)}s`
-                : `Based on this ${subjectNoun}'s access to ${resourceNoun(o.resource)}s`,
-        object_default: 'Based on the default for this object',
-        built_in: `Based on the default for ${resourceNoun(o.resource)}s`,
-        organization_admin: 'Organization admins always have full access',
-    }
-    return {
-        label: humanizeAccessControlLevel(o.inherited_access_level),
-        reason: reasons[o.inherited_access_level_source],
-    }
 }
 
 /** A link to open the object, for resource types we can address from the stored resource_id. */
@@ -145,7 +117,6 @@ export function ObjectAccessRules({
                                     levels={OBJECT_LEVELS}
                                     onChange={(level) => setObjectRule(o.resource, o.resource_id, level)}
                                     disabledReason={!canEdit ? 'You cannot edit this' : undefined}
-                                    inherited={inheritedFor(o, scopeType, subjectNoun)}
                                 />
                             </div>
                         ),
@@ -154,27 +125,20 @@ export function ObjectAccessRules({
                         title: '',
                         key: 'actions',
                         width: 0,
-                        render: (_, o: AccessObjectRule) => {
-                            const inherited = inheritedFor(o, scopeType, subjectNoun)
-                            return (
-                                // Negative margins pull the button into the cell's own padding, which is
-                                // wider than an icon button needs
-                                <div className="flex justify-end -ml-1 -mr-2">
-                                    <LemonButton
-                                        size="small"
-                                        status="danger"
-                                        icon={<IconTrash />}
-                                        disabledReason={!canEdit ? 'You cannot edit this' : undefined}
-                                        tooltip={
-                                            inherited
-                                                ? `Remove the rule. ${inherited.label} applies instead, ${inherited.reason.toLowerCase()}.`
-                                                : 'Remove the rule'
-                                        }
-                                        onClick={() => setObjectRule(o.resource, o.resource_id, null)}
-                                    />
-                                </div>
-                            )
-                        },
+                        render: (_, o: AccessObjectRule) => (
+                            // Negative margins pull the button into the cell's own padding, which is
+                            // wider than an icon button needs
+                            <div className="flex justify-end -ml-1 -mr-2">
+                                <LemonButton
+                                    size="small"
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    disabledReason={!canEdit ? 'You cannot edit this' : undefined}
+                                    tooltip="Remove the rule"
+                                    onClick={() => setObjectRule(o.resource, o.resource_id, null)}
+                                />
+                            </div>
+                        ),
                     },
                 ]}
                 dataSource={objects}

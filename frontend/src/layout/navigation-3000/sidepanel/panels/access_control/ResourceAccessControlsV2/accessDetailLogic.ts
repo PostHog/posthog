@@ -18,17 +18,11 @@ import type { ScopeType } from './types'
 /** A member or role whose access detail panel is open. The 'default' scope has no panel of its own. */
 export type AccessDetailSubjectScope = Exclude<ScopeType, 'default'>
 
-/** Where the level that takes over on removing a rule comes from. */
-export type AccessInheritedSource = 'role' | 'resource' | 'object_default' | 'built_in' | 'organization_admin'
-
 export interface AccessObjectRule {
     resource: string
     resource_id: string
     name: string
     access_level: AccessControlLevel
-    /** What applies to this object once the rule is removed. */
-    inherited_access_level: AccessControlLevel | null
-    inherited_access_level_source: AccessInheritedSource
 }
 
 export interface AccessPropertyRule {
