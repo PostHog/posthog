@@ -153,8 +153,8 @@ export interface oauthAuthorizeLogicValues {
     allScopesRequired: boolean
     allTeams: TeamBasicType[] | null
     allTeamsLoading: boolean
-    bulkActionsWithEffect: Record<ScopeAccessLevel, boolean>
     authorizationComplete: boolean
+    bulkActionsWithEffect: Record<ScopeAccessLevel, boolean>
     consentResourceScopes: string[]
     effectiveScopes: string[]
     filteredTeams: TeamBasicType[] | null
@@ -344,6 +344,7 @@ export interface oauthAuthorizeLogicMeta {
         adjustableScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
         allScopesRequired: (scopeRows: OAuthScopeRow[]) => boolean
         showReadOnlyBulkAction: (adjustableScopeRows: OAuthScopeRow[]) => boolean
+        bulkActionsWithEffect: (adjustableScopeRows: OAuthScopeRow[]) => Record<ScopeAccessLevel, boolean>
         effectiveScopes: (
             scopes: string[],
             scopeRows: OAuthScopeRow[],
