@@ -54,6 +54,12 @@ separate project.
   mirror `.depot/workflows/ci-backend.yml`, which CI requires to change in lockstep):
   `!products/desktop/**` added to their `products/**` change filters, so desktop PRs do
   not drag the frontend/storybook/Django suites (desktop has its own desktop-* CI).
+  dorny applies excludes globally (`included && !excludes.some`), so this one exclude
+  covers even the broad `**/*.yml` / `**/*.md` rules. ci-frontend's `frontend` filter also
+  excludes the desktop CI files that live outside the tree (`!.github/workflows/desktop-*.yml`,
+  `!.github/actions/desktop-*/**`, `!.github/scripts/desktop/**`) so desktop-CI-only PRs
+  skip the frontend suite. The import PR itself still runs these suites because it edits the
+  shared config they watch (ci-frontend.yml, ci-backend.yml, package.json); that is one-time.
 - `pyproject.toml`: `products/desktop` in `[tool.ruff]` exclude and in the `[tool.mypy]`
   exclude regex (both run repo-wide with `.`).
 - `package.json`: `lint:css` gains `--ignore-pattern "products/desktop/**"` (stylelint's
@@ -218,10 +224,17 @@ ports from source using these rules.
   upstreamed). Remaining WARNING-level items are informational and not gated:
   `packages/ui/src/features/canvas/freeform/FreeformCanvas.tsx` posts to a `"*"` target
   origin, which is required for its opaque-origin sandboxed srcDoc iframe.
-- **Dependency CVEs**: the imported `pnpm-lock.yaml` carries known advisories (critical:
-  protobufjs `<7.5.5`, simple-git `<3.32.3`, tar `<7.5.19`; high: axios `<1.16.0` and a
-  transitive tail). Fix by bumping upstream in PostHog/code and resyncing, not by editing
-  the imported lockfile.
+- **Dependency CVEs (local patch, reapply on resync until the pin includes the upstream
+  fix)**: `pnpm-workspace.yaml` overrides pin advisory-flagged packages to patched,
+  age-compliant versions (protobufjs 7.6.5, axios 1.18.1, hono 4.12.28, @xmldom/xmldom
+  0.8.13, node-forge 1.4.0, simple-git 3.32.3), plus direct floors `simple-git ^3.32.3`
+  and `tar ^7.5.19`; the lockfile is regenerated to match. This mirrors PostHog/code
+  hardening PR #4030. To regenerate under the 7-day `minimumReleaseAge`, temporarily add
+  `@expo-google-fonts/material-symbols` to `minimumReleaseAgeExclude` (an already-committed
+  too-new transitive that blocks re-resolution), run `pnpm install --lockfile-only`, then
+  revert that one exclude. simple-git is capped at 3.32.3 (critical fix); 3.36 clears the
+  residual high but adds a block-unsafe plugin that breaks core.fsmonitor/GIT_EDITOR/PAGER.
+  The broader transitive advisory tail is left for a dedicated dependency-hygiene sweep.
 - **Visual Review baseline**: the committed `apps/code/snapshots.yml` is signed for the
   PostHog/code VR registration, so submitting from this repo flags every story as new and
   the job reds. In-app approval can't fix it (the VR bot can't commit a posthog-signed

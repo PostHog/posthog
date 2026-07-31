@@ -28,6 +28,6 @@
   "dependencies": {
     "@posthog/shared": "workspace:*",
     "git-url-parse": "^16.1.0",
-    "simple-git": "^3.30.0"
+    "simple-git": "^3.32.3"
   }
 }
