@@ -60,7 +60,7 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                 <>
                     <Markdown>
                         Initialize PostHog with your project token and host from [your project
-                        settings](https://app.posthog.com/settings/project), then call `instrument()` to register
+                        settings](https://app.posthog.com/settings/project). Then call `instrument()` to register
                         PostHog tracing with the OpenAI Agents SDK. This automatically captures all agent traces, spans,
                         and LLM generations.
                     </Markdown>
@@ -88,7 +88,7 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, **don't** pass a distinct ID to
+                            **Note:** If you want to capture LLM events anonymously, **do not** pass a distinct ID to
                             `instrument()`. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
@@ -102,23 +102,32 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
             content: (
                 <>
                     <Markdown>
-                        Run your OpenAI agents as normal. PostHog automatically captures `$ai_generation` events for LLM
-                        calls and `$ai_span` events for agent execution, tool calls, and handoffs.
+                        {dedent`
+                            Run your OpenAI agents as normal. PostHog automatically captures \`$ai_generation\`
+                            events for LLM calls and \`$ai_span\` events for agent execution, tool calls, and
+                            handoffs. The example below defines a tool and lets the agent call it.
+                        `}
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            from agents import Agent, Runner, RunConfig
+                            from agents import Agent, Runner, RunConfig, function_tool
+
+                            @function_tool
+                            def get_weather(city: str) -> str:
+                                """Get the weather for a city."""
+                                return f"The weather in {city} is sunny, 72F"
 
                             agent = Agent(
                                 name="Assistant",
                                 instructions="You are a helpful assistant.",
+                                tools=[get_weather],
                             )
 
                             result = Runner.run_sync(
                                 agent,
-                                "Tell me a fun fact about hedgehogs",
+                                "What's the weather in Paris?",
                                 run_config=RunConfig(group_id="conversation-abc"),
                             )
                             print(result.final_output)
@@ -126,8 +135,13 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                     />
 
                     <Markdown>
-                        Pass `group_id` in `RunConfig` to link multiple runs from the same conversation. OpenAI
-                        documents it as "a grouping identifier to link multiple traces from the same conversation."
+                        {dedent`
+                            PostHog captures the \`get_weather\` call above automatically, as an \`$ai_span\` with
+                            its real execution duration, nested under the trace. You write no capture code for it. Pass
+                            \`group_id\` in \`RunConfig\` to link multiple runs from the same conversation. OpenAI
+                            documents it as "a grouping identifier to link multiple traces from the same
+                            conversation."
+                        `}
                     </Markdown>
 
                     <Markdown>
@@ -141,18 +155,6 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                             conversation, which run, and every LLM call and tool call inside it.
                         `}
                     </Markdown>
-
-                    <CalloutBox type="caution" icon="IconWarning" title="Version requirement for session grouping">
-                        <Markdown>
-                            {dedent`
-                                Session grouping via \`group_id\` requires a posthog-python version that includes
-                                [PR #819](https://github.com/PostHog/posthog-python/pull/819) and a posthog-js
-                                version that includes [PR #4335](https://github.com/PostHog/posthog-js/pull/4335).
-                                Older versions map \`group_id\` to \`$ai_group_id\` instead, which nothing in
-                                PostHog reads.
-                            `}
-                        </Markdown>
-                    </CalloutBox>
 
                     <Markdown>
                         {dedent`
@@ -170,8 +172,10 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
             content: (
                 <>
                     <Markdown>
-                        PostHog captures the full trace hierarchy for complex agent workflows including handoffs and
-                        tool calls.
+                        {dedent`
+                            PostHog captures the full trace hierarchy for complex agent workflows, including
+                            handoffs between multiple agents.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -212,9 +216,8 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                     <Markdown>
                         {dedent`
-                            Every span in that list, including the \`get_weather\` tool span, is captured
-                            automatically with its real execution duration and nests under the trace. You don't
-                            write any capture code for it.
+                            As with the single-agent example above, PostHog captures every span in that list
+                            automatically. You write no extra code for the handoff itself.
                         `}
                     </Markdown>
                 </>

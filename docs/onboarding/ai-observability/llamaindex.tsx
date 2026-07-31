@@ -17,8 +17,8 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-llamaindex)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
-                            wrapper
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see this example
+                            instead: [Python wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-llamaindex).
                         </Markdown>
                     </CalloutBox>
@@ -87,15 +87,17 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             {dedent`
                                 The same fixed-at-startup limitation applies to \`$ai_session_id\`, which groups
-                                traces into one PostHog session. It can only be set as a \`Resource\` attribute when
-                                \`TracerProvider\` is created, so it's locked in for the life of the process. That's
-                                accurate for a script that runs one query and exits, but wrong for a long-lived query
-                                service, where every user's questions silently end up in the same session.
+                                traces into one PostHog session. You can only set it as a \`Resource\` attribute when
+                                you create \`TracerProvider\`. That value stays locked in for the life of the process.
+                                This is accurate for a script that runs one query and exits. It is wrong for a
+                                long-lived query service, where every user's questions silently end up in the same
+                                session.
 
                                 For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events
-                                directly (see
-                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
-                                or use an integration with a per-call channel, such as the PostHog SDK wrappers or the
+                                directly. See
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)
+                                for details. Or use an integration with a per-call channel instead, such as the
+                                PostHog SDK wrappers or the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
                             `}
                         </Markdown>

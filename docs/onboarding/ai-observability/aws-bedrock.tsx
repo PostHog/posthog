@@ -106,18 +106,18 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
                         <Markdown>
                             {dedent`
-                                PostHog groups related traces into one session via \`$ai_session_id\`, but this
-                                integration only exposes it as an attribute on the \`Resource\` you build once, when
-                                \`TracerProvider\` is created above, and that's fixed for the life of the process.
-                                That's fine for a script or a worker that only ever handles one conversation, but not
-                                for a long-lived API service, where every caller's conversation silently collapses
-                                into the same session.
+                                PostHog groups related traces into one session using \`$ai_session_id\`. This
+                                integration exposes it only as an attribute on the \`Resource\` you build once, when
+                                you create \`TracerProvider\` above. That value stays fixed for the life of the
+                                process. This setup works for a script or a worker that only handles one
+                                conversation. A long-lived API service is different: every caller's conversation
+                                silently collapses into the same session.
 
                                 For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events
-                                directly (see
-                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
-                                or switch to an integration with a per-call channel, such as the PostHog SDK wrappers
-                                or the
+                                directly. See
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)
+                                for details. Alternatively, switch to an integration with a per-call channel, such as
+                                the PostHog SDK wrappers or the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
                             `}
                         </Markdown>

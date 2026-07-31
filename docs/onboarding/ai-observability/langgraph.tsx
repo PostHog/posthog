@@ -49,9 +49,28 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
             title: 'Configure PostHog',
             badge: 'required',
             content: (
+                <Markdown>
+                    {dedent`
+                        Create a PostHog client once, then build a callback handler for each request or
+                        conversation. The example in the next step creates both, alongside a graph run that
+                        captures a tool call as a span automatically.
+                    `}
+                </Markdown>
+            ),
+        },
+        {
+            title: 'Run your graph',
+            badge: 'required',
+            content: (
                 <>
                     <Markdown>
-                        Create a PostHog client once, then build a callback handler for each request or conversation.
+                        {dedent`
+                            Attach the handler through \`config\` when you invoke the graph, inside the function
+                            that handles a turn. \`create_react_agent\` already runs the whole turn as a single root
+                            run, so PostHog correctly nests each tool call as an \`$ai_span\` under the trace. A
+                            \`CallbackHandler\` holds no state of its own, so build a fresh one per request or
+                            conversation, as \`create_handler\`/\`createHandler\` does below.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -62,6 +81,9 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 code: dedent`
                                     from posthog import Posthog
                                     from posthog.ai.langchain import CallbackHandler
+                                    from langgraph.prebuilt import create_react_agent
+                                    from langchain_openai import ChatOpenAI
+                                    from langchain_core.tools import tool
 
                                     posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
@@ -71,65 +93,6 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                             distinct_id=user_id,
                                             properties={"$ai_session_id": session_id},
                                         )
-                                `,
-                            },
-                            {
-                                language: 'typescript',
-                                file: 'Node',
-                                code: dedent`
-                                    import { PostHog } from 'posthog-node'
-                                    import { LangChainCallbackHandler } from '@posthog/ai/langchain'
-
-                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
-
-                                    function createHandler(userId: string, sessionId: string): LangChainCallbackHandler {
-                                      return new LangChainCallbackHandler({
-                                        client: posthog,
-                                        distinctId: userId,
-                                        properties: { $ai_session_id: sessionId },
-                                      })
-                                    }
-                                `,
-                            },
-                        ]}
-                    />
-
-                    <CalloutBox type="caution" icon="IconWarning" title="Build a new handler for every request">
-                        <Markdown>
-                            {dedent`
-                                A \`CallbackHandler\` holds no state of its own, so \`distinct_id\` and \`$ai_session_id\`
-                                are fixed when you construct it. Build one per request or conversation, as
-                                \`create_handler\`/\`createHandler\` does above. Construct a single handler once at
-                                module scope instead, and every user's conversation collapses into the same session.
-                            `}
-                        </Markdown>
-                    </CalloutBox>
-                </>
-            ),
-        },
-        {
-            title: 'Run your graph',
-            badge: 'required',
-            content: (
-                <>
-                    <Markdown>
-                        {dedent`
-                            Attach the handler through \`config\` when you invoke the graph, inside the function that
-                            handles a turn. \`create_react_agent\` already runs the whole turn as a single root run,
-                            so PostHog correctly nests each tool call as an \`$ai_span\` under the trace. No extra
-                            wrapping needed, unlike a hand-rolled tool-calling loop.
-                        `}
-                    </Markdown>
-
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'python',
-                                file: 'Python',
-                                code: dedent`
-                                    from langgraph.prebuilt import create_react_agent
-                                    from langchain_openai import ChatOpenAI
-                                    from langchain_core.tools import tool
 
                                     @tool
                                     def get_weather(city: str) -> str:
@@ -154,10 +117,22 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
+                                    import { PostHog } from 'posthog-node'
+                                    import { LangChainCallbackHandler } from '@posthog/ai/langchain'
                                     import { createReactAgent } from '@langchain/langgraph/prebuilt'
                                     import { ChatOpenAI } from '@langchain/openai'
                                     import { tool } from '@langchain/core/tools'
                                     import { z } from 'zod'
+
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    function createHandler(userId: string, sessionId: string): LangChainCallbackHandler {
+                                      return new LangChainCallbackHandler({
+                                        client: posthog,
+                                        distinctId: userId,
+                                        properties: { $ai_session_id: sessionId },
+                                      })
+                                    }
 
                                     const getWeather = tool(
                                       (input) => \`It's always sunny in \${input.city}!\`,
@@ -190,9 +165,9 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <Markdown>
                         {dedent`
-                            \`agent\` is built once, outside \`ask\`, and reused across turns. The handler is built
-                            fresh inside \`ask\` on every call, because it carries \`distinct_id\` and
-                            \`$ai_session_id\`, and those need to change per conversation.
+                            You build \`agent\` once, outside \`ask\`, and reuse it across turns. \`ask\` builds a
+                            fresh handler on every call, because it carries \`distinct_id\` and \`$ai_session_id\`,
+                            and those change per conversation.
                         `}
                     </Markdown>
 
@@ -219,8 +194,8 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                     <Markdown>
                         {dedent`
                             PostHog automatically captures \`$ai_generation\` events for each LLM call and \`$ai_span\`
-                            events for each tool call, and builds a trace hierarchy based on how your LangGraph
-                            components are nested. You can expect captured generation events to have the following
+                            events for each tool call. It also builds a trace hierarchy based on how you nest your
+                            LangGraph components. You can expect captured generation events to have the following
                             properties:
                         `}
                     </Markdown>
@@ -229,9 +204,9 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
 
                     <Markdown>
                         {dedent`
-                            Pass the same \`$ai_session_id\` to every handler you construct for a conversation to
-                            group its calls into one session, and \`trace_id\`/\`traceId\` to control the top-level
-                            trace ID instead of letting PostHog generate one.
+                            Pass the same \`$ai_session_id\` to every handler you construct for a conversation, to
+                            group its calls into one session. Pass \`trace_id\`/\`traceId\` too, to control the
+                            top-level trace ID instead of letting PostHog generate one.
                         `}
                     </Markdown>
                 </>

@@ -25,9 +25,11 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        If you're using a different server-side SDK or prefer to use the API, you can manually capture
-                        the data by calling the `capture` method or using the [capture
-                        API](https://posthog.com/docs/api/capture).
+                        {dedent`
+                            If you use a different server-side SDK, or prefer to use the API, capture the data
+                            manually. Call the \`capture\` method, or use the [capture
+                            API](https://posthog.com/docs/api/capture).
+                        `}
                     </Markdown>
 
                     <Tab.Group tabs={languages.map((l) => l.label)}>
@@ -307,24 +309,31 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        `$ai_span` is a plain trace node. It isn't tied to any LLM provider. Use it for tool calls,
-                        database queries, retrieval steps, or any other work you want timed inside a trace. Set
-                        `$ai_span_type` to describe the kind of work, for example `tool`, `chain`, `retriever`, or
-                        `agent`.
+                        {dedent`
+                            \`$ai_span\` is a plain trace node. It is not tied to any LLM provider. Use it for tool
+                            calls, database queries, retrieval steps, or any other work you want timed inside a
+                            trace. Set \`$ai_span_type\` to describe the kind of work, for example \`tool\`,
+                            \`chain\`, \`retriever\`, or \`agent\`.
+                        `}
                     </Markdown>
 
                     <Markdown>
-                        Nothing computes duration for you. Time your own code and pass the result as `$ai_latency`. The
-                        span must also carry the same `$ai_trace_id` as the generation it belongs to, or it won't nest
-                        inside the same trace.
+                        {dedent`
+                            Nothing computes duration for you. Time your own code and pass the result as
+                            \`$ai_latency\`. The span must also carry the same \`$ai_trace_id\` as the generation it
+                            belongs to, or it will not nest inside the same trace.
+                        `}
                     </Markdown>
 
                     <Markdown>
-                        For example, here's a tool call captured as a span right after the generation that triggered it.
-                        Both share the same `$ai_trace_id` (so they nest in one trace) and `$ai_session_id` (so they
-                        group into the same conversation). `client` is PostHog's [OpenAI
-                        wrapper](https://posthog.com/docs/ai-observability/installation/openai), which captures the
-                        `$ai_generation` automatically; `posthog` is the raw client used to capture the span.
+                        {dedent`
+                            For example, here is a tool call captured as a span right after the generation that
+                            triggered it. Both share the same \`$ai_trace_id\` (so they nest in one trace) and
+                            \`$ai_session_id\` (so they group into the same conversation). \`client\` is PostHog's
+                            [OpenAI wrapper](https://posthog.com/docs/ai-observability/installation/openai), which
+                            captures the \`$ai_generation\` automatically. \`posthog\` is the raw client used to
+                            capture the span.
+                        `}
                     </Markdown>
 
                     <Tab.Group tabs={['Python', 'Node.js']}>

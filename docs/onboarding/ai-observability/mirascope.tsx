@@ -17,7 +17,7 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-mirascope)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
                             wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-mirascope).
                         </Markdown>
@@ -76,16 +76,16 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                         <Markdown>
                             {dedent`
                                 PostHog needs \`$ai_session_id\` to group calls into one session, and the only place
-                                to set it here is a \`Resource\` attribute fixed when \`TracerProvider\` is created.
-                                It doesn't change again for as long as the process runs. That's correct for a script
-                                that makes one round of calls and exits, but not for a long-lived service: every
-                                caller ends up in the same session, and nothing about the setup will warn you.
+                                to set it here is a \`Resource\` attribute, fixed when you create \`TracerProvider\`.
+                                It does not change again for as long as the process runs. That is correct for a
+                                script that makes one round of calls and exits, but not for a long-lived service:
+                                every caller ends up in the same session, and nothing about the setup will warn you.
 
                                 For sessions scoped to a real conversation, capture \`$ai_span\` and
                                 \`$ai_generation\` events directly (see
-                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
-                                or reach for an integration with a per-call channel instead, such as the PostHog SDK
-                                wrappers or the
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)).
+                                Alternatively, reach for an integration with a per-call channel instead, such as the
+                                PostHog SDK wrappers or the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
                             `}
                         </Markdown>
@@ -125,9 +125,9 @@ export const getMirascopeSteps = (ctx: OnboardingComponentsContext): StepDefinit
                         <Markdown>
                             `opentelemetry-instrumentation-openai-v2` instruments `chat.completions` and `embeddings`
                             only. Mirascope v2 uses the OpenAI Responses API by default, which produces no spans.
-                            `llm.register_provider("openai:completions")` switches it to `chat.completions` so calls are
-                            captured. This page targets Mirascope 2.x. The `mirascope.core` API was v1 and no longer
-                            exists.
+                            `llm.register_provider("openai:completions")` switches it to `chat.completions`, so the
+                            instrumentation captures the calls. This page targets Mirascope 2.x. The `mirascope.core`
+                            API was v1 and no longer exists.
                         </Markdown>
                     </CalloutBox>
 

@@ -17,7 +17,7 @@ export const getSmolagentsSteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-smolagents)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
                             wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-smolagents).
                         </Markdown>
@@ -75,22 +75,22 @@ export const getSmolagentsSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
                         <Markdown>
                             {dedent`
-                                \`$ai_session_id\` groups multiple traces into one PostHog session, and with this
-                                integration the only place to set it is a \`Resource\` attribute fixed when the
-                                OpenTelemetry SDK starts. That works if a process only ever runs one agent
-                                conversation, like a script, but a long-lived smolagents service ends up stamping
-                                every user's run with the same session id, and nothing about the setup errors to warn
-                                you.
+                                \`$ai_session_id\` groups multiple traces into one PostHog session. With this
+                                integration, the only place to set it is a \`Resource\` attribute, fixed when the
+                                OpenTelemetry SDK starts. This works if a process only ever runs one agent
+                                conversation, like a script. A long-lived smolagents service is different: it ends up
+                                stamping every user's run with the same session id, and nothing about the setup
+                                errors to warn you.
 
                                 For sessions scoped to one conversation, capture \`$ai_span\` and \`$ai_generation\`
                                 events directly (see
-                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
-                                or move to an integration with a per-call channel, such as the PostHog SDK wrappers or
-                                the
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)).
+                                Alternatively, move to an integration with a per-call channel, such as the PostHog
+                                SDK wrappers or the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
 
-                                It's also worth knowing this only captures the model calls smolagents makes. It
-                                doesn't capture any tools you add to that \`tools=[]\` list. Give a tool call its own
+                                It is also worth knowing this only captures the model calls smolagents makes. It does
+                                not capture any tools you add to that \`tools=[]\` list. Give a tool call its own
                                 \`$ai_span\`, tied to the same \`$ai_trace_id\`, if you want it to show up.
                             `}
                         </Markdown>

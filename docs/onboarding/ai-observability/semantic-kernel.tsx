@@ -17,8 +17,8 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-semantic-kernel)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
-                            wrapper
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see this example
+                            instead: [Python wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-semantic-kernel).
                         </Markdown>
                     </CalloutBox>
@@ -75,19 +75,21 @@ export const getSemanticKernelSteps = (ctx: OnboardingComponentsContext): StepDe
                     <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
                         <Markdown>
                             {dedent`
-                                PostHog ties multiple traces to one conversation through \`$ai_session_id\`, but this
-                                integration can only set it as a \`Resource\` attribute when \`TracerProvider\` is
-                                built. That's fixed once, for the life of the process. A script that exits after one
-                                conversation is fine; a long-running kernel service handling many users isn't, since
-                                every conversation quietly ends up in the same session with no error to catch it.
+                                PostHog ties multiple traces to one conversation through \`$ai_session_id\`. This
+                                integration can only set it as a \`Resource\` attribute when you build
+                                \`TracerProvider\`. That value stays fixed once, for the life of the process. A script
+                                that exits after one conversation is fine. A long-running kernel service handling many
+                                users is not: every conversation quietly ends up in the same session, with no error to
+                                catch it.
 
                                 Capture \`$ai_span\` and \`$ai_generation\` events directly for real per-conversation
-                                sessions (see
-                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
-                                or use an integration with a per-call channel, such as the PostHog SDK wrappers or the
+                                sessions. See
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)
+                                for details. Or use an integration with a per-call channel instead, such as the
+                                PostHog SDK wrappers or the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
 
-                                This also only captures calls to the OpenAI SDK underneath. It doesn't capture the
+                                This also only captures calls to the OpenAI SDK underneath. It does not capture the
                                 plugins or functions your kernel invokes. Give those their own \`$ai_span\`, tied to
                                 the same \`$ai_trace_id\`, if you want them to show up.
                             `}

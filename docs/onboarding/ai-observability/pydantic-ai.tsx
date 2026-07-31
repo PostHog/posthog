@@ -17,7 +17,7 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-pydantic-ai)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
                             wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-pydantic-ai).
                         </Markdown>
@@ -80,19 +80,20 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                                 Unlike the other integrations on this page, Pydantic AI's built-in OpenTelemetry
                                 instrumentation gives you a genuine span tree, not one flat span per call.
                                 \`Agent.instrument_all()\` emits an \`invoke_agent\` span for the run itself, alongside
-                                the \`gen_ai.*\` span for the model call, so PostHog can reconstruct the agent run
-                                rather than only the LLM call inside it.
+                                the \`gen_ai.*\` span for the model call. Together, they let PostHog reconstruct the
+                                agent run rather than only the LLM call inside it.
 
-                                Session grouping is the one place this setup still falls short, same as the rest.
-                                \`$ai_session_id\` can only be set as a \`Resource\` attribute when \`TracerProvider\`
-                                is created, and that's fixed for the process's lifetime. That's fine for a script or a
-                                one-conversation-per-process worker, but wrong for a long-lived agent service, where
-                                every conversation silently collapses into the same session.
+                                Session grouping is the one place this setup still falls short, same as the rest. You
+                                can only set \`$ai_session_id\` as a \`Resource\` attribute when you create
+                                \`TracerProvider\`, and it stays fixed for the process's lifetime. This is fine for a
+                                script or a one-conversation-per-process worker. It is wrong for a long-lived agent
+                                service, where every conversation silently collapses into the same session.
 
                                 For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events
                                 directly (see
-                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)),
-                                or use an integration with a per-call channel, such as the PostHog SDK wrappers or the
+                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)).
+                                Alternatively, use an integration with a per-call channel, such as the PostHog SDK
+                                wrappers or the
                                 [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
                             `}
                         </Markdown>

@@ -71,8 +71,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                         {dedent`
                             Pass \`experimental_telemetry\` to your Vercel AI SDK calls. The \`posthog_distinct_id\`
                             metadata field links events to a specific user in PostHog. Define \`tools\` the same way
-                            you always would, with an \`execute\` function; PostHog captures the execution as a span
-                            once the call completes.
+                            you always would, with an \`execute\` function, as \`get_weather\` does below.
                         `}
                     </Markdown>
 
@@ -110,8 +109,11 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                     />
 
                     <Markdown>
-                        Pass `$ai_session_id` in `metadata` to group every call in a conversation into one PostHog
-                        session.
+                        {dedent`
+                            PostHog captures the \`get_weather\` execution above as an \`$ai_span\` event, with its
+                            real duration, once the call completes. Pass \`$ai_session_id\` in \`metadata\` to group
+                            every call in a conversation into one PostHog session.
+                        `}
                     </Markdown>
 
                     <Markdown>
@@ -122,7 +124,7 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                             separate, unrelated calls. A trace covers one call, and a session covers the whole
                             conversation: passing the same session id in \`metadata\` across every call is what
                             connects them. Together, \`posthog_distinct_id\` and \`$ai_session_id\` give you a
-                            complete view: who made the request, which conversation it's part of, and every
+                            complete view: who made the request, which conversation it is part of, and every
                             generation and tool execution inside it.
                         `}
                     </Markdown>
@@ -138,9 +140,9 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                     <Blockquote>
                         <Markdown>
                             **Custom properties:** Prefix any telemetry metadata field with `posthog_` to attach it to
-                            the `$ai_generation` event as a custom property. The prefix is stripped, so
+                            the `$ai_generation` event as a custom property. PostHog strips the prefix, so
                             `posthog_environment` becomes an `environment` property you can filter and break down by.
-                            Other metadata fields aren't captured.
+                            PostHog does not capture other metadata fields.
                         </Markdown>
                     </Blockquote>
 
@@ -148,9 +150,9 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                         <Markdown>
                             {dedent`
                                 PostHog's ingestion strips \`ai.prompt.tools\` and \`ai.response.toolCalls\` from the
-                                spans this integration emits, so \`$ai_tools\` isn't populated and the model's
-                                requested tool calls don't reach \`$ai_output_choices\`. Tool executions still appear
-                                as \`$ai_span\` events. If you need full tool-call visibility, use
+                                spans this integration emits. \`$ai_tools\` stays empty, and the model's requested
+                                tool calls do not reach \`$ai_output_choices\`. Tool executions still appear as
+                                \`$ai_span\` events. If you need full tool-call visibility, use
                                 [OpenTelemetry](https://posthog.com/docs/ai-observability/installation/opentelemetry)
                                 instead.
                             `}
