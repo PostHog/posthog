@@ -7,7 +7,6 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
-from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -1315,9 +1314,11 @@ def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
     search keystroke and three SES API round-trips per keystroke would be slow and rate-limited.
     Failures return None (the response field is nullable) so AWS being unreachable never breaks the
     rates display; errors aren't cached, so the next request retries.
+
+    Deliberately no SES_ACCESS_KEY_ID gate: cloud pods authenticate via their IAM role and leave
+    the key env vars unset, so a key check reads as "SES not configured" exactly where SES IS
+    configured. Environments truly without SES fail the call and land in the error path below.
     """
-    if not settings.SES_ACCESS_KEY_ID:
-        return None
     cache_key = f"workflows_ses_tenant_reputation_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
