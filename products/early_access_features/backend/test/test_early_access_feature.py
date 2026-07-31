@@ -365,9 +365,11 @@ class TestEarlyAccessFeature(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
 
+        self.assertEqual(response_data["attr"], "name")
         self.assertEqual(
             response_data["detail"],
-            "There is already a feature flag with this key.",
+            "A feature flag with the key 'hick-bondoogling' already exists. "
+            "Rename this feature, or link the existing flag instead.",
         )
 
     def test_can_create_new_early_access_feature_with_soft_deleted_flag(self):

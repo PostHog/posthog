@@ -421,6 +421,23 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 raise serializers.ValidationError(
                     "Multivariate feature flags are not supported for Early Access Features."
                 )
+        elif data.get("name"):
+            # No flag chosen: one gets auto-created from the name below in create(). Check the
+            # derived key for collisions here so the error attaches to the "name" field the form
+            # actually has, instead of surfacing from the nested FeatureFlagSerializer as an
+            # error on "key" -- a field this form never shows.
+            feature_flag_key = slugify(data["name"])
+            if FeatureFlag.objects.filter(
+                key=feature_flag_key, team__project_id=self.context["get_team"]().project_id
+            ).exists():
+                raise serializers.ValidationError(
+                    {
+                        "name": (
+                            f"A feature flag with the key '{feature_flag_key}' already exists. "
+                            "Rename this feature, or link the existing flag instead."
+                        )
+                    }
+                )
 
         return data
 
