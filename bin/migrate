@@ -226,6 +226,16 @@ if [ -n "$CLICKHOUSE_PID" ]; then
     fi
 fi
 
+# OAuth applications task sandboxes mint their agent tokens under. Idempotent, and the
+# command itself no-ops in the production regions (US/EU keep their own manually-managed
+# apps), so this is safe to run on every deploy. Skipped on hobby, which has no sandboxes.
+if run_scope "tasks-oauth"; then
+    if [ "${DEPLOYMENT:-}" != "hobby" ]; then
+        echo "Setting up task sandbox OAuth applications..."
+        python manage.py setup_tasks_oauth || { echo "Error in setup_tasks_oauth, exiting."; exit 1; }
+    fi
+fi
+
 # Temporal worker schedules. Skipped on hobby deploys (no Temporal cluster) and
 # on local dev (DEBUG=1, matching the persons-migration gate above).
 # Non-fatal: scheduling is reconciled idempotently on every deploy, so a

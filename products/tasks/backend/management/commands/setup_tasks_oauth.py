@@ -1,20 +1,28 @@
-from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 from posthog.models import OAuthApplication
 from posthog.models.oauth import OAuthApplicationAuthBrand
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
+from posthog.utils import get_instance_region
 
 ARRAY_REDIRECT_URIS = "http://localhost:8237/callback http://localhost:8239/callback"
 POSTHOG_AI_REDIRECT_URIS = "http://localhost:8000/authorize"
 
+# The apps created here carry the *_DEV client IDs, which `posthog.temporal.oauth` only ever
+# looks up outside the production regions. Creating them in US/EU would add unused OAuth
+# clients with localhost redirect URIs to a production database, so those regions are skipped
+# rather than failed — `bin/migrate` runs this on every deploy.
+PRODUCTION_REGIONS = frozenset({"US", "EU"})
+
 
 class Command(BaseCommand):
-    help = "Create the Array OAuth application for local cloud runs development"
+    help = "Create the Array and PostHog AI OAuth applications task sandboxes mint tokens under"
 
     def handle(self, *args, **options):
-        if not settings.DEBUG:
-            raise CommandError("This command can only be run with DEBUG=1")
+        region = get_instance_region()
+        if region in PRODUCTION_REGIONS:
+            self.stdout.write(f"Skipping dev OAuth application setup; region {region} has its own applications")
+            return
 
         self._setup_app(
             ARRAY_APP_CLIENT_ID_DEV,
