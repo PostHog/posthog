@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, Union
 
 from django.utils import timezone
@@ -44,24 +45,39 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 )
 from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import RatioQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_retention_query_builder import RetentionQueryBuilder
-from products.experiments.backend.hogql_queries.exposure_query_logic import normalize_to_exposure_criteria
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    normalize_to_exposure_criteria,
+    resolve_default_exposure_event,
+)
 from products.experiments.backend.hogql_queries.funnel_step_builder import FunnelStepBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 
 def get_exposure_config_params_for_builder(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
+    team: Team,
+    start_date: Optional[datetime],
 ) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
     """Returns exposure-related parameters required by the query builder."""
     criteria = normalize_to_exposure_criteria(exposure_criteria)
+    default_event = resolve_default_exposure_event(team, start_date)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
-        exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+        exposure_config = ExperimentEventExposureConfig(event=default_event, properties=[])
         filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
-            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+            exposure_config = ExperimentEventExposureConfig(event=default_event, properties=[])
+        elif (
+            isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
+            and criteria.exposure_config.event == DEFAULT_EXPOSURE_EVENT
+        ):
+            # A config naming $feature_flag_called explicitly is the default exposure, not a
+            # custom one (same convention as get_exposure_event_and_property), so it follows
+            # the same event resolution while keeping its property filters.
+            exposure_config = criteria.exposure_config.model_copy(update={"event": default_event})
         else:
             exposure_config = criteria.exposure_config
         filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True

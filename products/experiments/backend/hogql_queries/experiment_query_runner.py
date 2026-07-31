@@ -446,7 +446,9 @@ class ExperimentQueryRunner(QueryRunner):
             exposure_config,
             multiple_variant_handling,
             filter_test_accounts,
-        ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
+        ) = get_exposure_config_params_for_builder(
+            self.experiment.exposure_criteria, self.team, self.experiment.start_date
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -847,20 +849,11 @@ class ExperimentQueryRunner(QueryRunner):
         exposure_config: ExperimentEventExposureConfig | ActionsNode
         if self.actors_query.exposureConfig is not None:
             exposure_config = self.actors_query.exposureConfig
-        elif self.experiment.exposure_criteria and self.experiment.exposure_criteria.get("exposure_config"):
-            from products.experiments.backend.hogql_queries.experiment_query_builder import (
-                normalize_to_exposure_criteria,
-            )
-
-            criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
-            if criteria and criteria.exposure_config:
-                exposure_config = criteria.exposure_config
-            else:
-                # Default to $feature_flag_called
-                exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
         else:
-            # Default to $feature_flag_called
-            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+            # Same resolution as the main experiment query, so the actor list matches the counts.
+            exposure_config, _, _ = get_exposure_config_params_for_builder(
+                self.experiment.exposure_criteria, self.team, self.experiment.start_date
+            )
 
         # Get multiple variant handling
         if self.actors_query.multipleVariantHandling is not None:

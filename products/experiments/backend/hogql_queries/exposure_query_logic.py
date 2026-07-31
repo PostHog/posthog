@@ -9,6 +9,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Optional, Union
 
+import posthoganalytics
+
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
@@ -45,6 +47,34 @@ EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 # $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
 # after the cutoff can rely on $experiment_exposure covering their whole exposure window.
 EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
+
+
+def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
+    """
+    Returns the event to count exposures on when the experiment doesn't configure a custom one.
+
+    Experiments started at or after EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure,
+    provided the team is flagged into the rollout. Everything else stays on $feature_flag_called:
+    older experiments predate the new event, and because ingestion duplicates flag events into
+    $experiment_exposure, counting exactly one of the two is what avoids double counting.
+    """
+    if start_date is None:
+        return DEFAULT_EXPOSURE_EVENT
+    if start_date.tzinfo is None:
+        # Query-supplied start dates can be naive ISO strings; the stored values are UTC.
+        start_date = start_date.replace(tzinfo=UTC)
+    if start_date < EXPERIMENT_EXPOSURE_EVENT_CUTOFF:
+        return DEFAULT_EXPOSURE_EVENT
+    if posthoganalytics.feature_enabled(
+        EXPERIMENT_EXPOSURE_EVENT_FLAG,
+        str(team.id),
+        groups={"project": str(team.id)},
+        group_properties={"project": {"id": str(team.id)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    ):
+        return EXPERIMENT_EXPOSURE_EVENT
+    return DEFAULT_EXPOSURE_EVENT
 
 
 def _is_actions_node_dict(config: dict) -> bool:

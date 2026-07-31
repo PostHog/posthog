@@ -10,6 +10,10 @@ from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT,
+)
 
 
 def _optimize_and_chain(expr: ast.Expr) -> ast.Expr:
@@ -187,11 +191,12 @@ class ExposureQueryBuilder:
     def build_variant_property(self) -> ast.Field:
         """Derive which event property that should be used for variants"""
 
-        # $feature_flag_called events are special as we can use the $feature_flag_response
-        if (
-            isinstance(self.context.exposure_config, ExperimentEventExposureConfig)
-            and self.context.exposure_config.event == "$feature_flag_called"
-        ):
+        # $feature_flag_called events are special as we can use the $feature_flag_response.
+        # $experiment_exposure is an ingestion-side duplicate of $feature_flag_called and
+        # carries the same properties, so it gets the same treatment.
+        if isinstance(
+            self.context.exposure_config, ExperimentEventExposureConfig
+        ) and self.context.exposure_config.event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT):
             return ast.Field(chain=["properties", "$feature_flag_response"])
 
         return ast.Field(chain=["properties", f"$feature/{self.context.feature_flag_key}"])
@@ -209,11 +214,12 @@ class ExposureQueryBuilder:
         event_predicate = event_or_action_to_filter(self.context.team, self.context.exposure_config)
 
         # $feature_flag_called events are special. We need to check that the property
-        # $feature_flag matches the flag
-        if (
-            isinstance(self.context.exposure_config, ExperimentEventExposureConfig)
-            and self.context.exposure_config.event == "$feature_flag_called"
-        ):
+        # $feature_flag matches the flag. The same goes for $experiment_exposure, which
+        # duplicates flag events: without this filter, exposures of other experiments
+        # would count too.
+        if isinstance(
+            self.context.exposure_config, ExperimentEventExposureConfig
+        ) and self.context.exposure_config.event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT):
             flag_property = f"$feature_flag"
             event_predicate = ast.And(
                 exprs=[
