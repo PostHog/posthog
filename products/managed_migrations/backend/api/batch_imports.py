@@ -2,7 +2,7 @@ import json
 import uuid
 from copy import deepcopy
 from datetime import timedelta
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from django.conf import settings
 from django.db import transaction
@@ -35,26 +35,9 @@ from products.managed_migrations.backend.models.batch_imports import (
     get_aws_external_id,
 )
 
-if TYPE_CHECKING:
-    from posthog.models.team import Team
-
 logger = structlog.get_logger(__name__)
 
 S3_ROLE_ARN_REGEX = r"^arn:aws:iam::\d{12}:role\/[\w+=,.@\/-]+$"
-
-
-def _is_iam_role_auth_enabled(user: User, team: "Team") -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            "managed-migrations-iam-role-auth",
-            str(user.distinct_id),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
-
 
 TRIAL_RECORD_LIMIT_DEFAULT = 1_000
 TRIAL_RECORD_LIMIT_MAX = 50_000
@@ -255,9 +238,6 @@ class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImp
             "import_config",
         ]
 
-    def _is_iam_role_enabled(self) -> bool:
-        return _is_iam_role_auth_enabled(self.context["request"].user, self.context["get_team"]())
-
     def validate(self, data: dict) -> dict:
         data = super().validate(data)
 
@@ -265,7 +245,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImp
         has_secret_key = bool(data.get("secret_key"))
         has_role = bool(data.get("role_arn"))
 
-        if has_role and not (settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN and self._is_iam_role_enabled()):
+        if has_role and not settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN:
             raise serializers.ValidationError("IAM role authentication is not available for this project")
 
         if has_role and (has_access_key or has_secret_key):
@@ -777,9 +757,6 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response_serializer = BatchImportResponseSerializer(migration)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
-    def _is_iam_role_enabled_for_team(self) -> bool:
-        return _is_iam_role_auth_enabled(cast(User, self.request.user), self.team)
-
     @extend_schema(
         responses={200: BatchImportAWSIAMSetupSerializer},
         description=(
@@ -792,7 +769,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         external_id = get_aws_external_id(self.team)
         posthog_role_arn = settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN
 
-        if not posthog_role_arn or not self._is_iam_role_enabled_for_team():
+        if not posthog_role_arn:
             serializer = BatchImportAWSIAMSetupSerializer(
                 {
                     "available": False,
