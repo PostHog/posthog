@@ -23,7 +23,7 @@ export interface InboxReportCardProps {
 
 interface InboxReportListProps extends ReportListLogicProps {
     Card: ComponentType<InboxReportCardProps>
-    emptyState: { icon: JSX.Element; title: string; description: string }
+    emptyState: { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
 }
 
 /**
@@ -155,6 +155,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                     </div>
                     <h3 className="text-base font-semibold m-0">{emptyState.title}</h3>
                     <p className="text-sm text-tertiary m-0">{emptyState.description}</p>
+                    {emptyState.extra}
                 </div>
             ) : (
                 <>

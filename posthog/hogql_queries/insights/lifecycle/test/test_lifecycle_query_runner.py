@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import SimpleNamespace
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -33,6 +34,7 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
@@ -911,6 +913,71 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(team=self.team, query=query).calculate()
 
         self.assertIn("Lifecycle insights require at least one series.", str(context.exception))
+
+    def test_format_results_aligns_misaligned_status_series(self):
+        # Regression: each lifecycle status is grouped independently in ClickHouse and groupArray does
+        # not guarantee the per-status (date, count) arrays share length or order. The chart plots every
+        # status positionally against one shared axis, so format_results must align them all to one
+        # canonical, sorted period axis. Feed deliberately misaligned per-status arrays and assert the
+        # output lines back up (gaps filled with 0).
+        runner = self._create_query_runner("2020-01-09", "2020-01-12", IntervalType.DAY)
+        d9, d10, d11, d12 = (datetime(2020, 1, day) for day in (9, 10, 11, 12))
+        response = SimpleNamespace(
+            columns=["date", "total", "status"],
+            results=[
+                ([d12, d11, d10, d9], [4, 3, 2, 1], "new"),  # reverse-ordered dates
+                ([d9, d10, d11, d12], [10, 20, 30, 40], "returning"),  # sorted, full
+                ([d9, d11], [100, 300], "resurrecting"),  # missing 10th and 12th
+                ([d10, d11, d12], [-5, -6, -7], "dormant"),  # sorted, negative, missing 9th
+            ],
+        )
+
+        results = runner.format_results(response)  # type: ignore[arg-type]
+        by_status = {r["status"]: r for r in results}
+
+        expected_days = ["2020-01-09", "2020-01-10", "2020-01-11", "2020-01-12"]
+        for r in results:
+            self.assertEqual(r["days"], expected_days)
+            self.assertEqual(len(r["data"]), len(expected_days))
+        self.assertEqual(by_status["new"]["data"], [1.0, 2.0, 3.0, 4.0])
+        self.assertEqual(by_status["returning"]["data"], [10.0, 20.0, 30.0, 40.0])
+        self.assertEqual(by_status["resurrecting"]["data"], [100.0, 0.0, 300.0, 0.0])
+        self.assertEqual(by_status["dormant"]["data"], [0.0, -5.0, -6.0, -7.0])
+
+    def test_exclude_incomplete_periods_drops_current_day_and_keeps_series_aligned(self):
+        # Lifecycle had no coverage for DateRange.excludeIncompletePeriods. With "now" mid-day, the
+        # current (incomplete) day must be dropped and all four status series must remain aligned to
+        # one shared axis.
+        self._create_events(
+            data=[
+                ("p1", ["2020-01-09T12:00:00Z", "2020-01-10T12:00:00Z", "2020-01-11T12:00:00Z"]),
+                ("p2", ["2020-01-10T12:00:00Z", "2020-01-12T12:00:00Z"]),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-12T09:00:00Z"):
+            query = LifecycleQuery(
+                dateRange=DateRange(date_from="-4d", excludeIncompletePeriods=True),
+                interval=IntervalType.DAY,
+                series=[EventsNode(event="$pageview")],
+            )
+            response = LifecycleQueryRunner(team=self.team, query=query).calculate()
+
+        day_axes = {tuple(res["days"]) for res in response.results}
+        self.assertEqual(len(day_axes), 1)  # every status shares one aligned axis
+        days = next(iter(day_axes))
+        self.assertNotIn("2020-01-12", days)  # incomplete current day excluded
+        data_lengths = {len(res["data"]) for res in response.results}
+        self.assertEqual(data_lengths, {len(days)})
+
+    def test_cache_payload_is_lifecycle_scoped_and_distinct_from_base(self):
+        # The formatter-version bump must live only in the lifecycle payload so a format_results
+        # shape change invalidates lifecycle caches without touching every other query type.
+        runner = self._create_query_runner("2020-01-09", "2020-01-12", IntervalType.DAY)
+        payload = runner.get_cache_payload()
+        self.assertEqual(payload["lifecycle_formatter_version"], 1)
+        self.assertNotIn("lifecycle_formatter_version", AnalyticsQueryRunner.get_cache_payload(runner))
 
     def test_lifecycle_query_whole_range(self):
         self._create_test_events()

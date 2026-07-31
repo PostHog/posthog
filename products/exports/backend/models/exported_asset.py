@@ -1,6 +1,7 @@
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import models
@@ -257,7 +258,9 @@ def get_content_response(asset: ExportedAsset, download: bool = False, direct: b
             content_type=asset.export_format,
             content_disposition=content_disposition,
         )
-        if presigned_url:
+        # Local dev presigns against the localhost object-storage container, which external
+        # fetchers (e.g. Slack's image proxy through a tunnel) can't reach — serve bytes instead.
+        if presigned_url and not (DEBUG and urlparse(presigned_url).hostname in ("localhost", "127.0.0.1")):
             return HttpResponseRedirect(presigned_url)
 
     content = asset.content

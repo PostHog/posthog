@@ -6,6 +6,7 @@ import { execHogImmediate } from '~/cdp/utils/hog-exec'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import type { LogRecord } from '../log-record-avro'
+import { idToHex } from '../metrics-rules/tally'
 
 // Per-record execution primitives for log transformations. Pure functions, no I/O:
 // orchestration (function fetching, budgets, monitoring) lives in the transformer service.
@@ -67,8 +68,8 @@ export function buildLogRecordGlobals(
             event_name: record.event_name ?? null,
             timestamp: record.timestamp ?? null,
             observed_timestamp: record.observed_timestamp ?? null,
-            trace_id: record.trace_id ? record.trace_id.toString('hex') : null,
-            span_id: record.span_id ? record.span_id.toString('hex') : null,
+            trace_id: idToHex(record.trace_id, 16),
+            span_id: idToHex(record.span_id, 8),
         },
         inputs,
     }

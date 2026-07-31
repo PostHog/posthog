@@ -241,6 +241,18 @@ export namespace Schemas {
     }
 
     /**
+     * Metadata for one message a channel summary covered — never the message text.
+     */
+    export interface ChannelSummaryMessage {
+      /** Display name of the message author. */
+      readonly author: string;
+      /** When the message was sent. */
+      readonly sent_at: string;
+      /** Slack permalink to the message. */
+      readonly permalink: string;
+    }
+
+    /**
      * An AI summary of one closed period of the account's bound Slack channel (read-only).
      */
     export interface AccountChannelSummary {
@@ -262,6 +274,8 @@ export namespace Schemas {
       readonly content: string;
       /** Number of channel messages the summary covered. */
       readonly message_count: number;
+      /** The messages the summary covered, in transcript order — metadata only, no message text. */
+      readonly messages: readonly ChannelSummaryMessage[];
       /** When the summary was generated. */
       readonly generated_at: string;
     }
@@ -677,6 +691,8 @@ export namespace Schemas {
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
       usePreaggregatedTableTransforms?: boolean | null;
       useWebAnalyticsPreAggregatedTables?: boolean | null;
+      /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+      webAnalyticsFirstPageviewFilters?: boolean | null;
     }
 
     export interface ClickhouseQueryProgress {
@@ -48228,20 +48244,39 @@ export namespace Schemas {
 
     export interface ViewLink {
       readonly id: string;
-      /** @nullable */
+      /**
+         * Whether this join has been soft-deleted.
+         * @nullable
+         */
       deleted?: boolean | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
-      /** @maxLength 400 */
+      /**
+         * Name of the table the join starts from, for example events.
+         * @maxLength 400
+         */
       source_table_name: string;
-      /** @maxLength 400 */
+      /**
+         * Column or HogQL expression on the source table used as the join key.
+         * @maxLength 400
+         */
       source_table_key: string;
-      /** @maxLength 400 */
+      /**
+         * Name of the table or view being joined onto the source table.
+         * @maxLength 400
+         */
       joining_table_name: string;
-      /** @maxLength 400 */
+      /**
+         * Column or HogQL expression on the joining table used as the join key.
+         * @maxLength 400
+         */
       joining_table_key: string;
-      /** @maxLength 400 */
+      /**
+         * Accessor added to the source table to reach the joined rows, for example person in events.person.
+         * @maxLength 400
+         */
       field_name: string;
+      /** Optional join configuration, for example experiments optimization flags. */
       configuration?: unknown;
     }
 
@@ -48695,6 +48730,11 @@ export namespace Schemas {
       event_plan: WizardSessionDTOEventPlan;
       /** @nullable */
       error: WizardSessionDTOError;
+      /**
+         * Markdown handoff doc the wizard produced for this run (its setup report), or null while the run hasn't written one. Sticky once set.
+         * @nullable
+         */
+      handoff_text: string | null;
       /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
       created_by: WizardSessionUserDTO | null;
       created_at: string;
@@ -56152,20 +56192,39 @@ export namespace Schemas {
 
     export interface PatchedViewLink {
       readonly id?: string;
-      /** @nullable */
+      /**
+         * Whether this join has been soft-deleted.
+         * @nullable
+         */
       deleted?: boolean | null;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
-      /** @maxLength 400 */
+      /**
+         * Name of the table the join starts from, for example events.
+         * @maxLength 400
+         */
       source_table_name?: string;
-      /** @maxLength 400 */
+      /**
+         * Column or HogQL expression on the source table used as the join key.
+         * @maxLength 400
+         */
       source_table_key?: string;
-      /** @maxLength 400 */
+      /**
+         * Name of the table or view being joined onto the source table.
+         * @maxLength 400
+         */
       joining_table_name?: string;
-      /** @maxLength 400 */
+      /**
+         * Column or HogQL expression on the joining table used as the join key.
+         * @maxLength 400
+         */
       joining_table_key?: string;
-      /** @maxLength 400 */
+      /**
+         * Accessor added to the source table to reach the joined rows, for example person in events.person.
+         * @maxLength 400
+         */
       field_name?: string;
+      /** Optional join configuration, for example experiments optimization flags. */
       configuration?: unknown;
     }
 
@@ -61698,6 +61757,14 @@ export namespace Schemas {
        * * `two_column` - two_column
        * * `full_width` - full_width */
       layout?: LayoutEnum;
+    }
+
+    /**
+     * The shape every Replay Vision error response uses, so generated clients read one key.
+     */
+    export interface ReplayVisionError {
+      /** Human-readable explanation of why the request was refused. */
+      detail: string;
     }
 
     export interface ReplayVisionScannerFindingSignalExtra {
@@ -70793,6 +70860,91 @@ export namespace Schemas {
     }
 
     /**
+     * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.
+     */
+    export type TaskRunLivingArtifactChartRequestQuery = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactChartRequest {
+      /**
+         * Chart title, also used as the delivered file name.
+         * @maxLength 255
+         */
+      name: string;
+      /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id. */
+      query?: TaskRunLivingArtifactChartRequestQuery;
+      /** Numeric id of a saved insight to render. Provide exactly one of query or insight_id. */
+      insight_id?: number;
+    }
+
+    export type TaskRunLivingArtifactResponseVersionsItem = { [key: string]: unknown };
+
+    export interface TaskRunLivingArtifactResponse {
+      /** Stable living artifact id. Use this id when editing the artifact. */
+      id: string;
+      /** Task id this living artifact belongs to. */
+      task_id: string;
+      /** Task run id that created or currently owns this artifact. */
+      run_id: string;
+      /** Project id that owns this artifact. */
+      team_id: number;
+      /** Human-readable artifact name. */
+      name: string;
+      /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `document` - document
+       * * `spreadsheet` - spreadsheet
+       * * `dashboard` - dashboard
+       * * `file` - file
+       * * `github_pr` - github_pr */
+      artifact_type: ArtifactTypeEnum;
+      /** Adapter that currently stores or edits the artifact.
+       *
+       * * `slack_message` - slack_message
+       * * `slack_canvas` - slack_canvas
+       * * `slack_file` - slack_file
+       * * `document_connector` - document_connector
+       * * `github_pr` - github_pr */
+      adapter: AdapterEnum;
+      /** Current registry status for the artifact.
+       *
+       * * `active` - active
+       * * `failed` - failed */
+      status: TaskArtifactStatusEnum;
+      /** Adapter-specific location, such as S3 key or Slack canvas id. */
+      location: unknown;
+      /** Adapter-specific metadata for external storage and source tracking. */
+      metadata: unknown;
+      /** Current version number for the artifact. */
+      current_version: number;
+      /** Chronological version records for this artifact. */
+      versions: TaskRunLivingArtifactResponseVersionsItem[];
+      /**
+         * ISO timestamp when created.
+         * @nullable
+         */
+      created_at?: string | null;
+      /**
+         * ISO timestamp when last updated.
+         * @nullable
+         */
+      updated_at?: string | null;
+    }
+
+    export interface TaskRunLivingArtifactChartResponse {
+      /** The living artifact registered for delivery. */
+      artifact: TaskRunLivingArtifactResponse;
+      /** Id of the rendered PNG export backing the chart. */
+      export_asset_id: number;
+      /**
+         * Link to explore this chart interactively in PostHog.
+         * @nullable
+         */
+      url?: string | null;
+    }
+
+    /**
      * Optional metadata to persist with the living artifact.
      */
     export type TaskRunLivingArtifactCreateRequestMetadata = { [key: string]: unknown };
@@ -70931,62 +71083,6 @@ export namespace Schemas {
          * @nullable
          */
       content?: string | null;
-    }
-
-    export type TaskRunLivingArtifactResponseVersionsItem = { [key: string]: unknown };
-
-    export interface TaskRunLivingArtifactResponse {
-      /** Stable living artifact id. Use this id when editing the artifact. */
-      id: string;
-      /** Task id this living artifact belongs to. */
-      task_id: string;
-      /** Task run id that created or currently owns this artifact. */
-      run_id: string;
-      /** Project id that owns this artifact. */
-      team_id: number;
-      /** Human-readable artifact name. */
-      name: string;
-      /** Artifact format or delivery surface, such as document, spreadsheet, slack_canvas, file, or slack_message.
-       *
-       * * `slack_message` - slack_message
-       * * `slack_canvas` - slack_canvas
-       * * `document` - document
-       * * `spreadsheet` - spreadsheet
-       * * `dashboard` - dashboard
-       * * `file` - file
-       * * `github_pr` - github_pr */
-      artifact_type: ArtifactTypeEnum;
-      /** Adapter that currently stores or edits the artifact.
-       *
-       * * `slack_message` - slack_message
-       * * `slack_canvas` - slack_canvas
-       * * `slack_file` - slack_file
-       * * `document_connector` - document_connector
-       * * `github_pr` - github_pr */
-      adapter: AdapterEnum;
-      /** Current registry status for the artifact.
-       *
-       * * `active` - active
-       * * `failed` - failed */
-      status: TaskArtifactStatusEnum;
-      /** Adapter-specific location, such as S3 key or Slack canvas id. */
-      location: unknown;
-      /** Adapter-specific metadata for external storage and source tracking. */
-      metadata: unknown;
-      /** Current version number for the artifact. */
-      current_version: number;
-      /** Chronological version records for this artifact. */
-      versions: TaskRunLivingArtifactResponseVersionsItem[];
-      /**
-         * ISO timestamp when created.
-         * @nullable
-         */
-      created_at?: string | null;
-      /**
-         * ISO timestamp when last updated.
-         * @nullable
-         */
-      updated_at?: string | null;
     }
 
     export interface TaskRunLivingArtifactsResponse {
@@ -72006,6 +72102,12 @@ export namespace Schemas {
       /** Populated while the wizard is blocked on a question in the terminal. Null/absent means no input is pending; a push without it clears the previous prompt. */
       pending_input?: PendingInput | null;
       /**
+         * Markdown handoff doc for the run (the wizard's setup report). Send it once the run has produced one; omitting it on later pushes keeps the stored value.
+         * @maxLength 65536
+         * @nullable
+         */
+      handoff_text?: string | null;
+      /**
          * Stable identifier the wizard mints for this run (format: '{workflow_id}-{skill_id}-{started_at_iso}'). Reposting with the same session_id upserts the existing row.
          * @maxLength 255
          */
@@ -72320,14 +72422,79 @@ export namespace Schemas {
     }
 
     export interface ViewLinkValidation {
-      /** @maxLength 255 */
+      /**
+         * Name of the table or view being joined onto the source table.
+         * @maxLength 255
+         */
       joining_table_name: string;
-      /** @maxLength 255 */
+      /**
+         * Column or HogQL expression on the joining table used as the join key.
+         * @maxLength 255
+         */
       joining_table_key: string;
-      /** @maxLength 255 */
+      /**
+         * Name of the table the join starts from, for example events.
+         * @maxLength 255
+         */
       source_table_name: string;
-      /** @maxLength 255 */
+      /**
+         * Column or HogQL expression on the source table used as the join key.
+         * @maxLength 255
+         */
       source_table_key: string;
+    }
+
+    export interface ViewLinkValidationError {
+      /**
+         * Request field the error relates to, if any.
+         * @nullable
+         */
+      attr: string | null;
+      /** Machine-readable error code, for example QueryError. */
+      code: string;
+      /** Why the join failed to validate. */
+      detail: string;
+      /** Error category; always query_error for validation failures. */
+      type: string;
+      /**
+         * The HogQL statement that failed to validate.
+         * @nullable
+         */
+      hogql: string | null;
+    }
+
+    export interface ViewLinkValidationResponse {
+      /** Whether the join compiled and returned rows when executed against a sample of the source table. */
+      is_valid: boolean;
+      /**
+         * Warning about the validation result, for example when the sampled join returned no rows.
+         * @nullable
+         */
+      msg: string | null;
+      /**
+         * The HogQL statement used to validate the join.
+         * @nullable
+         */
+      hogql: string | null;
+      /** Column names for each row in results. */
+      columns: string[];
+      /** Distinct source and joining key pairs from the joined result, at most 5. */
+      results: unknown[][];
+      /**
+         * Number of sampled source rows checked for a join match, at most 10000. Null when the match-rate query failed.
+         * @nullable
+         */
+      total_rows: number | null;
+      /**
+         * Number of sampled source rows with at least one match in the joining table. Null when the match-rate query failed.
+         * @nullable
+         */
+      matched_rows: number | null;
+      /**
+         * matched_rows divided by total_rows, between 0 and 1. Null when the match-rate query failed or no rows were sampled.
+         * @nullable
+         */
+      match_rate: number | null;
     }
 
     /**

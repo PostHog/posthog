@@ -79,6 +79,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
                 f"User {inputs.triggered_by_user_id} is not a member of scanner {inputs.scanner_id}'s organization"
             )
 
+    # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
+    # overshoot by at most the in-flight caps allow, which is accepted.
     if compute_quota_snapshot(scanner.team.organization_id).would_exceed(observation_credits_for_model(scanner.model)):
         record_quota_exhausted_skip(scanner.scanner_type)
         activity.logger.info(

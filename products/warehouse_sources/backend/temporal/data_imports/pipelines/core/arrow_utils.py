@@ -1229,3 +1229,76 @@ def conditional_lru_cache_async(
         return wrapper
 
     return decorator
+
+
+def realign_decimal_buffers(table: pa.Table) -> pa.Table:
+    """Re-materialize any Decimal128/256 column whose values buffer isn't 16-byte aligned.
+
+    delta-rs (arrow-rs) aborts the entire worker — not a catchable Python exception,
+    an `abort()` at the `extern "C"` boundary that can't unwind — when it's handed a
+    decimal values buffer aligned to 8 bytes instead of the 16 that Rust's i128 requires.
+    The misalignment arrives across the Arrow C Data Interface, which only recommends
+    8-byte alignment. Every Delta write/merge is funneled through here so a single guard
+    covers both pipeline versions. See delta-io/delta-rs#3884.
+
+    Only the values buffer (`buffers()[1]`) holds the i128 payload that must be aligned;
+    the validity bitmap has no such requirement, so we don't bother checking it.
+
+    `pa.concat_arrays` forces a fresh allocation through pyarrow's allocator (64-byte
+    aligned), which satisfies the requirement. `combine_chunks()` is zero-copy and would
+    keep the misaligned buffer, so it can't be used here. The buffer scan is cheap and
+    the copy only fires on the rare misaligned batch, so the common path is untouched.
+    """
+    new_columns: dict[str, pa.ChunkedArray] = {}
+    realigned = False
+    for i in range(table.num_columns):
+        field = table.field(i)
+        column = table.column(i)
+        if pa.types.is_decimal(field.type) and any(
+            (values := chunk.buffers()[1]) is not None and values.address % 16 for chunk in column.chunks
+        ):
+            # concat_arrays preserves the chunks' (decimal) type; pyarrow-stubs has no
+            # chunked_array overload for an explicit decimal type=.
+            new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)])
+            realigned = True
+        else:
+            new_columns[field.name] = column
+
+    if not realigned:
+        return table
+
+    return pa.table(new_columns, schema=table.schema)
+
+
+def first_per_pk_table(pa_table: pa.Table, pk_columns: list[str], keep: Literal["first", "last"] = "first") -> pa.Table:
+    """Return a table containing only one row per PK tuple (in original row order).
+
+    `keep` picks which occurrence survives: "first" is used when closing existing
+    "current" rows during SCD2 append; "last" is used to dedupe upsert batches, where
+    the latest occurrence of a key carries the freshest data. Either way the merge
+    receives at most one source row per key, avoiding ambiguous multi-match merge
+    semantics (and the duplicate inserts `when_not_matched_insert_all` would produce).
+    """
+    if not pk_columns or pa_table.num_rows == 0:
+        return pa_table
+
+    # Strategy: tag every row with its position, group by PK, and for each PK
+    # take the smallest (or largest) position — the first (or last) time we saw
+    # that PK. Sorting those positions at the end restores the original row order.
+    #
+    # We use numpy for the final sort because pyarrow's type stubs for
+    # `pc.sort_indices` / `Array.take` are currently broken — numpy's stubs work.
+    idx_col_name = "__ph_cdc_row_idx"
+    aggregate: Literal["min", "max"] = "min" if keep == "first" else "max"
+
+    # 1. Add a row-position column: [0, 1, 2, ..., n-1]
+    indexed = pa_table.append_column(idx_col_name, pa.array(range(pa_table.num_rows), type=pa.int64()))
+
+    # 2. Group by PK, keeping only one position per PK
+    grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, aggregate)])
+
+    # 3. Sort those positions ascending so the output mirrors the input row order
+    kept_indices = np.sort(grouped.column(f"{idx_col_name}_{aggregate}").to_numpy())
+
+    # 4. Materialize the rows at those positions from the original table
+    return pa_table.take(kept_indices)

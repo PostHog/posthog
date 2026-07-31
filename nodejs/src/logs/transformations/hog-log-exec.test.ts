@@ -52,6 +52,36 @@ describe('hog-log-exec', () => {
             expect(globals.inputs).toEqual({ foo: 'bar' })
             expect(globals.project).toBe(PROJECT)
         })
+
+        // capture-logs writes trace/span ids as base64 TEXT of the raw bytes, and zeroed
+        // ids mean "absent" — customer code must see the same hex/null the rest of the
+        // logs product (metric rules, ClickHouse sink) derives from these buffers.
+        it.each([
+            [
+                'base64-text trace_id from capture decodes to hex',
+                { trace_id: Buffer.from(Buffer.from('0123456789abcdef0123456789abcdef', 'hex').toString('base64')) },
+                (r: ReturnType<typeof buildLogRecordGlobals>['record']) =>
+                    expect(r.trace_id).toBe('0123456789abcdef0123456789abcdef'),
+            ],
+            [
+                'base64-text span_id from capture decodes to hex',
+                { span_id: Buffer.from(Buffer.from('0123456789abcdef', 'hex').toString('base64')) },
+                (r: ReturnType<typeof buildLogRecordGlobals>['record']) => expect(r.span_id).toBe('0123456789abcdef'),
+            ],
+            [
+                'zeroed trace_id is null, not a hex string of zeros',
+                { trace_id: Buffer.alloc(16) },
+                (r: ReturnType<typeof buildLogRecordGlobals>['record']) => expect(r.trace_id).toBeNull(),
+            ],
+            [
+                'unparseable trace_id is null, not garbage hex',
+                { trace_id: Buffer.from('nope!') },
+                (r: ReturnType<typeof buildLogRecordGlobals>['record']) => expect(r.trace_id).toBeNull(),
+            ],
+        ])('%s', (_name, overrides, assert) => {
+            const globals = buildLogRecordGlobals(createRecord(overrides), PROJECT, {})
+            assert(globals.record)
+        })
     })
 
     describe('resolveLogTransformationInputs', () => {
