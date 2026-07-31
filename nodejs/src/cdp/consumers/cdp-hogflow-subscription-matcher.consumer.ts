@@ -1104,7 +1104,9 @@ function rewriteStatePersonId(
         }
         // Mark this as a re-key wake so the wait handler can attribute its re-check outcome to the
         // re-key (see rekeyWake). currentAction is always a wait_until_condition here (re-key scope).
-        if (parsed.state.currentAction) {
+        // Only for merges: counterHogflowRekeyWake exists to judge whether waking on a merge is wasted
+        // churn, so folding first-mapping fills into it would blend two causes into one ratio.
+        if (parsed.state.currentAction && !fillingNullAnchor) {
             parsed.state.currentAction = { ...parsed.state.currentAction, rekeyWake: true }
         }
         return Buffer.from(JSON.stringify(parsed))

@@ -1468,7 +1468,14 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // The gap this closes: person wakes are keyed on person_id alone, so a wait parked with a null
             // anchor is unwakeable by any person-property change and only the polling re-check advances it.
             // The distinct_id's first mapping (version 0) is the one chance to give it an anchor.
-            matcher.moveRows = [parkedWaitRow({ person_id: null, state: Buffer.from(JSON.stringify({ state: {} })) })]
+            // currentAction is populated so the rekeyWake assertion below exercises the gate rather than
+            // passing because there was no action to flag.
+            matcher.moveRows = [
+                parkedWaitRow({
+                    person_id: null,
+                    state: Buffer.from(JSON.stringify({ state: { currentAction: { id: 'wait_node' } } })),
+                }),
+            ]
 
             await matcher.processMoveBatch([
                 { teamId: 1, distinctId: 'anon-did', newPersonId: 'first-person-uuid', version: 0 },
@@ -1482,6 +1489,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // Waking it here is the point: it re-checks against the now-resolvable person immediately, and
             // re-parks with an anchor that later person updates can address.
             expect(update!.sql).toContain('scheduled = NOW()')
+            // Not attributed as a merge re-key: counterHogflowRekeyWake measures whether waking on a merge
+            // is wasted churn, so a first-mapping fill must stay out of that ratio.
+            expect(newState.state.currentAction?.rekeyWake).toBeUndefined()
         })
 
         it('scopes a first mapping to jobs with no anchor, leaving anchored waits alone', async () => {
@@ -1505,7 +1515,13 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         it('keeps a repoint able to rewrite an existing anchor', async () => {
             // The complement of the scoping above: a merge must still move an anchored wait, so the
             // null-anchor restriction has to apply to first mappings only.
-            matcher.moveRows = [parkedWaitRow()]
+            matcher.moveRows = [
+                parkedWaitRow({
+                    state: Buffer.from(
+                        JSON.stringify({ state: { personId: 'old-uuid', currentAction: { id: 'wait_node' } } })
+                    ),
+                }),
+            ]
 
             await matcher.processMoveBatch([
                 { teamId: 1, distinctId: 'anon-did', newPersonId: 'survivor-uuid', version: 2 },
@@ -1515,7 +1531,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 c.sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')
             )!
             expect(select.sql).not.toContain('person_id IS NULL')
-            expect(lastUpdate()!.params[1]).toEqual(['survivor-uuid'])
+            const update = lastUpdate()!
+            expect(update.params[1]).toEqual(['survivor-uuid'])
+            // And a merge still is attributed as a re-key wake, so the gate above didn't cost the
+            // merge-churn signal the counter exists to provide.
+            const newState = parseJSON((update.params[2][0] as Buffer).toString('utf-8')) as any
+            expect(newState.state.currentAction.rekeyWake).toBe(true)
         })
     })
 
