@@ -45,6 +45,19 @@ CRITERIA_FIELDS = {
 }
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
+# Slack rejects the whole message when any single section's text exceeds this, so cap the details.
+SLACK_SECTION_TEXT_LIMIT = 3000
+
+
+def _escape_slack_mrkdwn(text: str) -> str:
+    """Escape the characters Slack treats as mrkdwn control chars.
+
+    Event names and the HogQL predicate are admin-supplied free text. Left raw, a value like
+    ``<!channel>`` or ``<https://evil.example|click>`` would render as a channel-wide mention or a
+    spoofed link in the review channel. Slack requires only ``&``, ``<`` and ``>`` to be encoded.
+    """
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 
 def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> bool:
     """Post to the review channel when a request is submitted for ClickHouse Team approval.
@@ -61,9 +74,13 @@ def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> 
     # The email local part is usually the submitter's Slack handle, so render it as a mention.
     # A plain "@handle" won't hard-ping without the Slack member id, but it lets a reviewer spot
     # and tab-complete the person who submitted the request.
-    submitter = f"@{obj.created_by.email.split('@', 1)[0]}" if obj.created_by and obj.created_by.email else "unknown"
+    submitter = (
+        f"@{_escape_slack_mrkdwn(obj.created_by.email.split('@', 1)[0])}"
+        if obj.created_by and obj.created_by.email
+        else "unknown"
+    )
 
-    scope = "all events" if obj.delete_all_events else ", ".join(obj.events) or "—"
+    scope = "all events" if obj.delete_all_events else _escape_slack_mrkdwn(", ".join(obj.events)) or "—"
     fields = [
         f"*Request:* <{change_url}|{obj.pk}>",
         f"*Team:* {obj.team_id}",
@@ -73,14 +90,20 @@ def notify_slack_pending_review(obj: "DataDeletionRequest", change_url: str) -> 
         f"*Est. matching events:* {obj.count:,}" if obj.count is not None else "*Est. matching events:* not fetched",
     ]
     if obj.hogql_predicate:
-        fields.append(f"*Predicate:* `{obj.hogql_predicate}`")
+        fields.append(f"*Predicate:* `{_escape_slack_mrkdwn(obj.hogql_predicate)}`")
+
+    # A request with many/long event names or a long predicate can blow past Slack's section limit,
+    # which would get the entire message rejected. Truncate so the notification still lands.
+    details = "\n".join(fields)
+    if len(details) > SLACK_SECTION_TEXT_LIMIT:
+        details = details[: SLACK_SECTION_TEXT_LIMIT - 1] + "…"
 
     blocks = [
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": ":wastebasket: *Data deletion request ready for review*"},
         },
-        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(fields)}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": details}},
     ]
     try:
         response = requests.post(webhook_url, json={"blocks": blocks}, timeout=10)

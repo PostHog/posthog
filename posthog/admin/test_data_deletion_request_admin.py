@@ -455,6 +455,38 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertIn("@jane.doe", body)
         self.assertNotIn("jane.doe@posthog.com", body)
 
+    @override_settings(DATA_DELETION_SLACK_WEBHOOK_URL="https://hooks.slack.test/T/B/xxx")
+    def test_submit_notification_escapes_slack_control_chars_in_user_values(self):
+        request = self._property_removal_request(properties=["$ip"])
+        # Admin-supplied free text carrying Slack control sequences.
+        request.events = ["<!channel>", "<https://evil.example|click>"]
+        request.hogql_predicate = "properties.x = '<!here>'"
+        request.save()
+
+        with patch("posthog.admin.admins.data_deletion_request_admin.requests.post") as mock_post:
+            self._call_submit(request, data={})
+
+        body = json.dumps(mock_post.call_args.kwargs["json"])
+        # The raw sequences must never reach the channel — escaped, they can't mention or link.
+        self.assertNotIn("<!channel>", body)
+        self.assertNotIn("<https://evil.example|click>", body)
+        self.assertIn("&lt;!channel&gt;", body)
+        self.assertIn("&lt;!here&gt;", body)
+
+    @override_settings(DATA_DELETION_SLACK_WEBHOOK_URL="https://hooks.slack.test/T/B/xxx")
+    def test_submit_notification_truncates_oversized_section(self):
+        request = self._property_removal_request(properties=["$ip"])
+        # Far more event names than fit in Slack's 3,000-char section limit.
+        request.events = [f"event_number_{i}" for i in range(1000)]
+        request.save()
+
+        with patch("posthog.admin.admins.data_deletion_request_admin.requests.post") as mock_post:
+            self._call_submit(request, data={})
+
+        # The details section must stay under Slack's limit, or Slack rejects the whole message.
+        details = mock_post.call_args.kwargs["json"]["blocks"][1]["text"]["text"]
+        self.assertLessEqual(len(details), 3000)
+
     @parameterized.expand(
         [
             ("slack_sent", "https://hooks.slack.test/T/B/xxx", None, "success"),
