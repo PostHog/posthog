@@ -1,3 +1,4 @@
+import type { SessionNotification } from "@agentclientprotocol/sdk";
 import type { OutputMode } from "./args";
 
 export interface FinishResult {
@@ -7,7 +8,7 @@ export interface FinishResult {
 }
 
 export interface OutputSink {
-  onSessionUpdate(notification: unknown): void;
+  onSessionUpdate(notification: SessionNotification): void;
   finish(result: FinishResult): void;
 }
 
@@ -15,15 +16,12 @@ interface WritableLike {
   write(chunk: string): unknown;
 }
 
-function extractChunkText(notification: unknown): string | undefined {
-  const update = (notification as { update?: unknown } | undefined)?.update as
-    | { sessionUpdate?: string; content?: { type?: string; text?: unknown } }
-    | undefined;
-  if (update?.sessionUpdate !== "agent_message_chunk") return undefined;
-  if (update.content?.type !== "text") return undefined;
-  return typeof update.content.text === "string"
-    ? update.content.text
-    : undefined;
+function extractChunkText(
+  notification: SessionNotification,
+): string | undefined {
+  const { update } = notification;
+  if (update.sessionUpdate !== "agent_message_chunk") return undefined;
+  return update.content.type === "text" ? update.content.text : undefined;
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   ClientSideConnection,
   ndJsonStream,
   type RequestPermissionRequest,
+  type SessionNotification,
 } from "@agentclientprotocol/sdk";
 import { Agent } from "@posthog/agent/agent";
 import { withTimeout } from "@posthog/shared";
@@ -21,21 +22,27 @@ const STOP_REASON_EXIT_CODES: Record<string, number> = {
 export type RunOptions = CliOptions & { prompt: string };
 
 export async function run(options: RunOptions): Promise<number> {
-  const debugLog = options.debug
-    ? (message: string) =>
-        process.stderr.write(`[posthog-code-cli] ${message}\n`)
-    : () => {};
+  const writeDiagnostic = (message: string) =>
+    process.stderr.write(`[posthog-code-cli] ${message}\n`);
+  const debugLog = options.debug ? writeDiagnostic : () => {};
 
   // stdout must carry only assistant output. onLog bypasses the adapter's
-  // console logging entirely, routing diagnostics to stderr behind --debug.
+  // console logging entirely; errors during the turn always reach stderr (a
+  // failed run must say why), everything else only with --debug. Teardown
+  // errors are expected noise (the adapter reports the closing connection).
   // No posthog config: gateway resolution is skipped and the agent subprocess
   // inherits ANTHROPIC_* auth from process.env.
+  let tearingDown = false;
   const agent = new Agent({
     debug: options.debug,
-    onLog: (level, scope, message, data) =>
-      debugLog(
-        `${scope} [${level}] ${message}${data === undefined ? "" : ` ${format(data)}`}`,
-      ),
+    onLog: (level, scope, message, data) => {
+      const line = `${scope} [${level}] ${message}${data === undefined ? "" : ` ${format(data)}`}`;
+      if (level === "error" && !tearingDown) {
+        writeDiagnostic(line);
+      } else {
+        debugLog(line);
+      }
+    },
   });
   const acp = await agent.run("cli", `cli-${randomUUID()}`, {
     adapter: "claude",
@@ -44,13 +51,13 @@ export async function run(options: RunOptions): Promise<number> {
   const sink = createOutputSink(options.output, process.stdout);
 
   const client = {
-    async sessionUpdate(notification: unknown): Promise<void> {
+    async sessionUpdate(notification: SessionNotification): Promise<void> {
       sink.onSessionUpdate(notification);
     },
     async requestPermission(params: RequestPermissionRequest) {
       const response = resolvePermissionRequest(params);
       debugLog(
-        `permission "${params.toolCall?.title ?? "unknown"}" -> ${JSON.stringify(response.outcome)}`,
+        `permission "${params.toolCall.title ?? "unknown"}" -> ${JSON.stringify(response.outcome)}`,
       );
       return response;
     },
@@ -73,14 +80,18 @@ export async function run(options: RunOptions): Promise<number> {
   };
 
   let sessionId: string | undefined;
+  let interrupted = false;
   const onSigint = () => {
-    void (async () => {
-      if (sessionId) {
-        await conn.cancel({ sessionId }).catch(() => undefined);
-      }
-      await cleanup();
-      process.exit(130);
-    })();
+    interrupted = true;
+    if (sessionId) {
+      // Cancel resolves the in-flight prompt() with stopReason "cancelled";
+      // the normal path then finishes output and exits 130. A second Ctrl-C
+      // (the handler is `once`) falls through to Node's default kill.
+      void conn.cancel({ sessionId }).catch(() => undefined);
+    } else {
+      // Nothing to cancel yet — exit directly.
+      void cleanup().then(() => process.exit(130));
+    }
   };
   process.once("SIGINT", onSigint);
 
@@ -102,16 +113,17 @@ export async function run(options: RunOptions): Promise<number> {
       sessionId,
       prompt: [{ type: "text", text: options.prompt }],
     });
-    const stopReason = result.stopReason ?? "unknown";
-    debugLog(`turn finished: ${stopReason}`);
+    debugLog(`turn finished: ${result.stopReason}`);
 
     sink.finish({
-      stopReason,
-      usage: (result as { usage?: unknown }).usage,
+      stopReason: result.stopReason,
+      usage: result.usage,
       sessionId,
     });
-    return STOP_REASON_EXIT_CODES[stopReason] ?? 1;
+    if (interrupted) return 130;
+    return STOP_REASON_EXIT_CODES[result.stopReason] ?? 1;
   } finally {
+    tearingDown = true;
     process.removeListener("SIGINT", onSigint);
     await cleanup();
   }

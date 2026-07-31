@@ -1,14 +1,7 @@
 #!/usr/bin/env node
+import { text } from "node:stream/consumers";
 import { parseCliArgs } from "./args";
 import { run } from "./run";
-
-async function readStdin(): Promise<string> {
-  const parts: Buffer[] = [];
-  for await (const part of process.stdin) {
-    parts.push(part as Buffer);
-  }
-  return Buffer.concat(parts).toString("utf8");
-}
 
 async function main(): Promise<number> {
   const parsed = parseCliArgs(process.argv);
@@ -21,11 +14,24 @@ async function main(): Promise<number> {
 
   let prompt = parsed.prompt;
   if (!prompt && !process.stdin.isTTY) {
-    prompt = (await readStdin()).trim();
+    prompt = (await text(process.stdin)).trim();
   }
   if (!prompt) {
     process.stderr.write(
       "No prompt given. Pass one as an argument or pipe it on stdin.\n",
+    );
+    return 1;
+  }
+
+  // The Claude subprocess refuses bypass for root outside a sandbox; fail
+  // here with a clear message instead of a cryptic session error.
+  if (
+    parsed.permissionMode === "bypassPermissions" &&
+    process.getuid?.() === 0 &&
+    !process.env.IS_SANDBOX
+  ) {
+    process.stderr.write(
+      "--permission-mode bypassPermissions is unavailable when running as root unless IS_SANDBOX=1 is set.\n",
     );
     return 1;
   }
@@ -40,11 +46,15 @@ async function main(): Promise<number> {
   return run({ ...parsed, prompt });
 }
 
-// The agent subprocess can leave handles open past cleanup; force-exit once
-// output has flushed. unref lets a clean event loop exit naturally first.
+// process.exit does not wait for pending pipe writes, so flush stdout first
+// (the write callback fires once earlier writes are accepted by the OS).
+// The agent subprocess can leave handles open past cleanup; the unref'd timer
+// force-exits then, while a clean event loop still exits naturally.
 function exitAfterFlush(code: number): void {
   process.exitCode = code;
-  setTimeout(() => process.exit(code), 500).unref();
+  process.stdout.write("", () => {
+    setTimeout(() => process.exit(code), 500).unref();
+  });
 }
 
 main().then(exitAfterFlush, (err) => {

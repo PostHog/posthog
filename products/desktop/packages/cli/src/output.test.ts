@@ -1,3 +1,4 @@
+import type { SessionNotification } from "@agentclientprotocol/sdk";
 import { describe, expect, it } from "vitest";
 import { createOutputSink } from "./output";
 
@@ -15,7 +16,7 @@ function makeFakeStdout() {
   };
 }
 
-function textUpdate(sessionId: string, text: string) {
+function textUpdate(sessionId: string, text: string): SessionNotification {
   return {
     sessionId,
     update: {
@@ -25,7 +26,11 @@ function textUpdate(sessionId: string, text: string) {
   };
 }
 
-function ignoredUpdate(sessionId: string) {
+// Some entries are deliberately partial protocol shapes (the sink must ignore
+// them at runtime), so they are cast rather than fully constructed.
+function ignoredUpdate(
+  sessionId: string,
+): { label: string; update: SessionNotification }[] {
   return [
     {
       label: "agent_thought_chunk",
@@ -42,7 +47,7 @@ function ignoredUpdate(sessionId: string) {
       update: {
         sessionId,
         update: { sessionUpdate: "tool_call", toolCallId: "tc1" },
-      },
+      } as SessionNotification,
     },
     {
       label: "tool_call_update",

@@ -16,12 +16,13 @@ const UNATTENDED_QUESTION_MESSAGE =
  * Unattended permission policy. Question tool calls are parked (no user to
  * answer); everything else that reaches the client is auto-approved. Prefers
  * allow_once so a one-shot run never persists allow-always rules into the
- * target repository's settings.
+ * target repository's settings; likewise a reject-only request resolves to
+ * reject_once rather than whatever option happens to be listed first.
  */
 export function resolvePermissionRequest(
   params: RequestPermissionRequest,
 ): RequestPermissionResponse {
-  const meta = params.toolCall?._meta as { codeToolKind?: string } | undefined;
+  const meta = params.toolCall._meta as { codeToolKind?: string } | undefined;
   if (meta?.codeToolKind === "question") {
     return {
       outcome: { outcome: "cancelled" },
@@ -29,10 +30,11 @@ export function resolvePermissionRequest(
     };
   }
 
-  const options = params.options ?? [];
+  const { options } = params;
   const chosen =
     options.find((o) => o.kind === "allow_once") ??
     options.find((o) => o.kind === "allow_always") ??
+    options.find((o) => o.kind === "reject_once") ??
     options[0];
   if (!chosen) {
     return { outcome: { outcome: "cancelled" } };
