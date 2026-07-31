@@ -44,7 +44,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
+    SimpleSource,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -304,7 +308,11 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 def _get_models(
     job_id: str,
 ) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
-    job = ExternalDataJob.objects.select_related("schema", "schema__table").get(id=job_id)
+    # `schema__source` is prefetched so `job.folder_path()` (via `schema.source.source_type`, called
+    # repeatedly through the run by `DeltaTableHelper._get_delta_table_uri`) never triggers a lazy
+    # relation load later on a pooled connection the transaction pooler may have dropped mid-sync,
+    # which raises a transient `OperationalError`/DNS failure.
+    job = ExternalDataJob.objects.select_related("schema", "schema__table", "schema__source").get(id=job_id)
     schema: ExternalDataSchema | None = job.schema
     source: ExternalDataSource | None = job.pipeline
     if schema is None:
@@ -401,13 +409,13 @@ async def _handle_import_error(
     )
 
     non_retryable_errors = {**Any_Source_Errors, **source_cls.get_non_retryable_errors()}
-    if any(match in error_msg for match in non_retryable_errors):
+    if error_message_matches(error_msg, non_retryable_errors):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
     retryable_errors = source_cls.get_retryable_errors()
-    if any(match in error_msg for match in retryable_errors):
+    if error_message_matches(error_msg, retryable_errors):
         await logger.awarning(error_msg)
         await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
