@@ -143,7 +143,6 @@ def find_sessions_timestamps(session_ids: list[str], team: Team) -> SessionsTime
     replay_events = SessionReplayEvents()
     result = replay_events.sessions_found_with_timestamps(session_ids, team)
     sessions_found = result.session_ids
-    min_timestamp, max_timestamp = result.min_timestamp, result.max_timestamp
     # Check for missing sessions. The replay_events table is the source of truth for "did we capture a recording";
     # a missing row most commonly means the session never produced a recording or the recording has aged out
     # of retention, not that the caller is hitting the wrong team.
@@ -156,8 +155,8 @@ def find_sessions_timestamps(session_ids: list[str], team: Team) -> SessionsTime
         logger.error(msg, team_id=team.id, signals_type="session-summaries")
         raise exceptions.ValidationError(msg)
     # Check for missing timestamps
-    if min_timestamp is None or max_timestamp is None:
-        msg = f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
+    if result.min_timestamp is None or result.max_timestamp is None:
+        msg = f"Failed to get min ({result.min_timestamp}) or max ({result.max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
         logger.error(msg, team_id=team.id, signals_type="session-summaries")
         raise exceptions.ValidationError(msg)
-    return SessionsTimestampRange(min_timestamp=min_timestamp, max_timestamp=max_timestamp)
+    return SessionsTimestampRange(min_timestamp=result.min_timestamp, max_timestamp=result.max_timestamp)

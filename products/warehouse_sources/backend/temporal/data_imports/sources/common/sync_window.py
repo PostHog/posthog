@@ -6,7 +6,7 @@ T = TypeVar("T")
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class SyncWindow(Generic[T]):
-    """Inclusive sync window bounds resolved by a connector before fetching data."""
+    """Start/end bounds of one connector sync window; inclusivity of each bound is defined by the connector."""
 
     start: T
     end: T

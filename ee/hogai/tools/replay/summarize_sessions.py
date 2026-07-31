@@ -178,7 +178,7 @@ class SummarizeSessionsTool(MaxTool):
                     "session_group_summary_id": result.summary_id,
                 }
             else:
-                content, artifact = result.summary_text, None
+                content = result.summary_text
         except Exception as err:
             capture_session_summary_generated(
                 user=self._user,
