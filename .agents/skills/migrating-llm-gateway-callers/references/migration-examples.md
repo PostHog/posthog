@@ -1,6 +1,6 @@
 # Migration examples
 
-These merged PRs show different migration shapes. Read the relevant diff before implementing a similar change because gateway contracts have continued to evolve.
+These PRs show different migration shapes and rollout states. Check each PR's current status and read the relevant diff before implementing a similar change because gateway contracts have continued to evolve.
 
 ## Django and direct-provider callers
 
@@ -18,13 +18,34 @@ These merged PRs show different migration shapes. Read the relevant diff before 
 
 - [#72770: route selected sandbox products to the AI gateway](https://github.com/PostHog/posthog/pull/72770) treats migration as more than a client change. It pairs URL and product rollout settings, reserves them against user overrides, updates both egress enforcement layers, validates configured hostnames, extends startup diagnostics, and keeps rollback to clearing either setting.
 
-## Other PostHog repositories
+## Cross-repository migration sequences
 
-- [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) shows a standalone Claude Agent SDK migration. It validates paired settings, strips `/v1` before the SDK restores its messages path, sets both Anthropic auth variables, avoids duplicate capture by bypassing the traced wrapper in gateway mode, and keeps direct-provider fallback.
-- [PostHog/code #3659: route selected products to the AI gateway](https://github.com/PostHog/code/pull/3659) selects a gateway per sandbox request instead of per process. It requires both the Go URL and an allowlist, keeps unlisted products on Python, converts attribution to one bounded ASCII-safe JSON header, and gives each workload a distinct product tag.
-- [PostHog/SherlockHog #104: route the agent through the slugless AI gateway](https://github.com/PostHog/SherlockHog/pull/104) covers a TypeScript Claude Agent SDK service. The paired Go settings take precedence, the old settings remain available for rollback, and tests pin partial-configuration fallback and base URL translation.
-- [PostHog/SherlockHog #112: tag the AI product through `X-PostHog-Properties`](https://github.com/PostHog/SherlockHog/pull/112) is a warning example. The initial cutover reused Python's per-property headers, so traffic reached Go without product attribution. The follow-up keeps each gateway's metadata format separate and verifies that the Go route no longer emits the legacy form.
-- [PostHog/charts #13131: repoint worker deployments to the AI gateway](https://github.com/PostHog/charts/pull/13131) demonstrates that merged client support does not move traffic by itself. It wires the regional URL and app-specific secret into every deployment that runs the migrated caller, with removal of either setting as rollback.
+Treat these as linked sequences. A client PR alone does not prove that traffic moved or retained its expected attribution.
+
+### ✅ SherlockHog: merged end-to-end sequence
+
+1. [PostHog/SherlockHog #104: route the agent through the slugless AI gateway](https://github.com/PostHog/SherlockHog/pull/104) adds the paired Go settings, base URL translation, project-secret auth, Python fallback, and route-selection tests for a TypeScript Claude Agent SDK service.
+2. [PostHog/SherlockHog #111: boot with either complete gateway pair](https://github.com/PostHog/SherlockHog/pull/111) fixes the transitional startup contract so an AI-gateway-only deployment can boot while preserving the Python rollback route.
+3. [PostHog/SherlockHog #112: tag the AI product through `X-PostHog-Properties`](https://github.com/PostHog/SherlockHog/pull/112) corrects attribution after the initial cutover reused Python's per-property headers. It keeps each gateway's metadata format separate and verifies that the Go route no longer emits the legacy form.
+4. [PostHog/charts #12919: cut development over to the slugless AI gateway](https://github.com/PostHog/charts/pull/12919) wires the development URL and secret first, with explicit deployment rendering and rollback checks.
+5. [PostHog/charts #12920: cut production over to the slugless AI gateway](https://github.com/PostHog/charts/pull/12920) applies the regional production configuration after the development stage.
+
+All five changes are merged. Still verify the current deployment and live attribution before using this sequence as proof of present-day behavior.
+
+### 🚧 Sandbox Signals stages: production rollout incomplete
+
+1. [PostHog/code #3659: route selected products to the AI gateway](https://github.com/PostHog/code/pull/3659) selects a gateway per sandbox request. It requires both the Go URL and an allowlist, keeps unlisted products on Python, converts attribution to one bounded ASCII-safe JSON header, and gives each workload a distinct product tag.
+2. [PostHog/posthog #72770: route selected sandbox products to the AI gateway](https://github.com/PostHog/posthog/pull/72770) passes the settings into sandboxes, reserves them against user overrides, updates both egress enforcement layers, validates configured hostnames, and extends startup diagnostics.
+3. [PostHog/charts #13358: route Signals sandbox stages in development](https://github.com/PostHog/charts/pull/13358) activates the client and Django support for four workloads in development.
+4. [PostHog/charts #13361: route Signals sandbox stages in production](https://github.com/PostHog/charts/pull/13361) is the production follow-up and remains an open draft. Do not describe this sequence as a completed production migration until it merges and the live route is verified.
+
+### 🚧 Stamphog: implementation without PR evidence of activation
+
+- [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) shows a standalone Claude Agent SDK implementation. It validates paired settings, strips `/v1` before the SDK restores its messages path, sets both Anthropic auth variables, avoids duplicate capture by bypassing the traced wrapper in gateway mode, and keeps direct-provider fallback. The PR explicitly left secret population and a live gateway request unverified, and no merged follow-up PR was found that closes those steps.
+
+### ✅ Deployment-only example
+
+- [PostHog/charts #13131: repoint worker deployments to the AI gateway](https://github.com/PostHog/charts/pull/13131) demonstrates that merged client support does not move traffic by itself. It wires the regional URL and app-specific secret into every deployment that runs an already-migrated caller, with removal of either setting as rollback. Use it as deployment guidance, not as a standalone caller migration.
 
 ## Post-migration parity checks
 
