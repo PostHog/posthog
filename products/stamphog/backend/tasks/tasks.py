@@ -18,6 +18,7 @@ from django.utils.dateparse import parse_datetime
 
 import structlog
 from celery import shared_task
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
@@ -29,6 +30,7 @@ from products.stamphog.backend.logic.audiences import resolve_audience_key
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
+from products.tasks.backend.facade.api import find_signal_implementation_run
 
 logger = structlog.get_logger(__name__)
 
@@ -221,10 +223,6 @@ def _inbox_rereview_carve_out(
         or repo_config.connected_by_user_id is None
     ):
         return _InboxCarveOut()
-    # The tasks facade is a heavy import and this module sits on the webhook view's import path,
-    # so load it only on the rare bot-authored-PR branch that needs the lookup.
-    from products.tasks.backend.facade.api import find_signal_implementation_run  # noqa: PLC0415
-
     run = find_signal_implementation_run(
         team_id=repo_config.team_id,
         repository=repo,
@@ -404,9 +402,6 @@ def _start_review_workflow(review_run_id: str, team_id: int) -> None:
     already running raises ``WorkflowAlreadyStartedError`` — safe to swallow. Any other
     failure (Temporal unreachable) propagates so the caller can retry the Celery task.
     """
-    # Deferred so temporalio stays off the Celery/web import path (mirrors temporal/client.py).
-    from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
-
     try:
         execute_stamphog_review_workflow(review_run_id=review_run_id, team_id=team_id)
     except WorkflowAlreadyStartedError:

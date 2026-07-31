@@ -34,7 +34,8 @@ APP_SLUG = "posthog-code"
 # so the real review_hog resolver (registered at app-ready) never runs inside stamphog's tests.
 _RESOLVER_SLOT = "products.stamphog.backend.facade.inbox_hooks._inbox_acting_reviewer_resolver"
 # Deferred import inside the carve-out, so the defining module is the patch target.
-_FIND_RUN = "products.tasks.backend.facade.api.find_signal_implementation_run"
+# tasks.py imports the name at module top, so the use site is the patch target.
+_FIND_RUN = "products.stamphog.backend.tasks.tasks.find_signal_implementation_run"
 
 
 def _signal_run_dto(team_id: int) -> SignalImplementationRunDTO:

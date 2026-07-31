@@ -36,8 +36,6 @@ Review targets, in priority order:
 The `TaskRun.branch` FIELD is never used as a target: auto-start seeds it with the BASE branch and
 the agent server later overwrites it with the work branch, so its meaning depends on the path taken.
 
-Kept import-light (django-startup-time): this module loads inside `AppConfig.ready()`, so the heavy
-temporal-client and reviewer-resolution imports are deferred to call time.
 """
 
 import json
@@ -49,10 +47,12 @@ from django.db import transaction
 from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.temporal.client import start_review_pr_workflow
+from products.review_hog.backend.temporal.types import TRIGGER_INBOX
 from products.signals.backend.models import SignalReportArtefact
-
-# Holds only the hook registry, so importing it at module level keeps ready() cheap.
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
+from products.stamphog.backend.facade.tasks import queue_inbox_pr_review
 
 logger = logging.getLogger(__name__)
 
@@ -199,11 +199,6 @@ def _resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[Any
     urgency threshold drive the review), stamphog under any who opted in (`_pick_stamphog_reviewer`).
     Empty when the report has no reviewers or none resolve to an org member.
     """
-    # Deferred: the resolver module pulls posthog.schema (heavy) — keep it off django.setup().
-    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
-        resolve_org_github_login_to_users,
-    )
-
     artefact = (
         SignalReportArtefact.objects.filter(
             team_id=team_id,
@@ -240,10 +235,6 @@ def _start_stamphog_review(
     toggle-gated dispatch. `repository` is the task's own repo, which the queued task requires the
     PR to be in; `output.pr_url` is writable through the task-run API, so the PR alone isn't trusted.
     """
-    # Deferred so django.setup() (which imports this module via ready()) doesn't pay for the
-    # stamphog facade's model imports in every process; only the hook registry is light enough.
-    from products.stamphog.backend.facade.api import queue_inbox_pr_review  # noqa: PLC0415
-
     try:
         queue_inbox_pr_review(
             team_id=team_id,
@@ -272,12 +263,6 @@ def _start_review(
     The PR leg wins when both targets are present — the client accepts exactly one, and a PR is the
     strictly better target (publishable, and its head IS the pushed branch).
     """
-    # Deferred so django.setup() (which imports this module via ready()) doesn't pay for the heavy
-    # temporal package (temporalio + PyGithub + the sandbox stack) in every process — even types.py
-    # is unreachable without executing the package __init__, which registers all activities.
-    from products.review_hog.backend.temporal.client import start_review_pr_workflow  # noqa: PLC0415
-    from products.review_hog.backend.temporal.types import TRIGGER_INBOX  # noqa: PLC0415
-
     if pr_url is not None:
         target_kwargs: dict[str, str] = {"pr_url": pr_url}
     else:
