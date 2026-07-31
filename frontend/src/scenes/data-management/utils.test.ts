@@ -1,6 +1,31 @@
-import { verifiedFilterFromOption, verifiedFilterValue } from './utils'
+import { recordingsDateFromForLastSeen, verifiedFilterFromOption, verifiedFilterValue } from './utils'
 
 describe('data-management utils', () => {
+    describe('recordingsDateFromForLastSeen', () => {
+        beforeEach(() => {
+            jest.useFakeTimers().setSystemTime(new Date('2026-07-31T12:00:00Z'))
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([
+            { lastSeenAt: undefined, expected: '-3d', reason: 'no last_seen_at falls back to the default window' },
+            {
+                lastSeenAt: '2026-07-30T12:00:00Z',
+                expected: '-3d',
+                reason: 'recently seen events keep the default window',
+            },
+            {
+                lastSeenAt: '2026-07-01T12:00:00Z',
+                expected: '-31d',
+                reason: 'a stale event widens the window to cover its last occurrence',
+            },
+        ])('$reason', ({ lastSeenAt, expected }) => {
+            expect(recordingsDateFromForLastSeen(lastSeenAt)).toBe(expected)
+        })
+    })
     describe('verifiedFilterValue', () => {
         it.each([
             { input: undefined, expected: 'all' },

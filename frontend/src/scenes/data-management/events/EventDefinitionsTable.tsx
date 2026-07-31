@@ -18,7 +18,12 @@ import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
+import {
+    recordingsDateFromForLastSeen,
+    verifiedFilterFromOption,
+    verifiedFilterValue,
+    verifiedOptions,
+} from 'scenes/data-management/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -92,6 +97,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 return (
                     <ViewRecordingsPlaylistButton
                         filters={{
+                            date_from: recordingsDateFromForLastSeen(definition.last_seen_at),
                             filter_group: {
                                 type: FilterLogicalOperator.And,
                                 values: [

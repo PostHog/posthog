@@ -28,6 +28,7 @@ import { EventDefinitionExperiments } from 'scenes/data-management/events/EventD
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { EventDefinitionSchema } from 'scenes/data-management/events/EventDefinitionSchema'
+import { recordingsDateFromForLastSeen } from 'scenes/data-management/utils'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -203,6 +204,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                         {isEvent && (
                             <ViewRecordingsPlaylistButton
                                 filters={{
+                                    date_from: recordingsDateFromForLastSeen(definition.last_seen_at),
                                     filter_group: {
                                         type: FilterLogicalOperator.And,
                                         values: [
