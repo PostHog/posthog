@@ -19,7 +19,10 @@ export const PlayerFrame = (): JSX.Element => {
     const frameRef = useRef<HTMLDivElement | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerDimensions = useSize(containerRef)
-    const lastAppliedScaleRef = useRef<number | null>(null)
+    // Tracks the wrapper we last scaled and the scale we applied. Keying on the wrapper node lets
+    // us skip redundant updates without stranding a freshly re-initialized wrapper (a re-inited
+    // replayer gets a brand-new wrapper that still needs its transform).
+    const lastAppliedRef = useRef<{ wrapper: HTMLElement; scale: number } | null>(null)
 
     // Define callbacks before they're used in effects
     const updatePlayerDimensions = useCallback(
@@ -46,18 +49,18 @@ export const PlayerFrame = (): JSX.Element => {
                 0.999
             )
 
-            // Skip near-identical updates. Sub-pixel jitter in getBoundingClientRect while a
-            // transform is applied can otherwise re-apply the transform and re-dispatch setScale
-            // every frame, visibly shaking the player and churning every playerMetaLogic consumer.
-            if (
-                lastAppliedScaleRef.current !== null &&
-                Math.abs(lastAppliedScaleRef.current - scale) < 0.001
-            ) {
+            const wrapper = player.replayer.wrapper
+            // Skip near-identical updates on the same wrapper: sub-pixel jitter in
+            // getBoundingClientRect while a transform is applied would otherwise re-apply the
+            // transform and re-dispatch setScale every frame, visibly shaking the player and
+            // churning every playerMetaLogic consumer. A re-initialized replayer has a fresh
+            // wrapper, so it still gets its transform even when the scale is unchanged.
+            if (lastAppliedRef.current?.wrapper === wrapper && Math.abs(lastAppliedRef.current.scale - scale) < 0.001) {
                 return
             }
-            lastAppliedScaleRef.current = scale
+            lastAppliedRef.current = { wrapper, scale }
 
-            player.replayer.wrapper.style.transform = `scale(${scale})`
+            wrapper.style.transform = `scale(${scale})`
 
             setScale(scale)
         },
