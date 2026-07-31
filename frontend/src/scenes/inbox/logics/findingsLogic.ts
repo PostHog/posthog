@@ -381,11 +381,15 @@ export const findingsLogic = kea<findingsLogicType>([
                         return []
                     }
                     const touchedIds = new Set(touched.map(({ id }) => id))
+                    // Snapshot alongside `touched` so neither read below crosses the `await` — the
+                    // logic can unmount mid-fetch (modal closed, navigated away), and `values.*` on a
+                    // torn-down store throws "Can not find path".
+                    const priorScoutReports = values.scoutReports
                     // Targeted refresh fetches only the named (still-touched) ids; a full load
                     // fetches the whole capped set.
                     const fetchIds = ids ? [...new Set(ids)].filter((id) => touchedIds.has(id)) : [...touchedIds]
                     if (fetchIds.length === 0) {
-                        return values.scoutReports
+                        return priorScoutReports
                     }
                     const settled = await Promise.allSettled(fetchIds.map((id) => api.signalReports.get(id)))
                     const byId = new Map<string, SignalReport>()
@@ -403,7 +407,7 @@ export const findingsLogic = kea<findingsLogicType>([
                     // Keep prior resolved reports for still-touched ids that weren't (successfully)
                     // fetched this round — a partial failure must not drop them, and a targeted
                     // refresh must not discard the untargeted rest.
-                    for (const previous of values.scoutReports) {
+                    for (const previous of priorScoutReports) {
                         if (!byId.has(previous.id) && touchedIds.has(previous.id)) {
                             byId.set(previous.id, previous)
                         }
