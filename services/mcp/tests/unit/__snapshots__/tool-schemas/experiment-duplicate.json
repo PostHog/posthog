@@ -13,6 +13,18 @@
             "description": "Name of the experiment.",
             "maxLength": 400,
             "type": "string"
+        },
+        "repository": {
+            "anyOf": [
+                {
+                    "maxLength": 255,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
         }
     },
     "required": ["id", "name", "feature_flag_key"],

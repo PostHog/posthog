@@ -1,1 +1,1 @@
-0015_backfill_mcp_template_icon_domains
+0020_default_servers_enabled

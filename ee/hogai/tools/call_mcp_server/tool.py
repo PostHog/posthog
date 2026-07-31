@@ -136,7 +136,12 @@ class CallMCPServerTool(MaxTool):
         if cached is not None:
             return cached
         inst = self._get_installation(server_url)
-        states = await database_sync_to_async(_get_tool_approval_states)(str(inst["id"]))
+        states = await database_sync_to_async(_get_tool_approval_states)(
+            str(inst["id"]),
+            self._team.id,
+            inst.get("gateway_server_id"),
+            self._user,
+        )
         self._approval_cache[server_url] = states
         return states
 

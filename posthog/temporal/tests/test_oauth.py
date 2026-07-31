@@ -3,7 +3,9 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
@@ -168,6 +170,22 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_built_in_agent_token_cannot_control_generic_tasks(self) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(
+            user,
+            team.id,
+            include_mcp_builtin_agent_scope=True,
+        )
+
+        scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
+        assert MCP_BUILT_IN_AGENT_SCOPE in scopes
+        assert "task:read" in scopes
+        assert "task:write" not in scopes
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):
