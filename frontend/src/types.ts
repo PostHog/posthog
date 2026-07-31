@@ -7073,6 +7073,7 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
+    | ProductKey.METRICS
     | ProductKey.MCP_ANALYTICS
     | ProductKey.CONVERSATIONS,
     OnboardingProduct

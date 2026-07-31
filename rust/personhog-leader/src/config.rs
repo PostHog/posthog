@@ -23,6 +23,11 @@ pub struct Config {
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
 
+    /// Maximum concurrent partition warms. Warms are broker-bound reads
+    /// on MSK, so this can sit well above the S3-era default of 4.
+    #[envconfig(default = "8")]
+    pub warm_concurrency: usize,
+
     // ── gRPC server ──────────────────────────────────────────────
     /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
     #[envconfig(default = "30")]

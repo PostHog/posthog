@@ -149,6 +149,16 @@ class TestRecordChannelSummary(BaseTest):
         }
         return facade.record_channel_summary(**{**kwargs, **overrides})
 
+    def test_persists_message_metadata(self):
+        account = create_account(team_id=self.team.id)
+        refs = [{"author": "alice", "sent_at": "2026-07-27T10:00:00+00:00", "permalink": "https://slack/1"}]
+
+        summary_id = self._record(account, messages=refs)
+
+        assert summary_id is not None
+        summary = AccountChannelSummary.objects.unscoped().get(id=summary_id)
+        assert summary.messages == refs
+
     def test_duplicate_write_resolves_to_the_existing_row(self):
         account = create_account(team_id=self.team.id)
 
@@ -185,6 +195,7 @@ class TestAccountSummariesEndpoint(APIBaseTest):
             period_end=period_start,
             content=f"summary for {period_start.date()}",
             message_count=1,
+            messages=[{"author": "alice", "sent_at": "2026-07-25T10:00:00+00:00", "permalink": "https://slack/1"}],
         )
 
     def test_lists_summaries_newest_period_first_paginated(self):
@@ -199,6 +210,9 @@ class TestAccountSummariesEndpoint(APIBaseTest):
         assert [row["id"] for row in data["results"]] == [str(newer.id), str(older.id)]
         assert data["results"][0]["content"] == "summary for 2026-07-27"
         assert data["results"][0]["cadence"] == "daily"
+        assert data["results"][0]["messages"] == [
+            {"author": "alice", "sent_at": "2026-07-25T10:00:00+00:00", "permalink": "https://slack/1"}
+        ]
 
     def test_other_teams_account_is_404(self):
         other_team = Team.objects.create(organization=self.organization)

@@ -506,6 +506,7 @@ name = "assignment-coordination"
 version = "0.1.0"
 dependencies = [
  "etcd-client",
+ "metrics",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

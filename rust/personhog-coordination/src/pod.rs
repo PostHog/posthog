@@ -936,6 +936,7 @@ impl PodHandle {
                             pod_name: pod.clone(),
                             partition,
                             acked_at: util::now_seconds(),
+                            acked_at_ms: 0,
                             handoff_id: handoff.handoff_id.clone(),
                         })
                         .await?;
@@ -991,6 +992,7 @@ impl PodHandle {
                         pod_name: pod.clone(),
                         partition,
                         acked_at: util::now_seconds(),
+                        acked_at_ms: 0,
                         handoff_id: handoff.handoff_id.clone(),
                     })
                     .await?;
@@ -1178,7 +1180,14 @@ impl PodHandle {
                     for event in resp.events() {
                         let partition = match event.event_type() {
                             EventType::Put => match parse_watch_value::<HandoffState>(event) {
-                                Ok(handoff) => Some(handoff.partition),
+                                Ok(handoff) => {
+                                    util::record_phase_watch_delivery(
+                                        "pod",
+                                        handoff.phase,
+                                        handoff.phase_entered_at_ms,
+                                    );
+                                    Some(handoff.partition)
+                                }
                                 Err(e) => {
                                     tracing::error!(pod = %self.config.pod_name, error = %e, "failed to parse handoff");
                                     None
