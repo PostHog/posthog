@@ -49,6 +49,7 @@ from products.replay_vision.backend.api.trigger import (
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
@@ -175,7 +176,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
-        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.",
+        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.",
     )
     triggered_by_user = UserBasicSerializer(
         read_only=True,
@@ -907,7 +908,7 @@ class ReplayObservationViewSet(
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def retry(self, request: Request, **kwargs: Any) -> Response:
-        """Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
+        """Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle."""
         observation = self.get_object()
         # The nested route already resolved the scanner for RBAC; the session route pays one FK fetch.
         scanner = getattr(self, "_scanner_for_url_cache", None) or observation.scanner
@@ -916,8 +917,18 @@ class ReplayObservationViewSet(
         session_id = observation.session_id
         original_pk = observation.pk
         original_created_at = observation.created_at
-        if observation.status != ObservationStatus.FAILED:
-            raise ValidationError("Only failed observations can be retried.")
+        # Ineligible is retryable because some gates are timing artifacts: the recording or its snapshots can
+        # finish ingesting after the scan ran (see IneligibleSessionKind.NO_SNAPSHOTS). Without this, the
+        # UNIQUE(scanner, session_id) row would lock the session out of that scanner forever.
+        if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+            raise ValidationError("Only failed or ineligible observations can be retried.")
+        # Gate consent before deleting the row: the replacement workflow fails closed at create time when
+        # consent is off, and the sweep never revisits past sessions, so the delete would leave nothing behind.
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "AI data processing is turned off for this organization, so the scan can't run. "
+                "An organization admin can turn it on in organization settings."
+            )
         # Advisory, and deliberately outside the lock below: the atomic claim is the authoritative gate,
         # and these two read enough to be worth keeping off a held row lock.
         check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
@@ -925,8 +936,8 @@ class ReplayObservationViewSet(
         # Locked so two concurrent retries can't both pass the status check and both delete the row.
         with transaction.atomic():
             locked = ReplayObservation.objects.select_for_update().get(pk=original_pk, team_id=self.team_id)
-            if locked.status != ObservationStatus.FAILED:
-                raise ValidationError("Only failed observations can be retried.")
+            if locked.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
+                raise ValidationError("Only failed or ineligible observations can be retried.")
             # Captured before the delete cascades it away: a run that never starts has to put the team's
             # rating back with the row, not just the row.
             original_label = ReplayObservationLabel.objects.filter(
@@ -956,7 +967,7 @@ class ReplayObservationViewSet(
             slot_already_claimed=True,
         )
         if outcome is not WorkflowStartOutcome.STARTED:
-            # The replacement run never started, so restore the failed row and its rating instead of leaving
+            # The replacement run never started, so restore the original row and its rating instead of leaving
             # the recording looking unscanned and the team's feedback gone.
             try:
                 with transaction.atomic():
