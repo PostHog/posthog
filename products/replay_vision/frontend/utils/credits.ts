@@ -12,6 +12,11 @@ export function creditsToUsd(credits: number): string {
     return humanFriendlyCurrency(Math.round(credits) / CREDITS_PER_DOLLAR)
 }
 
+/** Credits that actually bill once the free allocation is spent, e.g. (3000, 2500) -> 500. */
+export function billableCredits(credits: number, freeCredits: number): number {
+    return Math.max(0, Math.round(credits) - Math.max(0, freeCredits))
+}
+
 /** e.g. 500 -> "500 credits", 1 -> "1 credit". */
 export function formatCreditCount(credits: number): string {
     const rounded = Math.round(credits)

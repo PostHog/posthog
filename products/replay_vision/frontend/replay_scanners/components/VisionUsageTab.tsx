@@ -11,7 +11,13 @@ import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-ge
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { creditsToUsd, formatCreditCount, formatCredits, formatCreditsRange } from '../../utils/credits'
+import {
+    billableCredits,
+    creditsToUsd,
+    formatCreditCount,
+    formatCredits,
+    formatCreditsRange,
+} from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
@@ -170,9 +176,11 @@ export function VisionUsageTab(): JSX.Element {
                     <div className="flex items-center gap-3">
                         {quota && (
                             <Tooltip
-                                title={`≈ ${creditsToUsd(quota.credits_used)}${
-                                    hasCap ? ` of ${creditsToUsd(quota.credit_limit ?? 0)}` : ''
-                                }${showStartupCap ? `. ${STARTUP_CAP_EXPLANATION}` : ''}`}
+                                title={`≈ ${creditsToUsd(billableCredits(quota.credits_used, quota.free_monthly_credits))} billed${
+                                    hasCap && billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits) > 0
+                                        ? ` of ${creditsToUsd(billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits))}`
+                                        : ''
+                                }. First ${formatCreditCount(quota.free_monthly_credits)} each period are free.`}
                             >
                                 <span className="text-xs text-muted tabular-nums">
                                     {hasCap

@@ -11,7 +11,7 @@ import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import { billableCredits, creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { replayScannersLogic } from '../replayScannersLogic'
@@ -134,9 +134,16 @@ export function VisionMetrics(): JSX.Element {
                                 )}
                             </div>
                             <div className="text-muted text-sm tabular-nums">
-                                ≈ {creditsToUsd(quota.credits_used)}
-                                {hasCap ? ` / ${creditsToUsd(quota.credit_limit ?? 0)}` : ''}
+                                ≈ {creditsToUsd(billableCredits(quota.credits_used, quota.free_monthly_credits))} billed
+                                {hasCap && billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits) > 0
+                                    ? ` / ${creditsToUsd(billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits))} limit`
+                                    : ''}
                             </div>
+                            {quota.free_monthly_credits > 0 && (
+                                <div className="text-muted text-xs">
+                                    First {formatCreditCount(quota.free_monthly_credits)} each period are free
+                                </div>
+                            )}
                             {hasCap ? (
                                 <>
                                     <Tooltip

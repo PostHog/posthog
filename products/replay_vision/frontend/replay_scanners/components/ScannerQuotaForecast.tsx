@@ -70,9 +70,9 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     Monthly limit: <strong>{formatCreditCount(cap)}</strong>
                 </div>
             )}
-            {showStartupCapLine && (
-                <div>
-                    Startup program cap: <strong>{formatCreditCount(startupCapCredits ?? 0)}/month</strong>
+            {(quota?.free_monthly_credits ?? 0) > 0 && (
+                <div className="text-muted">
+                    First {formatCreditCount(quota?.free_monthly_credits ?? 0)} each period are free
                 </div>
             )}
             {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
