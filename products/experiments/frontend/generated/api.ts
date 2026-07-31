@@ -15,6 +15,7 @@ import type {
     CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
+    ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
@@ -583,6 +584,29 @@ export const experimentsEndCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endExperimentApi),
+    })
+}
+
+export const getExperimentsFlagCleanupTargetRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/flag_cleanup_target/`
+}
+
+/**
+ * Repository a flag-cleanup pull request for this experiment would be opened in.
+ *
+ * Resolution order: the experiment's saved repository, else the team's only connected
+ * GitHub repository. When the team has several repositories and none is saved
+ * (source=ambiguous), pass one via `repository` on end/ship_variant. Requires access
+ * to PostHog Desktop, like open_cleanup_pr (403 otherwise).
+ */
+export const experimentsFlagCleanupTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentFlagCleanupTargetApi> => {
+    return apiMutator<ExperimentFlagCleanupTargetApi>(getExperimentsFlagCleanupTargetRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

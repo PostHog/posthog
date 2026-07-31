@@ -2,6 +2,7 @@
 
 import sys
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock
@@ -258,3 +259,57 @@ def test_fresh_trusted_bot_eyes_reach_pr_data_and_flag_in_flight(monkeypatch) ->
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = pr
     assert pipeline._in_flight_bot_reviewers() == ["greptile-apps[bot]"]
+
+
+def _selfdriving_context(self_driving: bool) -> dict:
+    context: dict[str, Any] = {
+        "repo": "PostHog/posthog",
+        "head_sha": "abc123",
+        "base_sha": "def456",
+        "pr": {
+            "number": 9,
+            "title": "feat: self-driving fix",
+            "state": "OPEN",
+            "draft": True,
+            "user": {"login": "posthog-code[bot]", "type": "Bot"},
+        },
+    }
+    if self_driving:
+        context["self_driving_review"] = True
+    return context
+
+
+def test_bot_authored_context_without_the_flag_is_refused(monkeypatch) -> None:
+    # An Action-shaped context (no self_driving_review key) must keep today's hard refusal for bot
+    # authors — the flag defaulting open would auto-approve every dependabot/renovate PR the hosted
+    # runtime sees.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+
+    result = review_local.run(_selfdriving_context(False))
+
+    assert result["final_verdict"] == "REFUSED"
+    assert "bot" in result["reviewer"]["reasoning"]
+
+
+def test_self_driving_flag_reviews_the_bot_authored_draft(monkeypatch) -> None:
+    # The carve-out's engine half: with the flag set, the run must get PAST the bot-author refusal
+    # AND the draft prerequisite (both would otherwise fire for a self-driving PR, which is a
+    # bot-authored draft by construction) and reach the review stage. Classification and gates run
+    # for real; only the LLM boundary is stubbed.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    seen: dict = {}
+
+    def fake_llm(self, gate_verdict: str) -> None:
+        seen["gate_verdict"] = gate_verdict
+        self.final_verdict = "APPROVED"
+        self.reviewer_output = {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(Pipeline, "_llm_review", fake_llm)
+
+    result = review_local.run(_selfdriving_context(True))
+
+    assert result["final_verdict"] == "APPROVED"
+    assert seen["gate_verdict"] != "DENIED"
+    prerequisites = next(g for g in result["gates"] if g["gate"] == "prerequisites")
+    assert prerequisites["passed"] is True  # the draft issue is carved out for this run
+    assert result["classification"]["self_driving"] is True  # provenance rides into the output contract

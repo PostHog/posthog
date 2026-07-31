@@ -220,11 +220,24 @@ class TestStripeSource:
             "HTTPSConnectionPool(host='api.stripe.com', port=443): Read timed out.",
             "500 Server Error: Internal Server Error for url: https://api.stripe.com/v1/charges",
             "Connection reset by peer",
+            # Rate limits are transient (Retry-After-bounded) — must never disable the source.
+            "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here https://stripe.com/docs/rate-limits.",
         ],
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_retryable_errors_match_rate_limit(self):
+        # A RateLimitError that survives _RateLimitRetryingRequestsClient's in-process backoff still
+        # gets retried by Temporal at the activity level; it must be classified as retryable so it's
+        # logged as a warning rather than tracked as an exception.
+        observed_error = (
+            "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here "
+            "https://stripe.com/docs/rate-limits."
+        )
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
 
     @pytest.mark.parametrize(
         "config,expected_message",
@@ -425,6 +438,21 @@ class TestStripeNestedResourceGetRows:
         # cus_zero is skipped entirely — no API call, no rows.
         assert called_for == ["cus_credit", "cus_owed"]
         assert {row["customer"] for row in rows} == {"cus_credit", "cus_owed"}
+
+    def test_query_param_service_receives_parent_in_params(self):
+        # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
+        # expose the parent only inside `params`, not as a method keyword — passing it as a kwarg
+        # raised TypeError: unexpected keyword argument.
+        seen_customers: list[str] = []
+
+        def nested_method(params=None):
+            seen_customers.append(params["customer"])
+            return _list_object([{"id": f"ent_{params['customer']}"}])
+
+        rows = _run_nested_get_rows(nested_method, parent_objects=[{"id": "cus_a"}, {"id": "cus_b"}])
+
+        assert seen_customers == ["cus_a", "cus_b"]
+        assert {row["customer"] for row in rows} == {"cus_a", "cus_b"}
 
 
 class TestInvoiceListWithAllLines:
