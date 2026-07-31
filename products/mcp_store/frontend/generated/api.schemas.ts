@@ -493,8 +493,8 @@ export interface MCPGatewayServerApi {
     readonly revoked_user_ids: readonly number[]
     /** True when an admin has turned this server off for the requesting user. */
     readonly is_revoked_for_you: boolean
-    /** Who registered the server. */
-    readonly created_by: UserBasicApi
+    /** Who registered the server. Null when that user was deleted. */
+    readonly created_by: UserBasicApi | null
     readonly created_at: string
     readonly updated_at: string
 }

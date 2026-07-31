@@ -32,6 +32,7 @@ from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.permissions import DenyMCPBuiltInAgentOAuth
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -69,7 +70,6 @@ from ..oauth import (
     requested_oauth_scopes,
     select_token_endpoint_auth_method,
 )
-from ..permissions import DenyMCPBuiltInAgentOAuth
 from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
 from ..proxy import proxy_mcp_request, validate_installation_auth
 from ..tasks import sync_installation_tools_task

@@ -59,9 +59,7 @@ export const TEMPLATE_SERVER_ID_PREFIX = 'template:'
 
 /** A real registry row, or a catalog template synthesized client-side (no
  * `created_by` until an install or admin toggle materializes the row). */
-export type GatewayServerEntry = Omit<MCPGatewayServerApi, 'created_by'> & {
-    created_by: MCPGatewayServerApi['created_by'] | null
-}
+export type GatewayServerEntry = MCPGatewayServerApi
 
 export function isTemplateOnlyServer(server: Pick<GatewayServerEntry, 'id'>): boolean {
     return server.id.startsWith(TEMPLATE_SERVER_ID_PREFIX)

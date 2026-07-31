@@ -235,8 +235,10 @@ class MCPOAuthState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     posthog_code_callback_url = models.TextField(blank=True, default="", db_column="twig_callback_url")
     # In-app path to land back on after the OAuth round-trip (e.g. the gateway
     # page that initiated the connect). Validated as a same-app relative path
-    # before any redirect — see `_is_valid_web_return_path`.
-    web_return_path = models.TextField(blank=True, default="")
+    # before any redirect — see `_is_valid_web_return_path`. db_default keeps a
+    # real Postgres DEFAULT so inserts from code predating this column (old
+    # pods during a rolling deploy) don't hit the NOT NULL.
+    web_return_path = models.TextField(blank=True, default="", db_default="")
     pkce_verifier = models.CharField(max_length=255, blank=True, default="")
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)

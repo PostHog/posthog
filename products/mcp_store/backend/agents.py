@@ -11,6 +11,7 @@ import structlog
 import posthoganalytics
 
 from posthog.models import Team
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.utils import hash_key_value
 
 from .models import MCPServiceAccount
@@ -181,9 +182,11 @@ def resolve_gateway_agent_token(token: str) -> MCPServiceAccount | None:
     if not account_id or not isinstance(team_id, int):
         return None
     try:
+        # TeamScopeError: the token can outlive its team — treat a deleted team
+        # like any other invalid token instead of erroring at the auth layer.
         return MCPServiceAccount.objects.for_team(team_id).get(
             id=account_id,
             handle__in=built_in_agent_handles(),
         )
-    except (MCPServiceAccount.DoesNotExist, ValueError):
+    except (MCPServiceAccount.DoesNotExist, TeamScopeError, ValueError):
         return None

@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="mcpoauthstate",
             name="web_return_path",
-            field=models.TextField(blank=True, default=""),
+            field=models.TextField(blank=True, db_default="", default=""),
         ),
         migrations.AddField(
             model_name="mcpserverinstallation",

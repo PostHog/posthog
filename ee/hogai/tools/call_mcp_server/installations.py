@@ -64,17 +64,17 @@ def _get_cached_tools(installation_id: str) -> list[dict]:
 
     Each row is shaped to match the `tools/list` payload the MCP client would
     return, so the agent code can format it identically whether the data came
-    from Postgres or from a fresh upstream call. `approval_state` rides along
-    so callers don't need a second query to filter/annotate."""
+    from Postgres or from a fresh upstream call. Approval states are deliberately
+    not included: effective states come from `_get_tool_approval_states`, which
+    resolves through the gateway policy engine."""
     rows = MCPServerInstallationTool.objects.filter(installation_id=installation_id, removed_at__isnull=True).values(
-        "tool_name", "description", "input_schema", "approval_state"
+        "tool_name", "description", "input_schema"
     )
     return [
         {
             "name": row["tool_name"],
             "description": row["description"] or "No description",
             "inputSchema": row["input_schema"] or {},
-            "approval_state": row["approval_state"],
         }
         for row in rows
     ]

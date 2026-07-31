@@ -31,6 +31,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
+from posthog.permissions import DenyMCPBuiltInAgentOAuth
 
 from ..agents import built_in_agent_handles, get_built_in_agent_spec, sync_built_in_agents
 from ..gateway import installation_for_agent_access, installation_for_agent_grant, members_can_manage_agent_access
@@ -52,7 +53,6 @@ from ..models import (
     MCPToolPolicy,
     TeamMCPGatewayConfig,
 )
-from ..permissions import DenyMCPBuiltInAgentOAuth
 from ..policy import GatewayCaller, PolicyContext, is_policy_state_allowed
 
 logger = structlog.get_logger(__name__)
@@ -259,7 +259,9 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
     template_id = serializers.UUIDField(
         source="template.id", read_only=True, allow_null=True, default=None, help_text="Linked catalog template."
     )
-    created_by = UserBasicSerializer(read_only=True, help_text="Who registered the server.")
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="Who registered the server. Null when that user was deleted."
+    )
     tool_count = serializers.SerializerMethodField(help_text="Number of live tools known for this server.")
     connections = serializers.SerializerMethodField(
         help_text="Members with a connection to this server. Only project admins receive this list."

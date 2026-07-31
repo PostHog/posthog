@@ -355,6 +355,56 @@ class TestGetToolApprovalStates(BaseTest):
         assert states == {"manage_issue": "do_not_use"}
 
 
+class TestCachedToolListGatewayPolicy(TestCallMCPServerTool):
+    async def test_cached_tool_list_resolves_states_through_gateway_policy(self) -> None:
+        def _setup():
+            server = MCPGatewayServer.objects.for_team(self.team.id).create(
+                team=self.team,
+                name="Issue server",
+                url="https://mcp.example.com/mcp",
+            )
+            installation = self._install_server()
+            installation.gateway_server = server
+            installation.save()
+            for tool_name, description in (
+                ("delete_issue", "Deletes an issue permanently."),
+                ("read_issue", "Reads an issue."),
+            ):
+                MCPServerInstallationTool.objects.create(
+                    installation=installation,
+                    tool_name=tool_name,
+                    description=description,
+                    approval_state="approved",
+                    last_seen_at=timezone.now(),
+                )
+            TeamMCPGatewayConfig.objects.for_team(self.team.id).create(
+                team=self.team,
+                member_default_preset="block",
+            )
+            return installation, server
+
+        installation, server = await sync_to_async(_setup)()
+        tool = self._create_tool(
+            installations=[
+                {
+                    "id": str(installation.id),
+                    "display_name": "Test Server",
+                    "url": installation.url,
+                    "gateway_server_id": server.id,
+                }
+            ]
+        )
+
+        listing = await tool._get_cached_tool_list(installation.url)
+
+        assert listing is not None
+        assert "read_issue" in listing
+        # The legacy per-installation state says approved, but the team's
+        # "block destructive" preset must gate the cached list too.
+        assert "delete_issue" not in listing
+        assert tool._approval_cache[installation.url]["delete_issue"] == "do_not_use"
+
+
 class TestGetInstallations(TestCallMCPServerTool):
     def _create_teammate(self, email="teammate@example.com"):
         from posthog.models import User
