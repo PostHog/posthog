@@ -608,7 +608,7 @@ class ReviewPRWorkflow:
                         retry_policy=_RETRY,
                     )
                 except Exception:
-                    workflow.logger.warning("Could not capture the review-failed analytics event")
+                    workflow.logger.exception("Could not capture the review-failed analytics event")
             raise
 
         posted = publish_result is not None and publish_result.posted

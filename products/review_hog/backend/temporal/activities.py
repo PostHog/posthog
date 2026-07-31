@@ -1276,19 +1276,23 @@ def _review_arm_properties(report: ReviewReport) -> dict[str, str | bool]:
     Resolved, not raw: pre-experiment rows carry NULLs but their reviews run on the default pins,
     and the event must say what actually ran.
     """
-    arm = resolve_review_arm(
+    persisted = (
         report.review_runtime_adapter,
         report.review_model,
         report.review_reasoning_effort,
         report.review_initial_permission_mode,
     )
+    arm = resolve_review_arm(*persisted)
+    resolved = (arm.runtime_adapter.value, arm.model, arm.reasoning_effort.value, arm.initial_permission_mode)
     return {
         "review_runtime_adapter": arm.runtime_adapter.value,
         "review_model": arm.model,
         "review_reasoning_effort": arm.reasoning_effort.value,
         # True when a persisted assignment failed resolution and the turn ran the fallback pins
-        # instead of its drawn model; per-arm dashboards must exclude these contaminated turns.
-        "review_arm_fallback": bool(report.review_model) and arm.model != report.review_model,
+        # instead of its drawn arm; per-arm dashboards must exclude these contaminated turns.
+        # The whole bundle is compared because a failed assignment can share the default arm's model
+        # string while differing on adapter or effort. Pre-experiment rows (all NULL) stay False.
+        "review_arm_fallback": any(persisted) and resolved != persisted,
     }
 
 

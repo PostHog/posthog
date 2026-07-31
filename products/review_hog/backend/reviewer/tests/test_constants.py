@@ -106,6 +106,9 @@ _SOL_ARM = next(arm for _, arm in REVIEW_EXPERIMENT_ARMS if arm.runtime_adapter 
         # registry accepts any unknown model at <=high, so only the membership check catches this.
         pytest.param(("codex", "gpt-9-vanished", "high", "full-access"), DEFAULT_REVIEW_ARM, id="stale-model"),
         pytest.param(("warp", "gpt-5.6-sol", "xhigh", None), DEFAULT_REVIEW_ARM, id="unknown-adapter"),
+        # A Codex assignment without "full-access" stalls every headless unit on MCP approval, so it
+        # must fall back rather than reach a sandbox turn.
+        pytest.param(("codex", "gpt-5.6-sol", "xhigh", None), DEFAULT_REVIEW_ARM, id="codex-without-full-access"),
     ],
 )
 def test_resolve_review_arm_honors_valid_assignments_and_falls_back(

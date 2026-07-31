@@ -208,16 +208,26 @@ class TestTrackReviewCompleted(BaseTest):
         # would make ingestion dedupe a real failure against a later success of the same turn.
         assert failed.kwargs["uuid"] != completed.kwargs["uuid"]
 
-    def test_stale_arm_events_flag_the_fallback(self) -> None:
-        # A persisted model that lost its registration runs the default pins; the event must both
+    @parameterized.expand(
+        [
+            ("stale_model", "codex", "gpt-9-vanished", "high", "full-access"),
+            # The model string matches the default pins, so a model-only comparison would miss the
+            # failed assignment; only the full-bundle comparison flags it.
+            ("default_model_unknown_adapter", "warp", REVIEW_MODEL, "xhigh", None),
+        ]
+    )
+    def test_stale_arm_events_flag_the_fallback(
+        self, _name: str, adapter: str, model: str, effort: str, permission_mode: str | None
+    ) -> None:
+        # A persisted assignment that fails resolution runs the default pins; the event must both
         # say what ran AND flag the deviation, or contaminated turns are indistinguishable from
         # genuine default-arm turns in the per-arm dashboards.
         report_id = self._review_report()
         ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(
-            review_runtime_adapter="codex",
-            review_model="gpt-9-vanished",
-            review_reasoning_effort="high",
-            review_initial_permission_mode="full-access",
+            review_runtime_adapter=adapter,
+            review_model=model,
+            review_reasoning_effort=effort,
+            review_initial_permission_mode=permission_mode,
         )
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:

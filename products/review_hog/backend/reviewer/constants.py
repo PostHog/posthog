@@ -107,6 +107,11 @@ def resolve_review_arm(
             effort,
         )
         return DEFAULT_REVIEW_ARM
+    # Codex's default "auto" mode stalls headless runs on MCP approval, so a Codex assignment
+    # without "full-access" could never finish a unit and counts as invalid.
+    if adapter is RuntimeAdapter.CODEX and initial_permission_mode != "full-access":
+        logger.warning("Persisted Codex review arm (%s, %s) lacks full-access; using the default pins", model, effort)
+        return DEFAULT_REVIEW_ARM
     return ReviewArm(adapter, model, effort, initial_permission_mode)
 
 
