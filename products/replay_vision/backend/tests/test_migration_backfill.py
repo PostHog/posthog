@@ -4,7 +4,10 @@ import importlib
 from posthog.test.base import APIBaseTest
 
 from django.apps import apps
+from django.test import override_settings
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import Team
 
@@ -71,7 +74,8 @@ class TestReceiptBackfillMigrations(APIBaseTest):
 
 
 class TestClosedBetaLaunchReset(APIBaseTest):
-    def test_disables_scanners_and_zeroes_receipts(self) -> None:
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_us_disables_scanners_except_internal_and_zeroes_receipts(self) -> None:
         internal_team = (
             self.team
             if self.team.id == m56.INTERNAL_TEAM_ID
@@ -109,3 +113,41 @@ class TestClosedBetaLaunchReset(APIBaseTest):
         assert internal_scanner.enabled
         assert not beta_scanner.enabled
         assert receipt.credits == 0
+
+    @parameterized.expand(
+        [
+            ("eu_team_2_not_exempt", "EU", False, 0),
+            ("self_hosted_untouched", None, True, 15),
+        ]
+    )
+    def test_reset_outside_us(
+        self, _name: str, deployment: str | None, expect_enabled: bool, expect_credits: int
+    ) -> None:
+        team_2 = (
+            self.team
+            if self.team.id == m56.INTERNAL_TEAM_ID
+            else Team.objects.create(id=m56.INTERNAL_TEAM_ID, organization=self.organization, name="two")
+        )
+        scanner = ReplayScanner.objects.create(
+            team=team_2,
+            name="s",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        receipt = ReplayObservationUsage.objects.create(
+            observation_id=uuid.uuid4(),
+            organization_id=self.organization.id,
+            team_id=team_2.id,
+            observation_created_at=timezone.now(),
+            model=ScannerModel.GEMINI_3_6_FLASH,
+            credits=15,
+        )
+
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            m56.reset_closed_beta_state(apps, None)
+
+        scanner.refresh_from_db()
+        receipt.refresh_from_db()
+        assert scanner.enabled is expect_enabled
+        assert receipt.credits == expect_credits
