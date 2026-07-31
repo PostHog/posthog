@@ -392,11 +392,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         `toDateTime` comparison the live adapters use. team_id scoping is enforced inside the view (its
         inner raw-table reference carries the mandatory team_id guard), so no explicit filter here."""
         adapter = MarketingSourceAdapter
-        view_name = (
-            "marketing_costs_precomputed_v2"
-            if self.config.costs_dedup_by_identity_enabled
-            else "marketing_costs_precomputed"
-        )
 
         def field(name: str) -> ast.Expr:
             return ast.Field(chain=[name])
@@ -435,7 +430,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
         return ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["marketing_costs_precomputed"])),
             where=ast.And(
                 exprs=[
                     ast.Call(

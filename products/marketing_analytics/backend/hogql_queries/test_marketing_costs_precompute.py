@@ -224,11 +224,14 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("match_key", "Camp 1", "c1"),
-            ("campaign_name", "Old Name", "New Name"),
+            ("match_key", "Camp 1", "c1", False, 150.0, 1),
+            ("campaign_name", "Old Name", "New Name", False, 300.0, 2),
+            ("campaign_name", "Old Name", "New Name", True, 150.0, 1),
         ]
     )
-    def test_native_read_dedups_when_label_changes_across_jobs(self, label_column, pre_value, post_value):
+    def test_native_read_dedups_when_label_changes_across_jobs(
+        self, label_column, pre_value, post_value, dedup_v2, expected_cost, expected_rows
+    ):
         base = {
             "source_id": "google_test",
             "source_name": "google",
@@ -281,7 +284,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             query=MarketingAnalyticsTableQuery(dateRange=date_range, limit=100, offset=0, properties=[]),
             team=self.team,
         )
-        runner.config.costs_dedup_by_identity_enabled = True
+        self.team._ma_costs_dedup_v2 = dedup_v2  # type: ignore[attr-defined]
         read = runner._costs_native_read_query(
             [base["source_id"]],
             MarketingAnalyticsDrillDownLevel.CAMPAIGN,
@@ -290,40 +293,19 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         result_rows, result_cols = self._execute(read)
 
         total_cost = sum(float(r[self._col(result_cols, MarketingSourceAdapter.cost_field)]) for r in result_rows)
-        assert total_cost == 150.0, (
-            f"{label_column} changing across jobs split the cell: expected latest-job cost 150, got "
-            f"{total_cost} (both jobs summed would be 300)"
+        assert total_cost == expected_cost, (
+            f"{label_column} changing across jobs with dedup_v2={dedup_v2}: expected {expected_cost}, got {total_cost}"
         )
+        assert len(result_rows) == expected_rows, f"expected {expected_rows} row(s), got {len(result_rows)}"
 
-        assert len(result_rows) == 1, f"expected one deduped row, got {len(result_rows)}"
-        output_alias = {
-            "match_key": MarketingSourceAdapter.match_key_field,
-            "campaign_name": MarketingSourceAdapter.campaign_name_field,
-        }[label_column]
-        assert result_rows[0][self._col(result_cols, output_alias)] == post_value, (
-            f"deduped row should carry the latest {label_column} '{post_value}', not the stale '{pre_value}'"
-        )
-
-    def test_costs_dedup_by_identity_flag_selects_view(self):
-        date_range = DateRange(date_from="2023-01-01", date_to="2023-01-31")
-        runner = MarketingAnalyticsTableQueryRunner(
-            query=MarketingAnalyticsTableQuery(dateRange=date_range, limit=100, offset=0, properties=[]),
-            team=self.team,
-        )
-        qdr = QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime(2025, 1, 1))
-
-        runner.config.costs_dedup_by_identity_enabled = False
-        legacy_hogql = runner._costs_native_read_query(
-            ["google_test"], MarketingAnalyticsDrillDownLevel.CAMPAIGN, qdr
-        ).to_hogql()
-        assert "marketing_costs_precomputed_v2" not in legacy_hogql
-        assert "marketing_costs_precomputed" in legacy_hogql
-
-        runner.config.costs_dedup_by_identity_enabled = True
-        v2_hogql = runner._costs_native_read_query(
-            ["google_test"], MarketingAnalyticsDrillDownLevel.CAMPAIGN, qdr
-        ).to_hogql()
-        assert "marketing_costs_precomputed_v2" in v2_hogql
+        if expected_rows == 1:
+            output_alias = {
+                "match_key": MarketingSourceAdapter.match_key_field,
+                "campaign_name": MarketingSourceAdapter.campaign_name_field,
+            }[label_column]
+            assert result_rows[0][self._col(result_cols, output_alias)] == post_value, (
+                f"deduped row should carry the latest {label_column} '{post_value}', not the stale '{pre_value}'"
+            )
 
     def test_one_unmaterializable_source_does_not_force_all_to_s3(self):
         # One source materializes, one can't. The result must read the native table for the materialized

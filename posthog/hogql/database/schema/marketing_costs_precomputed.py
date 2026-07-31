@@ -1,7 +1,14 @@
+from typing import TYPE_CHECKING
+
+import posthoganalytics
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, LazyTable, LazyTableToAdd
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # Deduplicated read interface over `marketing_costs_preaggregated`. `job_id` is in the raw ReplacingMergeTree
 # sort key, so a re-materialized cell survives as several rows and a bare SUM double-counts; this view collapses
@@ -9,7 +16,6 @@ from posthog.hogql.database.schema.marketing_costs_preaggregated import Marketin
 # only materialized rows (S3-fallback sources are absent) — the precomputed subset, not the complete cost set.
 
 MARKETING_COSTS_PRECOMPUTED_VIEW_NAME = "marketing_costs_precomputed"
-MARKETING_COSTS_PRECOMPUTED_V2_VIEW_NAME = "marketing_costs_precomputed_v2"
 _RAW = "marketing_costs_preaggregated"
 
 _RAW_FIELDS = MarketingCostsPreaggregatedTable().fields  # reuse the raw column defs so the view can't drift
@@ -21,9 +27,39 @@ _LATEST = {"cost", "clicks", "impressions", "reported_conversions", "reported_co
 # flips, so the latest job's value wins instead.
 _LATEST_LABELS = {"match_key"}
 _ARGMAX = _LATEST | _LATEST_LABELS
-# Renamable display labels, which split a cell the same way match_key does. Only the v2 view folds them, so
-# the wider dedup stays reversible at the flag.
+# Renamable display labels, which split a cell the same way match_key does. Folded only behind the flag, so
+# the wider dedup stays reversible without a second view.
 _IDENTITY_LABELS = {"campaign_name", "ad_group_name", "ad_name"}
+
+COSTS_DEDUP_V2_FLAG = "marketing-analytics-costs-dedup-v2"
+_FLAG_CACHE_ATTR = "_ma_costs_dedup_v2"
+
+
+def costs_dedup_v2_enabled(team: "Team | None") -> bool:
+    """Whether the renamable display labels are folded into argMax alongside the metrics.
+
+    Evaluated locally and cached on the team instance: this sits on the query-compile path, which runs once
+    per lazy-table resolution, so a network round trip or a `$feature_flag_called` event per query would be
+    a real cost. Falls back to the legacy grouping when the team is unavailable or the flag can't resolve.
+    """
+    if team is None:
+        return False
+    cached = getattr(team, _FLAG_CACHE_ATTR, None)
+    if cached is not None:
+        return cached
+    organization = team.organization
+    enabled = bool(
+        posthoganalytics.feature_enabled(
+            COSTS_DEDUP_V2_FLAG,
+            str(team.uuid),
+            groups={"organization": str(organization.id)},
+            group_properties={"organization": {"id": str(organization.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+    setattr(team, _FLAG_CACHE_ATTR, enabled)
+    return enabled
 
 
 def _argmax_columns(dedup_labels_by_identity: bool) -> set[str]:
@@ -43,8 +79,6 @@ class MarketingCostsPrecomputedTable(LazyTable):
         "argMax(metric, computed_at). Read this instead of the raw table to avoid double-counting."
     )
 
-    dedup_labels_by_identity: bool = False
-
     fields: dict[str, FieldOrTable] = {
         **{name: field for name, field in _RAW_FIELDS.items() if name not in _INTERNAL | {"timestamp"}},
         # Materialized DateTime so a TrendsQuery DataWarehouseNode can target the view (trends hardcodes `timestamp`).
@@ -55,8 +89,9 @@ class MarketingCostsPrecomputedTable(LazyTable):
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery:
         requested = table_to_add.fields_accessed
-        argmax = _argmax_columns(self.dedup_labels_by_identity)
-        dimensions = _dimension_columns(self.dedup_labels_by_identity)
+        dedup_labels_by_identity = costs_dedup_v2_enabled(context.team)
+        argmax = _argmax_columns(dedup_labels_by_identity)
+        dimensions = _dimension_columns(dedup_labels_by_identity)
 
         def raw(col: str) -> ast.Field:
             return ast.Field(chain=[_RAW, col])
@@ -77,13 +112,8 @@ class MarketingCostsPrecomputedTable(LazyTable):
             group_by=[raw(dim) for dim in dimensions],
         )
 
-    def _view_name(self) -> str:
-        if self.dedup_labels_by_identity:
-            return MARKETING_COSTS_PRECOMPUTED_V2_VIEW_NAME
+    def to_printed_clickhouse(self, context):
         return MARKETING_COSTS_PRECOMPUTED_VIEW_NAME
 
-    def to_printed_clickhouse(self, context):
-        return self._view_name()
-
     def to_printed_hogql(self):
-        return self._view_name()
+        return MARKETING_COSTS_PRECOMPUTED_VIEW_NAME
