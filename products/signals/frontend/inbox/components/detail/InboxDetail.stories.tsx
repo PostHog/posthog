@@ -153,6 +153,23 @@ export const PullRequest: Story = {
     ),
 }
 
+// The header badge reads the merge state the GitHub webhook records on the report, so this pins
+// `implementation_pr_merged` rather than leaning on the report's own status.
+export const PullRequestMerged: Story = {
+    render: () => (
+        <Frame>
+            <PullRequestDetail
+                report={makeReport({
+                    ...pullRequestReports[0],
+                    id: '019e64b8-0000-7000-8000-000000009882',
+                    status: SignalReportStatus.RESOLVED,
+                    implementation_pr_merged: true,
+                })}
+            />
+        </Frame>
+    ),
+}
+
 export const PullRequestChecksPassing: Story = {
     render: () => (
         <Frame>
