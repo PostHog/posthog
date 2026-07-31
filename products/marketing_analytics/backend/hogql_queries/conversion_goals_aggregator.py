@@ -403,12 +403,18 @@ class ConversionGoalsAggregator:
 
         # ROAS and CAC both need the channel's spend, so they only exist when campaign_costs is
         # joined (include_cost_per), and each stays hidden until a goal is flagged for it.
+        #
+        # Each ratio also needs its flagged goals to hold the right kind of number, since a goal's
+        # column is either a conversion count or a summed property depending on its math. A
+        # counting goal in the ROAS numerator reads 200 signups against $100 of spend as "ROAS
+        # 2.0"; a summing goal in the CAC denominator divides spend by revenue, so $1,000 over 50
+        # purchases worth $5,000 reads as $0.20 per customer instead of $20.
         if include_cost_per:
-            revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue]
+            revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue and p.sums_a_property()]
             if revenue_processors:
                 columns[ROAS_COLUMN] = self._build_roas_column(revenue_processors)
 
-            customer_processors = [p for p in self.processors if p.goal.counts_as_customer]
+            customer_processors = [p for p in self.processors if p.goal.counts_as_customer and not p.sums_a_property()]
             if customer_processors:
                 cac_alias = f"{self.config.cost_per_prefix} {CAC_COLUMN_SUFFIX}"
                 columns[cac_alias] = self._build_cac_column(customer_processors, cac_alias)
@@ -438,6 +444,7 @@ class ConversionGoalsAggregator:
         # customer goal contributes its conversion count as customers, which is right when the goal
         # marks a once-per-person conversion (a sign-up or first purchase). A goal pointed at a
         # repeatable event would overcount, needing a first-time-per-person scan we don't do here.
+        # A `dau` goal is the closest fit, since it already counts each person once.
         total_customers = self._sum_conversion_values(customer_processors)
         total_cost = ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.total_cost_field))
         return ast.Alias(
