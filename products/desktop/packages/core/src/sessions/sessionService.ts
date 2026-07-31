@@ -7128,6 +7128,12 @@ export class SessionService {
     if (session && session.eventCount > 0) return;
     if (!task.latest_run?.id || !task.latest_run?.log_url) return;
 
+    // Logs-only hydration grows the store like a connect does; bound the
+    // resident-session budget the same way (connectToTask and the cloud
+    // reconcile branch already do).
+    this.sessionLastUsedAt.set(task.id, Date.now());
+    void this.evictIdleSessions(task.id);
+
     this.loadLogsOnly({
       taskId: task.id,
       taskRunId: task.latest_run.id,
