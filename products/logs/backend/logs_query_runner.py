@@ -33,7 +33,11 @@ from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.logs.backend.column_expressions import canonical_key, column_to_expr
-from products.logs.backend.models import DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS, TeamLogsConfig
+from products.logs.backend.models import (
+    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
+    DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS,
+    TeamLogsConfig,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -487,9 +491,14 @@ class LogsFilterBuilder:
             # treats an empty value list as always-true, which would return every log.
             return ast.Constant(value=False)
         config = TeamLogsConfig.objects.filter(team=self.team).first()
-        attribute_keys = (
+        configured_keys = (
             config.logs_distinct_id_attribute_keys if config else None
         ) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
+        # Also scope on the built-in convention keys the logs UI renders as clickable person
+        # links (isDistinctIdKey in products/logs/frontend/utils.tsx), so a log the UI shows as
+        # belonging to a person appears on their Logs tab even when the team hasn't configured
+        # that key. Deduped, configured keys first.
+        attribute_keys = list(dict.fromkeys([*configured_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
         # Force the __str map: attributes_map_str holds every attribute value (stringified),
         # while attributes_map_float only exists for numeric values — all-numeric distinct ids
         # must not route there via the usual value-type detection.
