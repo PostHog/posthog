@@ -32,5 +32,16 @@ export const PAYLOAD_KEY_PREFIX = 'mcp:signed-state:payload'
  */
 export const PAYLOAD_STASH_TTL_MARGIN_SECONDS = 30
 
+/**
+ * Maximum serialized size of a stashed prepare payload, in bytes. Stashed
+ * payloads live in shared Redis for the token TTL, so without a cap an
+ * authenticated caller could retain rate-limit × TTL × request-size bytes
+ * and pressure eviction of session and rate-limit state. 256 KiB is far
+ * above any legitimate confirmed action (the largest, a scout definition
+ * with reference files, runs tens of KiB) while bounding worst-case
+ * retention per user to the low hundreds of MB.
+ */
+export const MAX_STASHED_PAYLOAD_BYTES = 256 * 1024
+
 /** Env var name. */
 export const SIGNING_KEY_ENV_VAR = 'MCP_SIGNED_STATE_KEY'

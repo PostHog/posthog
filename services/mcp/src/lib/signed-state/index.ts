@@ -6,7 +6,12 @@
  * implementation detail.
  */
 
-export { DEFAULT_STATE_TTL_SECONDS, PAYLOAD_STASH_TTL_MARGIN_SECONDS, SIGNING_KEY_ENV_VAR } from './constants'
+export {
+    DEFAULT_STATE_TTL_SECONDS,
+    MAX_STASHED_PAYLOAD_BYTES,
+    PAYLOAD_STASH_TTL_MARGIN_SECONDS,
+    SIGNING_KEY_ENV_VAR,
+} from './constants'
 export {
     SignedStateAlreadyConsumed,
     SignedStateError,

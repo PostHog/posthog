@@ -50,6 +50,7 @@ import {
     confirmedActionRefusalsTotal,
 } from '@/hono/metrics'
 import {
+    MAX_STASHED_PAYLOAD_BYTES,
     NonceLedger,
     PAYLOAD_STASH_TTL_MARGIN_SECONDS,
     PayloadStash,
@@ -170,6 +171,16 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     // stored string, so serialization only has to be stable across this
     // one round-trip, not canonical.
     const serialized = JSON.stringify(payload)
+    const serializedBytes = Buffer.byteLength(serialized, 'utf8')
+    if (serializedBytes > MAX_STASHED_PAYLOAD_BYTES) {
+        confirmedActionPreparesTotal.inc({ tool: options.purpose, status: 'refused' })
+        confirmedActionRefusalsTotal.inc({ tool: options.purpose, reason: 'payload_too_large' })
+        throw new Error(
+            `${options.purpose} was not prepared — the action arguments are too large to confirm ` +
+                `(${serializedBytes} bytes; limit ${MAX_STASHED_PAYLOAD_BYTES}). Trim the arguments, ` +
+                `for example by shortening bundled file contents, and try again.`
+        )
+    }
     const reference: SignedPayloadReference = { digest: sha256Hex(serialized) }
     const { token, claims } = await options.codec.encode({
         sub,

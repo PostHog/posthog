@@ -114,6 +114,25 @@ describe('prepareConfirmedAction', () => {
         expect(result.confirmation_hash.length).toBeLessThan(1024)
     })
 
+    it('refuses to stash a payload over the size cap', async () => {
+        // Stashed payloads sit in shared Redis for the token TTL. Without
+        // the cap, a caller at the rate limit can retain rate × TTL ×
+        // request-size bytes and pressure eviction of session state.
+        const codec = makeCodec()
+        const { stash, store } = makeStash()
+        await expect(
+            prepareConfirmedAction(makeContext('did-1'), {
+                args: { body: 'x'.repeat(300_000) },
+                purpose: 'scout-create',
+                actionLabel: 'create scout',
+                messageTemplate: 'msg',
+                codec,
+                stash,
+            })
+        ).rejects.toThrow('too large')
+        expect(store.size).toBe(0)
+    })
+
     it('leaves unknown placeholders literal so authors notice missing keys', async () => {
         const codec = makeCodec()
         const { stash } = makeStash()
