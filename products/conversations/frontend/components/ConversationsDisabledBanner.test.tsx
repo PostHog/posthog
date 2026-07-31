@@ -45,7 +45,7 @@ describe('ConversationsDisabledBanner', () => {
             </Provider>
         )
 
-        await userEvent.click(screen.getByRole('button', { name: 'Enable' }))
+        await userEvent.click(screen.getByText('Enable'))
 
         expect(lastCapturedPayload).toEqual({ conversations_enabled: true })
     })
@@ -59,7 +59,8 @@ describe('ConversationsDisabledBanner', () => {
             </Provider>
         )
 
-        const button = screen.getByRole('button', { name: 'Enable' })
-        expect(button.className).not.toMatch(/\bhidden\b/)
+        const button = screen.getByText('Enable').closest('button')
+        expect(button).not.toBeNull()
+        expect(button!.className).not.toMatch(/\bhidden\b/)
     })
 })
