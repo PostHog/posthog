@@ -2534,8 +2534,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         # Store a reference, not a url: the delivery token authenticates anonymously and
         # bypasses the org's publicly-shared-resources setting, while metadata is readable by
         # anyone with task:read. Slack delivery mints the url from this id when it posts.
+        # It travels beside metadata, not inside it, because this action is the only caller
+        # allowed to link an export — see _SERVER_OWNED_METADATA_KEYS.
         url = self._chart_url(query, asset)
-        chart_metadata: dict = {"export_asset_id": asset.id}
+        chart_metadata: dict = {}
         if url:
             chart_metadata["posthog_url"] = url
         artifact, error = tasks_facade.create_task_run_living_artifact(
@@ -2549,6 +2551,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 "content_type": "image/png",
                 "content_bytes": png,
                 "metadata": chart_metadata,
+                "export_asset_id": asset.id,
             },
         )
         if artifact is None and error is None:

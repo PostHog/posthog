@@ -8508,10 +8508,10 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
                 "adapter": TaskArtifactAdapter.SLACK_FILE,
                 "content_type": "image/png",
                 "content_bytes": b"png-bytes",
-                "metadata": {
-                    "export_asset_id": 321,
-                    "posthog_url": expected_url,
-                },
+                "metadata": {"posthog_url": expected_url},
+                # Beside metadata, not inside it: metadata is caller-writable, and this id is
+                # what lets delivery mint an anonymous url for the asset.
+                "export_asset_id": 321,
             },
         )
 
@@ -8592,8 +8592,9 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         self.assertEqual(mock_create.call_args.kwargs["artifact"]["name"], "Saved chart.png")
         self.assertEqual(
             mock_create.call_args.kwargs["artifact"]["metadata"],
-            {"export_asset_id": 321, "posthog_url": expected_url},
+            {"posthog_url": expected_url},
         )
+        self.assertEqual(mock_create.call_args.kwargs["artifact"]["export_asset_id"], 321)
 
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
     @patch("products.tasks.backend.presentation.views.api.render_png_export")

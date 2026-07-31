@@ -60,6 +60,17 @@ class DocumentConnectorUnavailable(Exception):
     pass
 
 
+# export_asset_id decides whether Slack delivery mints an anonymous, access-check-bypassing
+# url for that export, so only the chart endpoint may set it — it has already checked query
+# access and rendered the asset itself. Generic create/edit metadata is writable by anyone
+# with task:write, and on a Slack-origin task that is any member of the team.
+_SERVER_OWNED_METADATA_KEYS = frozenset({"export_asset_id"})
+
+
+def _caller_owned_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    return {key: value for key, value in (metadata or {}).items() if key not in _SERVER_OWNED_METADATA_KEYS}
+
+
 def build_living_artifact_storage_path(run: TaskRun, artifact_id: str, version: int, name: str) -> str:
     safe_name = os.path.basename(name).strip() or "artifact.md"
     base, ext = os.path.splitext(safe_name)
@@ -100,6 +111,7 @@ def create_living_artifact(
     source_artifact_id: str | None = None,
     source_storage_path: str | None = None,
     metadata: dict[str, Any] | None = None,
+    export_asset_id: int | None = None,
 ) -> TaskArtifact:
     _require_living_artifacts_enabled(run)
     content_payload = resolve_artifact_content(
@@ -135,11 +147,12 @@ def create_living_artifact(
             status=TaskArtifact.Status.ACTIVE,
             location=commit.location,
             metadata={
-                **(metadata or {}),
+                **_caller_owned_metadata(metadata),
                 **commit.metadata,
                 "requested_adapter": adapter,
                 "source_artifact_id": source_artifact_id,
                 "source_storage_path": source_storage_path,
+                **({"export_asset_id": export_asset_id} if export_asset_id is not None else {}),
             },
             versions=[commit.version],
             current_version=1,
@@ -201,7 +214,13 @@ def edit_living_artifact(
         locked.name = next_name
         locked.adapter = commit.adapter
         locked.location = commit.location
-        locked.metadata = {**(locked.metadata or {}), **(metadata or {}), **commit.metadata}
+        # The export only depicts the version it was rendered from, and an edit replaces the
+        # content — so drop the link rather than let the new version deliver the old picture.
+        locked.metadata = {
+            **_caller_owned_metadata(locked.metadata),
+            **_caller_owned_metadata(metadata),
+            **commit.metadata,
+        }
         locked.versions = versions
         locked.current_version = next_version
         locked.status = TaskArtifact.Status.ACTIVE
