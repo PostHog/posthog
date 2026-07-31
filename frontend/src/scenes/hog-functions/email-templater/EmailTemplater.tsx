@@ -5,15 +5,7 @@ import { useEffect, useState } from 'react'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
 import { IconCollapse, IconExpand, IconExternal, IconPlus, IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCard,
-    LemonLabel,
-    LemonModal,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonTabs,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonLabel, LemonModal, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -104,7 +96,7 @@ function DestinationEmailTemplaterForm({
     fieldsHidden?: boolean
 }): JSX.Element {
     const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
-    const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab } = useActions(emailTemplaterLogic)
+    const { setEmailEditorRef, onEmailEditorReady } = useActions(emailTemplaterLogic)
 
     return (
         <>
@@ -147,15 +139,6 @@ function DestinationEmailTemplaterForm({
 
                 {mode === 'full' ? (
                     <>
-                        <LemonTabs
-                            activeKey={activeContentTab}
-                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
-                            tabs={[
-                                { key: 'visual', label: 'Visual' },
-                                { key: 'plaintext', label: 'Plain text' },
-                            ]}
-                            className="px-2 shrink-0 border-b"
-                        />
                         <div className="relative flex flex-col flex-1">
                             <div
                                 className={clsx(
@@ -510,17 +493,6 @@ function NativeEmailTemplaterForm({
 
                 {mode === 'full' ? (
                     <>
-                        {!compactHeader && (
-                            <LemonTabs
-                                activeKey={activeContentTab}
-                                onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
-                                tabs={[
-                                    { key: 'visual', label: 'Visual' },
-                                    { key: 'plaintext', label: 'Plain text' },
-                                ]}
-                                className="px-2 shrink-0 border-b"
-                            />
-                        )}
                         <div className="relative flex flex-col flex-1">
                             <div
                                 className={clsx(
@@ -725,6 +697,7 @@ function EmailTemplaterModal(): JSX.Element {
         isSaveTemplateModalOpen,
         isTemplatePickerOpen,
         templates,
+        activeContentTab,
     } = useValues(emailTemplaterLogic)
     const {
         closeWithConfirmation,
@@ -732,6 +705,7 @@ function EmailTemplaterModal(): JSX.Element {
         saveAsTemplate,
         setIsSaveTemplateModalOpen,
         setIsTemplatePickerOpen,
+        setActiveContentTab,
     } = useActions(emailTemplaterLogic)
     // Fields start collapsed: in embedded contexts they duplicate the surrounding form.
     const [fieldsHidden, setFieldsHidden] = useState(true)
@@ -755,16 +729,26 @@ function EmailTemplaterModal(): JSX.Element {
                 {/* simple puts us directly in the modal's flex column, so flex-1 fills the screen;
                     a percentage height would collapse inside the default non-flex content wrapper. */}
                 <div className="flex-1 min-h-0 flex relative p-4">
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
-                        onClick={() => setFieldsHidden(!fieldsHidden)}
-                        // Aligned with the modal's close button (top-3 right-4), sitting just left of it
-                        className="absolute top-3 right-14 z-10"
-                    >
-                        {fieldsHidden ? 'Show fields' : 'Hide fields'}
-                    </LemonButton>
+                    {/* Aligned with the modal's close button (top-3 right-4), sitting just left of it */}
+                    <div className="absolute top-3 right-14 z-10 flex items-center gap-2">
+                        <LemonSegmentedButton
+                            size="small"
+                            value={activeContentTab}
+                            onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
+                            options={[
+                                { value: 'visual', label: 'Visual' },
+                                { value: 'plaintext', label: 'Plain text' },
+                            ]}
+                        />
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
+                            onClick={() => setFieldsHidden(!fieldsHidden)}
+                        >
+                            {fieldsHidden ? 'Show fields' : 'Hide fields'}
+                        </LemonButton>
+                    </div>
                     <div className="flex flex-col flex-1">
                         <div className="shrink-0">
                             <h2>Editing email template</h2>

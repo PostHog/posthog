@@ -601,8 +601,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
         setIsModalOpen: ({ isModalOpen }) => {
             if (isModalOpen && props.value) {
-                const hasHtml = !!props.value.html
-                actions.setActiveContentTab(hasHtml ? 'visual' : 'plaintext')
+                // Plain text only when the email is genuinely text-only; a blank email starts visual.
+                const plainTextOnly = !!props.value.text && !props.value.html && !props.value.design
+                actions.setActiveContentTab(plainTextOnly ? 'plaintext' : 'visual')
             }
         },
 

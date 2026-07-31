@@ -130,6 +130,32 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('modal content tab default', () => {
+        it.each([
+            {
+                description: 'a blank email opens on the visual tab',
+                value: { ...DEFAULT_EMAIL_TEMPLATE, html: '', text: '', design: null },
+                expectedTab: 'visual',
+            },
+            {
+                description: 'an email with html opens on the visual tab',
+                value: DEFAULT_EMAIL_TEMPLATE,
+                expectedTab: 'visual',
+            },
+            {
+                description: 'a plain-text-only email opens on the plain text tab',
+                value: { ...DEFAULT_EMAIL_TEMPLATE, html: '', design: null },
+                expectedTab: 'plaintext',
+            },
+        ])('$description', async ({ value, expectedTab }) => {
+            logic = emailTemplaterLogic(makeProps({ value }))
+            logic.mount()
+
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toMatchValues({ activeContentTab: expectedTab })
+        })
+    })
+
     describe('starting-point picker', () => {
         it('closes the picker when the editor modal closes', async () => {
             logic = emailTemplaterLogic(makeProps())
