@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { IconArrowRight } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import {
@@ -19,7 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from '~/scenes/urls'
 
 import type { MCPClusterSwitchApi, MCPIntentClusterApi, MCPToolPivotApi } from '../generated/api.schemas'
-import { mcpClusteringLogic } from './mcpClusteringLogic'
+import { toolClusterRows } from './mcpClusteringLogic'
 
 interface ToolSwitchRow extends MCPClusterSwitchApi {
     clusterLabel: string
@@ -40,13 +38,16 @@ function collectSwitches(tool: string, clusters: readonly MCPIntentClusterApi[])
 
 export function ToolIntentDetail({
     tool,
+    clusters,
     showToolLink = true,
 }: {
     tool: MCPToolPivotApi
+    /** The snapshot's clusters — the pivot's entries carry only ids and join against these. */
+    clusters: readonly MCPIntentClusterApi[]
     showToolLink?: boolean
 }): JSX.Element {
-    const { clusters } = useValues(mcpClusteringLogic)
     const switches = collectSwitches(tool.tool, clusters)
+    const clusterRows = toolClusterRows(tool, clusters)
 
     return (
         <div className="bg-surface-primary border rounded p-4 flex flex-col gap-4" data-quill>
@@ -93,7 +94,12 @@ export function ToolIntentDetail({
             </header>
 
             <section className="flex flex-col gap-2">
-                <span className="text-xs uppercase text-muted font-medium">Intents this tool serves</span>
+                <span className="text-xs uppercase text-muted font-medium">
+                    Intents this tool serves
+                    {tool.n_clusters_served > clusterRows.length
+                        ? ` · top ${clusterRows.length} of ${tool.n_clusters_served}`
+                        : ''}
+                </span>
                 <Table fullWidth>
                     <TableHeader>
                         <TableRow>
@@ -105,19 +111,19 @@ export function ToolIntentDetail({
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {tool.clusters.map((entry) => (
+                        {clusterRows.map(({ entry, cluster }) => (
                             <TableRow key={entry.cluster_id}>
                                 <TableCell expand>
                                     <div className="flex flex-col">
-                                        <span className="truncate max-w-[360px]" title={entry.label}>
-                                            {entry.label}
+                                        <span className="truncate max-w-[360px]" title={cluster.label}>
+                                            {cluster.label}
                                         </span>
                                         <span className="text-[10px] text-muted">
                                             {entry.rank === 1
                                                 ? 'Top tool for this intent'
                                                 : `Rank ${entry.rank} for this intent`}
                                             {' · '}
-                                            {humanFriendlyNumber(entry.cluster_call_count)} calls in cluster
+                                            {humanFriendlyNumber(cluster.call_count)} calls in cluster
                                         </span>
                                     </div>
                                 </TableCell>

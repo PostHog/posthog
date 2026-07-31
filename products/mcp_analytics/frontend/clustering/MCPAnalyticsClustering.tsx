@@ -612,7 +612,7 @@ function ToolsViewEmptyState(): JSX.Element {
 }
 
 function ToolsView(): JSX.Element {
-    const { hasToolPivot, selectedTool } = useValues(mcpClusteringLogic)
+    const { hasToolPivot, selectedTool, clusters } = useValues(mcpClusteringLogic)
 
     if (!hasToolPivot) {
         return <ToolsViewEmptyState />
@@ -625,7 +625,7 @@ function ToolsView(): JSX.Element {
             </div>
             <ToolPivotTable />
             {selectedTool ? (
-                <ToolIntentDetail tool={selectedTool} />
+                <ToolIntentDetail tool={selectedTool} clusters={clusters} />
             ) : (
                 <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
                     Click a tool row above to see the intents it serves and who it competes with.

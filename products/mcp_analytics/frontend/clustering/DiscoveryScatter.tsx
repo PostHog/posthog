@@ -4,7 +4,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { ScatterPoint, mcpClusteringLogic } from './mcpClusteringLogic'
+import { ScatterPoint, fitDomain, mcpClusteringLogic } from './mcpClusteringLogic'
 
 const WIDTH = 640
 const HEIGHT = 280
@@ -49,8 +49,7 @@ export function DiscoveryScatter(): JSX.Element | null {
         )
     }
 
-    const fits = scatterPoints.map((p) => p.fit)
-    const fitDomain: [number, number] = [Math.min(...fits, 0), Math.max(...fits, 0.01)]
+    const xDomain = fitDomain(scatterPoints.map((p) => p.fit))
     const maxCalls = Math.max(...scatterPoints.map((p) => p.callCount))
     const plotX: [number, number] = [PAD.left, WIDTH - PAD.right]
     const plotY: [number, number] = [HEIGHT - PAD.bottom, PAD.top]
@@ -82,9 +81,9 @@ export function DiscoveryScatter(): JSX.Element | null {
                 />
                 {fitMedian !== null ? (
                     <line
-                        x1={scale(fitMedian, fitDomain, plotX)}
+                        x1={scale(fitMedian, xDomain, plotX)}
                         y1={PAD.top}
-                        x2={scale(fitMedian, fitDomain, plotX)}
+                        x2={scale(fitMedian, xDomain, plotX)}
                         y2={HEIGHT - PAD.bottom}
                         stroke="var(--border-primary)"
                         strokeDasharray="4 4"
@@ -100,6 +99,20 @@ export function DiscoveryScatter(): JSX.Element | null {
                         strokeDasharray="4 4"
                     />
                 ) : null}
+                {/* The x-domain brackets the observed fits rather than starting at 0,
+                    so the ends have to be labelled for the spread to mean anything. */}
+                <text x={PAD.left} y={HEIGHT - PAD.bottom + 14} className="fill-current text-muted" fontSize={9}>
+                    {xDomain[0].toFixed(2)}
+                </text>
+                <text
+                    x={WIDTH - PAD.right}
+                    y={HEIGHT - PAD.bottom + 14}
+                    textAnchor="end"
+                    className="fill-current text-muted"
+                    fontSize={9}
+                >
+                    {xDomain[1].toFixed(2)}
+                </text>
                 <text
                     x={(PAD.left + WIDTH - PAD.right) / 2}
                     y={HEIGHT - 8}
@@ -132,7 +145,7 @@ export function DiscoveryScatter(): JSX.Element | null {
                         }
                     >
                         <circle
-                            cx={scale(point.fit, fitDomain, plotX)}
+                            cx={scale(point.fit, xDomain, plotX)}
                             cy={scale(point.discoveryRatePct, [0, 100], plotY)}
                             r={radius(point.callCount, maxCalls)}
                             fill="var(--accent)"

@@ -12,7 +12,9 @@ import type {
 import {
     MAX_HEATMAP_TOOL_COLUMNS,
     MAX_VISIBLE_CLUSTERS,
+    fitDomain,
     mcpClusteringLogic,
+    toolClusterRows,
     weightedMeanFit,
 } from './mcpClusteringLogic'
 
@@ -152,12 +154,9 @@ describe('mcpClusteringLogic', () => {
 function entry(overrides: Partial<MCPToolPivotClusterEntryApi>): MCPToolPivotClusterEntryApi {
     return {
         cluster_id: 0,
-        label: 'intent',
         calls: 1,
         capture_pct: 100,
         rank: 1,
-        cluster_call_count: 1,
-        cluster_entropy: 0,
         description_fit: null,
         top_competitor: null,
         ...overrides,
@@ -175,6 +174,7 @@ function pivot(clusters: MCPToolPivotClusterEntryApi[]): MCPToolPivotApi {
         called_when_advertised: 0,
         discovery_rate_pct: null,
         description: null,
+        n_clusters_served: clusters.length,
         clusters,
     }
 }
@@ -204,5 +204,41 @@ describe('mcpClusteringLogic helpers', () => {
             entry({ cluster_id: 1, calls: 99, description_fit: null }),
         ])
         expect(weightedMeanFit(tool)).toBeCloseTo(0.8)
+    })
+
+    // The pivot no longer ships the cluster's label with every entry, so a broken
+    // join renders the intents table with blank rows instead of intent text.
+    it('toolClusterRows joins each entry to the cluster it points at', () => {
+        const rows = toolClusterRows(pivot([entry({ cluster_id: 3 }), entry({ cluster_id: 1 })]), [
+            cluster(1),
+            cluster(3),
+        ])
+
+        expect(rows.map((row) => row.cluster.label)).toEqual(['intent 3', 'intent 1'])
+    })
+
+    it('toolClusterRows drops entries with no matching cluster rather than rendering them blank', () => {
+        expect(toolClusterRows(pivot([entry({ cluster_id: 99 })]), [cluster(1)])).toEqual([])
+    })
+
+    // Fits for one server's tools sit in a narrow band; anchoring the axis at 0
+    // piles every bubble against the right edge and puts the median line through
+    // the pile, which is exactly the quadrant read the chart promises.
+    it('fitDomain brackets the observed band instead of anchoring at zero', () => {
+        const [low, high] = fitDomain([0.55, 0.7, 0.85])
+
+        expect(low).toBeGreaterThan(0.4)
+        expect(low).toBeLessThan(0.55)
+        expect(high).toBeGreaterThan(0.85)
+        expect(high).toBeLessThanOrEqual(1)
+    })
+
+    it.each([
+        ['every tool has the same fit', [0.7, 0.7]],
+        ['there is a single tool', [0.7]],
+    ])('fitDomain keeps a usable span when %s', (_name, fits) => {
+        const [low, high] = fitDomain(fits)
+
+        expect(high - low).toBeGreaterThan(0)
     })
 })

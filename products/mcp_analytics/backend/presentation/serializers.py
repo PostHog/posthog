@@ -501,10 +501,8 @@ class MCPToolPivotCompetitorSerializer(serializers.Serializer):
 
 class MCPToolPivotClusterEntrySerializer(serializers.Serializer):
     cluster_id = serializers.IntegerField(
-        read_only=True, help_text="Cluster this entry refers to, within the snapshot."
-    )
-    label = serializers.CharField(  # type: ignore[assignment]
-        read_only=True, help_text="The cluster's representative intent text."
+        read_only=True,
+        help_text="Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here.",
     )
     calls = serializers.IntegerField(read_only=True, help_text="Calls routed to this tool for this intent cluster.")
     capture_pct = serializers.FloatField(
@@ -514,10 +512,6 @@ class MCPToolPivotClusterEntrySerializer(serializers.Serializer):
     rank = serializers.IntegerField(
         read_only=True,
         help_text="This tool's position in the cluster's tool distribution; 1 is the cluster's top tool.",
-    )
-    cluster_call_count = serializers.IntegerField(read_only=True, help_text="Total calls in the cluster, all tools.")
-    cluster_entropy = serializers.FloatField(
-        read_only=True, help_text="The cluster's routing entropy, 0 (one tool dominates) to 1 (spread evenly)."
     )
     description_fit = serializers.FloatField(
         read_only=True,
@@ -534,10 +528,14 @@ class MCPToolPivotClusterEntrySerializer(serializers.Serializer):
 class MCPToolPivotSerializer(serializers.Serializer):
     tool = serializers.CharField(read_only=True, help_text="Effective MCP tool name.")
     call_count = serializers.IntegerField(
-        read_only=True, help_text="Intent-attributed calls to this tool across the sampled corpus."
+        read_only=True,
+        help_text="Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out.",
     )
     error_count = serializers.IntegerField(read_only=True, help_text="Errored attributed calls across the corpus.")
-    session_count = serializers.IntegerField(read_only=True, help_text="Sampled sessions that called this tool.")
+    session_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count.",
+    )
     contested_score = serializers.FloatField(
         read_only=True,
         allow_null=True,
@@ -560,10 +558,14 @@ class MCPToolPivotSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.",
     )
+    n_clusters_served = serializers.IntegerField(
+        read_only=True,
+        help_text="How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete.",
+    )
     clusters = MCPToolPivotClusterEntrySerializer(
         many=True,
         read_only=True,
-        help_text="Intent clusters this tool serves, by call volume desc, capped at 20.",
+        help_text="Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count.",
     )
 
 

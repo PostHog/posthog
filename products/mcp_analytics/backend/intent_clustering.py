@@ -10,10 +10,16 @@ each stage as a pure function over numpy arrays / dataclasses makes the
 algorithm validatable without touching ClickHouse, Postgres, or the embedding
 service.
 
-Intent sources: the corpus is per tool call. Each call carries its own
-``$mcp_intent``; calls without one inherit the most recent prior intent in the
-same session (last observation carried forward), so tools are credited to the
-intent they actually served rather than to the session's opening statement.
+Intent sources: the corpus is per tool call, and events are its only source.
+Each call carries its own ``$mcp_intent``; calls without one inherit the most
+recent prior intent in the same session (last observation carried forward), so
+tools are credited to the intent they actually served rather than to the
+session's opening statement. The on-demand ``MCPSession.intent`` LLM summaries
+are deliberately *not* overlaid: a summary describes a whole session, so
+attributing it to each of that session's calls is the smear this corpus exists
+to remove. Sessions whose intent was only ever summarised therefore sit outside
+clustering; ``intent_coverage_pct`` reports how much of the window that leaves
+out.
 The snapshot also carries a tool-centric pivot: per tool, which intent clusters
 it serves, its share of each (capture), how contested those clusters are, and,
 where a ``$mcp_tools_list`` catalog was observed, how often agents discover the
@@ -65,9 +71,10 @@ MAX_DESCRIPTION_LENGTH = 512
 # Below this many advertised sessions a discovery rate is noise, so it stays null.
 MIN_ADVERTISED_SESSIONS = 5
 # Payload bounds for the snapshot blob. Only the two top-level caps report what they
-# dropped (`dropped_tools`, `dropped_overlap_pairs` in computed_with); the per-tool and
-# per-cluster caps below truncate silently, so `computed_with` is not a completeness
-# check for them — a tool showing 20 clusters may have had more.
+# dropped (`dropped_tools`, `dropped_overlap_pairs` in computed_with); the per-cluster
+# caps below truncate silently, so `computed_with` is not a completeness check for them.
+# The per-tool cluster cap is the exception: `n_clusters_served` carries the pre-cap
+# count, so a tool showing 20 entries can still say how many it really serves.
 MAX_TOOLS_IN_SNAPSHOT = 300
 MAX_CLUSTERS_PER_TOOL = 20
 MAX_SWITCHES_PER_CLUSTER = 10
@@ -78,9 +85,9 @@ MAX_CONFUSION_PAIRS = 50
 # contribute at most their own tiny min(count) anyway.
 MAX_OVERLAP_TOOLS_PER_CLUSTER = 20
 
-# Placeholder previously written by the (now-removed) summariser job for sessions with no
-# recordable tool-call intents. Still filtered out of the corpus so it doesn't form a
-# meaningless pseudo-cluster of "empty" sessions.
+# Placeholder the session summariser writes when a session has no recordable intent.
+# No event ever carries it, so this only bites if a summary is ever fed back into the
+# corpus — kept as a guard so that path can't form a pseudo-cluster of "empty" sessions.
 NO_INTENT_RECORDED_FALLBACK = "No agent intent was recorded for this session."
 
 # Embedding cache + concurrency
@@ -253,7 +260,9 @@ LIMIT {max_rows}
 
 # Whole-window totals for the coverage metrics in computed_with. One cheap
 # aggregate row; deliberately unsampled so the UI can honestly relate the
-# sampled corpus to the traffic it represents.
+# sampled corpus to the traffic it represents. The notEmpty tool predicate
+# mirrors _SESSION_CALLS_SQL — the coverage banner reads these percentages
+# against the corpus, so both have to describe the same population.
 _WINDOW_STATS_SQL = """
 SELECT
     count() AS total_calls,
@@ -263,6 +272,7 @@ FROM events
 WHERE event = {event}
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
     AND $session_id != ''
+    AND notEmpty({tool_expr_where})
 """
 
 # Latest observed description per effective tool. argMax(description, timestamp)
@@ -390,6 +400,7 @@ def fetch_window_stats(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -
         _WINDOW_STATS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "tool_expr_where": parse_expr(EFFECTIVE_TOOL_SQL),
             "lookback_days": ast.Constant(value=lookback_days),
         },
     )
@@ -458,8 +469,8 @@ def build_call_corpus(
             continue
         total_calls += 1
         text = str(raw_intent or "").strip()
-        # The summariser's "nothing here" placeholder is not an intent; treating
-        # it as one would form a meaningless pseudo-cluster.
+        # Guards against a summariser placeholder reaching the corpus; see the
+        # constant. It is not an intent, and clustering it forms a pseudo-cluster.
         if text == NO_INTENT_RECORDED_FALLBACK:
             text = ""
         text = text[:MAX_INTENT_TEXT_LENGTH]
@@ -807,20 +818,6 @@ def top_corpus_tools(records: list[IntentRecord], max_tools: int = MAX_TOOLS_IN_
     return {tool for tool, _ in sorted(totals.items(), key=lambda item: (-item[1], item[0]))[:max_tools]}
 
 
-def select_tools_for_description_fit(
-    records: list[IntentRecord],
-    tool_descriptions: dict[str, str],
-    max_tools: int = MAX_TOOLS_IN_SNAPSHOT,
-) -> dict[str, str]:
-    """Bound the description-embedding fan-out to tools that can appear in the snapshot.
-
-    Defense in depth for callers that fetched descriptions elsewhere; the primary
-    bound is passing ``top_corpus_tools`` into ``fetch_tool_descriptions``.
-    """
-    kept = top_corpus_tools(records, max_tools)
-    return {tool: text for tool, text in tool_descriptions.items() if tool in kept}
-
-
 def compute_description_fit(
     embeddings: np.ndarray,
     labels: np.ndarray,
@@ -857,6 +854,7 @@ def compute_tool_pivot(
     description_fit: dict[str, dict[int, float]],
     max_tools: int = MAX_TOOLS_IN_SNAPSHOT,
     max_clusters_per_tool: int = MAX_CLUSTERS_PER_TOOL,
+    snapshot_cluster_ids: Collection[int] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Pivot the built clusters into a per-tool view.
 
@@ -866,15 +864,35 @@ def compute_tool_pivot(
     the tool (null below ``MIN_ADVERTISED_SESSIONS`` — not enough signal).
     Returns ``(tools, dropped_count)`` with tools capped at ``max_tools`` by
     call volume.
+
+    Totals cover every cluster in ``clusters``. ``snapshot_cluster_ids``, when
+    given, restricts which clusters get a per-cluster *entry*: callers pass the
+    ids that survived the snapshot's cluster cap so every ``cluster_id`` in the
+    blob still resolves against a cluster the blob carries, while the totals
+    keep counting the calls of the clusters the cap dropped. ``n_clusters_served``
+    is the pre-cap count, so the UI can say when an entry list is partial.
+
+    Entries deliberately carry no per-cluster constants (label, cluster totals,
+    entropy): repeating them per tool x cluster is what turns this pivot into a
+    multi-megabyte blob. Clients join on ``cluster_id``.
     """
     per_tool_clusters: dict[str, list[dict[str, Any]]] = defaultdict(list)
     call_totals: Counter[str] = Counter()
     error_totals: Counter[str] = Counter()
+    clusters_served: Counter[str] = Counter()
+    weighted_entropy: dict[str, float] = defaultdict(float)
 
     for cluster in clusters:
         distribution = cluster["tool_distribution"]
+        in_snapshot = snapshot_cluster_ids is None or cluster["id"] in snapshot_cluster_ids
         for rank, entry in enumerate(distribution, start=1):
             tool = entry["tool"]
+            call_totals[tool] += entry["count"]
+            error_totals[tool] += entry["errors"]
+            clusters_served[tool] += 1
+            weighted_entropy[tool] += entry["count"] * cluster["routing_entropy"]
+            if not in_snapshot:
+                continue
             competitor = next(
                 ({"tool": other["tool"], "pct": other["pct"]} for other in distribution if other["tool"] != tool),
                 None,
@@ -882,36 +900,39 @@ def compute_tool_pivot(
             per_tool_clusters[tool].append(
                 {
                     "cluster_id": cluster["id"],
-                    "label": cluster["label"],
                     "calls": entry["count"],
                     "capture_pct": entry["pct"],
                     "rank": rank,
-                    "cluster_call_count": cluster["call_count"],
-                    "cluster_entropy": cluster["routing_entropy"],
                     "description_fit": description_fit.get(tool, {}).get(cluster["id"]),
                     "top_competitor": competitor,
                 }
             )
-            call_totals[tool] += entry["count"]
-            error_totals[tool] += entry["errors"]
 
+    # Attributed calls only, matching call_count and the session sets
+    # compute_tool_overlaps builds. Counting unattributed calls here would let a
+    # tool post a healthy discovery rate off calls that never entered a cluster.
     sessions_calling: dict[str, set[str]] = defaultdict(set)
     for session_id, calls in calls_by_session.items():
         for call in calls:
+            if call.intent_text is None:
+                continue
             sessions_calling[call.tool].add(session_id)
 
     # Inverted once rather than per tool: the tool set is sender-controlled and uncapped
     # at this point, so scanning every advertised session for each of them is O(tools x
     # sessions) on values a caller chooses.
+    # Only corpus sessions count. A session the row cap dropped contributes nothing to
+    # the numerator, so leaving it in the denominator biases discovery rates down
+    # precisely when truncation fires.
     advertised_sessions_by_tool: dict[str, set[str]] = defaultdict(set)
     for session_id, advertised in advertised_by_session.items():
+        if session_id not in calls_by_session:
+            continue
         for advertised_tool in advertised:
             advertised_sessions_by_tool[advertised_tool].add(session_id)
 
     tools: list[dict[str, Any]] = []
-    for tool, cluster_entries in per_tool_clusters.items():
-        call_count = call_totals[tool]
-        weighted_entropy = sum(entry["calls"] * entry["cluster_entropy"] for entry in cluster_entries)
+    for tool, call_count in call_totals.items():
         advertised_sessions = advertised_sessions_by_tool[tool]
         called_when_advertised = len(advertised_sessions & sessions_calling[tool])
         discovery_rate_pct = (
@@ -925,12 +946,13 @@ def compute_tool_pivot(
                 "call_count": call_count,
                 "error_count": error_totals[tool],
                 "session_count": len(sessions_calling[tool]),
-                "contested_score": round(weighted_entropy / call_count, 3) if call_count else None,
+                "contested_score": round(weighted_entropy[tool] / call_count, 3) if call_count else None,
+                "n_clusters_served": clusters_served[tool],
                 "advertised_sessions": len(advertised_sessions),
                 "called_when_advertised": called_when_advertised,
                 "discovery_rate_pct": discovery_rate_pct,
                 "description": tool_descriptions.get(tool),
-                "clusters": sorted(cluster_entries, key=lambda entry: entry["calls"], reverse=True)[
+                "clusters": sorted(per_tool_clusters[tool], key=lambda entry: entry["calls"], reverse=True)[
                     :max_clusters_per_tool
                 ],
             }
@@ -1025,7 +1047,7 @@ def build_snapshot(
     null meta fields, never as fabricated zeros.
     """
     if len(records) == 0:
-        return empty_snapshot(distance_threshold, n_intents=0)
+        return empty_snapshot(distance_threshold, n_intents=0, corpus_stats=corpus_stats, window_stats=window_stats)
     assert len(records) == len(labels) == len(embeddings), (
         f"records ({len(records)}), labels ({len(labels)}), and embeddings ({len(embeddings)}) must be the same length"
     )
@@ -1095,14 +1117,23 @@ def build_snapshot(
     # Persist only the highest-volume clusters; ``n_clusters`` keeps the full
     # count so the UI can say how many the run actually found.
     n_clusters_total = len(clusters)
-    del clusters[MAX_SNAPSHOT_CLUSTERS:]
+    snapshot_clusters = clusters[:MAX_SNAPSHOT_CLUSTERS]
 
     fit = compute_description_fit(embeddings, labels, description_embeddings or {})
     if calls_by_session is not None:
+        # The pivot totals read every cluster so the cap above never quietly
+        # removes calls from a tool's counts, while its entries stay restricted
+        # to the clusters this blob carries. Overlaps stay on the persisted
+        # clusters because ``top_cluster_id`` has to resolve within the blob.
         tools, dropped_tools = compute_tool_pivot(
-            clusters, calls_by_session, advertised_by_session or {}, tool_descriptions or {}, fit
+            clusters,
+            calls_by_session,
+            advertised_by_session or {},
+            tool_descriptions or {},
+            fit,
+            snapshot_cluster_ids={cluster["id"] for cluster in snapshot_clusters},
         )
-        tool_overlaps, dropped_pairs = compute_tool_overlaps(clusters, calls_by_session)
+        tool_overlaps, dropped_pairs = compute_tool_overlaps(snapshot_clusters, calls_by_session)
     else:
         tools, dropped_tools, tool_overlaps, dropped_pairs = [], 0, [], 0
 
@@ -1143,14 +1174,25 @@ def build_snapshot(
 
     return {
         "version": SNAPSHOT_VERSION,
-        "clusters": clusters,
+        "clusters": snapshot_clusters,
         "tools": tools,
         "tool_overlaps": tool_overlaps,
         "computed_with": meta,
     }
 
 
-def empty_snapshot(distance_threshold: float, n_intents: int) -> dict[str, Any]:
+def empty_snapshot(
+    distance_threshold: float,
+    n_intents: int,
+    corpus_stats: CorpusStats | None = None,
+    window_stats: WindowStats | None = None,
+) -> dict[str, Any]:
+    """The no-clusters blob, keeping whatever coverage the run did establish.
+
+    A window full of traffic that carried no attributable intent must not read
+    the same as a window with no traffic at all: "0% of calls carried an intent"
+    is the actionable message, all-null is a dead end.
+    """
     return {
         "version": SNAPSHOT_VERSION,
         "clusters": [],
@@ -1163,11 +1205,17 @@ def empty_snapshot(distance_threshold: float, n_intents: int) -> dict[str, Any]:
             "n_clusters": 0,
             "corpus": "per_call",
             "sampled_sessions": None,
-            "window_sessions": None,
+            "window_sessions": window_stats.sessions if window_stats else None,
             "session_coverage_pct": None,
-            "intent_coverage_pct": None,
+            "intent_coverage_pct": (
+                _pct(window_stats.calls_with_intent, window_stats.total_calls) if window_stats else None
+            ),
             "imputed_call_pct": None,
-            "unattributed_call_pct": None,
+            "unattributed_call_pct": (
+                _pct(corpus_stats.total_calls - corpus_stats.attributed_calls, corpus_stats.total_calls)
+                if corpus_stats
+                else None
+            ),
             "corpus_call_coverage_pct": None,
             "advertisement_coverage_pct": None,
             "n_tools": 0,

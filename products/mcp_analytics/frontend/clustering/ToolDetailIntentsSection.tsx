@@ -4,20 +4,20 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 
 import { urls } from '~/scenes/urls'
 
-import { mcpClusteringLogic } from './mcpClusteringLogic'
+import { mcpToolIntentsLogic } from './mcpToolIntentsLogic'
 import { ToolIntentDetail } from './ToolIntentDetail'
 
 /**
  * The "Intents served" panel on the tool detail page: this tool's slice of the
  * latest intent cluster snapshot. Reads the same snapshot the clustering tab
- * shows, so the numbers always agree between the two surfaces.
+ * shows — scoped to this tool by the API — so the numbers always agree between
+ * the two surfaces without the page downloading every other tool's pivot.
  */
 export function ToolDetailIntentsSection({ toolName }: { toolName: string }): JSX.Element {
-    const { tools, hasSnapshot, snapshotLoading, snapshot } = useValues(mcpClusteringLogic)
-    const tool = tools.find((t) => t.tool === toolName) ?? null
+    const { tool, clusters, hasSnapshot, snapshotLoading, snapshot } = useValues(mcpToolIntentsLogic({ toolName }))
 
     if (tool) {
-        return <ToolIntentDetail tool={tool} showToolLink={false} />
+        return <ToolIntentDetail tool={tool} clusters={clusters} showToolLink={false} />
     }
 
     // Mirror the clustering tab's error handling: a failed run must not read as

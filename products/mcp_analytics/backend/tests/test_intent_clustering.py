@@ -35,6 +35,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     MAX_DESCRIPTION_LENGTH,
     MAX_INTENT_TEXT_LENGTH,
     MAX_TOOL_NAME_LENGTH,
+    MAX_TOOLS_IN_SNAPSHOT,
     MAX_TOOLS_PER_ADVERTISED_LIST,
     MIN_ADVERTISED_SESSIONS,
     NO_INTENT_RECORDED_FALLBACK,
@@ -61,7 +62,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     fetch_tool_descriptions,
     fetch_window_stats,
     sample_corpus_sessions,
-    select_tools_for_description_fit,
+    top_corpus_tools,
 )
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -280,6 +281,55 @@ class TestBuildSnapshot:
         assert snapshot["computed_with"]["n_clusters"] == n_total
         # The highest-volume clusters are the ones kept (call counts 1..n_total; the 5 smallest drop).
         assert min(cluster["call_count"] for cluster in snapshot["clusters"]) == 6
+
+    def test_pivot_totals_survive_the_cluster_cap(self) -> None:
+        # The cluster cap runs before the pivot, so without care every per-tool
+        # total silently loses the calls of the clusters it dropped.
+        n_total = MAX_SNAPSHOT_CLUSTERS + 5
+        records = [
+            IntentRecord(intent_text=f"intent_{i}", frequency=i + 1, tool_counts={"tool_a": i + 1})
+            for i in range(n_total)
+        ]
+        labels = np.arange(n_total, dtype=np.int64)
+        embeddings = np.array([_unit([1.0, float(i + 1)]) for i in range(n_total)], dtype=np.float32)
+
+        snapshot = build_snapshot(records, labels, embeddings, calls_by_session={})
+
+        tool = snapshot["tools"][0]
+        assert tool["call_count"] == sum(range(1, n_total + 1))
+        assert tool["n_clusters_served"] == n_total
+        assert {entry["cluster_id"] for entry in tool["clusters"]} <= {c["id"] for c in snapshot["clusters"]}
+
+    def test_pivot_tools_match_the_population_descriptions_are_fetched_for(self) -> None:
+        # Descriptions are only fetched for top_corpus_tools(records). If the pivot
+        # ranks a different population, a tool that made the pivot never has a
+        # description fetched and renders as "none captured" for no visible reason.
+        n_tools = MAX_TOOLS_IN_SNAPSHOT + 5
+        records = [
+            IntentRecord(intent_text=f"intent_{i}", frequency=i + 1, tool_counts={f"tool_{i:04d}": i + 1})
+            for i in range(n_tools)
+        ]
+        labels = np.arange(n_tools, dtype=np.int64)
+        embeddings = np.array([_unit([1.0, float(i + 1)]) for i in range(n_tools)], dtype=np.float32)
+
+        snapshot = build_snapshot(records, labels, embeddings, calls_by_session={})
+
+        assert {tool["tool"] for tool in snapshot["tools"]} == top_corpus_tools(records)
+
+    def test_empty_corpus_keeps_the_coverage_it_does_know(self) -> None:
+        # A run that saw traffic but could attribute none of it must not look
+        # identical to a run that saw nothing at all — "0% of calls carried an
+        # intent" is the message that tells the owner what to fix.
+        snapshot = build_snapshot(
+            [],
+            np.array([], dtype=np.int64),
+            np.zeros((0, 4), dtype=np.float32),
+            window_stats=WindowStats(total_calls=400, calls_with_intent=0, sessions=25),
+        )
+
+        assert snapshot["clusters"] == []
+        assert snapshot["computed_with"]["window_sessions"] == 25
+        assert snapshot["computed_with"]["intent_coverage_pct"] == pytest.approx(0.0)
 
     def test_snapshot_is_versioned_and_v1_style_invocation_degrades(self) -> None:
         records = [IntentRecord(intent_text="a", frequency=1, tool_counts={"tool_a": 1})]
@@ -526,10 +576,10 @@ class TestComputeClusterFlows:
         assert flows[0]["switches"] == [{"from_tool": "tool_a", "to_tool": "tool_b", "count": 1}]
 
 
-# select_tools_for_description_fit ------------------------------------------
+# top_corpus_tools ----------------------------------------------------------
 
 
-class TestSelectToolsForDescriptionFit:
+class TestTopCorpusTools:
     def test_caps_to_the_highest_volume_corpus_tools(self) -> None:
         # A caller emitting unique tool names per call could otherwise turn one
         # recompute into one embedding request per unique name.
@@ -537,18 +587,8 @@ class TestSelectToolsForDescriptionFit:
             IntentRecord(intent_text="a", frequency=5, tool_counts={"busy": 5}),
             IntentRecord(intent_text="b", frequency=3, tool_counts={"quiet": 1, "busy": 2}),
         ]
-        descriptions = {"busy": "d1", "quiet": "d2", "uncalled": "d3"}
 
-        kept = select_tools_for_description_fit(records, descriptions, max_tools=1)
-
-        assert kept == {"busy": "d1"}
-
-    def test_keeps_only_corpus_tools_regardless_of_cap(self) -> None:
-        records = [IntentRecord(intent_text="a", frequency=1, tool_counts={"called": 1})]
-
-        kept = select_tools_for_description_fit(records, {"called": "d", "uncalled": "d"}, max_tools=10)
-
-        assert kept == {"called": "d"}
+        assert top_corpus_tools(records, max_tools=1) == {"busy"}
 
 
 # compute_description_fit --------------------------------------------------
@@ -629,12 +669,33 @@ class TestComputeToolPivot:
         assert t2["clusters"][0]["top_competitor"] == {"tool": "t1", "pct": 60.0}
         assert by_tool["t1"]["clusters"][1]["top_competitor"] is None
 
+    def test_advertised_denominator_ignores_sessions_absent_from_the_corpus(self) -> None:
+        # The row cap can drop whole sessions after their ids were sampled. Leaving
+        # them in the advertised denominator with nothing in the numerator drags
+        # every discovery rate down exactly when the truncation warning fires.
+        advertised = {f"s{i}": {"t1"} for i in range(MIN_ADVERTISED_SESSIONS + 3)}
+        calls = {f"s{i}": [_attributed_call(f"s{i}", "t1")] for i in range(MIN_ADVERTISED_SESSIONS)}
+
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session=calls,
+            advertised_by_session=advertised,
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        t1 = {t["tool"]: t for t in pivot}["t1"]
+        assert t1["advertised_sessions"] == MIN_ADVERTISED_SESSIONS
+        assert t1["discovery_rate_pct"] == pytest.approx(100.0)
+
     def test_discovery_rate_needs_the_advertised_floor(self) -> None:
-        # t1 advertised in 5 sessions and called in 3 of them: measurable at exactly
-        # the floor. t2 advertised in only 1 session: below the floor, so null.
+        # t1 advertised in 5 corpus sessions and called in 3 of them: measurable at
+        # exactly the floor. t2 advertised in only 1 session: below the floor, so
+        # null. The other two sessions are in the corpus for a different tool.
         advertised = {f"s{i}": {"t1"} for i in range(MIN_ADVERTISED_SESSIONS)}
         advertised["s0"] = {"t1", "t2"}
         calls = {f"s{i}": [_attributed_call(f"s{i}", "t1")] for i in range(3)}
+        calls |= {f"s{i}": [_attributed_call(f"s{i}", "t2")] for i in (3, 4)}
 
         pivot, _ = compute_tool_pivot(
             _cluster_fixture(),
@@ -678,6 +739,70 @@ class TestComputeToolPivot:
 
         assert [t["tool"] for t in pivot] == ["t1"]
         assert dropped == 1
+
+    def test_entries_carry_no_per_cluster_constants(self) -> None:
+        # label, cluster call count, and entropy are constants of the cluster, and
+        # a tool x cluster entry repeats them once per tool. At the caps this file
+        # sets that is megabytes of duplicated intent text in one JSONB blob, which
+        # is exactly what the cluster cap exists to prevent. The client joins the
+        # cluster's own fields on cluster_id instead.
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session={},
+            advertised_by_session={},
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        assert set(pivot[0]["clusters"][0]) == {
+            "cluster_id",
+            "calls",
+            "capture_pct",
+            "rank",
+            "description_fit",
+            "top_competitor",
+        }
+
+    def test_totals_span_every_cluster_while_entries_stay_joinable(self) -> None:
+        # Clusters past the snapshot cap are dropped from the blob, but their calls
+        # still happened: per-tool totals must count them, or the pivot silently
+        # under-reports. Entries stay restricted to persisted clusters so every
+        # cluster_id still resolves client-side.
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session={},
+            advertised_by_session={},
+            tool_descriptions={},
+            description_fit={},
+            snapshot_cluster_ids={0},
+        )
+
+        t1 = {t["tool"]: t for t in pivot}["t1"]
+        assert t1["call_count"] == 10
+        assert t1["n_clusters_served"] == 2
+        assert [entry["cluster_id"] for entry in t1["clusters"]] == [0]
+
+    def test_session_count_counts_only_intent_attributed_calls(self) -> None:
+        # call_count is attributed calls only, and compute_tool_overlaps builds its
+        # session sets the same way. Counting unattributed calls here lets a tool
+        # show a healthy discovery rate driven entirely by calls that never entered
+        # a cluster.
+        calls = {
+            "s-attributed": [_attributed_call("s-attributed", "t1")],
+            "s-unattributed": [CallRecord(session_id="s-unattributed", tool="t1", intent_text=None, is_error=False)],
+        }
+
+        pivot, _ = compute_tool_pivot(
+            _cluster_fixture(),
+            calls_by_session=calls,
+            advertised_by_session={"s-attributed": {"t1"}, "s-unattributed": {"t1"}},
+            tool_descriptions={},
+            description_fit={},
+        )
+
+        t1 = {t["tool"]: t for t in pivot}["t1"]
+        assert t1["session_count"] == 1
+        assert t1["called_when_advertised"] == 1
 
 
 # compute_tool_overlaps ----------------------------------------------------
@@ -878,6 +1003,10 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         self._seed_tool_call("session-a", "execute_sql", intent="find slow queries")
         self._seed_tool_call("session-a", "query_trends")
         self._seed_tool_call("session-b", "feature_flag_get")
+        # The corpus query requires a tool name, so nameless calls must stay out of
+        # these denominators too — intent_coverage_pct is read against the corpus.
+        self._seed_tool_call("session-a", "")
+        self._seed_tool_call("session-nameless", "")
         flush_persons_and_events()
 
         stats = fetch_window_stats(self.team)

@@ -158,13 +158,14 @@ class ToolPivotCompetitor:
 
 @dataclass(frozen=True)
 class ToolPivotClusterEntry:
+    """One tool's slice of one cluster. Deliberately carries no per-cluster
+    constants — the cluster's label, totals, and entropy are joined on
+    ``cluster_id`` so the blob doesn't repeat them once per tool."""
+
     cluster_id: int
-    label: str
     calls: int
     capture_pct: float
     rank: int
-    cluster_call_count: int
-    cluster_entropy: float
     description_fit: float | None = None
     top_competitor: ToolPivotCompetitor | None = None
 
@@ -180,6 +181,7 @@ class ToolPivot:
     called_when_advertised: int
     discovery_rate_pct: float | None
     description: str | None
+    n_clusters_served: int = 0
     clusters: list[ToolPivotClusterEntry] = field(default_factory=list)
 
 

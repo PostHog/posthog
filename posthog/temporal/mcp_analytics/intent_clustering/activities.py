@@ -118,10 +118,16 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 records, calls_by_session, corpus_stats = intent_clustering.build_call_corpus(
                     call_rows, top_n=inputs.top_n
                 )
+                # Fetched before the empty-corpus return so that path can still report
+                # what the window held: "0% of calls carried an intent" is actionable,
+                # an all-null snapshot is indistinguishable from having no traffic.
+                window_stats = await database_sync_to_async(intent_clustering.fetch_window_stats)(
+                    team, lookback_days=inputs.lookback_days
+                )
                 activity.heartbeat("fetched corpus")
 
                 if not records:
-                    await database_sync_to_async(_save_empty_blob)(snapshot)
+                    await database_sync_to_async(_save_empty_blob)(snapshot, corpus_stats, window_stats)
                     logger.info(
                         "mcpa.intent_clustering.no_intents_found",
                         team_id=inputs.team_id,
@@ -145,11 +151,11 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 labels = await asyncio.to_thread(intent_clustering.cluster_embeddings, embeddings)
                 activity.heartbeat("clustered")
 
+                # Corpus sessions, not sampled ones: the row cap can drop whole
+                # sessions after their ids were sampled, and those contribute no calls
+                # to any discovery numerator.
                 advertised_by_session = await database_sync_to_async(intent_clustering.fetch_advertised_tools)(
-                    team, session_ids, lookback_days=inputs.lookback_days
-                )
-                window_stats = await database_sync_to_async(intent_clustering.fetch_window_stats)(
-                    team, lookback_days=inputs.lookback_days
+                    team, list(calls_by_session), lookback_days=inputs.lookback_days
                 )
                 # Bound the description aggregation and embedding fan-out to the tools
                 # that can appear in the snapshot; see top_corpus_tools for why.
@@ -207,13 +213,22 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 raise
 
 
-def _save_empty_blob(snapshot: MCPIntentClusterSnapshot) -> None:
+def _save_empty_blob(
+    snapshot: MCPIntentClusterSnapshot,
+    corpus_stats: intent_clustering.CorpusStats | None = None,
+    window_stats: intent_clustering.WindowStats | None = None,
+) -> None:
     """Synchronous helper to write an empty snapshot when the corpus is empty.
 
     Lives outside the async activity body so ``database_sync_to_async`` can
     wrap it without re-entrancy from inside an async context.
     """
-    snapshot.clusters = intent_clustering.empty_snapshot(intent_clustering.DEFAULT_DISTANCE_THRESHOLD, n_intents=0)
+    snapshot.clusters = intent_clustering.empty_snapshot(
+        intent_clustering.DEFAULT_DISTANCE_THRESHOLD,
+        n_intents=0,
+        corpus_stats=corpus_stats,
+        window_stats=window_stats,
+    )
     snapshot.status = MCPIntentClusterSnapshot.Status.IDLE
     snapshot.error_message = ""
     snapshot.last_computed_at = timezone.now()

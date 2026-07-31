@@ -39662,20 +39662,14 @@ export namespace Schemas {
     }
 
     export interface MCPToolPivotClusterEntry {
-      /** Cluster this entry refers to, within the snapshot. */
+      /** Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here. */
       readonly cluster_id: number;
-      /** The cluster's representative intent text. */
-      readonly label: string;
       /** Calls routed to this tool for this intent cluster. */
       readonly calls: number;
       /** Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent. */
       readonly capture_pct: number;
       /** This tool's position in the cluster's tool distribution; 1 is the cluster's top tool. */
       readonly rank: number;
-      /** Total calls in the cluster, all tools. */
-      readonly cluster_call_count: number;
-      /** The cluster's routing entropy, 0 (one tool dominates) to 1 (spread evenly). */
-      readonly cluster_entropy: number;
       /**
          * Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.
          * @nullable
@@ -39688,11 +39682,11 @@ export namespace Schemas {
     export interface MCPToolPivot {
       /** Effective MCP tool name. */
       readonly tool: string;
-      /** Intent-attributed calls to this tool across the sampled corpus. */
+      /** Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out. */
       readonly call_count: number;
       /** Errored attributed calls across the corpus. */
       readonly error_count: number;
-      /** Sampled sessions that called this tool. */
+      /** Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count. */
       readonly session_count: number;
       /**
          * Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.
@@ -39713,7 +39707,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly description: string | null;
-      /** Intent clusters this tool serves, by call volume desc, capped at 20. */
+      /** How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete. */
+      readonly n_clusters_served: number;
+      /** Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count. */
       readonly clusters: readonly MCPToolPivotClusterEntry[];
     }
 
@@ -79955,6 +79951,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type McpAnalyticsIntentClustersRetrieveParams = {
+    /**
+     * Narrow the response to one tool: its pivot entry, the clusters it serves or switches with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use this for single-tool views so they don't download every cluster and pivot to render one row. An unknown tool returns empty sections, not a 404.
+     */
+    tool?: string;
     };
 
     export type McpAnalyticsMissingCapabilitiesListParams = {

@@ -11,6 +11,7 @@ import type {
     MCPIntentClusterSnapshotApi,
     MCPToolOverlapApi,
     MCPToolPivotApi,
+    MCPToolPivotClusterEntryApi,
 } from '../generated/api.schemas'
 
 const EMPTY_SNAPSHOT: MCPIntentClusterSnapshotApi = {
@@ -69,6 +70,45 @@ export function weightedMeanFit(tool: MCPToolPivotApi): number | null {
         return null
     }
     return withFit.reduce((sum, entry) => sum + (entry.description_fit as number) * entry.calls, 0) / totalCalls
+}
+
+/** An entry joined to the cluster it points at, so the pivot doesn't have to carry a copy. */
+export interface ToolClusterRow {
+    entry: MCPToolPivotClusterEntryApi
+    cluster: MCPIntentClusterApi
+}
+
+/**
+ * Join a tool's pivot entries to their clusters. Entries whose cluster is absent
+ * are dropped rather than rendered label-less: the backend only emits entries for
+ * clusters the snapshot carries, so a miss means the two came from different runs.
+ */
+export function toolClusterRows(
+    tool: MCPToolPivotApi,
+    clusters: readonly MCPIntentClusterApi[]
+): ToolClusterRow[] {
+    const byId = new Map(clusters.map((cluster) => [cluster.id, cluster]))
+    return tool.clusters.flatMap((entry) => {
+        const cluster = byId.get(entry.cluster_id)
+        return cluster ? [{ entry, cluster }] : []
+    })
+}
+
+// Cosine fits for one server's tools against its own intent centroids sit in a
+// narrow band. Anchoring the axis at 0 pushes every bubble against the right edge
+// and runs the median line through the pile, defeating the quadrant read.
+const FIT_DOMAIN_MIN_SPAN = 0.1
+const FIT_DOMAIN_PADDING = 0.1
+
+/** Padded x-domain around the observed fits, with a floor on the span so a single point can't collapse it. */
+export function fitDomain(fits: number[]): [number, number] {
+    if (fits.length === 0) {
+        return [0, 1]
+    }
+    const low = Math.min(...fits)
+    const high = Math.max(...fits)
+    const pad = Math.max((high - low) * FIT_DOMAIN_PADDING, FIT_DOMAIN_MIN_SPAN / 2)
+    return [Math.max(-1, low - pad), Math.min(1, high + pad)]
 }
 
 function median(values: number[]): number | null {

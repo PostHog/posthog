@@ -69,7 +69,11 @@ Each entry in `tools` carries:
   (its share of the cluster's calls), `rank`, `top_competitor` (the strongest
   other tool and its share), and `description_fit` (cosine similarity between
   the tool's description and the cluster centroid; null until descriptions are
-  captured)
+  captured). Entries carry only `cluster_id`, not the cluster's own label or
+  totals — join them against the top-level `clusters` array on that id
+- `n_clusters_served` — how many clusters the tool serves in total. The entry
+  list above is capped, so compare the two before saying "this tool serves N
+  intents"
 - `discovery_rate_pct` — of the sampled sessions whose `$mcp_tools_list`
   catalog advertised the tool, the share that actually called it; null when the
   tool was advertised in fewer than 5 sampled sessions
@@ -92,9 +96,18 @@ measured on full-catalog sessions.
 
 `computed_with` is not a completeness check for everything, though. Only the
 top-level tool and overlap-pair caps report what they dropped, via
-`dropped_tools` and `dropped_overlap_pairs`. The per-tool and per-cluster lists
-are capped silently, so treat a tool showing 20 clusters, a cluster showing 10
-switches, or 5 self-retries as "at least that many", not "exactly".
+`dropped_tools` and `dropped_overlap_pairs`. The per-cluster lists are capped
+silently, so treat a cluster showing 10 switches or 5 self-retries as "at least
+that many", not "exactly". A tool's cluster entries are capped too, but there
+`n_clusters_served` gives you the real count.
+
+Clustering reads events only. The on-demand session summaries
+(`MCPSession.intent`, what "generate intent" writes) are deliberately left out:
+a summary describes a whole session, and spreading it across that session's
+calls is the mis-attribution the per-call corpus exists to remove. So a session
+whose intent was only ever summarised is not in any cluster — check
+`intent_coverage_pct` for how much of the window that leaves out, and read
+session summaries directly when you need them.
 
 ## Workflow: handle an empty or stale snapshot
 

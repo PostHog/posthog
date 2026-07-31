@@ -703,8 +703,44 @@ def _parse_int(value: str | int | None) -> int | None:
         return None
 
 
-def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
+def _scope_blob_to_tool(
+    clusters_raw: list[Any], tools_raw: list[Any], overlaps_raw: list[Any], tool: str
+) -> tuple[list[Any], list[Any], list[Any]]:
+    """Narrow a snapshot blob to one tool's slice of it.
+
+    Keeps the tool's pivot entry, the clusters that entry references, the clusters
+    whose error switches name the tool (the detail panel lists those), and the
+    overlap pairs it belongs to. Everything else is other tools' data that a
+    single-tool view would download and discard.
+    """
+    tools = [item for item in tools_raw if isinstance(item, dict) and item.get("tool") == tool]
+    wanted_cluster_ids = {
+        entry.get("cluster_id") for item in tools for entry in item.get("clusters", []) if isinstance(entry, dict)
+    }
+    clusters = [
+        item
+        for item in clusters_raw
+        if isinstance(item, dict)
+        and (
+            item.get("id") in wanted_cluster_ids
+            or any(
+                isinstance(switch, dict) and tool in (switch.get("from_tool"), switch.get("to_tool"))
+                for switch in item.get("switches", [])
+            )
+        )
+    ]
+    overlaps = [
+        item for item in overlaps_raw if isinstance(item, dict) and tool in (item.get("tool_a"), item.get("tool_b"))
+    ]
+    return clusters, tools, overlaps
+
+
+def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:
     """Return the current intent cluster snapshot for a team.
+
+    ``tool`` narrows clusters, pivot, and overlaps to that tool's slice; the
+    coverage meta stays whole-snapshot because it describes the run. Surfaces
+    that render one tool use it so they don't download the full blob.
 
     When no snapshot exists yet, returns an empty IDLE one so callers can
     render the "compute" CTA without distinguishing "missing" from "empty".
@@ -751,6 +787,9 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
             reverse=True,
         )[:MAX_SNAPSHOT_CLUSTERS]
 
+    if tool is not None:
+        clusters_raw, tools_raw, overlaps_raw = _scope_blob_to_tool(clusters_raw, tools_raw, overlaps_raw, tool)
+
     return contracts.IntentClusterSnapshot(
         status=snapshot.status,
         error_message=snapshot.error_message,
@@ -763,12 +802,14 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
     )
 
 
+# bool is a subclass of int, so the isinstance check has to exclude it explicitly —
+# otherwise a boolean in the blob silently coerces to 1.0 / 1 instead of being rejected.
 def _opt_float(value: Any) -> float | None:
-    return float(value) if isinstance(value, int | float) else None
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
 def _opt_int(value: Any) -> int | None:
-    return int(value) if isinstance(value, int | float) else None
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
 def _to_cluster_dto(item: dict[str, Any]) -> contracts.IntentCluster:
@@ -823,6 +864,9 @@ def _to_tool_pivot_dto(item: dict[str, Any]) -> contracts.ToolPivot:
         called_when_advertised=int(item.get("called_when_advertised", 0)),
         discovery_rate_pct=_opt_float(item.get("discovery_rate_pct")),
         description=str(item["description"]) if item.get("description") else None,
+        # Pre-cap count, so the UI never presents a capped entry list as the whole
+        # story. Blobs written before it existed fall back to the entries they have.
+        n_clusters_served=_opt_int(item.get("n_clusters_served")) or len(item.get("clusters", [])),
         clusters=[_to_tool_pivot_cluster_dto(entry) for entry in item.get("clusters", []) if isinstance(entry, dict)],
     )
 
@@ -831,12 +875,9 @@ def _to_tool_pivot_cluster_dto(entry: dict[str, Any]) -> contracts.ToolPivotClus
     competitor_raw = entry.get("top_competitor")
     return contracts.ToolPivotClusterEntry(
         cluster_id=int(entry.get("cluster_id", 0)),
-        label=str(entry.get("label", "")),
         calls=int(entry.get("calls", 0)),
         capture_pct=float(entry.get("capture_pct", 0.0)),
         rank=int(entry.get("rank", 0)),
-        cluster_call_count=int(entry.get("cluster_call_count", 0)),
-        cluster_entropy=float(entry.get("cluster_entropy", 0.0)),
         description_fit=_opt_float(entry.get("description_fit")),
         top_competitor=(
             contracts.ToolPivotCompetitor(

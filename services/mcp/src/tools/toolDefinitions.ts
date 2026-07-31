@@ -66,6 +66,7 @@ const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 
 let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
+let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
 
 function getGeneratedToolDefinitions(): ToolDefinitions {
     if (!_generatedToolDefinitions) {
@@ -74,12 +75,17 @@ function getGeneratedToolDefinitions(): ToolDefinitions {
     return _generatedToolDefinitions
 }
 
+// Both sources are immutable module JSON, so the merge is memoised alongside them:
+// the analytics hot path calls this twice per tool call (category + description),
+// and rebuilding the whole record each time is pure waste.
 export function getToolDefinitions(): ToolDefinitions {
-    const generated = getGeneratedToolDefinitions()
-    if (!_toolDefinitions) {
-        _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
+    if (!_mergedToolDefinitions) {
+        if (!_toolDefinitions) {
+            _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
+        }
+        _mergedToolDefinitions = { ..._toolDefinitions, ...getGeneratedToolDefinitions() }
     }
-    return { ..._toolDefinitions, ...generated }
+    return _mergedToolDefinitions
 }
 
 let _advertisedOAuthScopes: readonly string[] | undefined = undefined
@@ -142,7 +148,7 @@ export const MAX_CAPTURED_DESCRIPTION_LENGTH = 512
  * analytics hot path where a missing definition must not break the request.
  */
 export function getToolDescription(toolName: string): string | undefined {
-    return getToolDefinitions()[toolName]?.description.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
+    return getToolDefinitions()[toolName]?.description?.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
 }
 
 export interface ToolFilterOptions {

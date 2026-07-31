@@ -111,7 +111,9 @@ export function ToolPivotTable(): JSX.Element {
                                     )}
                                 </TableCell>
                                 <TableCell align="right">
-                                    <span className="tabular-nums">{tool.clusters.length}</span>
+                                    <span className="tabular-nums">
+                                        {humanFriendlyNumber(tool.n_clusters_served)}
+                                    </span>
                                 </TableCell>
                                 <TableCell>
                                     <ContestedBadge score={tool.contested_score} />
