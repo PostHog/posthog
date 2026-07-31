@@ -10,8 +10,9 @@ Two fetch paths:
 - get_rows_via_search: POST to /crm/v3/objects/{entity}/search with server-side date
   filtering, used for subsequent incremental syncs. Mirrors Airbyte's CRM-search
   pattern: time-windowed queries sorted by the cursor property, with cursor-advance
-  sub-slicing when the 10k result cap is hit within a window. Backfills associations
-  per page via v4 batch-read.
+  sub-slicing when the 10k result cap is hit within a window, falling back to
+  hs_object_id-based sub-slicing when every record in the cap shares one cursor value.
+  Backfills associations per page via v4 batch-read.
 """
 
 import dataclasses
@@ -56,11 +57,6 @@ PROPERTY_LENGTH_LIMIT = 16_000  # Empirically determined rough limit for the Hub
 # concern (POST body), but each extra property multiplies backfill work and response payload size.
 SEARCH_PROPERTIES_LIMIT = 250
 WINDOW_SIZE_MS = SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000
-
-
-class HubspotPathologicalWindowError(Exception):
-    """Raised when a single cursor-ms value has >SEARCH_RESULT_CAP records and the window
-    cannot be sub-divided further. Extremely unlikely in practice for HubSpot CRM data."""
 
 
 @dataclasses.dataclass
@@ -559,8 +555,10 @@ def get_rows_via_search(
     - Within each window, sort by the cursor property ASC and paginate via `after`.
     - When a sub-slice exceeds SEARCH_RESULT_CAP results, advance the lower bound to
       `sub_slice_max_cursor` (the highest cursor seen in the slice) and continue with
-      GTE so boundary-cursor records are re-fetched and deduplicated by primary key,
-      rather than id-walking. This avoids skipping records that share the boundary cursor.
+      GTE so boundary-cursor records are re-fetched and deduplicated by primary key.
+      This avoids skipping records that share the boundary cursor. If every record in the
+      capped slice shares one cursor value, fall back to hs_object_id-based sub-slicing
+      (see `_drain_tied_cursor`).
     - Backfill associations (if any) per page via the v4 batch-read endpoint.
     - Checkpoint (sync_start_ms, sync_end_ms, last_cursor_ms) to Redis on each batch flush.
     """
@@ -602,6 +600,9 @@ def get_rows_via_search(
         current_lower = sync_start_ms
 
     last_cursor_ms = current_lower
+    # Placeholder; reassigned per-window below. Bound here so the nested `_process_results`
+    # closure (defined before the window loop) has a `nonlocal` target to resolve against.
+    sub_slice_max_cursor = current_lower - 1
 
     @retry(
         retry=retry_if_exception_type(
@@ -652,6 +653,85 @@ def get_rows_via_search(
             )
         )
 
+    def _process_results(results: list[dict[str, Any]]) -> Iterator[Any]:
+        """Flatten, batch, and yield `results`, tracking cursor progress as a side effect."""
+        nonlocal last_cursor_ms, sub_slice_max_cursor
+        for result in results:
+            row = _flatten_result(result)
+            if expected_properties:
+                _backfill_missing_properties(row, expected_properties)
+
+            row_cursor_ms = _iso_to_ms(row.get(cursor_prop))
+            if row_cursor_ms is not None:
+                if row_cursor_ms > last_cursor_ms:
+                    last_cursor_ms = row_cursor_ms
+                if row_cursor_ms > sub_slice_max_cursor:
+                    sub_slice_max_cursor = row_cursor_ms
+
+            batcher.batch(row)
+            if batcher.should_yield():
+                yield batcher.get_table()
+                save_progress()
+
+    def _drain_tied_cursor(cursor_ms: int) -> Iterator[Any]:
+        """SEARCH_RESULT_CAP+ records share `cursor_ms` (e.g. a bulk import stamping a whole
+        batch with the same lastmodifieddate), so the cursor value can't sub-divide the window
+        any further. Page through them by the unique hs_object_id instead: each re-query with
+        `hs_object_id > last_id` shrinks the match count, sidestepping HubSpot's per-query
+        SEARCH_RESULT_CAP. This re-walks records already seen for `cursor_ms` in the caller's
+        cursor-sorted pass, but writes dedup by primary key, so re-fetching is safe.
+        """
+        last_id = -1
+        after: Optional[str] = None
+        while True:
+            body: dict[str, Any] = {
+                "limit": SEARCH_PAGE_SIZE,
+                "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
+                "filterGroups": [
+                    {
+                        "filters": [
+                            {"propertyName": cursor_prop, "operator": "EQ", "value": str(cursor_ms)},
+                            {"propertyName": "hs_object_id", "operator": "GT", "value": str(last_id)},
+                        ]
+                    }
+                ],
+                "properties": props_list,
+            }
+            if after is not None:
+                body["after"] = after
+
+            data = fetch_search(body)
+            results = data.get("results", [])
+            if not results:
+                break
+
+            if config.associations:
+                _backfill_associations_into_results(
+                    results=results,
+                    from_entity_plural=endpoint,
+                    association_types=config.associations,
+                    headers=headers,
+                    refresh_token=refresh_token,
+                    source_id=source_id,
+                    logger=logger,
+                    api_version=api_version,
+                )
+
+            for result in results:
+                try:
+                    result_id = int(result["id"])
+                except (KeyError, ValueError):
+                    continue
+                if result_id > last_id:
+                    last_id = result_id
+
+            yield from _process_results(results)
+
+            # No `after` token doesn't mean we're done: a query capped at SEARCH_RESULT_CAP
+            # also omits it, so re-querying with the advanced `last_id` picks up where this
+            # one left off, and only returns empty once every tied record has been seen.
+            after = data.get("paging", {}).get("next", {}).get("after")
+
     while current_lower <= sync_end_ms:
         window_upper = min(current_lower + WINDOW_SIZE_MS, sync_end_ms)
         window_lower = current_lower
@@ -701,23 +781,7 @@ def get_rows_via_search(
                     api_version=api_version,
                 )
 
-            for result in results:
-                row = _flatten_result(result)
-                if expected_properties:
-                    _backfill_missing_properties(row, expected_properties)
-
-                row_cursor_ms = _iso_to_ms(row.get(cursor_prop))
-                if row_cursor_ms is not None:
-                    if row_cursor_ms > last_cursor_ms:
-                        last_cursor_ms = row_cursor_ms
-                    if row_cursor_ms > sub_slice_max_cursor:
-                        sub_slice_max_cursor = row_cursor_ms
-
-                batcher.batch(row)
-                if batcher.should_yield():
-                    py_table = batcher.get_table()
-                    yield py_table
-                    save_progress()
+            yield from _process_results(results)
 
             window_result_count += len(results)
             paging = data.get("paging", {})
@@ -726,18 +790,17 @@ def get_rows_via_search(
             # Sub-slice the window if we hit the 10k cap.
             if window_result_count >= SEARCH_RESULT_CAP:
                 # If every record in this sub-slice had cursor == window_lower we can't
-                # safely advance (moving to window_lower + 1 would skip any unseen records
-                # at the same timestamp). This requires 10k+ records at a single ms,
-                # which is effectively impossible for real HubSpot CRM data.
+                # safely advance by cursor value alone (moving to window_lower + 1 would skip
+                # any unseen records at the same timestamp) — sub-divide by the unique
+                # hs_object_id instead.
                 if sub_slice_max_cursor <= window_lower:
-                    raise HubspotPathologicalWindowError(
-                        f"Hubspot search: {SEARCH_RESULT_CAP} records share cursor={window_lower}ms "
-                        f"for {endpoint}; cannot sub-divide further"
-                    )
-                # Use GTE (not GT) so boundary records at sub_slice_max_cursor are re-fetched.
-                # Primary-key dedup handles the duplicates without risk of skipping records
-                # that share the boundary cursor.
-                window_lower = sub_slice_max_cursor
+                    yield from _drain_tied_cursor(window_lower)
+                    window_lower = window_lower + 1
+                else:
+                    # Use GTE (not GT) so boundary records at sub_slice_max_cursor are re-fetched.
+                    # Primary-key dedup handles the duplicates without risk of skipping records
+                    # that share the boundary cursor.
+                    window_lower = sub_slice_max_cursor
                 sub_slice_max_cursor = window_lower - 1
                 after = None
                 window_result_count = 0

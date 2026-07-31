@@ -11,7 +11,6 @@ from requests.exceptions import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
-    HubspotPathologicalWindowError,
     HubspotResumeConfig,
     _backfill_associations_into_results,
     _batch_read_associations,
@@ -722,8 +721,10 @@ class TestGetRowsViaSearch:
         assert subslice_lower > first_lower
         assert subslice_lower == cursor_base + SEARCH_RESULT_CAP - 1
 
-    def test_pathological_window_raises(self) -> None:
-        # SEARCH_RESULT_CAP records all with the same cursor_ms → can't sub-divide.
+    def test_pathological_window_subdivides_by_hs_object_id(self) -> None:
+        # SEARCH_RESULT_CAP records all share one cursor_ms (e.g. a bulk import stamping a
+        # whole batch with the same lastmodifieddate) → can't sub-divide by cursor value, so
+        # this must fall back to hs_object_id-based sub-slicing instead of dropping the sync.
         identical_cursor = 1_799_000_000_000
         pages_in_cap = SEARCH_RESULT_CAP // SEARCH_PAGE_SIZE
         pages = []
@@ -732,7 +733,17 @@ class TestGetRowsViaSearch:
             is_last = i == pages_in_cap - 1
             pages.append(_search_page(batch, after=None if is_last else f"c{i}"))
 
-        side_effect, _ = _setup_search_post([_make_response(200, p) for p in pages])
+        # Only reachable once the id-anchored query subdivides past the cursor-sort cap.
+        tail_id = str(SEARCH_RESULT_CAP + 1)
+        tail = [_result(tail_id, identical_cursor)]
+
+        responses = (
+            [_make_response(200, p) for p in pages]
+            + [_make_response(200, _search_page(tail))]  # id-drain page: the extra tied record
+            + [_make_response(200, _search_page([]))]  # id-drain page: confirms exhaustion
+            + [_make_response(200, _search_page([]))]  # window resumes past the tied cursor
+        )
+        side_effect, captured = _setup_search_post(responses)
         manager = _make_manager()
         logger = MagicMock()
 
@@ -740,21 +751,41 @@ class TestGetRowsViaSearch:
             "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
             new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
         ):
-            with pytest.raises(HubspotPathologicalWindowError):
-                # Force a narrow sync window so the identical cursors trigger the cap check.
-                list(
-                    get_rows_via_search(
-                        api_key="k",
-                        refresh_token="r",
-                        endpoint="deals",
-                        logger=logger,
-                        resumable_source_manager=manager,
-                        db_incremental_field_last_value=str(identical_cursor - 1),
-                        include_custom_props=False,
-                        now_ms=identical_cursor + 1_000,
-                        api_version=HUBSPOT_API_VERSION_V3,
-                    )
+            # Force a narrow sync window so the identical cursors trigger the cap check.
+            tables = list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=str(identical_cursor - 1),
+                    include_custom_props=False,
+                    now_ms=identical_cursor + 1_000,
+                    api_version=HUBSPOT_API_VERSION_V3,
                 )
+            )
+
+        # Every record is delivered, including the one only reachable past the cap.
+        assert sum(t.num_rows for t in tables) == SEARCH_RESULT_CAP + 1
+
+        drain_request = captured[pages_in_cap]["json"]
+        assert drain_request["sorts"] == [{"propertyName": "hs_object_id", "direction": "ASCENDING"}]
+        drain_filters = drain_request["filterGroups"][0]["filters"]
+        assert {
+            "propertyName": "hs_lastmodifieddate",
+            "operator": "EQ",
+            "value": str(identical_cursor),
+        } in drain_filters
+        assert {"propertyName": "hs_object_id", "operator": "GT", "value": "-1"} in drain_filters
+
+        # The next id-drain query is anchored past the tail record just seen.
+        second_drain_request = captured[pages_in_cap + 1]["json"]
+        assert {
+            "propertyName": "hs_object_id",
+            "operator": "GT",
+            "value": tail_id,
+        } in second_drain_request["filterGroups"][0]["filters"]
 
     def test_saves_progress_at_window_boundaries(self) -> None:
         manager = _make_manager()
