@@ -14,6 +14,7 @@ import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types
 import { TicketChannel } from '../../types'
 import {
     DEFAULT_TICKET_GROUPS,
+    MAX_TICKET_GROUP_SQL_LENGTH,
     TicketGroup,
     isValidTicketGroupDateValue,
     teamTicketGroups,
@@ -1054,7 +1055,17 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 for (const group of draft) {
                     const label = group.label.trim() || 'this group'
                     for (const filter of group.filters) {
-                        if (filter.type === 'ticket_tags' || filter.operator === 'in') {
+                        if (filter.type === 'sql') {
+                            // Emptiness and length are all the browser can
+                            // check — it can't parse HogQL, so the server's
+                            // validator stays authoritative on validity.
+                            if (!filter.expression.trim()) {
+                                return `The SQL filter in “${label}” needs an expression.`
+                            }
+                            if (filter.expression.trim().length > MAX_TICKET_GROUP_SQL_LENGTH) {
+                                return `SQL expressions can be at most ${MAX_TICKET_GROUP_SQL_LENGTH} characters (in “${label}”).`
+                            }
+                        } else if (filter.type === 'ticket_tags' || filter.operator === 'in') {
                             const values = (filter.value as string[]).map((item) => item.trim()).filter(Boolean)
                             if (values.length === 0) {
                                 return `A filter in “${label}” needs at least one value.`

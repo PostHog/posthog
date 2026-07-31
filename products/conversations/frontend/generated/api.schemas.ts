@@ -773,6 +773,7 @@ export interface TicketApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    readonly ticket_group_rank: number
 }
 
 export interface PaginatedTicketListApi {
@@ -876,6 +877,7 @@ export interface PatchedTicketApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    readonly ticket_group_rank?: number
 }
 
 /**

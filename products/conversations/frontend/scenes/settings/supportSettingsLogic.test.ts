@@ -8,7 +8,7 @@ import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
-import { TicketGroup, TicketGroupFilter } from '../tickets/ticketGroups'
+import { MAX_TICKET_GROUP_SQL_LENGTH, TicketGroup, TicketGroupFilter } from '../tickets/ticketGroups'
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
 describe('supportSettingsLogic', () => {
@@ -454,6 +454,36 @@ describe('supportSettingsLogic', () => {
             ],
         ])('flags %s', (_label, draft, expected) => {
             expect(check(draft as TicketGroup[])).toBe(expected)
+        })
+
+        describe('sql filters', () => {
+            const sqlGroup = (expression: string): TicketGroup[] => [
+                { label: 'A', filters: [{ type: 'sql', expression }] },
+            ]
+
+            it('accepts a non-empty expression — HogQL validity is the server’s call', () => {
+                expect(check(sqlGroup("message_count > 5 AND priority = 'high'"))).toBeNull()
+                // Not valid HogQL, but the browser can't tell; the server rejects it on save.
+                expect(check(sqlGroup('this is not hogql ((('))).toBeNull()
+            })
+
+            it('accepts an expression exactly at the length cap', () => {
+                expect(check(sqlGroup('a'.repeat(MAX_TICKET_GROUP_SQL_LENGTH)))).toBeNull()
+            })
+
+            it.each([
+                ['empty', ''],
+                ['whitespace-only', '   '],
+                ['newlines-only', '\n\t'],
+            ])('flags an %s expression before save', (_name, expression) => {
+                expect(check(sqlGroup(expression))).toBe('The SQL filter in “A” needs an expression.')
+            })
+
+            it('flags an expression longer than the cap', () => {
+                expect(check(sqlGroup('a'.repeat(MAX_TICKET_GROUP_SQL_LENGTH + 1)))).toBe(
+                    `SQL expressions can be at most ${MAX_TICKET_GROUP_SQL_LENGTH} characters (in “A”).`
+                )
+            })
         })
 
         it('is null while pristine (no draft)', () => {

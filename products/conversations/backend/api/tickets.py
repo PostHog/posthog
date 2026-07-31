@@ -4,11 +4,12 @@ import json
 import time
 import uuid
 from collections.abc import Sequence
-from datetime import timedelta
+from contextlib import nullcontext
+from functools import cached_property
 from typing import Any
 
-from django.db import transaction
-from django.db.models import CharField, Count, F, OrderBy, Q, QuerySet, Sum
+from django.db import DatabaseError, DataError, ProgrammingError, transaction
+from django.db.models import Case, CharField, Count, F, OrderBy, Q, QuerySet, Sum, Value
 from django.db.models.functions import Cast
 from django.http import Http404
 from django.utils import timezone
@@ -39,6 +40,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
+from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
@@ -61,7 +63,13 @@ from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECOND
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
-from products.conversations.backend.ticket_groups import team_ticket_groups, ticket_group_rank_annotation
+from products.conversations.backend.sla import SLA_STATES, sla_state_condition
+from products.conversations.backend.ticket_group_sql import build_ticket_group_sql_database
+from products.conversations.backend.ticket_groups import (
+    groups_use_sql,
+    team_ticket_groups,
+    ticket_group_rank_annotation,
+)
 
 from ee.models.rbac.role import Role
 
@@ -241,6 +249,11 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
+    # Set on listed tickets only, by _attach_ticket_group_ranks or the
+    # ticket-group sort's annotation — the frontend labels the ticket-group column
+    # and section headers from it instead of re-deriving group membership.
+    # required=False so it's simply omitted elsewhere (e.g. retrieve).
+    ticket_group_rank = serializers.IntegerField(read_only=True, required=False)
 
     class Meta:
         model = Ticket
@@ -284,6 +297,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "person",
             "tags",
             "user_access_level",
+            "ticket_group_rank",
         ]
         read_only_fields = [
             "id",
@@ -377,6 +391,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     # Which search branch safely_get_queryset applied, for the latency histogram.
     _search_path: str | None = None
 
+    # Set by list() when a `sql` ticket-group filter failed at execution time, so
+    # the retried _list_page() builds the rank without them.
+    _ticket_group_sql_degraded: bool = False
+
     def _filter_by_text_search(self, queryset: QuerySet, search: str) -> QuerySet:
         # Comment match as a non-correlated subquery: self-contained, so Postgres hashes
         # it once per query (scanning posthog_comment through its trigram index) instead
@@ -396,6 +414,114 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             | Q(email_subject__icontains=search)
             | Q(id_text__in=comment_match)
         )
+
+    @cached_property
+    def _team_uses_sql_ticket_groups(self) -> bool:
+        """Whether this team's ticket groups include a `sql` filter — the gate for
+        everything that only that filter type can cost or break."""
+        return groups_use_sql(team_ticket_groups(self.team))
+
+    def _ticket_group_rank_annotation(self) -> Case | Value:
+        """The team's ticket-group rank expression (see backend/ticket_groups.py)."""
+        groups = team_ticket_groups(self.team)
+        # Building the HogQL database is expensive, so only configs that actually
+        # use a `sql` filter pay for it. IsAuthenticated guarantees a real User;
+        # the isinstance keeps that explicit (an anonymous principal can't read
+        # the ticket-scoped HogQL table, so a `sql` filter would match nothing).
+        request_user = self.request.user if isinstance(self.request.user, User) else None
+        sql_database = (
+            build_ticket_group_sql_database(self.team, request_user, self.user_access_control)
+            if self._team_uses_sql_ticket_groups and not self._ticket_group_sql_degraded
+            else None
+        )
+        return ticket_group_rank_annotation(groups, self.team.timezone_info, sql_database, self.team.pk)
+
+    def _attach_ticket_group_ranks(self, page: Sequence[Ticket]) -> None:
+        """Give each ticket on this page its group rank, which the frontend turns
+        into the "Ticket group" column and the section headers (it can't derive
+        group membership itself — a `sql` filter is HogQL).
+
+        Deliberately a second small query keyed on the page's ids rather than an
+        annotation on the list queryset: the tag filters apply `.distinct()`, and
+        Django can only hide an unreferenced annotation from the pagination
+        COUNT when the query isn't distinct. Annotating the main queryset would
+        therefore evaluate the whole rank CASE (correlated EXISTS and all) for
+        every row matching a tag filter, just to produce a count.
+        """
+        if not page:
+            return
+        if getattr(page[0], "ticket_group_rank", None) is not None:
+            return  # ticket-group-ordered: the sort already annotated it
+        try:
+            ranks = self._ticket_group_ranks_for(page)
+        except DatabaseError:
+            # A stored `sql` filter the database won't run (see list()'s retry for
+            # the two families). Degrade the SQL filters to match-nothing and ask
+            # again, so the DECLARATIVE groups still label correctly instead of
+            # everything collapsing to the first group's label — and flag it, since
+            # this path is the default sort and would otherwise be silently wrong.
+            capture_exception()
+            self._ticket_group_sql_degraded = True
+            try:
+                ranks = self._ticket_group_ranks_for(page)
+            except DatabaseError:
+                # Nothing user-supplied is left in the query at this point, so this
+                # is something else entirely. Labelling is cosmetic here (the sort
+                # didn't use the rank), so still serve the tickets.
+                capture_exception()
+                ranks = {}
+        for ticket in page:
+            # Unmatched tickets rank with the first group, like the annotation's
+            # default. Not declared on the model (as `person` is) because the same
+            # name doubles as an .annotate() alias on the ticket-group sort path,
+            # and django-stubs won't allow both.
+            ticket.ticket_group_rank = ranks.get(ticket.id, 0)  # type: ignore[attr-defined]
+
+    def _ticket_group_ranks_for(self, page: Sequence[Ticket]) -> dict[Any, int]:
+        """id -> rank for one page. The savepoint is why a failure here is
+        retryable: without it a failed statement would abort an enclosing
+        transaction and every follow-up query (serialization included) would fail
+        too. Only `sql` filters can fail, so nobody else pays the round trips."""
+        with transaction.atomic() if self._team_uses_sql_ticket_groups else nullcontext():
+            return dict(
+                Ticket.objects.filter(team_id=self.team_id, id__in=[ticket.id for ticket in page])
+                .annotate(ticket_group_rank=self._ticket_group_rank_annotation())
+                .values_list("id", "ticket_group_rank")
+            )
+
+    def _list_page(self) -> tuple[list[Ticket] | None, list[Ticket], dict[str, int] | None]:
+        """Materialise the page (or the whole filtered set) plus the per-group counts.
+
+        One unit, fully evaluated, because each part evaluates the ticket-group rank
+        in the database and so shares a failure mode: list() retries the lot with
+        `sql` filters degraded if any of them hits a per-row error. Nothing lazy may
+        escape, or the retry wouldn't cover it.
+
+        Wrapped in a transaction so the retry is possible at all: if the request
+        is ever running inside an enclosing atomic block, a failed statement aborts
+        it and every follow-up query dies with "current transaction is aborted".
+        (Django is in autocommit today — ATOMIC_REQUESTS isn't set — so this is
+        currently belt-and-braces rather than load-bearing, but it's what makes the
+        retry safe if that changes.) Only configs with a `sql` filter can fail this
+        way, and it costs two round trips, so everyone else skips it.
+        """
+        with transaction.atomic() if self._team_uses_sql_ticket_groups else nullcontext():
+            queryset = self.filter_queryset(self.get_queryset())
+            page = self.paginate_queryset(queryset)
+            tickets = list(queryset) if page is None else list(page)
+
+            # When ticket-group-ORDERED, also aggregate per-group counts over the same
+            # filtered queryset, so the section headers can show how many tickets match
+            # the current filters beyond the page. This one is a full-set aggregation,
+            # hence gated on the sort rather than run for every list. Count(distinct)
+            # because the tag filters' joins can multiply rows.
+            ticket_group_counts: dict[str, int] | None = None
+            if self.request.query_params.get("order_by") in ("ticket_group", "-ticket_group"):
+                ticket_group_counts = {
+                    str(row["ticket_group_rank"]): row["n"]
+                    for row in queryset.order_by().values("ticket_group_rank").annotate(n=Count("id", distinct=True))
+                }
+        return (tickets if page is not None else None), tickets, ticket_group_counts
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -513,14 +639,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 queryset = self._filter_by_text_search(queryset, search)
 
         sla_param = self.request.query_params.get("sla")
-        if sla_param:
-            now = timezone.now()
-            if sla_param == "breached":
-                queryset = queryset.filter(sla_due_at__lt=now)
-            elif sla_param == "at-risk":
-                queryset = queryset.filter(sla_due_at__gte=now, sla_due_at__lte=now + timedelta(hours=1))
-            elif sla_param == "on-track":
-                queryset = queryset.filter(sla_due_at__gt=now + timedelta(hours=1))
+        if sla_param in SLA_STATES:
+            # Shared with the `sla_state` ticket-group filter — see backend/sla.py.
+            queryset = queryset.filter(sla_state_condition(sla_param, timezone.now()))
 
         snoozed_param = self.request.query_params.get("snoozed")
         if snoozed_param is not None:
@@ -603,10 +724,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         # have no stable order and LimitOffsetPagination can skip or duplicate
         # them across pages.
         if order_by in ("ticket_group", "-ticket_group"):
-            groups = team_ticket_groups(self.team)
-            return queryset.annotate(
-                ticket_group_rank=ticket_group_rank_annotation(groups, self.team.timezone_info)
-            ).order_by(
+            return queryset.annotate(ticket_group_rank=self._ticket_group_rank_annotation()).order_by(
                 "-ticket_group_rank" if order_by.startswith("-") else "ticket_group_rank",
                 F("sla_due_at").asc(nulls_last=True),
                 "-ticket_number",
@@ -863,31 +981,42 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         # viewset instance; filter_queryset sets it when a search filter is applied.
         start = time.perf_counter()
         try:
-            queryset = self.filter_queryset(self.get_queryset())
-            page = self.paginate_queryset(queryset)
-
-            # When ticket-group-ordered (the annotation's presence is the
-            # signal), also aggregate per-group counts over the same filtered
-            # queryset, so the section headers can show how many tickets match
-            # the current filters beyond the page. Count(distinct) because the
-            # tag filters' joins can multiply rows.
-            ticket_group_counts: dict[str, int] | None = None
-            if "ticket_group_rank" in queryset.query.annotations:
-                ticket_group_counts = {
-                    str(row["ticket_group_rank"]): row["n"]
-                    for row in queryset.order_by().values("ticket_group_rank").annotate(n=Count("id", distinct=True))
-                }
+            try:
+                page, tickets, ticket_group_counts = self._list_page()
+            except (DataError, ProgrammingError):
+                # A stored `sql` group filter the database won't run. The read path
+                # checks for neither family in advance, because it skips the
+                # write-time plan check (that would cost a round trip per filter per
+                # request):
+                #   class 22 / DataError — planned fine, fails on actual rows:
+                #     division by zero, a cast that only breaks on some values,
+                #     numeric overflow.
+                #   class 42 / ProgrammingError — never runnable: a non-boolean
+                #     expression, or a set-returning function inside the CASE. Only
+                #     reachable when the config was written past the validator (a
+                #     shell or migration) or the ticket schema moved under it.
+                # Either way retry with the `sql` filters degraded to match-nothing —
+                # the same semantics a no-longer-compiling expression already gets —
+                # which keeps the sort the user asked for rather than 500ing.
+                capture_exception()
+                self._ticket_group_sql_degraded = True
+                page, tickets, ticket_group_counts = self._list_page()
 
             if page is not None:
                 self._attach_persons_to_tickets(page)
+                self._attach_ticket_group_ranks(page)
                 serializer = self.get_serializer(page, many=True)
                 response = self.get_paginated_response(serializer.data)
                 if ticket_group_counts is not None:
                     response.data["ticket_group_counts"] = ticket_group_counts
+                if self._ticket_group_sql_degraded:
+                    # Whoever is looking at the list is rarely whoever broke the
+                    # config, so say so rather than quietly under-populating groups.
+                    response.data["ticket_group_config_error"] = True
                 return response
 
-            tickets = list(queryset)
             self._attach_persons_to_tickets(tickets)
+            self._attach_ticket_group_ranks(tickets)
             serializer = self.get_serializer(tickets, many=True)
             return Response(serializer.data)
         finally:

@@ -1015,6 +1015,207 @@ class TestTicketAPI(APIBaseTest):
         # Example default ladder: untagged first (rank 0), urgent (1) before vip (2)
         self.assertEqual(ids, [str(self.ticket.id), str(urgent.id), str(vip.id)])
 
+    def _list_ranks(self, **params):
+        """id -> server-computed ticket_group_rank for a list response."""
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data=params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        return {r["id"]: r["ticket_group_rank"] for r in response.json()["results"]}
+
+    def test_sql_filter_ranks_tickets(self, mock_on_commit):
+        """A `sql` group filter compiles to a Postgres condition and ranks by it."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {"label": "Chatty", "filters": [{"type": "sql", "expression": "message_count > 3"}]},
+            ]
+        }
+        self.team.save()
+        chatty = self._ticket(message_count=9)
+
+        ranks = self._list_ranks(order_by="ticket_group")
+        self.assertEqual(ranks[str(chatty.id)], 1)
+        self.assertEqual(ranks[str(self.ticket.id)], 0)
+
+    def test_sql_filter_ands_with_a_tag_filter(self, mock_on_commit):
+        """Tags aren't reachable from an expression, so the documented pattern is
+        to AND a ticket_tags filter alongside one — both must hold."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {
+                    "label": "Chatty VIPs",
+                    "filters": [_tag_filter("vip"), {"type": "sql", "expression": "message_count > 3"}],
+                },
+            ]
+        }
+        self.team.save()
+        chatty_vip = self._ticket(tags=["vip"], message_count=9)
+        quiet_vip = self._ticket(tags=["vip"], message_count=1)
+        chatty_nobody = self._ticket(message_count=9)
+
+        ranks = self._list_ranks(order_by="ticket_group")
+        self.assertEqual(ranks[str(chatty_vip.id)], 1)
+        self.assertEqual(ranks[str(quiet_vip.id)], 0)
+        self.assertEqual(ranks[str(chatty_nobody.id)], 0)
+
+    def test_sla_state_filter_ranks_by_breach_state(self, mock_on_commit):
+        """`sla_state` uses the same breached / at-risk / on-track vocabulary as the
+        list's SLA filter, and is a different question from sla_due_at is_set: all
+        three states need a deadline, so a ticket without one is in none of them."""
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {
+                    "label": "Breached or at risk",
+                    "filters": [
+                        {
+                            "type": "ticket_property",
+                            "key": "sla_state",
+                            "operator": "in",
+                            "value": ["breached", "at-risk"],
+                        }
+                    ],
+                },
+            ]
+        }
+        self.team.save()
+        now = timezone.now()
+        breached = self._ticket(sla_due_at=now - timedelta(hours=2))
+        at_risk = self._ticket(sla_due_at=now + timedelta(minutes=30))
+        on_track = self._ticket(sla_due_at=now + timedelta(days=2))
+        no_sla = self._ticket(sla_due_at=None)
+
+        ranks = self._list_ranks(order_by="ticket_group")
+        self.assertEqual(ranks[str(breached.id)], 1)
+        self.assertEqual(ranks[str(at_risk.id)], 1)
+        self.assertEqual(ranks[str(on_track.id)], 0)
+        # No deadline is NOT "unbreached" — it's in no state at all.
+        self.assertEqual(ranks[str(no_sla.id)], 0)
+
+    def test_uncompilable_stored_sql_filter_matches_nothing_instead_of_erroring(self, mock_on_commit):
+        """The write validator compiles every expression, so a STORED one that no
+        longer compiles means the config predates a validation change or the
+        ticket schema moved under it. That must degrade to "this filter matches
+        nothing" — the convention the other unusable-filter paths follow — rather
+        than break the tickets list. Set on the model directly to bypass validation.
+        """
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {"label": "Broken", "filters": [{"type": "sql", "expression": "column_that_does_not_exist = 1"}]},
+                {"label": "Chatty", "filters": [{"type": "sql", "expression": "message_count > 3"}]},
+            ]
+        }
+        self.team.save()
+        chatty = self._ticket(message_count=9)
+
+        # 200, and the working group still ranks; only the broken one drops out.
+        ranks = self._list_ranks(order_by="ticket_group")
+        self.assertEqual(ranks[str(chatty.id)], 2)
+        self.assertEqual(ranks[str(self.ticket.id)], 0)
+
+    def test_sql_filter_failing_on_real_data_degrades_instead_of_erroring(self, mock_on_commit):
+        """An expression can plan cleanly and still fail per row (division by zero,
+        a cast that only breaks on some rows, overflow — SQLSTATE class 22, exactly
+        what survives the write-time plan check). The ticket-group sort evaluates
+        the rank in the row-selecting query, so that would 500 the list. Instead the
+        request retries with `sql` filters degraded to match-nothing, KEEPING the
+        requested sort, and flags the broken config.
+        """
+        self.team.conversations_settings = {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {"label": "Boom", "filters": [{"type": "sql", "expression": "message_count / 0 > 1"}]},
+                {"label": "Urgent", "filters": [_tag_filter("urgent")]},
+            ]
+        }
+        self.team.save()
+        urgent = self._ticket_with_tags("urgent")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        body = response.json()
+        # Declarative groups still rank; the sort the user asked for is preserved.
+        self.assertTrue(body["ticket_group_config_error"])
+        self.assertIn("ticket_group_counts", body)
+        ranks = {row["id"]: row["ticket_group_rank"] for row in body["results"]}
+        self.assertEqual(ranks[str(urgent.id)], 2)
+        self.assertEqual(ranks[str(self.ticket.id)], 0)
+
+    def _boom_groups(self, expression):
+        """Three groups where the middle one's stored expression will fail in the
+        database. Set on the model directly, bypassing the write validator."""
+        return {
+            "ticket_groups": [
+                {"label": "Everything else", "filters": []},
+                {"label": "Boom", "filters": [{"type": "sql", "expression": expression}]},
+                {"label": "Urgent", "filters": [_tag_filter("urgent")]},
+            ]
+        }
+
+    def _assert_degrades(self, expression, order_by):
+        """A stored expression the database won't run must not break the list: the
+        request degrades the `sql` filters to match-nothing, keeps the requested
+        sort, still ranks the DECLARATIVE groups, and flags the broken config.
+
+        NOTE: written as plain methods rather than parameterized.expand, because
+        this class's @patch decorator binds its mock BEFORE the expanded
+        arguments, which silently shifts them.
+        """
+        self.team.conversations_settings = self._boom_groups(expression)
+        self.team.save()
+        urgent = self._ticket_with_tags("urgent")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": order_by})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content[:400])
+        body = response.json()
+        self.assertTrue(body.get("ticket_group_config_error"), f"expected the config error flag for {expression!r}")
+        ranks = {row["id"]: row["ticket_group_rank"] for row in body["results"]}
+        self.assertEqual(ranks[str(urgent.id)], 2, "declarative groups must still rank correctly")
+        self.assertEqual(ranks[str(self.ticket.id)], 0)
+
+    # class 22 — plans fine, fails per row.
+    def test_sql_failing_per_row_degrades_on_group_sort(self, mock_on_commit):
+        self._assert_degrades("message_count / 0 > 1", "ticket_group")
+
+    def test_sql_failing_per_row_degrades_on_default_sort(self, mock_on_commit):
+        self._assert_degrades("message_count / 0 > 1", "-updated_at")
+
+    # class 42 — never runnable. Only reachable past the validator (a shell or
+    # migration write, or the schema moving under a stored expression), but the
+    # read path skips the plan check, so it must degrade rather than 500.
+    def test_sql_non_boolean_degrades_on_group_sort(self, mock_on_commit):
+        self._assert_degrades("message_count", "ticket_group")
+
+    def test_sql_non_boolean_degrades_on_default_sort(self, mock_on_commit):
+        self._assert_degrades("message_count", "-updated_at")
+
+    def test_sql_set_returning_degrades_on_group_sort(self, mock_on_commit):
+        self._assert_degrades("generateSeries(1, 10) > 0", "ticket_group")
+
+    def test_ticket_group_rank_is_returned_whatever_the_sort(self, mock_on_commit):
+        """The column and headers label from this, so it can't depend on the sort."""
+        vip = self._ticket_with_tags("vip")
+
+        ranks = self._list_ranks(order_by="-updated_at")
+        self.assertEqual(ranks[str(vip.id)], 2)  # default example ladder: Triage/Urgent/VIP
+        self.assertEqual(ranks[str(self.ticket.id)], 0)
+
+    def test_ticket_group_counts_still_only_accompany_ticket_group_ordering(self, mock_on_commit):
+        """The per-group counts are a full-set aggregation, so they stay gated on
+        the sort even though the rank annotation is now always present."""
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "-updated_at"}
+        )
+        self.assertNotIn("ticket_group_counts", response.json())
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
+        )
+        self.assertIn("ticket_group_counts", response.json())
+
     def test_filter_multiple_priorities_excludes_null(self, mock_on_commit):
         """Test that multiple priority filter excludes tickets with NULL priority."""
         self.ticket.priority = Priority.LOW
@@ -1250,12 +1451,19 @@ class TestTicketAPI(APIBaseTest):
                 created_by=self.user,
             )
 
-        # Query count should be constant regardless of number of tickets
+        # Query count should be constant regardless of number of tickets — that
+        # constancy is what this test protects, not the exact figure.
         # Includes: session, user, org, team, permissions, feature flag permission org lookup,
-        # count query, tickets query, tagged_items prefetch, and the session-activity metadata
-        # write (deferred to on_commit, which this test class patches to run synchronously)
+        # count query, tickets query, tagged_items prefetch, the ticket-group rank
+        # lookup for the page (ONE query for the whole page — deliberately not an
+        # annotation on the list queryset, see _attach_ticket_group_ranks), and the
+        # session-activity metadata write (deferred to on_commit, which this test
+        # class patches to run synchronously)
         # Note: person reads go through personhog (no DB queries)
-        with self.assertNumQueries(12):
+        # Note: this is the count for a team with no `sql` ticket-group filter. Those
+        # add a transaction around the rank lookup (see _ticket_group_ranks_for), so
+        # the total is config-dependent — hence the default config here.
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should have original ticket + 10 new tickets = 11 total

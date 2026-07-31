@@ -35,15 +35,33 @@ describe('buildTicketColumns', () => {
         expect(keysOf(shuffled, context)).toEqual(['ticket_number', 'status', 'tags', 'updated_at'])
     })
 
-    it('labels the ticket group cell against the configured groups', () => {
+    describe('ticket group cell', () => {
         const groups: { label: string; filters: any[] }[] = [
             { label: 'VIPs', filters: [{ type: 'ticket_tags', operator: 'any_of', value: ['vip'] }] },
-            { label: 'Everyone else', filters: [{ type: 'ticket_tags', operator: 'any_of', value: ['plan_free'] }] },
+            { label: 'Everyone else', filters: [{ type: 'sql', expression: 'message_count > 5' }] },
         ]
-        const column = buildTicketColumns(['ticket_group'], { ...context, ticketGroups: groups }).find(
-            (c): c is LemonTableColumn<Ticket, keyof Ticket | undefined> => 'key' in c && c.key === 'ticket_group'
-        )
-        const cell = column!.render!(undefined, { tags: ['plan_free'] } as unknown as Ticket, 0, 1)
-        expect(JSON.stringify(cell)).toContain('Everyone else')
+        const renderCell = (ticket: Partial<Ticket>): string => {
+            const column = buildTicketColumns(['ticket_group'], { ...context, ticketGroups: groups }).find(
+                (c): c is LemonTableColumn<Ticket, keyof Ticket | undefined> => 'key' in c && c.key === 'ticket_group'
+            )
+            return JSON.stringify(column!.render!(undefined, ticket as Ticket, 0, 1))
+        }
+
+        it('labels from the server-computed rank against the configured groups', () => {
+            expect(renderCell({ ticket_group_rank: 1 })).toContain('Everyone else')
+            expect(renderCell({ ticket_group_rank: 0 })).toContain('VIPs')
+        })
+
+        it('falls back to the first group when the rank is missing or out of range', () => {
+            expect(renderCell({})).toContain('VIPs')
+            expect(renderCell({ ticket_group_rank: 9 })).toContain('VIPs')
+        })
+
+        it('keeps the truncating cell with the full label on hover', () => {
+            const cell = renderCell({ ticket_group_rank: 1 })
+            expect(cell).toContain('max-w-36')
+            expect(cell).toContain('truncate')
+            expect(cell).toContain('"title":"Everyone else"')
+        })
     })
 })

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconRefresh } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonDropdown,
@@ -14,6 +15,7 @@ import {
     LemonSelect,
     LemonTable,
     LemonTableColumns,
+    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -126,6 +128,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         currentPage,
         totalCount,
         ticketGroupCounts,
+        ticketGroupConfigError,
         loadedOrderBy,
         loadedPage,
         sorting,
@@ -265,7 +268,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             'No tickets'
         )
 
-    return (
+    const table = (
         <LemonTable<TicketListRow>
             dataSource={rows}
             rowKey={(row) => (isTicketGroupHeaderRow(row) ? `ticket-group-header:${row.ticketGroupHeader}` : row.id)}
@@ -329,6 +332,26 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             }
             columns={columns}
         />
+    )
+
+    if (!ticketGroupConfigError) {
+        return table
+    }
+    // The server ignored a SQL expression filter because it failed against real
+    // ticket data, so some groups are under-populated. Say so: the agent reading
+    // the list is rarely whoever wrote the expression.
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonBanner type="warning">
+                A SQL expression in this project's ticket groups couldn't be evaluated, so those groups are incomplete.
+                Check it in{' '}
+                <Link to={urls.settings('environment-conversations', 'conversations-ticket-groups')}>
+                    Settings → Support → Ticket groups
+                </Link>
+                .
+            </LemonBanner>
+            {table}
+        </div>
     )
 }
 
