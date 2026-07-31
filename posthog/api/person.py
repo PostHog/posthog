@@ -32,6 +32,8 @@ from posthog.hogql.constants import CSV_EXPORT_LIMIT
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
+from posthog.api.fields import CoercedStringListField
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -177,11 +179,38 @@ class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
     value = serializers.JSONField(help_text="The property value. Can be a string, number, boolean, or object.")
 
 
+# Matches the cap on the persons bulk-delete endpoint; also keeps the resulting
+# capture event safely under the ~1 MB Kafka message limit.
+MAX_UNSET_KEYS_PER_REQUEST = 1000
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string", "minLength": 1},
+            {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1},
+                "minItems": 1,
+                "maxItems": MAX_UNSET_KEYS_PER_REQUEST,
+            },
+        ]
+    }
+)
+class UnsetPropertyKeysField(CoercedStringListField):
+    default_error_messages = {
+        "invalid": "Provide '$unset' as a property key or a non-empty list of property keys.",
+    }
+
+
 class PersonDeletePropertyRequestSerializer(serializers.Serializer):
     def get_fields(self):
         fields = super().get_fields()
-        # The endpoint reads request.data["$unset"], so the field name must include the $ prefix.
-        fields["$unset"] = serializers.CharField(help_text="The property key to remove from this person.")
+        # The handler reads validated_data["$unset"], so the field name must include the $ prefix.
+        fields["$unset"] = UnsetPropertyKeysField(
+            max_items=MAX_UNSET_KEYS_PER_REQUEST,
+            help_text="A property key, or a list of property keys, to remove from this person.",
+        )
         return fields
 
 
@@ -963,26 +992,32 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._set_properties({key: request.data["value"]}, request.user)
         return Response(status=202)
 
-    @extend_schema(request=PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
+    @validated_request(PersonDeletePropertyRequestSerializer, parameters=[_PERSON_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["person:write"])
-    def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+    def delete_property(self, request: ValidatedRequest, pk=None, **kwargs) -> response.Response:
         # Only distinct_ids[0] is used (to attribute the property-update event), so bound the fetch to one.
         with personhog_caller_tag("persons/delete-property"):
             person = get_person_by_pk_or_uuid(self.team_id, pk, distinct_id_limit=1)
         if person is None:
             raise Person.DoesNotExist
 
-        key = request.data.get("$unset")
-        if key:
-            non_writable = self._get_non_writable_person_properties(request)
-            if key in non_writable:
-                raise ValidationError(f'You do not have write access to the property "{key}".')
+        keys = request.validated_data["$unset"]
+
+        non_writable = self._get_non_writable_person_properties(request)
+        forbidden = sorted(set(keys) & non_writable)
+        if forbidden:
+            raise ValidationError(f"You do not have write access to the following properties: {', '.join(forbidden)}.")
+
+        # distinct_ids can be empty for a person orphaned by a merge, or when a concurrent
+        # merge lands between the person fetch and the distinct-id fetch (two separate RPCs).
+        if not person.distinct_ids:
+            raise ValidationError("This person has no distinct IDs, so its properties can't be removed.")
 
         event_name = "$delete_person_property"
         distinct_id = person.distinct_ids[0]
         timestamp = datetime.now(UTC)
         properties = {
-            "$unset": [request.data["$unset"]],
+            "$unset": keys,
         }
 
         try:

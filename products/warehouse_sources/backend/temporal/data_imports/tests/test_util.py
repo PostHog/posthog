@@ -59,6 +59,41 @@ class TestPrepareS3FilesForQuerying:
         assert s3._cp_file.await_count == 2
         s3._copy.assert_not_awaited()
 
+    async def test_retries_with_fresh_listing_when_source_file_vanishes_mid_copy(self):
+        # A concurrent compact/vacuum pass on the same Delta table can delete a source file
+        # between get_file_uris() listing it and this copy step reading it, raising
+        # FileNotFoundError. Regression for that race: https://github.com/PostHog/posthog
+        vanished_file = "s3://bucket/job/my_table/part-0.parquet"
+        cp_file = AsyncMock(side_effect=[FileNotFoundError(vanished_file), None])
+        s3 = _fake_s3(_cp_file=cp_file)
+        refresh_file_uris = AsyncMock(return_value=["s3://bucket/job/my_table/part-1.parquet"])
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=[vanished_file],
+                delete_existing=False,
+                refresh_file_uris=refresh_file_uris,
+            )
+
+        refresh_file_uris.assert_awaited_once()
+        assert cp_file.await_args_list[-1].args[0] == "s3://bucket/job/my_table/part-1.parquet"
+
+    async def test_propagates_vanished_source_file_without_refresh_callback(self):
+        # Callers that don't pass refresh_file_uris keep today's behavior: the race still
+        # surfaces as an error instead of being retried blindly.
+        s3 = _fake_s3(_cp_file=AsyncMock(side_effect=FileNotFoundError("gone")))
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            with pytest.raises(FileNotFoundError):
+                await prepare_s3_files_for_querying(
+                    folder_path="job",
+                    table_name="my_table",
+                    file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                    delete_existing=False,
+                )
+
 
 @parameterized.expand(
     [

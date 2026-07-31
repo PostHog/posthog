@@ -7,8 +7,10 @@ import dataclasses
 from django.conf import settings
 
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
+from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
@@ -49,7 +51,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -239,7 +244,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         else:
             non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
-        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
+        has_non_retryable_error = error_message_matches(internal_error_normalized, non_retryable_errors.keys())
         if has_non_retryable_error:
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
@@ -260,7 +265,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()
-                if error in internal_error_normalized
+                if error_message_matches(internal_error_normalized, [error])
             ]
 
             if friendly_errors and friendly_errors[0] is not None:
@@ -327,14 +332,53 @@ def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
 
 
+@async_to_sync
+async def _start_non_billable_resume_workflow(
+    temporal: Client, workflow_id: str, inputs: ExternalDataWorkflowInputs
+) -> None:
+    await temporal.start_workflow(
+        "external-data-job",
+        inputs,
+        id=workflow_id,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+    )
+
+
 @activity.defn
 def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     schema = ExternalDataSchema.objects.get(id=schedule_id)
     logger = LOGGER.bind(team_id=schema.team.pk)
 
-    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+    info = activity.info()
+    billable = (
+        ExternalDataJob.objects.filter(
+            schema_id=schema.id, workflow_id=info.workflow_id, workflow_run_id=info.workflow_run_id
+        )
+        .values_list("billable", flat=True)
+        .first()
+    )
 
     temporal = sync_connect()
+
+    # The schedule's stored action is always billable, so resuming through it would charge the customer
+    # for a sync we told them was free (admin resyncs, corruption rebuilds). Start an ad-hoc run instead.
+    if billable is False:
+        workflow_id = f"{schema.id}-non-billable-resume-{info.workflow_run_id}"
+        logger.debug(f"Starting non-billable resume workflow {workflow_id} for schema {schedule_id}")
+        _start_non_billable_resume_workflow(
+            temporal,
+            workflow_id,
+            ExternalDataWorkflowInputs(
+                team_id=schema.team_id,
+                external_data_source_id=schema.source_id,
+                external_data_schema_id=schema.id,
+                billable=False,
+            ),
+        )
+        return
+
+    logger.debug(f"Triggering temporal schedule {schedule_id} with policy 'buffer one'")
+
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
@@ -547,6 +591,15 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
             skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
 
+            # V3 with batches: the load consumer starts `data-import-post-import` after the final
+            # batch is loaded (see post_import_job.py / load/processor.py), so the load-dependent
+            # steps below must not race the load from here. Gated on recorded history only:
+            # consumer_manages_job_status is activity output, and patched() keeps in-flight
+            # pre-patch executions replaying the old command sequence.
+            consumer_runs_post_import = consumer_manages_job_status and workflow.patched(
+                "v3-consumer-post-import-2026-07"
+            )
+
             if pipeline_result.get("should_trigger_cdp_producer", False):
                 await start_child_workflow(
                     workflow="dwh-cdp-producer-job",
@@ -576,7 +629,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Emit signals for new records (if registered for this source type + schema), if FF enabled.
             # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.
-            if source_type is not None and schema_name is not None and emit_signals_enabled:
+            if (
+                source_type is not None
+                and schema_name is not None
+                and emit_signals_enabled
+                and not consumer_runs_post_import
+            ):
                 # Started by registered workflow name (not class import) so warehouse_sources
                 # doesn't import the signals product, which depends on it. See external_product_hooks.
                 await workflow.start_child_workflow(
@@ -637,7 +695,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # net and is idempotent. Keyed per schema so only one runs per schema at a time: a concurrent
             # sync gets WorkflowAlreadyStartedError, which we swallow. Fire-and-forget child on the
             # dedicated metadata queue; ABANDON means it never blocks or fails the import.
-            if enrichment_needed:
+            if enrichment_needed and not consumer_runs_post_import:
                 try:
                     await workflow.start_child_workflow(
                         EnrichTableSemanticsWorkflow.run,
@@ -663,7 +721,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # tries to start a second one gets WorkflowAlreadyStartedError, which we swallow (the running
             # one already covers this schema). The activity itself re-checks recency. Fire-and-forget
             # metadata queue; ABANDON so it never blocks or fails the import.
-            if statistics_needed:
+            if statistics_needed and not consumer_runs_post_import:
                 try:
                     await workflow.start_child_workflow(
                         ComputeTableStatisticsWorkflow.run,
@@ -691,33 +749,34 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
 
-            await workflow.execute_activity(
-                calculate_table_size_activity,
-                CalculateTableSizeActivityInputs(
-                    team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-            # Start DuckLake copy workflow as a child (fire-and-forget)
-            try:
-                await workflow.start_child_workflow(
-                    DuckLakeCopyDataImportsWorkflow.run,
-                    DataImportsDuckLakeCopyInputs(
-                        team_id=inputs.team_id,
-                        job_id=job_id,
-                        schema_ids=[inputs.external_data_schema_id],
+            if not consumer_runs_post_import:
+                await workflow.execute_activity(
+                    calculate_table_size_activity,
+                    CalculateTableSizeActivityInputs(
+                        team_id=inputs.team_id, schema_id=str(inputs.external_data_schema_id), job_id=job_id
                     ),
-                    id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
-                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-            except WorkflowAlreadyStartedError:
-                workflow.logger.warning(
-                    "DuckLake copy already running, skipping",
-                    extra={"schema_id": str(inputs.external_data_schema_id)},
-                )
+
+                # Start DuckLake copy workflow as a child (fire-and-forget)
+                try:
+                    await workflow.start_child_workflow(
+                        DuckLakeCopyDataImportsWorkflow.run,
+                        DataImportsDuckLakeCopyInputs(
+                            team_id=inputs.team_id,
+                            job_id=job_id,
+                            schema_ids=[inputs.external_data_schema_id],
+                        ),
+                        id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
+                        task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                    )
+                except WorkflowAlreadyStartedError:
+                    workflow.logger.warning(
+                        "DuckLake copy already running, skipping",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
 
             prepared_queryable_folder = pipeline_result.get("prepared_queryable_folder")
             if prepared_queryable_folder and workflow.patched("data-imports-ducklake-registration-workflow-v1"):

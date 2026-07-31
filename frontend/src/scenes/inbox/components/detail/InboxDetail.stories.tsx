@@ -184,3 +184,85 @@ export const RunReady: Story = {
         </Frame>
     ),
 }
+
+// Inline review threads anchored onto the branch diff from `mockBranchDiff()`, with the viewer's own
+// GitHub identity connected so the composer, the edit/delete affordances and the reaction pills all
+// render. The default `detailMocks` return no comments and no personal connection, which is the
+// empty state the other PR stories cover.
+const reviewComment = (
+    overrides: Partial<Record<string, unknown>> & { id: string; body: string }
+): Record<string, unknown> => ({
+    author: 'octocat',
+    author_avatar_url: null,
+    created_at: '2026-06-11T09:00:00Z',
+    url: `https://github.com/PostHog/posthog/pull/12001#discussion_r${overrides.id}`,
+    comment_type: 'review',
+    path: 'frontend/src/scenes/invites/inviteLogic.ts',
+    line: 45,
+    start_line: null,
+    side: 'RIGHT',
+    diff_hunk: null,
+    in_reply_to_id: null,
+    commit_id: 'abc123',
+    reactions: [],
+    ...overrides,
+})
+
+const inlineReviewComments = [
+    reviewComment({
+        id: '1',
+        author: 'twixes',
+        body: 'Should this bail out before the toast fires? Right now an empty list still hits the loading state for a frame.',
+        reactions: [{ id: '11', content: '+1', user_login: 'octocat' }],
+    }),
+    reviewComment({
+        id: '2',
+        author: 'octocat',
+        body: 'Good catch, the early return covers it. Moved the guard above the toast.',
+        in_reply_to_id: '1',
+        created_at: '2026-06-11T09:12:00Z',
+    }),
+    reviewComment({
+        id: '3',
+        author: 'twixes',
+        body: 'Worth trimming here too, so a whitespace-only name does not count as a recipient.',
+        path: 'frontend/src/scenes/invites/InviteRow.tsx',
+        line: 12,
+        created_at: '2026-06-11T09:20:00Z',
+        reactions: [
+            { id: '31', content: 'heart', user_login: 'octocat' },
+            { id: '32', content: 'rocket', user_login: 'twixes' },
+        ],
+    }),
+]
+
+const inlineReviewMocks = mswDecorator({
+    get: {
+        '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [200, { comments: inlineReviewComments }],
+        '/api/users/@me/integrations/': () => [
+            200,
+            {
+                results: [
+                    {
+                        id: 1,
+                        installation_id: '12345',
+                        repository_selection: 'all',
+                        account: { type: 'Organization', name: 'PostHog' },
+                        github_login: 'twixes',
+                        uses_shared_installation: true,
+                        created_at: '2026-05-01T00:00:00Z',
+                    },
+                ],
+            },
+        ],
+    },
+})
+
+export const PullRequestInlineReview: Story = {
+    decorators: [inlineReviewMocks],
+    render: () => (
+        <Frame>
+            <PullRequestDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}

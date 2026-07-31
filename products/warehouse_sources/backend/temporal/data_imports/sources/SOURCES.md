@@ -448,7 +448,7 @@ the row lists both.
 | outbrain                         | HTTP                        | requests                                                        | ✅                          |
 | pabbly_subscriptions_billing     | HTTP                        | requests                                                        | ✅                          |
 | packagist                        | HTTP                        | requests                                                        | ✅                          |
-| paddle                           | HTTP                        | requests                                                        | ✅                          |
+| paddle                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | optimizely                       | HTTP                        | requests                                                        | ✅                          |
 | pagerduty                        | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                         | HTTP                        | requests                                                        | ✅                          |
@@ -717,6 +717,7 @@ doesn't conflict with concurrent PRs.
 - aftership
 - ahrefs
 - aikido_security
+- airbridge
 - airbyte
 - airops
 - aiven
@@ -809,6 +810,7 @@ doesn't conflict with concurrent PRs.
 - bexio
 - bigcommerce
 - bigeye
+- billit
 - billomat
 - bing_webmaster_tools
 - bitly
@@ -849,6 +851,7 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - classy
+- clay
 - clazar
 - cleartax
 - clever
@@ -889,6 +892,7 @@ doesn't conflict with concurrent PRs.
 - deputy
 - develocity
 - dialpad
+- directus
 - discord
 - display_video_360
 - dodopayments
@@ -1033,6 +1037,7 @@ doesn't conflict with concurrent PRs.
 - hubplanner
 - humanitec
 - humanitix
+- hyros
 - ikas
 - illumina_basespace
 - imf_data
@@ -1130,6 +1135,7 @@ doesn't conflict with concurrent PRs.
 - mono
 - moodle
 - motherduck
+- moxie
 - mycase
 - nager_date
 - nasa
@@ -1150,6 +1156,7 @@ doesn't conflict with concurrent PRs.
 - nutshell
 - nylas
 - octolens
+- odoo
 - oecd
 - okendo
 - onedrive
@@ -1307,6 +1314,7 @@ doesn't conflict with concurrent PRs.
 - smartrecruiters
 - smartwaiver
 - smokeball
+- snovio
 - soda_cloud
 - solarwinds_service_desk
 - sonar_cloud
@@ -1326,6 +1334,7 @@ doesn't conflict with concurrent PRs.
 - surveymonkey
 - survicate
 - svix
+- swan
 - swonkie
 - synthesia
 - systeme
@@ -1354,8 +1363,10 @@ doesn't conflict with concurrent PRs.
 - toast
 - toggl
 - track_pms
+- tradable_bits
 - transistor
 - tremendous
+- triple_whale
 - trustpilot
 - trustradius
 - turso

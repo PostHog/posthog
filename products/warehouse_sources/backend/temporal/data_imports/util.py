@@ -1,5 +1,6 @@
 import re
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import uuid4
@@ -75,6 +76,7 @@ async def prepare_s3_files_for_querying(
     preserve_table_name_casing: Optional[bool] = False,
     delete_existing: bool = True,
     logger: Optional[FilteringBoundLogger] = None,
+    refresh_file_uris: Optional[Callable[[], Awaitable[list[str]]]] = None,
 ) -> str:
     """Async version that uses s3fs native async methods for concurrent file operations."""
 
@@ -182,7 +184,18 @@ async def prepare_s3_files_for_querying(
                 # S3's SlowDown rate limiting on the destination prefix.
                 await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
-        await asyncio.gather(*[copy_file(file) for file in file_uris])
+        try:
+            await asyncio.gather(*[copy_file(file) for file in file_uris])
+        except FileNotFoundError as e:
+            if refresh_file_uris is None:
+                raise
+            # A concurrent compact/vacuum pass on the same Delta table (e.g. a zombie attempt
+            # from a heartbeat timeout still running) can physically delete a source file
+            # between our listing and this copy. Re-listing picks up wherever that pass left
+            # the table and retries once against the current file set.
+            await _log(f"Source file vanished mid-copy, retrying with a fresh file listing: {e}", level="error")
+            file_uris = await refresh_file_uris()
+            await asyncio.gather(*[copy_file(file) for file in file_uris])
 
         # Delete existing files after copying new ones
         if delete_existing and files_to_delete:

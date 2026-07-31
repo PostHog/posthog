@@ -513,6 +513,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
+        self_driving_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -692,6 +693,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if wizard_head_branch:
             extra_state["wizard_head_branch"] = wizard_head_branch
 
+        # Same server-generated-branch pattern for signals implementation runs: the stamped value
+        # is the only caller-unwritable end of the run->PR link, so the self-driving review
+        # carve-out matches a PR's GitHub-attested head ref against it (find_signal_implementation_run)
+        # instead of trusting the API-writable output.pr_url.
+        if self_driving_head_branch:
+            extra_state["self_driving_head_branch"] = self_driving_head_branch
+
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
@@ -782,6 +790,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
+        self_driving_head_branch: str | None = None,
         pending_user_message: str | None = None,
         workflow_id_prefix: str | None = None,
         custom_image_builder_id: str | None = None,
@@ -815,6 +824,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             ai_stage=ai_stage,
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
+            self_driving_head_branch=self_driving_head_branch,
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
@@ -1617,6 +1627,14 @@ class TaskRun(models.Model):
                 KeyTransform("wizard_head_branch", "state"),
                 name="task_run_wizard_branch_idx",
                 condition=models.Q(state__wizard_head_branch__isnull=False),
+            ),
+            # Same shape again for the self-driving review carve-out lookup
+            # `filter(state__self_driving_head_branch=...)`; only signals implementation runs
+            # carry the key.
+            models.Index(
+                KeyTransform("self_driving_head_branch", "state"),
+                name="task_run_sd_branch_idx",
+                condition=models.Q(state__self_driving_head_branch__isnull=False),
             ),
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).

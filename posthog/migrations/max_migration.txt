@@ -1,1 +1,1 @@
-1277_drop_duckgresserverteam_hot_table_fks
+1279_drop_duckgresserverteam_table
