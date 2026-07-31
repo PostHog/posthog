@@ -6,7 +6,7 @@
  * implementation detail.
  */
 
-export { DEFAULT_STATE_TTL_SECONDS, SIGNING_KEY_ENV_VAR } from './constants'
+export { DEFAULT_STATE_TTL_SECONDS, PAYLOAD_STASH_TTL_MARGIN_SECONDS, SIGNING_KEY_ENV_VAR } from './constants'
 export {
     SignedStateAlreadyConsumed,
     SignedStateError,
@@ -20,3 +20,5 @@ export { loadSigningKeyFromEnv, SignedStateCodec } from './codec'
 export type { SignedStateClaims, SignedStateCodecOptions } from './codec'
 export { NonceLedger } from './nonce-ledger'
 export type { NonceLedgerRedis } from './nonce-ledger'
+export { PayloadStash } from './payload-stash'
+export type { PayloadStashRedis } from './payload-stash'

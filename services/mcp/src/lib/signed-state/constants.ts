@@ -21,5 +21,16 @@ export const SIGNING_KEY_MIN_BYTES = 32
 /** Redis key prefix for the single-use nonce ledger. */
 export const NONCE_KEY_PREFIX = 'mcp:signed-state:nonce'
 
+/** Redis key prefix for stashed prepare payloads awaiting execute. */
+export const PAYLOAD_KEY_PREFIX = 'mcp:signed-state:payload'
+
+/**
+ * Extra lifetime a stashed payload gets beyond its token's TTL. Ensures the
+ * Redis entry never expires before the token does under clock skew — an
+ * expired token must refuse as 'expired' (from the JWT check), not as
+ * 'already used' because the stash entry vanished first.
+ */
+export const PAYLOAD_STASH_TTL_MARGIN_SECONDS = 30
+
 /** Env var name. */
 export const SIGNING_KEY_ENV_VAR = 'MCP_SIGNED_STATE_KEY'
