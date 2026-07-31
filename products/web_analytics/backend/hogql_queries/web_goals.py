@@ -347,13 +347,12 @@ WHERE {periods_expression}
         )
 
     def event_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
+        properties: list = [
+            p
+            for p in self.effective_query_properties + self._test_account_filters
+            if get_property_type(p) in ["event", "person"]
         ]
-        return property_to_expr(properties, team=self.team, scope="event")
-
-    def session_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
-        ]
+        # The rewritten filters are events-side predicates (they match on the
+        # session's first pageview), so they belong here, not with the session ones.
+        properties.extend(self.first_pageview_filter_exprs)
         return property_to_expr(properties, team=self.team, scope="event")

@@ -149,6 +149,8 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
+from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
+
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
@@ -1372,6 +1374,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
+        # Set as a modifier so it lands in the cache key; see
+        # `resolve_first_pageview_filters_modifier`.
+        self.modifiers.webAnalyticsFirstPageviewFilters = resolve_first_pageview_filters_modifier(
+            query, team, self.modifiers.webAnalyticsFirstPageviewFilters
+        )
         self.__post_init__()
 
     def __post_init__(self):

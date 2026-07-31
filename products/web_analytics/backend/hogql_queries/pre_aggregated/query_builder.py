@@ -31,6 +31,11 @@ class WebAnalyticsPreAggregatedQueryBuilder:
     def can_use_preaggregated_tables(self) -> bool:
         query = self.runner.query
 
+        # Pre-aggregated rows bake session-entry attribution in as dimensions, so
+        # they cannot answer a filter rewritten to first-pageview semantics.
+        if self.runner.rewritten_first_pageview_filters:
+            return False
+
         for prop in query.properties:
             if hasattr(prop, "type") and prop.type == "cohort":
                 return False
