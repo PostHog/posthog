@@ -3,6 +3,9 @@ export const AGENT_AUTH_ADAPTER = Symbol.for(
   "posthog.workspace.agentAuthAdapter",
 );
 export const AGENT_LOGGER = Symbol.for("posthog.workspace.agentLogger");
+export const MCP_SERVER_CONNECTION_SOURCE = Symbol.for(
+  "posthog.workspace.mcpServerConnectionSource",
+);
 export const AGENT_SLEEP_COORDINATOR = Symbol.for(
   "posthog.workspace.agentSleepCoordinator",
 );

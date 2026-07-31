@@ -1,11 +1,18 @@
 import {
   createPiRpcClient,
+  createRuntimeMcpServers,
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { type CloudRegion, getCloudUrlFromRegion } from "@posthog/shared";
-import { AGENT_AUTH } from "@posthog/workspace-server/services/agent/identifiers";
-import type { AgentAuth } from "@posthog/workspace-server/services/agent/ports";
+import {
+  AGENT_AUTH,
+  MCP_SERVER_CONNECTION_SOURCE,
+} from "@posthog/workspace-server/services/agent/identifiers";
+import type {
+  AgentAuth,
+  McpServerConnectionSource,
+} from "@posthog/workspace-server/services/agent/ports";
 import type { AuthProxyService } from "@posthog/workspace-server/services/auth-proxy/auth-proxy";
 import { AUTH_PROXY_SERVICE } from "@posthog/workspace-server/services/auth-proxy/identifiers";
 import type { PiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/identifiers";
@@ -22,6 +29,8 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     @inject(AGENT_AUTH) private readonly auth: AgentAuth,
     @inject(AUTH_PROXY_SERVICE)
     private readonly authProxy: AuthProxyService,
+    @inject(MCP_SERVER_CONNECTION_SOURCE)
+    private readonly mcpServerSource: McpServerConnectionSource,
   ) {}
 
   async create(input: {
@@ -36,8 +45,13 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
 
     const baseUrl = await this.getProxyUrl(credentials.region);
 
+    const runtimeMcpServers = createRuntimeMcpServers(
+      await this.mcpServerSource.getMcpServerConnections(),
+    );
+
     return createPiRpcClient({
       ...input,
+      runtimeMcpServers,
       providerOptions: {
         region: credentials.region,
         baseUrl,
