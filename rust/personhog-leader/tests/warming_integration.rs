@@ -153,6 +153,18 @@ async fn warming_handles_empty_partition() {
         matches!(cache.get(0, &key), CacheLookup::PersonNotFound),
         "no records were produced, so cache must be empty"
     );
+
+    // The empty path must return its consumer to the pool, not drop it —
+    // a second empty warm reuses the same client instead of creating one.
+    let created_after_first = pools.warming.created_count();
+    warm_from_kafka(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), 0)
+        .await
+        .expect("second empty warm should succeed");
+    assert_eq!(
+        pools.warming.created_count(),
+        created_after_first,
+        "an empty warm must give its pooled consumer back"
+    );
 }
 
 /// Partition isolation: warming partition 0 must not populate cache

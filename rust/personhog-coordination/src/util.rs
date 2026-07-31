@@ -214,6 +214,37 @@ pub async fn run_lease_keepalive(
     }
 }
 
+/// Records how long a handoff phase write took to reach this observer's
+/// watch stream. Same-cluster clocks make millisecond skew negligible for
+/// the diagnostic purpose; records stamped by pre-instrumentation writers
+/// (zero) are skipped.
+pub fn record_phase_watch_delivery(observer: &'static str, phase_entered_at_ms: i64) {
+    if phase_entered_at_ms <= 0 {
+        return;
+    }
+    let lag = now_millis().saturating_sub(phase_entered_at_ms).max(0);
+    metrics::histogram!(
+        "personhog_coordination_phase_watch_delivery_ms",
+        "observer" => observer
+    )
+    .record(lag as f64);
+}
+
+/// Records the coordinator's reaction lag: from the newest ack that
+/// satisfied a quorum to the phase advance it triggered. Zero-stamped
+/// acks (pre-instrumentation writers) are excluded.
+pub fn record_ack_to_advance(phase: &'static str, ack_stamps_ms: impl Iterator<Item = i64>) {
+    let Some(latest) = ack_stamps_ms.filter(|&t| t > 0).max() else {
+        return;
+    };
+    let lag = now_millis().saturating_sub(latest).max(0);
+    metrics::histogram!(
+        "personhog_coordination_ack_to_advance_ms",
+        "phase" => phase
+    )
+    .record(lag as f64);
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;

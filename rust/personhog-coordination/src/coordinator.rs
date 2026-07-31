@@ -659,6 +659,10 @@ impl Coordinator {
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, target);
+                        util::record_ack_to_advance(
+                            "freezing",
+                            freeze_acks.iter().map(|a| a.acked_at_ms),
+                        );
                         tracing::info!(
                             partition,
                             freeze_acks = freeze_acks.len(),
@@ -693,6 +697,10 @@ impl Coordinator {
                         .await?;
                     if advanced {
                         record_phase_advance(&handoff, HandoffPhase::Warming);
+                        util::record_ack_to_advance(
+                            "draining",
+                            drained_acks.iter().map(|a| a.acked_at_ms),
+                        );
                         tracing::info!(
                             partition,
                             old_owner = ?handoff.old_owner,
@@ -712,6 +720,10 @@ impl Coordinator {
                     match store.complete_handoff(partition).await {
                         Ok(true) => {
                             record_phase_advance(&handoff, HandoffPhase::Complete);
+                            util::record_ack_to_advance(
+                                "warming",
+                                warmed.iter().map(|a| a.acked_at_ms),
+                            );
                         }
                         Ok(false) => {
                             tracing::warn!(partition, "handoff modified concurrently, skipping");

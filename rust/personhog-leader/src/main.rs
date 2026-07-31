@@ -309,6 +309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lease_ttl: config.lease_ttl,
         heartbeat_interval: config.heartbeat_interval(),
         advertise_address: Some(advertise_address),
+        warm_concurrency: config.warm_concurrency,
         ..Default::default()
     };
 
