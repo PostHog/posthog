@@ -90,10 +90,12 @@ def enrich_props_with_descriptions(
 ):
     """Attach a description to each property.
 
-    The built-in core taxonomy wins. For custom properties it has never heard of, fall back to the
-    user-authored description stored on the property definition (passed in already sanitized). This
-    only enriches properties the caller already discovered via ClickHouse — it never sources the
-    property list itself from Postgres.
+    Both the built-in core taxonomy description and the user-authored one stored on the property
+    definition (passed in already sanitized) are surfaced. When a property has both, the team's note
+    is appended to the core text rather than replacing it, so a team can steer Max on a core property
+    like `$geoip_city` without being able to erase or spoof the built-in description. This only
+    enriches properties the caller already discovered via ClickHouse — it never sources the property
+    list itself from Postgres.
     """
     enriched_props = []
     mapping = {
@@ -105,12 +107,19 @@ def enrich_props_with_descriptions(
     entity_definitions = mapping.get(entity, CORE_FILTER_DEFINITIONS_BY_GROUP["groups"])
     stored_descriptions = stored_descriptions or {}
     for prop_name, prop_type in props:
-        description = None
+        core_description = None
         if entity_definition := entity_definitions.get(prop_name):
             if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
                 continue
-            description = entity_definition.get("description_llm") or entity_definition.get("description")
-        else:
-            description = stored_descriptions.get(prop_name)
-        enriched_props.append((prop_name, prop_type, description))
+            core_description = entity_definition.get("description_llm") or entity_definition.get("description")
+        enriched_props.append(
+            (prop_name, prop_type, _combine_descriptions(core_description, stored_descriptions.get(prop_name)))
+        )
     return enriched_props
+
+
+def _combine_descriptions(core_description: str | None, stored_description: str | None) -> str | None:
+    if core_description and stored_description:
+        # Labelled so the model can tell PostHog's own definition apart from the team's steer.
+        return f"{core_description} This project's note: {stored_description}"
+    return core_description or stored_description

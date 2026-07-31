@@ -28,11 +28,12 @@ from ee.hogai.core.mixins import TaxonomyUpdateDispatcherNodeMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.helpers import dereference_schema, format_events_yaml
+from ee.hogai.utils.helpers import dereference_schema, format_events_yaml, get_always_on_business_knowledge
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 from .prompts import (
     ACTIONS_EXPLANATION_PROMPT,
+    BUSINESS_KNOWLEDGE_PROMPT,
     EVENT_DEFINITIONS_PROMPT,
     HUMAN_IN_THE_LOOP_PROMPT,
     ITERATION_LIMIT_PROMPT,
@@ -105,6 +106,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
         output_message = chain.invoke(
             {
                 "core_memory": self.core_memory.text if self.core_memory else "",
+                "business_knowledge": self._always_on_business_knowledge,
                 "react_property_filters": self._get_react_property_filters_prompt(),
                 "react_human_in_the_loop": HUMAN_IN_THE_LOOP_PROMPT,
                 "groups": self._team_group_types,
@@ -179,6 +181,10 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
         )
 
     @cached_property
+    def _always_on_business_knowledge(self) -> str:
+        return get_always_on_business_knowledge(self._team)
+
+    @cached_property
     def _team_group_types(self) -> list[str]:
         from posthog.models.group_type_mapping import get_group_types_for_project
 
@@ -203,6 +209,15 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_table_names()
             )
         )
+        system_blocks: list[dict[str, str]] = [
+            {"type": "text", "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT},
+            {"type": "text", "text": SCHEMA_MESSAGE.format(schema_description=hogql_schema_description)},
+            {"type": "text", "text": CORE_MEMORY_PROMPT},
+        ]
+        if self._always_on_business_knowledge:
+            system_blocks.append({"type": "text", "text": BUSINESS_KNOWLEDGE_PROMPT})
+        system_blocks.append({"type": "text", "text": EVENT_DEFINITIONS_PROMPT})
+
         enriched_messages = async_to_sync(self.context_manager.artifacts.aenrich_messages)(state.messages)
         history_messages = []
         for message in enriched_messages:
@@ -212,18 +227,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 history_messages.extend([("human", query), ("assistant", plan)])
         conversation = ChatPromptTemplate(
             [
-                (
-                    "system",
-                    [
-                        {"type": "text", "text": QUERY_PLANNER_STATIC_SYSTEM_PROMPT},
-                        {
-                            "type": "text",
-                            "text": SCHEMA_MESSAGE.format(schema_description=hogql_schema_description),
-                        },
-                        {"type": "text", "text": CORE_MEMORY_PROMPT},
-                        {"type": "text", "text": EVENT_DEFINITIONS_PROMPT},
-                    ],
-                ),
+                ("system", system_blocks),
                 # Include inputs and plans for up to 20 previously generated insights in thread
                 *history_messages[-20:],
                 # The description of a new insight is added to the end of the conversation.

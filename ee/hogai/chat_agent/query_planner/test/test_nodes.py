@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -8,6 +9,7 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.prompts import AIMessagePromptTemplate, HumanMessagePromptTemplate
+from parameterized import parameterized
 
 from posthog.schema import (
     ArtifactContentType,
@@ -232,6 +234,24 @@ class TestQueryPlannerNode(ClickhouseTestMixin, APIBaseTest):
         final_msg = history[-1]
         self.assertIsInstance(final_msg, HumanMessagePromptTemplate)
         self.assertIn("Final Question", final_msg.prompt.template)
+
+    @parameterized.expand(
+        [
+            ("with_always_on_knowledge", "Measure city from `city_name`, never `$geoip_city`.", True),
+            ("without_always_on_knowledge", "", False),
+        ]
+    )
+    @patch("ee.hogai.chat_agent.query_planner.nodes.get_always_on_business_knowledge")
+    def test_construct_messages_injects_always_on_business_knowledge(
+        self, _name, knowledge, expected, mock_get_knowledge
+    ):
+        mock_get_knowledge.return_value = knowledge
+        node = self._get_node()
+
+        history = node._construct_messages(AssistantState(messages=[], root_tool_insight_plan="Text"))
+
+        system_text = " ".join(block.template for block in history[0].prompt)
+        self.assertEqual("<business_knowledge>" in system_text, expected)
 
     def test_construct_messages_appends_query_planner_intermediate_messages(self):
         node = self._get_node()

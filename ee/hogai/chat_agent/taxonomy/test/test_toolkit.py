@@ -7,6 +7,8 @@ from pydantic import BaseModel
 
 from posthog.schema import AssistantToolCall
 
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
@@ -48,16 +50,19 @@ class TestTaxonomyAgentToolkit(BaseTest):
         self.assertEqual(browser_prop[1], "String")
         self.assertIsNotNone(browser_prop[2])
 
-    def test_enrich_props_uses_stored_description_only_for_custom_props(self):
-        # Custom properties fall back to the user-authored description; core taxonomy still wins so a
-        # stored description can never override (or spoof) a built-in one.
+    def test_enrich_props_combines_stored_and_core_descriptions(self):
         props = [("$browser", "String"), ("custom_prop", "Numeric")]
-        stored = {"custom_prop": "Revenue in cents", "$browser": "should be ignored"}
+        stored = {"custom_prop": "Revenue in cents", "$browser": "We only trust this on web"}
         enriched = self.toolkit._enrich_props_with_descriptions("event", props, stored)
         by_name = {name: description for name, _, description in enriched}
 
         self.assertEqual(by_name["custom_prop"], "Revenue in cents")
-        self.assertNotEqual(by_name["$browser"], "should be ignored")
+        # A team's note on a core property has to reach the model, but appended — the built-in text
+        # stays intact so a stored description can't erase or spoof it.
+        self.assertIn("We only trust this on web", by_name["$browser"])
+        self.assertIn(
+            CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"]["$browser"]["description"], by_name["$browser"]
+        )
 
     @parameterized.expand(
         [

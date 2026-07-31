@@ -44,7 +44,10 @@ from posthog.models import Team, User
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
+from products.business_knowledge.backend.logic import get_always_on_context
+
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
+from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag
 from ee.hogai.utils.types.base import (
     ArtifactRefMessage,
     AssistantDispatcherEvent,
@@ -315,6 +318,22 @@ def _get_event_definition_descriptions(
         .values_list("name", "description")
     )
     return {name: description for name, description in rows if description}
+
+
+def get_always_on_business_knowledge(team: Team) -> str:
+    """Return the team's always-on business knowledge as prompt-ready text, or "" if there is none.
+
+    `always_include` knowledge sources are the supported home for standing guidance — "measure city
+    from `city_name`, not `$geoip_city`" — so the same content the support-reply flow already injects
+    is what steers the query planner.
+    """
+    if not has_business_knowledge_feature_flag(team):
+        return ""
+    chunks = get_always_on_context(team.id)
+    if not chunks:
+        return ""
+    # Team-authored, so untrusted the same way property descriptions are.
+    return sanitize_for_system_reminder("\n\n".join(chunk.content for chunk in chunks))
 
 
 def format_events_xml(events_in_context: list[MaxEventContext], team: Team, user: User) -> str:
