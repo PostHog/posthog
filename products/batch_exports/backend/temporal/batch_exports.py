@@ -550,6 +550,9 @@ async def check_is_over_limit(team_id: int) -> bool:
     """
     team: Team = await Team.objects.aget(id=team_id)
 
+    # The ROWS_EXPORTED resource stores a team attribute for each team that has
+    # exceeded their quota and thus is limited. The term "attribute" refers to
+    # a team identifier, which in our case is the team's API token.
     limited_team_tokens_rows_exported = await asyncio.to_thread(
         list_limited_team_attributes, QuotaResource.ROWS_EXPORTED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
