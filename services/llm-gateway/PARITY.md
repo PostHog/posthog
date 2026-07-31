@@ -20,36 +20,6 @@ Bug, security, and reliability fixes for blocked callers are valid reasons. Conv
 
 When a gap closes, new work uses the Go gateway and affected callers should migrate. Do not add the same feature to both gateways by default.
 
-## Current rollout inventory
-
-This inventory records caller implementation and deployment state verified on 2026-07-31. It complements the contract audit below. A migrated caller is evidence that its specific contract works, not proof that every caller in the same product can move.
-
-### ✅ Migrated to the Go gateway
-
-- AI observability summarization, eval reports, and clustering
-- SherlockHog, whose client prefers Go when the paired settings are present and whose development and production overlays provide them
-- Signals grouping, safety, eval summarization, emission, and `signals_eval`, whose workers have regional Go gateway settings
-
-### 🚧 Partially migrated or in progress
-
-| Caller                 | Verified state                                                                                                                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| StampHog               | Standalone PR-review paths are Go-capable. The hosted Temporal worker still points `AI_GATEWAY_URL` at the Python `/stamphog/v1` product route, so StampHog is not fully migrated.   |
-| Agent package          | Supports selecting Go per product, but rollout is not complete across callers and deployments.                                                                                       |
-| Signals sandbox Scouts | Go routing is enabled in the development task-agent overlay. Production overlays do not enable it, and the production follow-up remains paused pending auth and attribution support. |
-| Warehouse error triage | The warehouse-sources-admin deployment has Go gateway settings. Do not confuse this caller with warehouse semantic enrichment.                                                       |
-| Survey summary         | Uses mixed paths. Some former Gemini calls use the Python gateway's Haiku path as a temporary fallback. Audit each summary call before changing shared configuration.                |
-
-### ⏳ Not migrated to the Go gateway
-
-| Caller                        | Verified reason or state                                                                                                                      |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostHog AI (`ai`)             | Still relies on Python gateway and first-party product contracts.                                                                             |
-| PostHog Desktop               | Requires trusted auth and attribution that are not yet available together in Go.                                                              |
-| Session Replay                | Its current AI call sites do not use the shared Go-capable gateway builders. Inventory the exact provider and auth contract before migration. |
-| Wizard                        | Still has Python product policy and direct Gemini paths. It requires first-party product policy that is not yet available together in Go.     |
-| Warehouse semantic enrichment | Uses the Python `warehouse_semantic_enrichment` product client, and its worker deployment has only Python gateway settings.                   |
-
 ## Choose by use case
 
 ### ✅ Use the Go gateway

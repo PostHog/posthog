@@ -1,6 +1,6 @@
 # Migration examples
 
-These PRs show different migration shapes and rollout states. Check each PR's current status and read the relevant diff before implementing a similar change because gateway contracts have continued to evolve.
+These PRs show different migration shapes. Read the relevant diff before implementing a similar change because gateway contracts have continued to evolve. Use them for implementation decisions, not as an inventory of current rollout state.
 
 ## Django and direct-provider callers
 
@@ -22,11 +22,9 @@ These PRs show different migration shapes and rollout states. Check each PR's cu
 
 - [#72770: route selected sandbox products to the AI gateway](https://github.com/PostHog/posthog/pull/72770) treats migration as more than a client change. It pairs URL and product rollout settings, reserves them against user overrides, updates both egress enforcement layers, validates configured hostnames, extends startup diagnostics, and keeps rollback to clearing either setting.
 
-## Cross-repository migration sequences
+## Cross-repository patterns
 
-Treat these as linked sequences. A client PR alone does not prove that traffic moved or retained its expected attribution.
-
-### ✅ SherlockHog: merged end-to-end sequence
+### Standalone TypeScript service
 
 1. [PostHog/SherlockHog #104: route the agent through the slugless AI gateway](https://github.com/PostHog/SherlockHog/pull/104) adds the paired Go settings, base URL translation, project-secret auth, Python fallback, and route-selection tests for a TypeScript Claude Agent SDK service.
 2. [PostHog/SherlockHog #111: boot with either complete gateway pair](https://github.com/PostHog/SherlockHog/pull/111) fixes the transitional startup contract so an AI-gateway-only deployment can boot while preserving the Python rollback route.
@@ -34,20 +32,21 @@ Treat these as linked sequences. A client PR alone does not prove that traffic m
 4. [PostHog/charts #12919: cut development over to the slugless AI gateway](https://github.com/PostHog/charts/pull/12919) wires the development URL and secret first, with explicit deployment rendering and rollback checks.
 5. [PostHog/charts #12920: cut production over to the slugless AI gateway](https://github.com/PostHog/charts/pull/12920) applies the regional production configuration after the development stage.
 
-All five changes are merged. Still verify the current deployment and live attribution before using this sequence as proof of present-day behavior.
+Together these show the client, transitional boot contract, attribution correction, staged deployment, and rollback boundaries.
 
-### 🚧 Signals sandbox Scouts: production rollout paused
+### Per-product sandbox routing
 
 1. [PostHog/code #3659: route selected products to the AI gateway](https://github.com/PostHog/code/pull/3659) selects a gateway per sandbox request. It requires both the Go URL and an allowlist, keeps unlisted products on Python, converts attribution to one bounded ASCII-safe JSON header, and gives each workload a distinct product tag.
 2. [PostHog/posthog #72770: route selected sandbox products to the AI gateway](https://github.com/PostHog/posthog/pull/72770) passes the settings into sandboxes, reserves them against user overrides, updates both egress enforcement layers, validates configured hostnames, and extends startup diagnostics.
 3. [PostHog/charts #13358: route Signals sandbox stages in development](https://github.com/PostHog/charts/pull/13358) activates the client and Django support for four workloads in development.
-4. [PostHog/charts #13361: route Signals sandbox stages in production](https://github.com/PostHog/charts/pull/13361) is the production follow-up and remains an open draft. The rollout is paused pending auth and attribution support. Do not describe this sequence as a completed production migration until the blocker closes, the change merges, and the live route is verified.
 
-### 🚧 StampHog: split rollout
+These show how to select Go per request, pass configuration through a sandbox boundary, enforce egress, and activate a narrow set of workloads.
 
-- [PostHog/posthog #68329: route the PR-approval agent through the AI gateway](https://github.com/PostHog/posthog/pull/68329) and [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) show Go-capable standalone PR-review paths. The implementation validates paired settings, strips `/v1` before the SDK restores its messages path, sets both Anthropic auth variables, avoids duplicate capture by bypassing the traced wrapper in gateway mode, and keeps direct-provider fallback. Do not treat these PRs as a complete StampHog migration: the hosted Temporal worker is still deployed with the Python `/stamphog/v1` product route.
+### Standalone PR-review agent
 
-### ✅ Deployment-only example
+- [PostHog/posthog #68329: route the PR-approval agent through the AI gateway](https://github.com/PostHog/posthog/pull/68329) and [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) validate paired settings, strip `/v1` before the SDK restores its messages path, set both Anthropic auth variables, avoid duplicate capture by bypassing the traced wrapper in gateway mode, and retain an explicit fallback.
+
+### Deployment activation
 
 - [PostHog/charts #13131: repoint worker deployments to the AI gateway](https://github.com/PostHog/charts/pull/13131) demonstrates that merged client support does not move traffic by itself. It wires the regional URL and app-specific secret into every deployment that runs an already-migrated caller, with removal of either setting as rollback. Use it as deployment guidance, not as a standalone caller migration.
 
