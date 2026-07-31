@@ -706,7 +706,7 @@ function buildBarValueScale(
 ): D3YScale {
     const { fixed, include } = resolveValueDomain(valueDomain)
     if (fixed) {
-        return scaleLinear().domain([fixed[0], fixed[1]]).range(valueRange)
+        return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(valueRange)
     }
     if (barLayout === 'percent') {
         return scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)

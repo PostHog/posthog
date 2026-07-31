@@ -234,6 +234,22 @@ describe('hog-charts bar scales', () => {
             const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { barLayout, valueDomain })
             expect(value.domain()).toEqual(valueDomain)
         })
+
+        // A non-finite or collapsed fixed domain maps every bar (and axis tick) to NaN, so the chart
+        // paints nothing while x-only tooltips keep working — the same failure the line path guards
+        // against via sanitizeFixedDomain. The bar value scale must stay well-formed too.
+        it.each([
+            { name: 'NaN bounds', valueDomain: [NaN, NaN] as [number, number] },
+            { name: 'a NaN max (e.g. Math.max of empty data)', valueDomain: [0, NaN] as [number, number] },
+            { name: 'an infinite max', valueDomain: [0, Infinity] as [number, number] },
+            { name: 'collapsed bounds', valueDomain: [50, 50] as [number, number] },
+        ])('keeps a finite, non-degenerate domain for $name', ({ valueDomain }) => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const [min, max] = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueDomain }).value.domain()
+            expect(isFinite(min)).toBe(true)
+            expect(isFinite(max)).toBe(true)
+            expect(min).toBeLessThan(max)
+        })
     })
 
     describe('createBarScales — log scale', () => {
