@@ -8,7 +8,7 @@ from azure.core.exceptions import HttpResponseError
 from azure.storage.blob import StorageErrorCode
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import AzureBlobIntegration, Integration
@@ -23,10 +23,10 @@ from products.batch_exports.backend.service import (
     BatchExportModel,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     events_model_default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
@@ -422,8 +422,10 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         if inputs.integration_id is None:
             raise AzureBlobIntegrationNotFoundError(inputs.integration_id, inputs.team_id)

@@ -42,6 +42,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -64,6 +65,27 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         detail = response.json()["detail"]
         self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
         self.assertNotIn("app:query:per-org", detail)
+
+    @parameterized.expand(
+        [
+            ("served_from_cache", True, False),
+            ("fresh_failure", False, True),
+        ]
+    )
+    def test_served_from_query_failure_cache_is_not_recaptured(self, _name, served_from_cache, expect_capture):
+        error = ClickHouseQueryTimeOut("failed the same way 3 times in a row")
+        if served_from_cache:
+            error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=error),
+            patch("posthog.api.query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+        self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
+        self.assertEqual(mock_capture.called, expect_capture)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

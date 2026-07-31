@@ -6,8 +6,11 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
+    AccountColumnGroup,
+    applyColumnDisplayToSelect,
     buildAccountColumnGroups,
     customPropertyAlias,
+    filterColumnOptions,
     relationshipAlias,
     roleKeyToDefinitionMap,
     translateSelectColumns,
@@ -23,6 +26,7 @@ function definition(
         name,
         display_type: 'text',
         is_big_number: false,
+        is_canonical: false,
         description: null,
         created_at: '2024-01-01T00:00:00Z',
         created_by: null,
@@ -119,5 +123,62 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
             'name',
             `accounts.relationships.values.\`${csm.id}\` AS csm`,
         ])
+    })
+
+    it('applyColumnDisplayToSelect swaps only configured custom property columns to the history join', () => {
+        const id = '11111111-2222-3333-4444-555555555555'
+        const scalar = `accounts.custom_properties.values.\`${id}\` AS ${customPropertyAlias(id)}`
+        const other = 'accounts.tags.names AS tag_names'
+
+        expect(applyColumnDisplayToSelect([scalar, other], {})).toEqual([scalar, other])
+        expect(applyColumnDisplayToSelect([scalar, other], { [id]: { mode: 'sparkline', window_days: 7 } })).toEqual([
+            `accounts.custom_properties_history.values.\`${id}\` AS ${customPropertyAlias(id)}`,
+            other,
+        ])
+        expect(
+            applyColumnDisplayToSelect([scalar], {
+                '99999999-0000-1111-2222-333333333333': { mode: 'trend', window_days: 30 },
+            })
+        ).toEqual([scalar])
+    })
+
+    const pickerGroups: AccountColumnGroup[] = [
+        {
+            key: 'account_properties',
+            label: 'Account properties',
+            options: [
+                { name: 'name', expression: 'name' },
+                { name: 'created_at', expression: 'created_at', type: 'datetime' },
+            ],
+        },
+        {
+            key: 'accounts.billing',
+            label: 'billing',
+            options: [{ name: 'plan_name', expression: 'accounts.billing.plan_name AS plan_name' }],
+        },
+        { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
+    ]
+
+    it('filterColumnOptions spans all non-freeform groups and marks already-selected expressions', () => {
+        const options = filterColumnOptions(pickerGroups, null, '', ['name'])
+
+        expect(options.map((option) => [option.name, option.groupLabel, option.isSelected])).toEqual([
+            ['name', 'Account properties', true],
+            ['created_at', 'Account properties', false],
+            ['plan_name', 'billing', false],
+        ])
+    })
+
+    it('filterColumnOptions matches the search case-insensitively across groups', () => {
+        expect(filterColumnOptions(pickerGroups, null, ' PLAN ', []).map((option) => option.name)).toEqual([
+            'plan_name',
+        ])
+    })
+
+    it('filterColumnOptions narrows to the active group and yields nothing for freeform groups', () => {
+        expect(filterColumnOptions(pickerGroups, pickerGroups[1], '', []).map((option) => option.name)).toEqual([
+            'plan_name',
+        ])
+        expect(filterColumnOptions(pickerGroups, pickerGroups[2], '', [])).toEqual([])
     })
 })

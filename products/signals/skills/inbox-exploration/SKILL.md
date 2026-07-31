@@ -103,7 +103,7 @@ three people the report-research flow flagged as best-placed to act on this repo
 the strongest signal you have that a report matters to the user _personally_, and you should
 lean on it when triaging.
 
-How the flag is produced (see `report_generation/resolve_reviewers.py`):
+How the flag is produced:
 
 1. While researching a report, the agent identifies the GitHub commits most relevant to the
    underlying signals (e.g. commits that touched the failing code path).
@@ -377,6 +377,13 @@ inbox-reports-set-state
   fit a specific code. `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL
   artefact, so the rationale survives later transitions — **always include them**, on a resolve too,
   so a future reader knows _why_.
+- On a dismiss, snooze, or restore, the `dismissal_note` is also forwarded as a steering note to the
+  scout that filed the report, which every scout run reads at cold start, so what you write there is
+  what stops the same report being filed again. Write it for that reader: name the evidence that
+  settles it, not just the verdict. A resolve is not forwarded, since it says the report did its job
+  rather than that filing it was wrong; that note stays on the report. Forwarding needs the same
+  skill-editing access as leaving a scout note by hand, so on a project where you lack it the note
+  still lands on the report but does not reach the scout.
 - It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
   report's current status (and `400` if `dismissal_reason` isn't a canonical code). Confirm with
   the user before suppressing, and capture _why_ in the note — a dismissal with no rationale is

@@ -21,7 +21,7 @@ from databricks.sql.client import Connection, Cursor
 from databricks.sql.exc import DatabaseError, OperationalError, ServerOperationError
 from databricks.sql.types import Row
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import DatabricksIntegration, Integration
@@ -40,6 +40,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     events_model_default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
@@ -51,7 +52,11 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
+)
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -91,9 +96,15 @@ SIX_HOURS = 6 * 60 * 60
 
 
 class DatabricksConnectionError(Exception):
-    """Error for Databricks connection."""
+    """Represents an error connecting to Databricks.
 
-    pass
+    `retryable` is False only for failures that definitively indicate invalid configuration,
+    so we don't spend minutes backing off before telling the user to fix their settings.
+    """
+
+    def __init__(self, message: str, retryable: bool = True):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class DatabricksIntegrationNotFoundError(Exception):
@@ -219,6 +230,11 @@ class DatabricksClient:
     # Timeout (seconds) for the TCP reachability preflight in `_check_host_reachable`.
     DEFAULT_CONNECT_TIMEOUT = 30.0
 
+    # How many times to attempt the initial connection before giving up. Databricks outages are
+    # usually brief, so ~3 minutes of jittered backoff (2s, 8s, 18s, 32s, 32s, ...) resolves most
+    # blips without meaningfully delaying feedback on definitive config errors (not retried).
+    DEFAULT_CONNECT_MAX_ATTEMPTS = 8
+
     def __init__(
         self,
         server_hostname: str,
@@ -229,6 +245,7 @@ class DatabricksClient:
         schema: str,
         statement_timeout_seconds: float | None = None,
         connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT,
+        connect_max_attempts: int = DEFAULT_CONNECT_MAX_ATTEMPTS,
     ):
         self.server_hostname = server_hostname
         self.http_path = http_path
@@ -241,6 +258,7 @@ class DatabricksClient:
         # server only kicks in as a last resort.
         self.statement_timeout_seconds = statement_timeout_seconds
         self.connect_timeout_seconds = connect_timeout_seconds
+        self.connect_max_attempts = connect_max_attempts
 
         self._connection: None | Connection = None
 
@@ -254,6 +272,7 @@ class DatabricksClient:
         integration: DatabricksIntegration,
         statement_timeout_seconds: float | None = None,
         connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT,
+        connect_max_attempts: int = DEFAULT_CONNECT_MAX_ATTEMPTS,
     ) -> t.Self:
         """Initialize a DatabricksClient from `DatabricksInsertInputs` and `DatabricksIntegration`.
 
@@ -270,6 +289,7 @@ class DatabricksClient:
             schema=inputs.schema,
             statement_timeout_seconds=statement_timeout_seconds,
             connect_timeout_seconds=connect_timeout_seconds,
+            connect_max_attempts=connect_max_attempts,
         )
 
     @property
@@ -301,6 +321,13 @@ class DatabricksClient:
             await asyncio.to_thread(probe)
         except OSError as err:
             self.logger.info("Could not reach Databricks host '%s': %s", self.server_hostname, err)
+            # EAI_NONAME/EAI_FAIL mean the hostname does not exist, so no amount of retrying will
+            # help. Other errors are worth retrying.
+            if isinstance(err, socket.gaierror) and err.errno in (socket.EAI_NONAME, socket.EAI_FAIL):
+                raise DatabricksConnectionError(
+                    "Could not resolve Databricks server hostname. Please check that the server hostname is valid.",
+                    retryable=False,
+                ) from err
             raise DatabricksConnectionError(
                 "Failed to connect to Databricks. Please check that your connection details are valid."
             ) from err
@@ -347,7 +374,7 @@ class DatabricksClient:
                 self.http_path,
             )
             raise DatabricksConnectionError(
-                f"Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
+                "Timed out while trying to connect to Databricks. Please check that the server_hostname and http_path are valid."
             )
         # for some reason, Databricks reports some connection failures as a ValueError
         except (ValueError, urllib3.exceptions.HTTPError, urllib3.exceptions.MaxRetryError) as err:
@@ -367,9 +394,31 @@ class DatabricksClient:
                 self.server_hostname,
                 self.http_path,
             )
+            # Invalid credentials won't fix themselves, anything else (e.g. a
+            # momentarily-unavailable warehouse) is worth retrying.
+            if _is_invalid_credentials_error(err):
+                raise DatabricksConnectionError(
+                    "Failed to connect to Databricks: invalid credentials. "
+                    "Please check that your client_id and client_secret are valid.",
+                    retryable=False,
+                ) from err
             raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
 
         return result
+
+    async def _connect_with_retries(self) -> Connection:
+        """Establish a connection, retrying transient failures with exponential backoff."""
+
+        def is_retryable(err: Exception) -> bool:
+            return isinstance(err, DatabricksConnectionError) and err.retryable
+
+        connect = make_retryable_with_exponential_backoff(
+            self._connect,
+            max_attempts=self.connect_max_attempts,
+            retryable_exceptions=(DatabricksConnectionError,),
+            is_exception_retryable=is_retryable,
+        )
+        return await connect()
 
     @contextlib.asynccontextmanager
     async def connect(self, set_context: bool = True):
@@ -382,7 +431,7 @@ class DatabricksClient:
         """
         self.logger.info("Initializing Databricks connection")
 
-        self._connection = await self._connect()
+        self._connection = await self._connect_with_retries()
         self.logger.info("Connected to Databricks")
 
         # Verify the connection is responsive before proceeding
@@ -1043,6 +1092,16 @@ def _is_insufficient_permissions_error(err: DatabaseError) -> bool:
     )
 
 
+def _is_invalid_credentials_error(err: BaseException) -> bool:
+    """Check if a connect-time error indicates the OAuth credentials are rejected.
+
+    A 5xx error is transient and retryable, but a 401 (and the OAuth "invalid_client"/"unauthorized"
+    markers) means the client_id/client_secret are wrong and retrying won't help.
+    """
+    message = str(err)
+    return "invalid_client" in message or "unauthorized" in message or "Status 401" in message
+
+
 @contextlib.asynccontextmanager
 async def handle_common_errors(operation: str, timeout: float) -> AsyncGenerator[None]:
     """Map common Databricks client errors to non-retryable typed exceptions.
@@ -1352,17 +1411,22 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                ),
+            )
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         # should never happen here but check just in case
         if inputs.integration_id is None:

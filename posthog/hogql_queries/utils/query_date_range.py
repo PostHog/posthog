@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.schema import DateRange, IntervalType
+from posthog.schema import DateRange, HogQLFilters, IntervalType
 
 from posthog.hogql.parser import ast
 
@@ -408,6 +408,19 @@ class QueryDateRange:
                 else self.date_from_as_hogql()
             ),
         }
+
+    def to_hogql_filters(self) -> HogQLFilters:
+        """HogQLFilters carrying this range's bounds as absolute datetimes. The {filters} resolver
+        (posthog.hogql.filters.ReplaceFilters) snaps day-level relative bounds like "-7d" to calendar
+        days to match insights, so a runner that wants this range's exact bounds (logs, tracing) must
+        resolve them here and pass datetimes the resolver uses verbatim."""
+        return HogQLFilters(
+            dateRange=DateRange(
+                date_from=self.date_from().isoformat(),
+                date_to=self.date_to().isoformat(),
+                explicitDate=True,
+            )
+        )
 
 
 class QueryDateRangeWithIntervals(QueryDateRange):

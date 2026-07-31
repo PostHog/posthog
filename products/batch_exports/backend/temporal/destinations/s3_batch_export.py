@@ -20,7 +20,7 @@ if typing.TYPE_CHECKING:
 from django.conf import settings
 
 from structlog.contextvars import bind_contextvars
-from temporalio import activity, workflow
+from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import (
@@ -43,10 +43,10 @@ from products.batch_exports.backend.service import (
     S3BatchExportInputs,
 )
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
+    is_over_billing_limit_error,
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import (
@@ -321,8 +321,10 @@ class S3BatchExportWorkflow(PostHogWorkflow):
                     non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
                 ),
             )
-        except OverBillingLimitError:
-            return
+        except exceptions.ActivityError as e:
+            if is_over_billing_limit_error(e):
+                return
+            raise
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,
@@ -708,6 +710,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 s3_inputs=inputs,
                 part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
                 max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+                checksum_algorithm="CRC64NVME" if endpoint_url is None else None,
             )
 
             result = await run_consumer_from_stage(
@@ -750,11 +753,11 @@ class ConcurrentS3Consumer(Consumer):
         data_interval_end: str,
         batch_export_model: BatchExportModel | None,
         file_format: str,
+        checksum_algorithm: str | None = None,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
         encryption: str | None = None,
-        endpoint_url: str | None = None,
         use_virtual_style_addressing: bool = False,
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
@@ -769,6 +772,8 @@ class ConcurrentS3Consumer(Consumer):
         self.data_interval_end = data_interval_end
         self.batch_export_model = batch_export_model
 
+        self.checksum_algorithm = checksum_algorithm
+
         self.file_format = file_format
         self.compression = compression
         self.encryption = encryption
@@ -778,7 +783,6 @@ class ConcurrentS3Consumer(Consumer):
         self.max_file_size_mb = max_file_size_mb
 
         self.kms_key_id = kms_key_id
-        self.endpoint_url = endpoint_url
         self.use_virtual_style_addressing = use_virtual_style_addressing
 
         self.part_size = part_size
@@ -810,6 +814,7 @@ class ConcurrentS3Consumer(Consumer):
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
+        checksum_algorithm: str | None = None,
     ):
         return cls(
             s3_client=s3_client,
@@ -819,12 +824,12 @@ class ConcurrentS3Consumer(Consumer):
             data_interval_start=s3_inputs.data_interval_start,
             data_interval_end=s3_inputs.data_interval_end,
             batch_export_model=s3_inputs.batch_export_model,
+            checksum_algorithm=checksum_algorithm,
             file_format=s3_inputs.file_format,
             compression=s3_inputs.compression,
             encryption=s3_inputs.encryption,
             max_file_size_mb=s3_inputs.max_file_size_mb,
             kms_key_id=s3_inputs.kms_key_id,
-            endpoint_url=s3_inputs.endpoint_url,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
             part_size=part_size,
             max_concurrent_uploads=max_concurrent_uploads,
@@ -913,8 +918,8 @@ class ConcurrentS3Consumer(Consumer):
             raise NoUploadInProgressError()
 
         optional_kwargs = {}
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         try:
             self.logger.debug(
@@ -1104,8 +1109,8 @@ class ConcurrentS3Consumer(Consumer):
             optional_kwargs["ServerSideEncryption"] = self.encryption
         if self.kms_key_id:
             optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         current_key = self._get_current_key()
         with TRACER.start_as_current_span(
@@ -1158,8 +1163,8 @@ class ConcurrentS3Consumer(Consumer):
         manifest_key: str,
     ):
         optional_kwargs = {}
-        if self.endpoint_url is None:
-            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+        if self.checksum_algorithm:
+            optional_kwargs["ChecksumAlgorithm"] = self.checksum_algorithm
 
         with TRACER.start_as_current_span("batch_export.s3.upload_manifest"):
             await self.s3_client.put_object(

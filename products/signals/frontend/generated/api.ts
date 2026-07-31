@@ -23,6 +23,7 @@ import type {
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
+    PatchedPullRequestReviewCommentUpdateApi,
     PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalReportContentUpdateApi,
     PatchedSignalScoutConfigUpdateApi,
@@ -30,6 +31,12 @@ import type {
     PauseResponseApi,
     PauseUntilRequestApi,
     ProjectProfileApi,
+    PullRequestChecksResponseApi,
+    PullRequestCommentsResponseApi,
+    PullRequestReviewCommentCreateApi,
+    PullRequestReviewCommentCreateResponseApi,
+    PullRequestReviewCommentReactionCreateApi,
+    PullRequestReviewCommentReactionCreateResponseApi,
     RememberRequestApi,
     ReportSignalsResponseApi,
     ScoutEmissionReportLinkApi,
@@ -217,6 +224,163 @@ export const signalsReportsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalReportContentUpdateApi),
+    })
+}
+
+export const getSignalsReportPrChecksUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_checks/`
+}
+
+/**
+ * Fetch the CI status (GitHub Actions check runs and legacy commit statuses) of the pull request the report's implementation task opened, via the team's GitHub integration.
+ * @summary Fetch CI checks for a report's implementation PR
+ */
+export const signalsReportPrChecks = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PullRequestChecksResponseApi> => {
+    return apiMutator<PullRequestChecksResponseApi>(getSignalsReportPrChecksUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportPrCommentsUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_comments/`
+}
+
+/**
+ * Fetch the pull request's conversation comments and inline review comments, merged chronologically, via the team's GitHub integration.
+ * @summary Fetch comments for a report's implementation PR
+ */
+export const signalsReportPrComments = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PullRequestCommentsResponseApi> => {
+    return apiMutator<PullRequestCommentsResponseApi>(getSignalsReportPrCommentsUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportPrReviewCommentsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/`
+}
+
+/**
+ * Post an inline review comment on the report's implementation pull request, attributed to the requesting user's own GitHub identity via their personal GitHub connection. Either replies to an existing thread (`in_reply_to`) or starts a new thread on a diff line (`path` + `line`).
+ * @summary Post an inline review comment on a report's implementation PR
+ */
+export const signalsReportPrReviewCommentsCreate = async (
+    projectId: string,
+    id: string,
+    pullRequestReviewCommentCreateApi: PullRequestReviewCommentCreateApi,
+    options?: RequestInit
+): Promise<PullRequestReviewCommentCreateResponseApi> => {
+    return apiMutator<PullRequestReviewCommentCreateResponseApi>(
+        getSignalsReportPrReviewCommentsCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(pullRequestReviewCommentCreateApi),
+        }
+    )
+}
+
+export const getSignalsReportPrReviewCommentUpdateUrl = (projectId: string, id: string, commentId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+}
+
+/**
+ * @summary Edit one of the requesting user's own review comments
+ */
+export const signalsReportPrReviewCommentUpdate = async (
+    projectId: string,
+    id: string,
+    commentId: string,
+    patchedPullRequestReviewCommentUpdateApi?: PatchedPullRequestReviewCommentUpdateApi,
+    options?: RequestInit
+): Promise<PullRequestReviewCommentCreateResponseApi> => {
+    return apiMutator<PullRequestReviewCommentCreateResponseApi>(
+        getSignalsReportPrReviewCommentUpdateUrl(projectId, id, commentId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedPullRequestReviewCommentUpdateApi),
+        }
+    )
+}
+
+export const getSignalsReportPrReviewCommentDestroyUrl = (projectId: string, id: string, commentId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/`
+}
+
+/**
+ * @summary Delete one of the requesting user's own review comments
+ */
+export const signalsReportPrReviewCommentDestroy = async (
+    projectId: string,
+    id: string,
+    commentId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportPrReviewCommentDestroyUrl(projectId, id, commentId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsReportPrReviewCommentReactionsCreateUrl = (projectId: string, id: string, commentId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/`
+}
+
+/**
+ * @summary React to a review comment as the requesting user
+ */
+export const signalsReportPrReviewCommentReactionsCreate = async (
+    projectId: string,
+    id: string,
+    commentId: string,
+    pullRequestReviewCommentReactionCreateApi: PullRequestReviewCommentReactionCreateApi,
+    options?: RequestInit
+): Promise<PullRequestReviewCommentReactionCreateResponseApi> => {
+    return apiMutator<PullRequestReviewCommentReactionCreateResponseApi>(
+        getSignalsReportPrReviewCommentReactionsCreateUrl(projectId, id, commentId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(pullRequestReviewCommentReactionCreateApi),
+        }
+    )
+}
+
+export const getSignalsReportPrReviewCommentReactionDestroyUrl = (
+    projectId: string,
+    id: string,
+    commentId: string,
+    reactionId: string
+) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/pr_review_comments/${commentId}/reactions/${reactionId}/`
+}
+
+/**
+ * @summary Remove one of the requesting user's own reactions from a review comment
+ */
+export const signalsReportPrReviewCommentReactionDestroy = async (
+    projectId: string,
+    id: string,
+    commentId: string,
+    reactionId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportPrReviewCommentReactionDestroyUrl(projectId, id, commentId, reactionId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

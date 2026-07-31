@@ -22,10 +22,6 @@ from posthog.schema import (
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -46,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
@@ -81,7 +78,20 @@ GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     "workflow_jobs": "workflow_job",
     "workflow_runs": "workflow_run",
     "reviews": "pull_request_review",
+    "deployments": "deployment",
+    "deployment_statuses": "deployment_status",
+    # Like reviews, a fan-out child with no repo-wide list endpoint, so polling costs one call per
+    # commit and the table ships deselected. The event nests the run under `check_run` and the poll
+    # path injects no parent column (check run ids are globally unique), so the webhook row already
+    # matches the poll row and needs no reshaping.
+    "check_runs": "check_run",
 }
+
+# Everything else stays poll-only. GitHub does emit events for several of the other tables, but the
+# template lands `body[eventType]` as the row and these nest the object under a different key —
+# `alert` for the code-scanning/Dependabot/secret-scanning alerts, `comment` for issue and review
+# comments, `forkee` for forks, `commit` for statuses — so each needs its own reshaping branch
+# before its webhook rows would match what the poll path writes.
 
 
 @SourceRegistry.register
@@ -203,7 +213,7 @@ class GithubSource(
 3. Paste the webhook URL shown below into the **Payload URL** field
 4. Set **Content type** to **application/json**
 5. Enter a **Secret** and add the same value to the **Signing secret** field below
-6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, and **Pull request reviews**
+6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, **Pull request reviews**, **Deployments**, and **Deployment statuses**
 7. Click **Add webhook**
 
 If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",
@@ -695,8 +705,18 @@ If automatic creation failed, your token needs webhook permissions — the **adm
     def delete_webhook(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookDeletionResult:
-        access_token = self._get_access_token(config, team_id)
-        egress_identity = self._egress_identity(config, team_id)
+        try:
+            access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
+        except ValueError:
+            # Deleting the hook is best-effort cleanup when a source is removed, by which point its
+            # OAuth integration may already be gone — leaving us no token to reach GitHub. Report the
+            # skip instead of raising: the orphaned hook stops delivering once the App installation is
+            # removed, and raising here only captures noise on an otherwise-successful deletion.
+            return WebhookDeletionResult(
+                success=False,
+                error="Couldn't remove the GitHub webhook because the connected account is no longer available.",
+            )
         repositories = self._webhook_repositories(config)
         pinned_version = self.resolve_api_version(api_version)
         results = self._map_webhook_repositories(

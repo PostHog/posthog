@@ -158,9 +158,6 @@ import {
     InsightModel,
     IntegrationType,
     JiraProjectType,
-    LLMPrompt,
-    LLMPromptPublic,
-    LLMPromptResolveResponse,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -2040,26 +2037,6 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 
-    public llmPrompts(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('llm_prompts')
-    }
-
-    public llmPromptByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPrompts(teamId).addPathComponent('name').addPathComponent(name)
-    }
-
-    public llmPromptArchiveByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPromptByName(name, teamId).addPathComponent('archive')
-    }
-
-    public llmPromptDuplicateByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPromptByName(name, teamId).addPathComponent('duplicate')
-    }
-
-    public llmPromptResolveByName(name: string, teamId?: TeamType['id']): ApiRequest {
-        return this.llmPrompts(teamId).addPathComponent('resolve').addPathComponent('name').addPathComponent(name)
-    }
-
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -2575,7 +2552,10 @@ const api = {
             if (Object.keys(query).length) {
                 request.withQueryString(query)
             }
-            return await request.get({ signal })
+            const response = await request.get({ signal })
+            // Guard the declared array contract: an edge/error response (or a stale bundle) may
+            // return a non-array, which would break callers that iterate over the result.
+            return Array.isArray(response) ? response : []
         },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
@@ -3571,8 +3551,11 @@ const api = {
                             // If we can't read the response, just use the status
                         }
 
-                        // For any error, call onError and abort to prevent retries
-                        onError(new Error(errorMessage))
+                        // Carry the real HTTP status so callers can classify the failure by status code
+                        // rather than string-matching the message (which misfires on transient/stream errors).
+                        const error = new Error(errorMessage) as Error & { status?: number }
+                        error.status = response.status
+                        onError(error)
                         abortController.abort()
                         return
                     }
@@ -6276,8 +6259,8 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
-            return await new ApiRequest().integrations().create({ data })
+        async create(data: Partial<IntegrationType> | FormData, teamId?: TeamType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()
@@ -6285,8 +6268,16 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
-            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
+        authorizeUrl(params: { kind: string; next?: string; extraParams?: Record<string, string> }): string {
+            // `kind` and `next` are common to every integration; anything kind-specific (e.g. the
+            // posthog connection's `region`/`scopes`) rides along in `extraParams` rather than
+            // bloating this shared signature.
+            const { extraParams, ...common } = params
+            return new ApiRequest()
+                .integrations()
+                .withAction('authorize')
+                .withQueryString({ ...common, ...extraParams })
+                .assembleFullUrl(true)
         },
         async slackChannels(
             id: IntegrationType['id'],
@@ -6690,8 +6681,14 @@ const api = {
         },
     },
     hogFlows: {
-        async getHogFlows(): Promise<PaginatedResponse<HogFlow>> {
-            return await new ApiRequest().hogFlows().get()
+        async getHogFlows(params?: {
+            search?: string
+            status?: HogFlow['status']
+            created_by?: string
+            limit?: number
+            offset?: number
+        }): Promise<CountedPaginatedResponse<HogFlow>> {
+            return await new ApiRequest().hogFlows().withQueryString(params).get()
         },
         async getHogFlow(hogFlowId: HogFlow['id']): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).get()
@@ -7177,53 +7174,6 @@ const api = {
             data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
         ): Promise<void> {
             await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
-        },
-    },
-
-    llmPrompts: {
-        list(params?: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-        }): Promise<CountedPaginatedResponse<LLMPrompt>> {
-            return new ApiRequest().llmPrompts().withQueryString(params).get()
-        },
-
-        getByName(promptName: string, params?: { version?: number }): Promise<LLMPromptPublic> {
-            return new ApiRequest().llmPromptByName(promptName).withQueryString(params).get()
-        },
-
-        resolveByName(
-            promptName: string,
-            params?: {
-                version?: number
-                version_id?: string
-                offset?: number
-                before_version?: number
-                limit?: number
-            }
-        ): Promise<LLMPromptResolveResponse> {
-            return new ApiRequest().llmPromptResolveByName(promptName).withQueryString(params).get()
-        },
-
-        async update(
-            promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
-        ): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPromptByName(promptName).update({ data })
-        },
-
-        async archiveByName(promptName: string): Promise<void> {
-            await new ApiRequest().llmPromptArchiveByName(promptName).create({ data: {} })
-        },
-
-        async create(data: { name: LLMPrompt['name']; prompt: LLMPrompt['prompt'] }): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPrompts().create({ data })
-        },
-
-        async duplicateByName(promptName: string, newName: string): Promise<LLMPrompt> {
-            return await new ApiRequest().llmPromptDuplicateByName(promptName).create({ data: { new_name: newName } })
         },
     },
 

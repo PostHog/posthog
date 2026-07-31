@@ -14,19 +14,32 @@ export const INBOX_CLIENT = 'cloud' as const
 
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
+    PANEL_VIEWED: 'Inbox panel viewed',
+    QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_ACTION: 'Inbox report action',
+    REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
+    REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
+    SETTINGS_CHANGED: 'Inbox settings changed',
     SOURCE_CONNECTED: 'Signal source connected',
+    SOURCE_DISABLED: 'Signal source disabled',
     SOURCE_INTEREST: 'signals source interest',
+    // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
+    // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
+    SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
+    SCOUT_DETAIL_VIEWED: 'Scout detail viewed',
+    SCOUT_CONFIG_CHANGED: 'Scout config changed',
+    SCOUT_ACTION: 'Scout action',
+    SCOUT_CHAT_STARTED: 'Scout chat started',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
 /** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'list_row' | 'bulk_bar'
+export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar'
 
 /** How a report detail was opened. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
@@ -34,13 +47,14 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
 /** How a report detail was closed. */
 export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount'
 
-/** Sentiment captured by the report feedback button. */
+/** Sentiment captured by the report feedback thumbs. */
 export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
- * `action_type` breakdown reads the same across clients), plus a cloud-only `restore` for the
- * Archive tab. Desktop-only variants we don't fire yet are intentionally omitted.
+ * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Archive tab),
+ * `view_diff`, and the section expand/collapse pair (desktop splits those per section instead).
+ * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
     | 'dismiss'
@@ -48,8 +62,55 @@ export type InboxReportActionType =
     | 'restore'
     | 'create_pr'
     | 'refund'
+    | 'open_pr'
+    | 'view_diff'
+    | 'expand_section'
+    | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+
+/**
+ * Whether a task-kickoff action (`discuss` / `create_pr`) actually produced a task. The press itself
+ * is already an {@link captureInboxReportAction} event; without the outcome the two are
+ * indistinguishable, so an attempted PR counts the same as a created one.
+ */
+export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked'
+
+/** Panels that replace the report list and so never fire `Inbox viewed`. */
+export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
+
+/** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
+export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
+
+/** Surface a scout-management event fired from. Matches the desktop values. */
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state'
+
+/**
+ * Scout-management actions. The first block matches desktop's enum; the trailing three are
+ * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, and the
+ * scratchpad callout).
+ */
+export type ScoutActionType =
+    | 'open_settings'
+    | 'close_settings'
+    | 'open_skill_in_posthog'
+    | 'open_helper_skill'
+    | 'open_findings'
+    | 'toggle_hide_disabled'
+    | 'expand_run'
+    | 'collapse_run'
+    | 'filter_runs'
+    | 'expand_emission'
+    | 'collapse_emission'
+    | 'copy_finding_link'
+    | 'open_task_run'
+    | 'open_linked_report'
+    | 'create_scout'
+    | 'delete_scout'
+    | 'open_memory'
+
+/** What a scout chat CTA was asking for. Matches the desktop values. */
+export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
 function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>): void {
     posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties })
@@ -231,14 +292,15 @@ export function captureInboxReportAction(params: {
 }
 
 /**
- * Free-form feedback on a single report, fired from the detail pane's feedback button. Unlike a
- * dismiss, this is feedback-only: the report stays in the inbox. Carries the thumbs sentiment plus
- * the optional note text so we can read what people actually think of a report (and its PR).
+ * Feedback on a single report, fired from the thumbs at the end of the report body. Unlike a
+ * dismiss, this is feedback-only: the report stays in the inbox. The sentiment is the label the
+ * ranking work trains against, so it carries the same report classification as the impression and
+ * open events. `note` is optional — the thumbs submit on one click, with no note.
  */
 export function captureInboxReportFeedback(params: {
     report: SignalReport
     sentiment: InboxReportFeedbackSentiment
-    note: string
+    note?: string
     surface: InboxReportActionSurface
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK, {
@@ -246,6 +308,27 @@ export function captureInboxReportFeedback(params: {
         sentiment: params.sentiment,
         has_pr: !!params.report.implementation_pr_url,
         ...(params.note ? { note: params.note } : {}),
+        surface: params.surface,
+    })
+}
+
+/**
+ * Optional free-text note, offered only once a rating is already recorded. It rides on its own
+ * event rather than re-firing {@link captureInboxReportFeedback} so sentiment stays exactly one
+ * event per rating; join back to the rating on `report_id`. Carries `sentiment` too so a note can
+ * be read without that join.
+ */
+export function captureInboxReportFeedbackNote(params: {
+    report: SignalReport
+    sentiment: InboxReportFeedbackSentiment
+    note: string
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_FEEDBACK_NOTE, {
+        ...baseReportProperties(params.report),
+        sentiment: params.sentiment,
+        has_pr: !!params.report.implementation_pr_url,
+        note: params.note,
         surface: params.surface,
     })
 }
@@ -264,6 +347,211 @@ export function captureSignalSourceConnected(params: {
     })
 }
 
+/**
+ * A source switched off. Its own event rather than an `enabled` flag on
+ * {@link captureSignalSourceConnected}, so existing connection counts keep meaning connections —
+ * turning a source off is the shape of churn, not a negative connection.
+ */
+export function captureSignalSourceDisabled(params: { sourceProduct: string; sourceType: string }): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_DISABLED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+    })
+}
+
 export function captureSignalSourceInterest(source: string): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_INTEREST, { source })
+}
+
+/**
+ * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
+ * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
+ * a product problem rather than a failure — hence its own bucket.
+ */
+export function captureInboxReportActionCompleted(params: {
+    report: SignalReport
+    actionType: InboxReportActionType
+    outcome: InboxReportActionOutcome
+    /** Only set for `blocked`, and only ever our own consent copy — never a server error body. */
+    blockedReason?: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
+        ...baseReportProperties(params.report),
+        action_type: params.actionType,
+        outcome: params.outcome,
+        ...(params.blockedReason ? { blocked_reason: params.blockedReason } : {}),
+    })
+}
+
+/**
+ * A surface that replaces the report list (Runs, Configuration, and the two scout panels). None of
+ * them render `InboxReportList`, so without this they're invisible — `Inbox viewed` only ever fires
+ * for the flat report tabs.
+ */
+export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCount?: number | null }): void {
+    captureInboxEvent(INBOX_EVENTS.PANEL_VIEWED, {
+        panel: params.panel,
+        item_count: params.itemCount ?? null,
+    })
+}
+
+/**
+ * The list moved to a new query — a filter, sort, search, or scope change. `Inbox viewed` fires once
+ * per tab mount, so re-querying an already-open inbox left no trace at all: a user working a filtered
+ * list all day and one who arrived and sat still looked identical.
+ *
+ * The search *term* is deliberately not sent (only its length): unlike a dismissal reason, it's
+ * incidental typing that can name a customer's own entities. `change` says which control moved; the
+ * remaining properties are the resulting query, so any single event describes the full view.
+ */
+export function captureInboxQueryChanged(params: {
+    change: InboxQueryChange
+    tab: string | null
+    scope: string
+    sortField: string
+    sortDirection: string
+    sourceProductFilter: string[]
+    scoutFilter: string[]
+    priorityFilter: string[]
+    searchQuery: string
+    hasActiveFilters: boolean
+}): void {
+    const search = params.searchQuery.trim()
+    captureInboxEvent(INBOX_EVENTS.QUERY_CHANGED, {
+        change: params.change,
+        tab: params.tab,
+        scope: params.scope,
+        sort_field: params.sortField,
+        sort_direction: params.sortDirection,
+        source_product_filter: params.sourceProductFilter,
+        scout_filter: params.scoutFilter,
+        priority_filter: params.priorityFilter,
+        has_search: search.length > 0,
+        search_length: search.length,
+        has_active_filters: params.hasActiveFilters,
+    })
+}
+
+/**
+ * A team-level inbox setting was changed (self-driving autostart, Slack notifications, base-branch
+ * overrides). Fired once the request settles, so `success` distinguishes a saved change from a
+ * rejected one. `old_value` isn't carried: the patch is applied optimistically before the listener
+ * runs, so the prior value is no longer readable there — the previous event for the same `setting`
+ * is the transition.
+ */
+export function captureInboxSettingsChanged(params: {
+    setting: string
+    newValue: unknown
+    success: boolean
+    /** Whether the setting governs the whole team or just the person changing it. */
+    scope: 'team' | 'user'
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SETTINGS_CHANGED, {
+        setting: params.setting,
+        ...settingValueProperties('new_value', params.newValue),
+        success: params.success,
+        setting_scope: params.scope,
+    })
+}
+
+/**
+ * A setting's value, safe to ship. Scalars go as-is; a structured value is reduced to how many
+ * entries it holds, because those carry the customer's own names — the base-branch overrides are a
+ * map of their repositories, a Slack destination names their channel.
+ */
+function settingValueProperties(key: string, value: unknown): Record<string, unknown> {
+    if (typeof value === 'object' && value !== null) {
+        return { [key]: null, [`${key}_size`]: Object.keys(value).length }
+    }
+    return { [key]: value ?? null, [`${key}_size`]: null }
+}
+
+/** Roster shape at the moment the scout troop list was opened. Mirrors desktop's `Scout fleet viewed`. */
+export function captureScoutFleetViewed(params: {
+    scoutCount: number
+    enabledCount: number
+    customCount: number
+    dryRunCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_FLEET_VIEWED, {
+        scout_count: params.scoutCount,
+        enabled_count: params.enabledCount,
+        custom_count: params.customCount,
+        dry_run_count: params.dryRunCount,
+        is_empty: params.scoutCount === 0,
+    })
+}
+
+/** One scout's detail page opened, with its config and recent-window run shape. */
+export function captureScoutDetailViewed(params: {
+    skillName: string
+    scoutOrigin: string | null
+    enabled: boolean
+    emit: boolean
+    runIntervalMinutes: number | null
+    runCount: number
+    failedRunCount: number
+    emittedSignalCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_DETAIL_VIEWED, {
+        skill_name: params.skillName,
+        scout_origin: params.scoutOrigin,
+        enabled: params.enabled,
+        emit: params.emit,
+        has_config: true,
+        run_interval_minutes: params.runIntervalMinutes,
+        run_count: params.runCount,
+        failed_run_count: params.failedRunCount,
+        emitted_signal_count: params.emittedSignalCount,
+    })
+}
+
+/**
+ * One scout setting saved. Fired per changed field — a schedule switch patches two fields at once,
+ * and rolling them into one event would make the `setting` breakdown lie about which control moved.
+ */
+export function captureScoutConfigChanged(params: {
+    skillName: string
+    scoutOrigin: string | null
+    setting: string
+    oldValue: unknown
+    newValue: unknown
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_CONFIG_CHANGED, {
+        skill_name: params.skillName,
+        scout_origin: params.scoutOrigin,
+        setting: params.setting,
+        ...settingValueProperties('old_value', params.oldValue),
+        ...settingValueProperties('new_value', params.newValue),
+        success: params.success,
+    })
+}
+
+/** Any non-config interaction on the scout surfaces — expanding a run, copying a link, opening a skill. */
+export function captureScoutAction(params: {
+    actionType: ScoutActionType
+    surface: ScoutSurface
+    skillName?: string | null
+    extra?: Record<string, unknown>
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_ACTION, {
+        action_type: params.actionType,
+        surface: params.surface,
+        skill_name: params.skillName ?? null,
+        ...params.extra,
+    })
+}
+
+/** A scout CTA kicked off a cloud task ("Suggest a scout", the fleet-overview chips). */
+export function captureScoutChatStarted(params: {
+    chatType: ScoutChatType
+    surface: ScoutSurface
+    skillName?: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_CHAT_STARTED, {
+        chat_type: params.chatType,
+        surface: params.surface,
+        skill_name: params.skillName ?? null,
+    })
 }

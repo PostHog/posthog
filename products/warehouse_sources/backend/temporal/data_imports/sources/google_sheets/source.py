@@ -14,10 +14,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -25,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
 )
@@ -73,6 +70,21 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             # text). So the sheet/worksheet vanishing mid-read bypasses the `SpreadsheetNotFound` branch
             # above and would be retried forever. The 404 is deterministic — retrying cannot recover.
             "Requested entity was not found": "Import failed: the Google Sheet or worksheet could not be found. It may have been deleted or moved, or is no longer shared with our service account. Please check the spreadsheet URL and its sharing settings.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_retry_on_transient_api_error` already retries these Sheets API responses in-process
+        # (see `_RETRYABLE_API_ERROR_CODES` in google_sheets.py) before re-raising once its attempt
+        # budget is exhausted. gspread's `APIError.__str__` embeds the HTTP status as a stable
+        # "[<code>]" substring — match on that rather than the message text, which Google can
+        # reword. Temporal then retries the whole activity, so the failure is transient and
+        # self-recovering.
+        return {
+            "APIError: [429]",
+            "APIError: [500]",
+            "APIError: [502]",
+            "APIError: [503]",
+            "APIError: [504]",
         }
 
     def get_schemas(
@@ -181,6 +193,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
+            keywords=["gsheet", "gsheets", "spreadsheet", "google sheet"],
             label="Google Sheets",
             caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets). The first row of each sheet must contain unique column headers, since PostHog reads it as the column names when syncing.",
             releaseStatus=ReleaseStatus.GA,

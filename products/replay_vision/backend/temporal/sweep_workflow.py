@@ -18,6 +18,8 @@ from posthog.temporal.common.search_attributes import (
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
+    from products.replay_vision.backend.temporal.metrics import record_vision_action_occurrence_dropped
+
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.temporal.activities import (
     advance_scanner_watermark_activity,
@@ -181,8 +183,9 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     )
                 except Exception:
                     # The action was already claimed (next_run_at advanced in the eval txn), so a child
-                    # that fails to start drops this occurrence until the next fire. Log it per-action
-                    # so the drop is visible/graphable, and keep dispatching the rest.
+                    # that fails to start drops this occurrence until the next fire. Count and log it
+                    # per-action so the drop is visible/graphable, and keep dispatching the rest.
+                    record_vision_action_occurrence_dropped()
                     wf.logger.exception(
                         "replay_vision.vision_action_claim_dispatch_failed",
                         extra={"scanner_id": str(inputs.scanner_id), "vision_action_id": str(d.vision_action_id)},

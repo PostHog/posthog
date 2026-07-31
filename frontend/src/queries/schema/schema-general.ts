@@ -137,6 +137,7 @@ export enum NodeKind {
     WebOverviewQuery = 'WebOverviewQuery',
     WebStatsTableQuery = 'WebStatsTableQuery',
     WebExternalClicksTableQuery = 'WebExternalClicksTableQuery',
+    WebBotsTableQuery = 'WebBotsTableQuery',
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
@@ -186,6 +187,8 @@ export enum NodeKind {
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
     // MCP analytics
+    MCPToolCallBreakdownQuery = 'MCPToolCallBreakdownQuery',
+    MCPToolCallsAndErrorsQuery = 'MCPToolCallsAndErrorsQuery',
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
@@ -228,6 +231,7 @@ export type AnyDataNode =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -261,6 +265,8 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPToolCallBreakdownQuery
+    | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
@@ -312,6 +318,7 @@ export type QuerySchema =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -382,6 +389,8 @@ export type QuerySchema =
     | EndpointsUsageTrendsQuery
 
     // MCP analytics
+    | MCPToolCallBreakdownQuery
+    | MCPToolCallsAndErrorsQuery
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
@@ -486,12 +495,16 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean
     pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
@@ -1098,6 +1111,7 @@ export type DataTableNodeSourceUnion =
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
+    | WebBotsTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
@@ -1132,6 +1146,7 @@ export interface DataTableNode
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | WebExternalClicksTableQuery
+                    | WebBotsTableQuery
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
@@ -1266,6 +1281,8 @@ export interface ChartSettings {
     pie?: PieChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
+    /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
+    chartStyle?: ChartStyle
 }
 
 export interface ConditionalFormattingRule {
@@ -2469,6 +2486,12 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
+    /**
+     * Exclude persons matching the team's "internal and test account" filters.
+     * Only person-scoped filters (person properties, cohorts) are applied. Event-scoped
+     * test account filters have no meaning in a persons query and are ignored.
+     */
+    filterTestAccounts?: boolean
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     properties?: AnyPersonScopeFilter[] | PropertyGroupFilterValue
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
@@ -2659,6 +2682,56 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One tool's call count within one interval bucket. */
+export interface MCPToolCallBreakdownItem {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"), never zone-stamped, so
+     * the client can join it against generated axis keys without reinterpreting it as an instant. */
+    bucket: string
+    tool: string
+    calls: integer
+}
+
+export interface MCPToolCallBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCallBreakdownItem[]
+}
+
+/** Interval-bucketed call counts per tool, powering the dashboard's "Tool call breakdown" chart. */
+export interface MCPToolCallBreakdownQuery extends DataNode<MCPToolCallBreakdownQueryResponse> {
+    kind: NodeKind.MCPToolCallBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolCallBreakdownQueryResponse = CachedQueryResponse<MCPToolCallBreakdownQueryResponse>
+
+/** One interval bucket of MCP tool-call activity, split into successful and failed calls. */
+export interface MCPToolCallsAndErrorsItem {
+    /** Bucket start as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"), never zone-stamped, so
+     * the client can join it against generated axis keys without reinterpreting it as an instant. */
+    bucket: string
+    successes: integer
+    errors: integer
+}
+
+export interface MCPToolCallsAndErrorsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolCallsAndErrorsItem[]
+}
+
+/** Interval-bucketed success/error split powering the dashboard's "Tool calls and errors" chart. */
+export interface MCPToolCallsAndErrorsQuery extends DataNode<MCPToolCallsAndErrorsQueryResponse> {
+    kind: NodeKind.MCPToolCallsAndErrorsQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+    /** Bucket granularity; the frontend passes getDefaultInterval. Defaults to day. */
+    interval?: IntervalType
+}
+
+export type CachedMCPToolCallsAndErrorsQueryResponse = CachedQueryResponse<MCPToolCallsAndErrorsQueryResponse>
 
 /** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
 export interface MCPHarnessBreakdownItem {
@@ -3004,6 +3077,14 @@ export enum WebStatsBreakdown {
     InitialUTMTerm = 'InitialUTMTerm',
     InitialUTMContent = 'InitialUTMContent',
     InitialUTMSourceMediumCampaign = 'InitialUTMSourceMediumCampaign',
+    FirstPageviewChannelType = 'FirstPageviewChannelType',
+    FirstPageviewReferringDomain = 'FirstPageviewReferringDomain',
+    FirstPageviewUTMSource = 'FirstPageviewUTMSource',
+    FirstPageviewUTMCampaign = 'FirstPageviewUTMCampaign',
+    FirstPageviewUTMMedium = 'FirstPageviewUTMMedium',
+    FirstPageviewUTMTerm = 'FirstPageviewUTMTerm',
+    FirstPageviewUTMContent = 'FirstPageviewUTMContent',
+    FirstPageviewUTMSourceMediumCampaign = 'FirstPageviewUTMSourceMediumCampaign',
     Browser = 'Browser',
     OS = 'OS',
     Viewport = 'Viewport',
@@ -3058,6 +3139,28 @@ export interface WebExternalClicksTableQueryResponse extends AnalyticsQueryRespo
     offset?: integer
 }
 export type CachedWebExternalClicksTableQueryResponse = CachedQueryResponse<WebExternalClicksTableQueryResponse>
+
+export enum WebBotsBreakdown {
+    Crawler = 'Crawler',
+    Path = 'Path',
+}
+
+/** Bot analytics tables: crawler activity broken down by crawler or by most-crawled path. */
+export interface WebBotsTableQuery extends WebAnalyticsQueryBase<WebBotsTableQueryResponse> {
+    kind: NodeKind.WebBotsTableQuery
+    breakdownBy: WebBotsBreakdown
+    limit?: integer
+}
+export interface WebBotsTableQueryResponse extends AnalyticsQueryResponseBase {
+    results: unknown[]
+    types?: unknown[]
+    columns?: unknown[]
+    hogql?: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedWebBotsTableQueryResponse = CachedQueryResponse<WebBotsTableQueryResponse>
 
 export interface WebGoalsQuery extends WebAnalyticsQueryBase<WebGoalsQueryResponse> {
     kind: NodeKind.WebGoalsQuery
@@ -3512,6 +3615,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Show logs for a given person */
+    personId?: string
     /**
      * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
      * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
@@ -5068,12 +5173,24 @@ export type DatabaseSchemaTableType =
     | 'managed_view'
     | 'endpoint'
 
+export type DatabaseSchemaTableCertificationStatus = 'certified' | 'deprecated'
+
+export interface DatabaseSchemaTableCertification {
+    /** Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it). */
+    status: DatabaseSchemaTableCertificationStatus
+    notes?: string
+    certified_by?: string
+    certified_at?: string
+}
+
 export interface DatabaseSchemaTableCommon {
     type: DatabaseSchemaTableType
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
     row_count?: number
+    /** Present only when the table or view carries a settled data catalog certification. */
+    certification?: DatabaseSchemaTableCertification
 }
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
@@ -8098,6 +8215,33 @@ export const externalDataSources = [
     'Meltwater',
     'UserCom',
     'Latitude',
+    'Workato',
+    'SideShift',
+    'DuckLake',
+    'Starburst',
+    'Easybill',
+    'Bexio',
+    'Umami',
+    'Manychat',
+    'Kickstarter',
+    'Typesense',
+    'FirstPromoter',
+    'Zero',
+    'Inth',
+    'BCMS',
+    'Convonite',
+    'Hookdeck',
+    'Billit',
+    'Moxie',
+    'TripleWhale',
+    'Directus',
+    'Clay',
+    'TradableBits',
+    'Swan',
+    'Hyros',
+    'Odoo',
+    'Airbridge',
+    'Snovio',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -8599,6 +8743,62 @@ export interface UserProductListItem {
     updated_at: string
 }
 
+/** Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown. */
+export interface UIVisibilityConfig {
+    visible?: boolean
+}
+
+/** Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity. */
+export interface SidebarSectionsConfiguration {
+    /** The "Project" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden. */
+    project?: UIVisibilityConfig
+    /** The "Recents" section, listing recently viewed items. */
+    recents?: UIVisibilityConfig
+    /** The "My tools" section, listing the user's selected tools. */
+    my_tools?: UIVisibilityConfig
+}
+
+/** Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they always stay visible. */
+export interface SidebarItemsConfiguration {
+    /** "Home" link in the Project section. */
+    home?: UIVisibilityConfig
+    /** "Inbox" link in the Project section. Only rendered when the inbox feature is available. */
+    inbox?: UIVisibilityConfig
+    /** "Data" panel trigger in the Project section. */
+    data?: UIVisibilityConfig
+    /** "Files" panel trigger in the Project section. */
+    files?: UIVisibilityConfig
+    /** "Tools" panel trigger in the Project section. */
+    tools?: UIVisibilityConfig
+    /** "Starred" panel trigger in the Project section. */
+    starred?: UIVisibilityConfig
+    /** "Notifications" entry in the sidebar footer. Only rendered when real-time notifications are available. */
+    notifications?: UIVisibilityConfig
+    /** "Help" entry in the sidebar footer. */
+    help?: UIVisibilityConfig
+}
+
+/** Customization of the main navigation sidebar. */
+export interface SidebarConfiguration {
+    sections?: SidebarSectionsConfiguration
+    items?: SidebarItemsConfiguration
+}
+
+/**
+ * Per-user UI customization, persisted on the User model as a single JSONB blob.
+ * A null configuration and any absent key mean "default", which for visibility is "shown",
+ * so newly added UI surfaces appear for everyone until explicitly hidden.
+ * Writers must send the complete object; the server validates and replaces it wholesale.
+ */
+export interface UserUIConfiguration {
+    /**
+     * Schema version of this configuration blob, for future format migrations.
+     * @asType integer
+     */
+    version: number
+    sidebar?: SidebarConfiguration
+}
+
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
 export enum ProductKey {
     ACTIONS = 'actions',
@@ -8610,6 +8810,7 @@ export enum ProductKey {
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
+    DATA_CATALOG = 'data_catalog',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
@@ -8630,6 +8831,7 @@ export enum ProductKey {
     LLM_EVALUATIONS = 'llm_evaluations',
     LLM_PROMPTS = 'llm_prompts',
     LOGS = 'logs',
+    MANAGED_WAREHOUSE = 'managed_warehouse',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     MCP_ANALYTICS = 'mcp_analytics',
@@ -8674,6 +8876,9 @@ export enum ProductIntentContext {
     SQL_EDITOR_EMPTY_STATE = 'sql editor empty state',
     DATA_WAREHOUSE_SOURCES_TABLE = 'data warehouse sources table',
 
+    // Managed Warehouse
+    MANAGED_WAREHOUSE_PROVISIONED = 'managed warehouse provisioned',
+
     // Experiments
     EXPERIMENT_CREATED = 'experiment created',
     EXPERIMENT_ANALYZED = 'experiment analyzed',
@@ -8716,6 +8921,7 @@ export enum ProductIntentContext {
     METRICS_SQL_QUERY_RUN = 'metrics_sql_query_run',
     METRICS_QUERY_SAVED = 'metrics_query_saved',
     METRICS_FIRST_INGESTED = 'metrics_first_ingested',
+    METRICS_SCRAPE_AGENT_SNIPPET_COPIED = 'metrics_scrape_agent_snippet_copied',
 
     // Product Analytics
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',

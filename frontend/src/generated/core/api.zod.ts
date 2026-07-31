@@ -721,6 +721,13 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -1320,6 +1327,13 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -1922,6 +1936,13 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -2539,6 +2560,13 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -3146,6 +3174,13 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -3775,6 +3810,13 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -3970,7 +4012,8 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultEvaluationContextsCreateBodyNameMax = 200
 
@@ -4391,6 +4434,13 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -4586,7 +4636,8 @@ export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PU
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const organizationsProjectsDefaultReleaseConditionsUpdateBodyNameMax = 200
 
@@ -5006,6 +5057,13 @@ export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -5631,6 +5689,13 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -6246,6 +6311,13 @@ export const OrganizationsProjectsExperimentsConfigPartialUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -6875,6 +6947,13 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -7482,6 +7561,13 @@ export const OrganizationsProjectsLogsConfigPartialUpdateBody = /* @__PURE__ */ 
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
                     ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
+                    ),
             })
             .optional(),
         base_currency: zod
@@ -8085,6 +8171,13 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -8701,6 +8794,13 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
                     .optional()
                     .describe(
                         'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_\*) alongside the existing workflow metrics.'
+                    ),
+                email_tracking_consent_mode: zod
+                    .enum(['off', 'opt_out', 'opt_in'])
+                    .describe('\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In')
+                    .optional()
+                    .describe(
+                        "Recipient-consent enforcement for open\/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.\n\n\* `off` - Off\n\* `opt_out` - Opt Out\n\* `opt_in` - Opt In"
                     ),
             })
             .optional(),
@@ -9777,6 +9877,12 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 /**
@@ -9862,6 +9968,12 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersHedgehogConfigPartialUpdateBodyFirstNameMax = 150
@@ -9943,6 +10055,12 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10160,6 +10278,12 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 /**
@@ -10244,6 +10368,12 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10330,6 +10460,12 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersTwoFactorValidateCreateBodyFirstNameMax = 150
@@ -10411,6 +10547,12 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10494,6 +10636,12 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersCancelEmailChangeRequestPartialUpdateBodyFirstNameMax = 150
@@ -10575,6 +10723,12 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10658,6 +10812,12 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersVerifyEmailCreateBodyFirstNameMax = 150
@@ -10739,5 +10899,11 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })

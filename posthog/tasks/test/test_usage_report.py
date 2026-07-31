@@ -83,6 +83,7 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -206,6 +207,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
         # make sure we don't collapse duplicate rows
         sync_execute("SYSTEM STOP MERGES")
+        # Server-global and not scoped to this database, so it outlives the process and would
+        # leave every later test on this ClickHouse unable to merge.
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
 
         materialize("events", "$exception_values")
 
@@ -287,6 +291,21 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 created_by=self.user,
                 active=True,
                 deleted=True,
+            )
+
+            ReplayScanner.objects.create(
+                team=self.org_1_team_1,
+                name="Enabled scanner",
+                scanner_type=ScannerType.MONITOR,
+                model=ScannerModel.GEMINI_3_6_FLASH,
+                enabled=True,
+            )
+            ReplayScanner.objects.create(
+                team=self.org_1_team_1,
+                name="Disabled scanner",
+                scanner_type=ScannerType.MONITOR,
+                model=ScannerModel.GEMINI_3_6_FLASH,
+                enabled=False,
             )
 
             ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
@@ -673,6 +692,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_billable_recording_count_in_period": 0,
                     "heatmap_events_count_in_period": 0,
                     "replay_vision_credits_used_in_period": 0,
+                    "replay_vision_observation_count_in_period": 0,
+                    "replay_vision_scanner_count": 2,
+                    "replay_vision_scanner_active_count": 1,
                     "group_types_total": 2,
                     "dashboard_count": 2,
                     "dashboard_template_count": 0,
@@ -751,6 +773,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_billable_recording_count_in_period": 0,
                             "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
+                            "replay_vision_observation_count_in_period": 0,
+                            "replay_vision_scanner_count": 2,
+                            "replay_vision_scanner_active_count": 1,
                             "group_types_total": 2,
                             "dashboard_count": 2,
                             "dashboard_template_count": 0,
@@ -823,6 +848,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_billable_recording_count_in_period": 0,
                             "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
+                            "replay_vision_observation_count_in_period": 0,
+                            "replay_vision_scanner_count": 0,
+                            "replay_vision_scanner_active_count": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -918,6 +946,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "mobile_billable_recording_count_in_period": 0,
                     "heatmap_events_count_in_period": 0,
                     "replay_vision_credits_used_in_period": 0,
+                    "replay_vision_observation_count_in_period": 0,
+                    "replay_vision_scanner_count": 0,
+                    "replay_vision_scanner_active_count": 0,
                     "group_types_total": 0,
                     "dashboard_count": 0,
                     "dashboard_template_count": 0,
@@ -996,6 +1027,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "mobile_billable_recording_count_in_period": 0,
                             "heatmap_events_count_in_period": 0,
                             "replay_vision_credits_used_in_period": 0,
+                            "replay_vision_observation_count_in_period": 0,
+                            "replay_vision_scanner_count": 0,
+                            "replay_vision_scanner_active_count": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
                             "dashboard_template_count": 0,
@@ -4824,6 +4858,21 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         TEST_clear_instance_license_cache()
         materialize("events", "$exception_values")
 
+    def _assert_queued_report(self, mock_producer: MagicMock, expected_report: dict[str, Any]) -> None:
+        # Assert on the decoded payload rather than the compressed bytes: `teams` is keyed by
+        # team id in whatever order Postgres hands the rows back, so two runs of an identical
+        # report serialize to different JSON — and therefore different gzip — bytes.
+        mock_producer.send_message.assert_called_once()
+        kwargs = mock_producer.send_message.call_args.kwargs
+        assert kwargs["message_attributes"] == {
+            "content_encoding": "gzip",
+            "content_type": "application/json",
+        }
+        assert json.loads(gzip.decompress(base64.b64decode(kwargs["message_body"]))) == {
+            "organization_id": str(self.organization.id),
+            "usage_report": expected_report,
+        }
+
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
         return {
@@ -4874,27 +4923,12 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         full_report_as_dict = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
         )
-        json_data = json.dumps(
-            {
-                "organization_id": str(self.organization.id),
-                "usage_report": full_report_as_dict,
-            },
-            separators=(",", ":"),
-        )
-        compressed_bytes = gzip.compress(json_data.encode("utf-8"))
-        compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
 
         send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
 
-        mock_producer.send_message.assert_called_once_with(
-            message_attributes={
-                "content_encoding": "gzip",
-                "content_type": "application/json",
-            },
-            message_body=compressed_b64,
-        )
+        self._assert_queued_report(mock_producer, full_report_as_dict)
 
         # mock_posthog.capture.assert_any_call(
         #     get_machine_id(),
@@ -4928,27 +4962,11 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                     get_instance_metadata(period),
                 )
             )
-            json_data = json.dumps(
-                {
-                    "organization_id": str(self.organization.id),
-                    "usage_report": full_report_as_dict,
-                },
-                separators=(",", ":"),
-            )
-            compressed_bytes = gzip.compress(json_data.encode("utf-8"))
-            compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
-
             send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
 
-            mock_producer.send_message.assert_called_once_with(
-                message_attributes={
-                    "content_encoding": "gzip",
-                    "content_type": "application/json",
-                },
-                message_body=compressed_b64,
-            )
+            self._assert_queued_report(mock_producer, full_report_as_dict)
 
             # mock_posthog.capture.assert_any_call(
             #     self.user.distinct_id,

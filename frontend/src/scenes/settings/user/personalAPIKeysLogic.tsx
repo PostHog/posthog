@@ -421,11 +421,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
                 }
 
-                // Hide agents scope unless the agent platform flag is enabled (hidden until GA)
-                if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM]) {
-                    scopes = scopes.filter((scope) => scope.key !== 'agents')
-                }
-
                 // Hide engineering analytics scope unless the product's rollout flag is enabled
                 if (!featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
                     scopes = scopes.filter((scope) => scope.key !== 'engineering_analytics')

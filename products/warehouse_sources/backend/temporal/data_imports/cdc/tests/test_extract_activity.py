@@ -6,6 +6,8 @@ from typing import Literal
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db.utils import OperationalError
+
 import pyarrow as pa
 import psycopg.errors
 from parameterized import parameterized
@@ -966,6 +968,63 @@ class TestCDCExtractActivity:
         MockJob.objects.create.assert_called_once()
 
         # Slot should NOT have been advanced
+        mock_reader.confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_dropped_connection_during_flush_still_records_failure(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", table="users", position="0/100")]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # The source DB (or the warehouse-sources DB) drops the connection mid-flush — the same
+        # OperationalError seen when Postgres kills a connection out from under a long-running
+        # activity thread.
+        mock_s3.write_batch.side_effect = OperationalError("the connection is closed")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+
+        with pytest.raises(OperationalError, match="the connection is closed"):
+            cdc_extract_activity(inputs)
+
+        # The stale connection left by the drop must be evicted again before the failure handler
+        # writes the job/schema failure state, otherwise that write immediately re-raises the same
+        # "connection is closed" error and the friendly message never gets recorded. One call from
+        # run()'s own startup eviction, one from the failure handler.
+        assert mock_close_conns.call_count == 2
+
+        assert schema.status == "Failed"
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.UNKNOWN).friendly_message
         mock_reader.confirm_position.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
@@ -2814,6 +2873,52 @@ class TestCDCBoundedReadLoop:
 
         assert reader.upto_nchanges_calls == [CDC_MAX_CHANGES_PER_READ, CDC_MAX_CHANGES_PER_READ * 2]
         assert reader.confirmed_positions == ["0/300"]  # nothing to advance on pass 1; pass 2 drains
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_heartbeat_timeout_does_not_abort_the_read_loop(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        # The Temporal SDK relays a sync activity's heartbeat through the worker's event loop
+        # with its own short internal timeout, which can trip transiently under load. That must
+        # never fail an otherwise-healthy extraction.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        events = [_make_event(op="I", table="users", position="0/100")]
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+        mock_activity.heartbeat.side_effect = TimeoutError()
+
+        cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        assert mock_activity.heartbeat.called
+        assert schema.status == "Completed"
 
 
 @pytest.mark.django_db
