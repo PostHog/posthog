@@ -695,7 +695,7 @@ def get_sandbox_ph_mcp_configs(
     - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
     - Other hosts → empty list (MCP not available)
     """
-    url = _resolve_mcp_url()
+    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL)
     if not url:
         return []
     read_only = not has_write_scopes(scopes)

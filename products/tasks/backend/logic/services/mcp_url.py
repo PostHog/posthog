@@ -1,13 +1,9 @@
 from urllib.parse import urlparse
 
-from django.conf import settings
 
-
-def resolve_mcp_url() -> str | None:
-    if settings.SANDBOX_MCP_URL:
-        return settings.SANDBOX_MCP_URL
-
-    site_url = settings.SITE_URL
+def resolve_mcp_url(*, sandbox_mcp_url: str | None, site_url: str | None) -> str | None:
+    if sandbox_mcp_url:
+        return sandbox_mcp_url
     if not site_url:
         return None
 

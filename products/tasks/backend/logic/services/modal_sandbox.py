@@ -157,7 +157,7 @@ def _session_init_probe_hosts() -> list[str]:
     reason to exist.
     """
     hosts = list(SESSION_INIT_PROBE_HOSTS)
-    mcp_host = _hostname_from_url(resolve_mcp_url())
+    mcp_host = _hostname_from_url(resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL))
     if mcp_host and mcp_host not in hosts:
         hosts.insert(0, mcp_host)
     for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
