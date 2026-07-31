@@ -3335,6 +3335,35 @@ class TestGoogleAdsIntegrationModel(BaseTest):
 
         assert accounts == []
 
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_rides_out_one_transient_read_timeout(self, mock_request, mock_sleep):
+        # The walk is a chain of sequential requests; a single timed-out request used to fail the whole
+        # walk. It must instead be retried once and succeed.
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/6501924158"]}
+        stream = MagicMock(status_code=200)
+        stream.json.return_value = [{"results": [self._customer_client("1234567890", "Client One", level="1")]}]
+        mock_request.side_effect = [accessible, requests.exceptions.ReadTimeout("read timed out"), stream]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert [account["id"] for account in accounts] == ["1234567890"]
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_raises_after_repeated_read_timeouts(self, mock_request, mock_sleep):
+        # Retries must be bounded: a persistently unreachable endpoint should still fail rather than
+        # retry forever or get silently swallowed.
+        mock_request.side_effect = requests.exceptions.ReadTimeout("read timed out")
+
+        with pytest.raises(requests.exceptions.ReadTimeout):
+            GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert mock_request.call_count == 3
+
 
 class TestPinterestAdsIntegrationDisplayName(BaseTest):
     @parameterized.expand(
