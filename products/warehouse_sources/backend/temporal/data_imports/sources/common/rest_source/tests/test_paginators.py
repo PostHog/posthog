@@ -68,6 +68,24 @@ class TestJSONResponsePaginator:
         p.update_state(resp)
         assert p.has_next_page is False
 
+    def test_stops_when_next_url_repeats(self) -> None:
+        # Some APIs (e.g. Paddle) populate `next` even on the last page, pointing at
+        # the page just fetched. Following it verbatim loops forever.
+        p = JSONResponsePaginator(next_url_path="next")
+        p.update_state(_make_response({"next": "https://api.example.com/page2", "data": []}))
+        assert p.has_next_page is True
+        p.update_state(_make_response({"next": "https://api.example.com/page2", "data": []}))
+        assert p.has_next_page is False
+
+    def test_header_link_paginator_stops_when_next_url_repeats(self) -> None:
+        p = HeaderLinkPaginator()
+        resp = _make_response()
+        resp.headers["Link"] = '<https://api.example.com/page2>; rel="next"'
+        p.update_state(resp)
+        assert p.has_next_page is True
+        p.update_state(resp)
+        assert p.has_next_page is False
+
     def test_json_link_paginator_is_alias(self) -> None:
         assert JSONLinkPaginator is JSONResponsePaginator
 
@@ -246,6 +264,15 @@ class TestPaginatorResume:
         req = Request(method="GET", url="https://api.example.com/page1")
         resumed.init_request(req)
         assert req.url == "https://api.example.com/page2"
+
+    def test_next_url_paginator_stops_when_resumed_page_echoes_saved_url(self) -> None:
+        # A checkpoint saved on an API's final page points at that same page; when the
+        # resumed fetch echoes the saved URL back as `next`, the sync must complete
+        # rather than loop on the checkpoint.
+        resumed = JSONResponsePaginator(next_url_path="next")
+        resumed.set_resume_state({"next_url": "https://api.example.com/page9"})
+        resumed.update_state(_make_response({"next": "https://api.example.com/page9", "data": []}))
+        assert resumed.has_next_page is False
 
 
 class TestOffsetPaginatorTotalHeader:

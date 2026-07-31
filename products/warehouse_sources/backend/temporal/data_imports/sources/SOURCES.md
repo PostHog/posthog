@@ -448,7 +448,7 @@ the row lists both.
 | outbrain                         | HTTP                        | requests                                                        | ✅                          |
 | pabbly_subscriptions_billing     | HTTP                        | requests                                                        | ✅                          |
 | packagist                        | HTTP                        | requests                                                        | ✅                          |
-| paddle                           | HTTP                        | requests                                                        | ✅                          |
+| paddle                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | optimizely                       | HTTP                        | requests                                                        | ✅                          |
 | pagerduty                        | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                         | HTTP                        | requests                                                        | ✅                          |
