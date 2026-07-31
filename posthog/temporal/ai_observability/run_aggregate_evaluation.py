@@ -44,6 +44,12 @@ from posthog.temporal.ai_observability.run_evaluation import (
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
+from posthog.temporal.ai_observability.run_session_evaluation import (
+    ExecuteSessionEvaluationInputs,
+    execute_session_hog_eval_activity,
+    execute_session_llm_judge_activity,
+    session_fetch_lookback,
+)
 from posthog.temporal.ai_observability.run_trace_evaluation import (
     TRACE_EVENTS_LOOKBACK,
     EmitTraceEvaluationEventInputs,
@@ -285,6 +291,8 @@ class RunAggregateEvaluationInputs:
     trace_id: str
     distinct_id: str
     session_id: str | None = None
+    ai_session_id: str | None = None
+    target: str = "trace"
     settle: dict[str, Any] | None = None
 
     @property
@@ -294,6 +302,7 @@ class RunAggregateEvaluationInputs:
             "evaluation_id": self.evaluation_id,
             "team_id": self.team_id,
             "trace_id": self.trace_id,
+            "target": self.target,
         }
 
 
@@ -320,6 +329,11 @@ def _is_still_not_settled(error: temporalio.exceptions.ActivityError) -> bool:
     return isinstance(cause, ApplicationError) and cause.type in _NOT_SETTLED_ERROR_TYPES
 
 
+def _is_session_too_large(error: temporalio.exceptions.ActivityError) -> bool:
+    cause = error.cause
+    return isinstance(cause, ApplicationError) and cause.type == "session_too_large"
+
+
 @temporalio.workflow.defn(name="run-aggregate-evaluation")
 class RunAggregateEvaluationWorkflow(PostHogWorkflow):
     @staticmethod
@@ -330,7 +344,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         window_start = temporalio.workflow.now()
 
-        strategy, primary_seconds, max_age_seconds = resolve_settle_plan(inputs.settle)
+        strategy, primary_seconds, max_age_seconds = resolve_settle_plan(inputs.settle, inputs.target)
+        is_session = inputs.target == "session" and inputs.ai_session_id is not None
         if strategy == "inactivity":
             # Sleep past the lag margin too: a probe at exactly quiet_period can never pass
             # the `quiet_period + margin` settled bar, so it would burn a poll for nothing.
@@ -339,33 +354,52 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
             poll_budget_seconds = max_age_seconds - initial_sleep_seconds
             if poll_budget_seconds > 0:
                 poll_interval = max(primary_seconds // 4, 10)
+                retry_policy = RetryPolicy(
+                    initial_interval=timedelta(seconds=poll_interval),
+                    backoff_coefficient=1.0,
+                    maximum_attempts=0,
+                )
                 try:
-                    await temporalio.workflow.execute_activity(
-                        check_trace_settled_activity,
-                        CheckTraceSettledInputs(
-                            team_id=inputs.team_id,
-                            trace_id=inputs.trace_id,
-                            quiet_period_seconds=primary_seconds,
-                        ),
-                        start_to_close_timeout=timedelta(seconds=30),
-                        schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
-                        retry_policy=RetryPolicy(
-                            initial_interval=timedelta(seconds=poll_interval),
-                            backoff_coefficient=1.0,
-                            maximum_attempts=0,
-                        ),
-                    )
+                    if is_session and inputs.ai_session_id is not None:
+                        await temporalio.workflow.execute_activity(
+                            check_session_settled_activity,
+                            CheckSessionSettledInputs(
+                                team_id=inputs.team_id,
+                                session_id=inputs.ai_session_id,
+                                quiet_period_seconds=primary_seconds,
+                                lookback_seconds=int(session_fetch_lookback(max_age_seconds).total_seconds()),
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
+                            retry_policy=retry_policy,
+                        )
+                    else:
+                        await temporalio.workflow.execute_activity(
+                            check_trace_settled_activity,
+                            CheckTraceSettledInputs(
+                                team_id=inputs.team_id,
+                                trace_id=inputs.trace_id,
+                                quiet_period_seconds=primary_seconds,
+                            ),
+                            start_to_close_timeout=timedelta(seconds=30),
+                            schedule_to_close_timeout=timedelta(seconds=poll_budget_seconds),
+                            retry_policy=retry_policy,
+                        )
                 except temporalio.exceptions.ActivityError as e:
-                    # A schedule-to-close or still-not-settled timeout means the trace never settled
-                    # within max_age — anything else is a real failure and should propagate.
-                    if not (_is_schedule_to_close_timeout(e) or _is_still_not_settled(e)):
+                    if _is_session_too_large(e):
+                        # Stop waiting immediately rather than sitting out max_age. The fetch's own
+                        # count preflight produces the session_too_large skip, so no skip result has
+                        # to be synthesized here.
+                        pass
+                    elif _is_schedule_to_close_timeout(e) or _is_still_not_settled(e):
+                        # Temporal stops polling once the next retry would overrun schedule-to-close, so it
+                        # can give up as much as one poll_interval before max_age. Wait out the remainder so
+                        # we always honor the full max-age window before grading a still-active unit.
+                        remaining = max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
+                        if remaining > 0:
+                            await asyncio.sleep(remaining)
+                    else:
                         raise
-                    # Temporal stops polling once the next retry would overrun schedule-to-close, so it
-                    # can give up as much as one poll_interval before max_age. Wait out the remainder so
-                    # we always honor the full max-age window before grading a still-active trace.
-                    remaining = max_age_seconds - (temporalio.workflow.now() - window_start).total_seconds()
-                    if remaining > 0:
-                        await asyncio.sleep(remaining)
         elif primary_seconds:
             await asyncio.sleep(primary_seconds)
 
@@ -391,36 +425,66 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
             }
             return disabled_result
 
-        execute_inputs = ExecuteTraceEvaluationInputs(
-            evaluation=evaluation,
-            team_id=inputs.team_id,
-            trace_id=inputs.trace_id,
-            window_start=window_start.isoformat(),
-        )
-
-        if evaluation_type == "hog":
-            # Unlike single-event hog evals, this activity includes a ClickHouse fetch, so
-            # allow one retry for transient query failures (the bytecode is deterministic).
-            result = await temporalio.workflow.execute_activity(
-                execute_trace_hog_eval_activity,
-                execute_inputs,
-                schedule_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2),
+        if is_session and inputs.ai_session_id is not None:
+            session_inputs = ExecuteSessionEvaluationInputs(
+                evaluation=evaluation,
+                team_id=inputs.team_id,
+                session_id=inputs.ai_session_id,
+                window_start=window_start.isoformat(),
+                max_age_seconds=max_age_seconds,
             )
-        else:
-            try:
+            if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
-                    execute_trace_llm_judge_activity,
-                    execute_inputs,
-                    # > single-event judge timeout: the activity also fetches the trace from ClickHouse
-                    schedule_to_close_timeout=timedelta(minutes=8),
-                    retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    execute_session_hog_eval_activity,
+                    session_inputs,
+                    # Longer than the trace equivalent: the fetch spans every trace of the session.
+                    schedule_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
-            except temporalio.exceptions.ActivityError as e:
-                handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
-                if handled is not None:
-                    return handled
-                raise
+            else:
+                try:
+                    result = await temporalio.workflow.execute_activity(
+                        execute_session_llm_judge_activity,
+                        session_inputs,
+                        schedule_to_close_timeout=timedelta(minutes=15),
+                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    )
+                except temporalio.exceptions.ActivityError as e:
+                    handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
+                    if handled is not None:
+                        return handled
+                    raise
+        else:
+            execute_inputs = ExecuteTraceEvaluationInputs(
+                evaluation=evaluation,
+                team_id=inputs.team_id,
+                trace_id=inputs.trace_id,
+                window_start=window_start.isoformat(),
+            )
+
+            if evaluation_type == "hog":
+                # Unlike single-event hog evals, this activity includes a ClickHouse fetch, so
+                # allow one retry for transient query failures (the bytecode is deterministic).
+                result = await temporalio.workflow.execute_activity(
+                    execute_trace_hog_eval_activity,
+                    execute_inputs,
+                    schedule_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            else:
+                try:
+                    result = await temporalio.workflow.execute_activity(
+                        execute_trace_llm_judge_activity,
+                        execute_inputs,
+                        # > single-event judge timeout: the activity also fetches the trace from ClickHouse
+                        schedule_to_close_timeout=timedelta(minutes=8),
+                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    )
+                except temporalio.exceptions.ActivityError as e:
+                    handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
+                    if handled is not None:
+                        return handled
+                    raise
 
         if is_terminal_user_error_result(result):
             return await handle_terminal_user_error_result(
@@ -440,6 +504,8 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     session_id=inputs.session_id,
                     result=result,
                     start_time=eval_start,
+                    target=inputs.target,
+                    ai_session_id=inputs.ai_session_id,
                 ),
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),

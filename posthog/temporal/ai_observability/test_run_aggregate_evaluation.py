@@ -23,6 +23,7 @@ from posthog.temporal.ai_observability.run_aggregate_evaluation import (
     check_trace_settled_activity,
     resolve_settle_plan,
 )
+from posthog.temporal.ai_observability.run_session_evaluation import ExecuteSessionEvaluationInputs
 from posthog.temporal.ai_observability.run_trace_evaluation import (
     EmitTraceEvaluationEventInputs,
     ExecuteTraceEvaluationInputs,
@@ -134,7 +135,9 @@ class TestResolveSettlePlan:
         assert resolve_settle_plan(settle, "session") == expected
 
 
-def _mock_activities(calls: list[str]) -> list[Any]:
+def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[Any]:
+    exclude = exclude or set()
+
     @activity.defn(name="fetch_evaluation_activity")
     async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
         calls.append("fetch")
@@ -163,18 +166,44 @@ def _mock_activities(calls: list[str]) -> list[Any]:
     async def mock_telemetry(inputs: Any) -> None:
         calls.append("telemetry")
 
-    return [mock_fetch_evaluation, mock_execute_trace_hog, mock_emit, mock_telemetry]
+    @activity.defn(name="check_session_settled_activity")
+    async def mock_check_session_settled(inputs: CheckSessionSettledInputs) -> str:
+        calls.append("check_session_settled")
+        return "2026-07-23T00:00:00+00:00"
+
+    @activity.defn(name="execute_session_hog_eval_activity")
+    async def mock_execute_session_hog(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
+        calls.append("execute_session")
+        return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+    @activity.defn(name="execute_session_llm_judge_activity")
+    async def mock_execute_session_judge(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
+        calls.append("execute_session")
+        return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+    all_activities = {
+        "fetch_evaluation_activity": mock_fetch_evaluation,
+        "execute_trace_hog_eval_activity": mock_execute_trace_hog,
+        "emit_trace_evaluation_event_activity": mock_emit,
+        "emit_internal_telemetry_activity": mock_telemetry,
+        "check_session_settled_activity": mock_check_session_settled,
+        "execute_session_hog_eval_activity": mock_execute_session_hog,
+        "execute_session_llm_judge_activity": mock_execute_session_judge,
+    }
+    return [fn for name, fn in all_activities.items() if name not in exclude]
 
 
-def _workflow_inputs(settle: dict[str, Any]) -> RunAggregateEvaluationInputs:
-    return RunAggregateEvaluationInputs(
-        evaluation_id=str(uuid.uuid4()),
-        team_id=1,
-        trace_id="trace-123",
-        distinct_id="user-1",
-        session_id=None,
-        settle=settle,
-    )
+def _workflow_inputs(settle: dict[str, Any], **overrides: Any) -> RunAggregateEvaluationInputs:
+    defaults: dict[str, Any] = {
+        "evaluation_id": str(uuid.uuid4()),
+        "team_id": 1,
+        "trace_id": "trace-123",
+        "distinct_id": "user-1",
+        "session_id": None,
+        "settle": settle,
+    }
+    defaults.update(overrides)
+    return RunAggregateEvaluationInputs(**defaults)
 
 
 class TestRunAggregateEvaluationWorkflow:
@@ -310,6 +339,107 @@ class TestRunAggregateEvaluationWorkflow:
         # rather than giving up early once the next poll would overrun the budget.
         assert elapsed >= timedelta(seconds=600)
         assert elapsed < timedelta(seconds=750)
+
+    @pytest.mark.asyncio
+    async def test_session_target_polls_the_session_activity_and_evaluates(self):
+        calls: list[str] = []
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunAggregateEvaluationWorkflow],
+                activities=_mock_activities(calls),
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result = await env.client.execute_workflow(
+                    RunAggregateEvaluationWorkflow.run,
+                    _workflow_inputs(
+                        {"strategy": "inactivity", "quiet_period_seconds": 3600, "max_age_seconds": 86400},
+                        target="session",
+                        ai_session_id="session-abc",
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+        assert "check_session_settled" in calls
+        assert "check_trace_settled" not in calls
+        assert "execute_session" in calls
+        assert "execute" not in calls, "the trace execute activity must not run for a session target"
+        assert result["verdict"] is True
+
+    @pytest.mark.asyncio
+    async def test_session_still_active_at_max_age_grades_what_it_has(self):
+        """Guards the _is_still_not_settled error-type set: a hardcoded `trace_not_settled` match
+        would let this re-raise and fail the run instead of grading a partial session."""
+        calls: list[str] = []
+        task_queue = str(uuid.uuid4())
+
+        @activity.defn(name="check_session_settled_activity")
+        async def never_settles(inputs: CheckSessionSettledInputs) -> str:
+            calls.append("check_session_settled")
+            raise ApplicationError("session active 1s ago", type="session_not_settled")
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunAggregateEvaluationWorkflow],
+                activities=[*_mock_activities(calls, exclude={"check_session_settled_activity"}), never_settles],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result = await env.client.execute_workflow(
+                    RunAggregateEvaluationWorkflow.run,
+                    _workflow_inputs(
+                        {"strategy": "inactivity", "quiet_period_seconds": 60, "max_age_seconds": 300},
+                        target="session",
+                        ai_session_id="session-abc",
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+        assert result["verdict"] is True
+        assert "execute_session" in calls
+
+    @pytest.mark.asyncio
+    async def test_session_too_large_stops_polling_and_lets_the_fetch_report_it(self):
+        calls: list[str] = []
+        task_queue = str(uuid.uuid4())
+
+        @activity.defn(name="check_session_settled_activity")
+        async def too_large(inputs: CheckSessionSettledInputs) -> str:
+            calls.append("check_session_settled")
+            raise ApplicationError("session has 9999 events", type="session_too_large", non_retryable=True)
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunAggregateEvaluationWorkflow],
+                activities=[*_mock_activities(calls, exclude={"check_session_settled_activity"}), too_large],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                handle = await env.client.start_workflow(
+                    RunAggregateEvaluationWorkflow.run,
+                    _workflow_inputs(
+                        {"strategy": "inactivity", "quiet_period_seconds": 60, "max_age_seconds": 86400},
+                        target="session",
+                        ai_session_id="session-abc",
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+                await handle.result()
+                # env.get_current_time() skews forward to the schedule-to-close timeout even once
+                # a non-retryable activity failure has already been delivered; the server-recorded
+                # execution window doesn't have that problem.
+                description = await handle.describe()
+                assert description.start_time is not None and description.close_time is not None
+                elapsed = description.close_time - description.start_time
+        assert calls.count("check_session_settled") == 1
+        assert "execute_session" in calls
+        # The point of the guard: it must not sit out the full 24h max_age first.
+        assert elapsed < timedelta(hours=1)
 
 
 @freeze_time("2026-07-23T12:00:00Z")
