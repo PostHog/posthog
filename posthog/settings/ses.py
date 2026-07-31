@@ -13,3 +13,11 @@ else:
     SES_SECRET_ACCESS_KEY = os.getenv("SES_SECRET_ACCESS_KEY", "") or None
 
 SES_REGION = os.getenv("SES_REGION", "us-east-1")
+
+# Configuration sets referenced by workflow email sends (SES_TRACKED/UNTRACKED_CONFIGURATION_SET
+# on the Node email worker). With tenant attribution, SES requires every resource a send
+# references — the configuration set included, not just the sending identity — to be associated
+# with the tenant, so provisioning associates these with each tenant.
+SES_TENANT_CONFIGURATION_SETS: list[str] = [
+    cs.strip() for cs in os.getenv("SES_TENANT_CONFIGURATION_SETS", "posthog-messaging").split(",") if cs.strip()
+]

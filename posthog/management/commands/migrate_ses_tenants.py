@@ -112,31 +112,37 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
                 print(f"Error creating tenant '{tenant_name}': {e}")  # noqa: T201
                 continue
 
-            # Create association if missing
-            try:
-                if dry_run:
-                    print(f"[DRY-RUN] Would associate identity '{identity_arn}' with tenant '{tenant_name}'")  # noqa: T201
-                else:
-                    try:
-                        tenant_client.create_tenant_resource_association(
-                            TenantName=tenant_name,
-                            ResourceArn=identity_arn,
-                        )
-                        print(f"Associated identity '{domain}' with tenant '{tenant_name}'")  # noqa: T201
-                    except ClientError as e:
-                        if e.response.get("Error", {}).get("Code") == "AlreadyExistsException":
-                            print(f"Association already exists for '{domain}' and tenant '{tenant_name}'")  # noqa: T201
-                        else:
-                            raise
-            except (ClientError, BotoCoreError) as e:
-                logger.exception(
-                    "Error creating SES tenant_resource_association for '%s' on '%s': %s",
-                    domain,
-                    tenant_name,
-                    e,
-                )
-                print(f"Error creating tenant_resource_association for '{domain}' on '{tenant_name}': {e}")  # noqa: T201
-                continue
+            # Associate the identity plus the configuration sets sends reference — an attributed
+            # send fails unless EVERY resource it uses is associated with the tenant.
+            resource_arns = [identity_arn] + [
+                f"arn:aws:ses:{settings.SES_REGION}:{aws_account_id}:configuration-set/{config_set}"
+                for config_set in settings.SES_TENANT_CONFIGURATION_SETS
+            ]
+            for resource_arn in resource_arns:
+                try:
+                    if dry_run:
+                        print(f"[DRY-RUN] Would associate '{resource_arn}' with tenant '{tenant_name}'")  # noqa: T201
+                    else:
+                        try:
+                            tenant_client.create_tenant_resource_association(
+                                TenantName=tenant_name,
+                                ResourceArn=resource_arn,
+                            )
+                            print(f"Associated '{resource_arn}' with tenant '{tenant_name}'")  # noqa: T201
+                        except ClientError as e:
+                            if e.response.get("Error", {}).get("Code") == "AlreadyExistsException":
+                                print(f"Association already exists for '{resource_arn}' and tenant '{tenant_name}'")  # noqa: T201
+                            else:
+                                raise
+                except (ClientError, BotoCoreError) as e:
+                    logger.exception(
+                        "Error creating SES tenant_resource_association for '%s' on '%s': %s",
+                        resource_arn,
+                        tenant_name,
+                        e,
+                    )
+                    print(f"Error creating tenant_resource_association for '{resource_arn}' on '{tenant_name}': {e}")  # noqa: T201
+                    continue
 
 
 class Command(BaseCommand):
