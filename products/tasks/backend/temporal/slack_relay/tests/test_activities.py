@@ -12,7 +12,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackThreadTaskMapping, TelegramChatTaskMapping
+from products.slack_app.backend.models import SlackThreadTaskMapping, TelegramChatTaskMapping, WhatsAppChatTaskMapping
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
@@ -800,6 +800,80 @@ class TestRelayToTelegram(TestCase):
     def test_facade_gate_accepts_telegram_only_run(self, mock_execute):
         # The facade gate used to require a Slack mapping; skipping Telegram-only runs
         # means the relay workflow is never even enqueued.
+        from products.tasks.backend.facade.api import relay_task_run_message
+
+        status, relay_id = relay_task_run_message(self.task_run.id, self.task.id, self.team.id, text="agent says hi")
+
+        assert status == "accepted"
+        assert relay_id == "relay-1"
+        mock_execute.assert_called_once()
+
+
+class TestRelayToWhatsApp(TestCase):
+    """Runs mapped to a WhatsApp chat (and not a Slack thread or Telegram chat) must
+    still receive relayed agent output through the mapping-miss fallback chain."""
+
+    org: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    integration: ClassVar[Integration]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.org = Organization.objects.create(name="TestOrg")
+        cls.team = Team.objects.create(organization=cls.org, name="TestTeam")
+        cls.user = User.objects.create(email="wa@test.com")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            title="WhatsApp task",
+            description="desc",
+            origin_product=Task.OriginProduct.WHATSAPP,
+            created_by=cls.user,
+            repository="org/repo",
+        )
+        cls.task_run = TaskRun.objects.create(
+            task=cls.task,
+            team=cls.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={},
+        )
+        cls.integration = Integration.objects.create(
+            team=cls.team,
+            kind="whatsapp",
+            integration_id="15550001111",
+            config={},
+        )
+        WhatsAppChatTaskMapping.objects.for_team(cls.team.id).create(
+            team=cls.team,
+            integration=cls.integration,
+            wa_id="15550001111",
+            root_message_id="wamid.ROOT",
+            task=cls.task,
+            task_run=cls.task_run,
+        )
+
+    def setUp(self):
+        self.task_run.state = {}
+        self.task_run.save(update_fields=["state", "updated_at"])
+
+    @patch("products.slack_app.backend.whatsapp_thread.WhatsAppBotClient")
+    def test_relay_falls_back_to_whatsapp_mapping(self, mock_client_cls):
+        relay_slack_message(RelaySlackMessageInput(run_id=str(self.task_run.id), relay_id="r-1", text="hello there"))
+
+        send = mock_client_cls.return_value.send_message
+        send.assert_called_once()
+        assert send.call_args.kwargs["to"] == "15550001111"
+        assert send.call_args.kwargs["reply_to_message_id"] == "wamid.ROOT"
+        assert "hello there" in send.call_args.kwargs["text"]
+        self.task_run.refresh_from_db()
+        assert "r-1" in (self.task_run.state or {}).get("slack_sent_relay_ids", [])
+
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow", return_value="relay-1")
+    def test_facade_gate_accepts_whatsapp_only_run(self, mock_execute):
+        # The facade gate skips runs without a chat mapping; missing the WhatsApp
+        # fan-out means the relay workflow is never even enqueued.
         from products.tasks.backend.facade.api import relay_task_run_message
 
         status, relay_id = relay_task_run_message(self.task_run.id, self.task.id, self.team.id, text="agent says hi")

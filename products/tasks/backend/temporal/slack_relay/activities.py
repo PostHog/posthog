@@ -375,8 +375,10 @@ def _record_relay_delivery(run_id: str, relay_id: str) -> None:
         logger.info("slack_relay_duplicate_skipped", run_id=run_id, relay_id=relay_id)
 
 
-# Telegram caps messages at 4096 chars; leave margin for chunk fences the splitter adds.
+# Telegram and WhatsApp cap messages at 4096 chars; leave margin for chunk fences
+# the splitter adds.
 _TELEGRAM_MESSAGE_TEXT_LIMIT = 3900
+_WHATSAPP_MESSAGE_TEXT_LIMIT = 3900
 
 
 def _relay_to_telegram(task_run: Any, input: RelaySlackMessageInput) -> bool:
@@ -419,6 +421,41 @@ def _relay_to_telegram(task_run: Any, input: RelaySlackMessageInput) -> bool:
     return True
 
 
+def _relay_to_whatsapp(task_run: Any, input: RelaySlackMessageInput) -> bool:
+    """Post the relayed text into the run's WhatsApp chat, if it has one.
+
+    Same contract and plain-text rationale as ``_relay_to_telegram``.
+    """
+    from products.slack_app.backend.models import WhatsAppChatTaskMapping
+    from products.slack_app.backend.whatsapp_thread import WhatsAppThreadContext, WhatsAppThreadHandler
+
+    mapping = (
+        WhatsAppChatTaskMapping.objects.for_team(task_run.team_id)
+        .filter(task_run=task_run)
+        .select_related("integration")
+        .first()
+    )
+    if mapping is None:
+        return False
+
+    text = (input.text or "").strip()
+    if not text:
+        return True
+
+    handler = WhatsAppThreadHandler(
+        WhatsAppThreadContext(
+            integration_id=mapping.integration_id,
+            wa_id=mapping.wa_id,
+            root_message_id=mapping.root_message_id,
+        )
+    )
+    for chunk in _split_markdown_for_slack(text, limit=_WHATSAPP_MESSAGE_TEXT_LIMIT):
+        handler.post_thread_message(chunk)
+    if input.reaction_emoji is not None:
+        handler.update_reaction(input.reaction_emoji)
+    return True
+
+
 @activity.defn
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
@@ -442,7 +479,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
     if mapping is None:
-        if _relay_to_telegram(task_run, input):
+        if _relay_to_telegram(task_run, input) or _relay_to_whatsapp(task_run, input):
             _record_relay_delivery(input.run_id, input.relay_id)
             return
         logger.info("slack_relay_mapping_not_found", run_id=input.run_id, relay_id=input.relay_id)

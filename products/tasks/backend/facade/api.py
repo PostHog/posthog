@@ -3316,6 +3316,7 @@ def relay_task_run_message(
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
         TelegramChatTaskMapping,
+        WhatsAppChatTaskMapping,
     )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_posthog_code_agent_relay_workflow,
@@ -3331,6 +3332,7 @@ def relay_task_run_message(
     if (
         not SlackThreadTaskMapping.objects.filter(task_run=run).exists()
         and not TelegramChatTaskMapping.objects.for_team(run.team_id).filter(task_run=run).exists()
+        and not WhatsAppChatTaskMapping.objects.for_team(run.team_id).filter(task_run=run).exists()
     ):
         return "skipped", None
 

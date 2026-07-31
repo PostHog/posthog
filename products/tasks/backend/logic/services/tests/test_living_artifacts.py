@@ -13,7 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackThreadTaskMapping, TelegramChatTaskMapping
+from products.slack_app.backend.models import SlackThreadTaskMapping, TelegramChatTaskMapping, WhatsAppChatTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
@@ -723,6 +723,49 @@ class TestLivingArtifactsTelegramRuns(TestCase):
         )
 
     def test_artifact_creation_refused_for_telegram_mapped_run(self):
+        with self.assertRaises(ValueError):
+            create_living_artifact(
+                run=self.task_run,
+                name="report.md",
+                artifact_type="document",
+                content="# report",
+            )
+
+
+class TestLivingArtifactsWhatsAppRuns(TestCase):
+    """WhatsApp-mapped runs have no artifact delivery adapter, so creation must be
+    refused up front instead of succeeding and crashing at Slack-only delivery."""
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    task: ClassVar[Task]
+    task_run: ClassVar[TaskRun]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="WA Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="WA Team")
+        cls.user = User.objects.create(email="wa@example.com", distinct_id="wa-user")
+        cls.task = Task.objects.create(
+            team=cls.team,
+            title="WhatsApp task",
+            description="desc",
+            origin_product=Task.OriginProduct.WHATSAPP,
+            created_by=cls.user,
+        )
+        cls.task_run = TaskRun.objects.create(task=cls.task, team=cls.team, status=TaskRun.Status.IN_PROGRESS)
+        integration = Integration.objects.create(team=cls.team, kind="whatsapp", integration_id="15550001111")
+        WhatsAppChatTaskMapping.objects.for_team(cls.team.id).create(
+            team=cls.team,
+            integration=integration,
+            wa_id="15550001111",
+            root_message_id="wamid.ROOT",
+            task=cls.task,
+            task_run=cls.task_run,
+        )
+
+    def test_artifact_creation_refused_for_whatsapp_mapped_run(self):
         with self.assertRaises(ValueError):
             create_living_artifact(
                 run=self.task_run,
