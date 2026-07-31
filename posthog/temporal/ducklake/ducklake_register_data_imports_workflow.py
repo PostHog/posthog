@@ -57,12 +57,22 @@ DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
 
 
-def _stage_timer(stage: str) -> ExecutionTimeRecorder:
+def _stage_timer(*, stage: str, team_id: int, schema_id: str) -> ExecutionTimeRecorder:
     return ExecutionTimeRecorder(
         DUCKLAKE_REGISTER_STAGE_DURATION_METRIC,
         "Execution duration of one post-gate DuckLake data import registration stage.",
-        {"stage": stage},
+        {"stage": stage, "team_id": str(team_id), "schema_id": schema_id},
+        log=True,
     )
+
+
+def _bind_registration_activity_context(*, team_id: int, schema_id: str, job_id: str) -> None:
+    identifiers = {"team_id": team_id, "schema_id": schema_id, "job_id": job_id}
+    if activity.in_activity():
+        workflow_id = activity.info().workflow_id
+        if workflow_id is not None:
+            identifiers["workflow_id"] = workflow_id
+    bind_contextvars(**identifiers)
 
 
 @dataclasses.dataclass
@@ -144,10 +154,11 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
 async def prepare_ducklake_data_imports_registration_activity(
     inputs: DuckLakeRegisterDataImportsInputs,
 ) -> DuckLakeRegisterDataImportsMetadata | None:
-    bind_contextvars(team_id=inputs.team_id)
+    schema_id = str(inputs.schema_id)
+    _bind_registration_activity_context(team_id=inputs.team_id, schema_id=schema_id, job_id=inputs.job_id)
     logger = LOGGER.bind(schema_id=str(inputs.schema_id), job_id=inputs.job_id)
 
-    with _stage_timer("prepare") as timer:
+    with _stage_timer(stage="prepare", team_id=inputs.team_id, schema_id=schema_id) as timer:
         if not _is_valid_queryable_folder(inputs.prepared_queryable_folder):
             raise ApplicationError(
                 f"Invalid prepared queryable folder '{inputs.prepared_queryable_folder}'",
@@ -160,7 +171,9 @@ async def prepare_ducklake_data_imports_registration_activity(
         )
         if schema.table is None or schema.table.queryable_folder != inputs.prepared_queryable_folder:
             timer.set_status("STALE")
-            get_ducklake_register_data_imports_stale_metric(stage="prepare").add(1)
+            get_ducklake_register_data_imports_stale_metric(
+                team_id=inputs.team_id, schema_id=schema_id, stage="prepare"
+            ).add(1)
             await logger.ainfo(
                 "Skipping stale prepared Parquet generation before registration",
                 prepared_queryable_folder=inputs.prepared_queryable_folder,
@@ -189,9 +202,10 @@ async def prepare_ducklake_data_imports_registration_activity(
 
 @activity.defn
 def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDataImportsActivityInputs) -> bool:
-    bind_contextvars(team_id=inputs.team_id)
+    schema_id = inputs.metadata.source_schema_id
+    _bind_registration_activity_context(team_id=inputs.team_id, schema_id=schema_id, job_id=inputs.job_id)
     logger = LOGGER.bind(
-        schema_id=inputs.metadata.source_schema_id,
+        schema_id=schema_id,
         job_id=inputs.job_id,
     )
     if not settings.TEST:
@@ -202,13 +216,15 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
         logger=logger,
     )
     with heartbeater:
-        with _stage_timer("copy"):
+        with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
             landing_paths, copied_bytes = _copy_prepared_parquet_files(
                 inputs.metadata.prepared_source_uri,
                 inputs.metadata.landing_uri,
             )
         if not _prepared_generation_is_current(inputs):
-            get_ducklake_register_data_imports_stale_metric(stage="post_copy").add(1)
+            get_ducklake_register_data_imports_stale_metric(
+                team_id=inputs.team_id, schema_id=schema_id, stage="post_copy"
+            ).add(1)
             logger.info("Skipping stale prepared Parquet generation after object copy")
             return False
 
@@ -216,13 +232,21 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             with _connect_to_duckgres_for_team(inputs.team_id) as conn:
                 registered_rows = _register_prepared_parquet_files(inputs, conn, landing_paths)
         except _StalePreparedGenerationError:
-            get_ducklake_register_data_imports_stale_metric(stage="publish").add(1)
+            get_ducklake_register_data_imports_stale_metric(
+                team_id=inputs.team_id, schema_id=schema_id, stage="publish"
+            ).add(1)
             logger.info("Skipping stale prepared Parquet generation before catalog swap")
             return False
 
-    get_ducklake_register_data_imports_files_metric().record(float(len(landing_paths)))
-    get_ducklake_register_data_imports_rows_metric().record(float(registered_rows))
-    get_ducklake_register_data_imports_bytes_metric().record(float(copied_bytes))
+    get_ducklake_register_data_imports_files_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+        float(len(landing_paths))
+    )
+    get_ducklake_register_data_imports_rows_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+        float(registered_rows)
+    )
+    get_ducklake_register_data_imports_bytes_metric(team_id=inputs.team_id, schema_id=schema_id).record(
+        float(copied_bytes)
+    )
 
     logger.info(
         "Copied, verified, and registered prepared Parquet files in DuckLake",
@@ -367,7 +391,7 @@ def _register_prepared_parquet_files(
 
     setup_duckgres_session(conn, extensions=("ducklake", "httpfs"))
     with conn.transaction():
-        with _stage_timer("register"):
+        with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             conn.execute(psql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(psql.Identifier(schema_name)))
             conn.execute(
                 psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
@@ -406,7 +430,7 @@ def _register_prepared_parquet_files(
                     )
                 )
 
-        with _stage_timer("verify"):
+        with _stage_timer(stage="verify", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id):
             source_row = conn.execute(
                 psql.SQL("SELECT count(*) FROM read_parquet({}, union_by_name=true, hive_partitioning=true)").format(
                     parquet_paths
@@ -428,7 +452,7 @@ def _register_prepared_parquet_files(
                 )
 
         generation_is_stale = False
-        with _stage_timer("publish") as timer:
+        with _stage_timer(stage="publish", team_id=inputs.team_id, schema_id=inputs.metadata.source_schema_id) as timer:
             if _prepared_generation_is_current(inputs):
                 conn.execute(
                     psql.SQL("DROP TABLE IF EXISTS {}.{}").format(
@@ -487,6 +511,8 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: DuckLakeRegisterDataImportsInputs) -> None:
         logger = LOGGER.bind(**inputs.properties_to_log)
+        if workflow.in_workflow():
+            logger = logger.bind(workflow_id=workflow.info().workflow_id)
         workflow_started_at = workflow.now()
         logger.info("Starting DuckLakeRegisterDataImportsWorkflow")
 
@@ -500,7 +526,8 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             logger.info("DuckLake data imports registration workflow disabled by feature flag")
             return
 
-        get_ducklake_register_data_imports_started_metric().add(1)
+        schema_id = str(inputs.schema_id)
+        get_ducklake_register_data_imports_started_metric(team_id=inputs.team_id, schema_id=schema_id).add(1)
         status = "failed"
         try:
             metadata = await workflow.execute_activity(
@@ -540,7 +567,13 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 status=status,
                 duration_seconds=duration_seconds,
             )
-            get_ducklake_register_data_imports_finished_metric(status=status).add(1)
-            get_ducklake_register_data_imports_duration_metric(status=status).record(duration_seconds)
+            get_ducklake_register_data_imports_finished_metric(
+                team_id=inputs.team_id, schema_id=schema_id, status=status
+            ).add(1)
+            get_ducklake_register_data_imports_duration_metric(
+                team_id=inputs.team_id, schema_id=schema_id, status=status
+            ).record(duration_seconds)
             if status == "completed":
-                get_ducklake_register_data_imports_last_success_metric().set(finished_at.timestamp())
+                get_ducklake_register_data_imports_last_success_metric(team_id=inputs.team_id, schema_id=schema_id).set(
+                    finished_at.timestamp()
+                )

@@ -193,6 +193,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     assert max(registration_indexes) < min(verification_indexes)
     assert max(verification_indexes) < drop_live_index < rename_index
     assert any("SET PARTITIONED BY" in query for query in executed)
+    workload_metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema")
+    workload_metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema")
+    workload_metrics.bytes_getter.assert_called_once_with(team_id=1, schema_id="schema")
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
@@ -220,7 +223,7 @@ def test_copy_activity_does_not_touch_catalog_for_stale_generation(monkeypatch):
     workload_metrics = _mock_activity_workload_metrics(monkeypatch)
 
     assert copy_and_register_ducklake_data_imports_activity(_activity_inputs()) is False
-    stale_metric.assert_called_once_with(stage="post_copy")
+    stale_metric.assert_called_once_with(team_id=1, schema_id="schema", stage="post_copy")
     stale_counter.add.assert_called_once_with(1)
     workload_metrics.files.record.assert_not_called()
     workload_metrics.rows.record.assert_not_called()
@@ -290,13 +293,14 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
 
     await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
 
-    metrics.started_getter.assert_called_once_with()
+    metric_identifiers = {"team_id": 1, "schema_id": str(_workflow_inputs().schema_id)}
+    metrics.started_getter.assert_called_once_with(**metric_identifiers)
     metrics.started.add.assert_called_once_with(1)
-    metrics.finished_getter.assert_called_once_with(status="completed")
+    metrics.finished_getter.assert_called_once_with(**metric_identifiers, status="completed")
     metrics.finished.add.assert_called_once_with(1)
-    metrics.duration_getter.assert_called_once_with(status="completed")
+    metrics.duration_getter.assert_called_once_with(**metric_identifiers, status="completed")
     metrics.duration.record.assert_called_once_with(432.0)
-    metrics.last_success_getter.assert_called_once_with()
+    metrics.last_success_getter.assert_called_once_with(**metric_identifiers)
     metrics.last_success.set.assert_called_once_with(finished_at.timestamp())
 
 
@@ -312,11 +316,12 @@ async def test_workflow_records_end_to_end_duration_on_post_gate_failure(monkeyp
     with pytest.raises(RuntimeError, match="prepare failed"):
         await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
 
-    metrics.started_getter.assert_called_once_with()
+    metric_identifiers = {"team_id": 1, "schema_id": str(_workflow_inputs().schema_id)}
+    metrics.started_getter.assert_called_once_with(**metric_identifiers)
     metrics.started.add.assert_called_once_with(1)
-    metrics.finished_getter.assert_called_once_with(status="failed")
+    metrics.finished_getter.assert_called_once_with(**metric_identifiers, status="failed")
     metrics.finished.add.assert_called_once_with(1)
-    metrics.duration_getter.assert_called_once_with(status="failed")
+    metrics.duration_getter.assert_called_once_with(**metric_identifiers, status="failed")
     metrics.duration.record.assert_called_once_with(5.0)
     metrics.last_success_getter.assert_not_called()
 
@@ -352,20 +357,23 @@ def _mock_workflow_metrics(monkeypatch):
 
 def _mock_activity_workload_metrics(monkeypatch):
     metrics = MagicMock()
+    metrics.files_getter = MagicMock(return_value=metrics.files)
+    metrics.rows_getter = MagicMock(return_value=metrics.rows)
+    metrics.bytes_getter = MagicMock(return_value=metrics.bytes)
     monkeypatch.setattr(
         registration_module,
         "get_ducklake_register_data_imports_files_metric",
-        MagicMock(return_value=metrics.files),
+        metrics.files_getter,
     )
     monkeypatch.setattr(
         registration_module,
         "get_ducklake_register_data_imports_rows_metric",
-        MagicMock(return_value=metrics.rows),
+        metrics.rows_getter,
     )
     monkeypatch.setattr(
         registration_module,
         "get_ducklake_register_data_imports_bytes_metric",
-        MagicMock(return_value=metrics.bytes),
+        metrics.bytes_getter,
     )
     return metrics
 
