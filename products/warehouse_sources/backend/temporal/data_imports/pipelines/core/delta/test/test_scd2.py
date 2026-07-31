@@ -9,7 +9,7 @@ import deltalake
 import pyarrow.compute as pc
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_matches
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.test.test_delta_table_helper import (
     _decimal_array,
     _make_local_helper,
@@ -95,8 +95,8 @@ class TestScd2Write:
         await _make_writer(delta_path).write(data=batch, primary_keys=["id"], commit_metadata=metadata)
 
         history = deltalake.DeltaTable(delta_path).history()
-        # Newest first: [append (WRITE), close (MERGE), seed (WRITE)]. _commit_matches is the
+        # Newest first: [append (WRITE), close (MERGE), seed (WRITE)]. commit_matches is the
         # same layout-agnostic check has_batch_been_committed uses for redelivery dedup.
-        tagged = [c["operation"] for c in history if DeltaTableHelper._commit_matches(c, metadata)]
+        tagged = [c["operation"] for c in history if commit_matches(c, metadata)]
         assert tagged == ["WRITE"]
         assert any(c["operation"] == "MERGE" for c in history)

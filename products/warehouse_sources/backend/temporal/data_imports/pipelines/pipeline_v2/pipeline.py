@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.asy
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import setup_partitioning
@@ -343,7 +344,7 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         should_overwrite_table = index == 0 and not resuming_sync
 
-        delta_table = await self._delta_table_helper.write_to_deltalake(
+        delta_table = await DeltaWriter(self._delta_table_helper).write(
             pa_table,
             write_type,
             should_overwrite_table=should_overwrite_table,

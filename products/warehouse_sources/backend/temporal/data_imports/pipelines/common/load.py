@@ -168,6 +168,7 @@ async def _seed_cdc_companion_from_snapshot(
         SCD2_VALID_FROM_COLUMN,
         SCD2_VALID_TO_COLUMN,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
         DeltaTableHelper,
     )
@@ -242,7 +243,7 @@ async def _seed_cdc_companion_from_snapshot(
 
         # Plain append — the companion table is freshly reset so there are no existing
         # rows to close, making SCD2 merge unnecessary.
-        await companion_helper.write_to_deltalake(
+        await DeltaWriter(companion_helper).write(
             data=batch_table,
             write_type="append",
             should_overwrite_table=False,

@@ -9,9 +9,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     mark_batch_as_processed,
 )
 
-REDIS_CLIENT_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency.get_redis_client"
-)
+_IDEMPOTENCY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency"
+REDIS_CLIENT_PATH = f"{_IDEMPOTENCY_MODULE}.get_redis_client"
 
 
 def _redis_client(exists_value: int | None) -> MagicMock | None:
@@ -52,6 +51,13 @@ class TestGetIdempotencyKey:
 
 
 class TestIsBatchAlreadyProcessed:
+    @pytest.fixture(autouse=True)
+    def _writer_wraps_helper(self):
+        # The slow path wraps the helper in DeltaWriter(helper).has_batch_been_committed; an identity
+        # stand-in keeps the helper-shaped mocks below driving the same decision matrix.
+        with patch(f"{_IDEMPOTENCY_MODULE}.DeltaWriter", side_effect=lambda helper: helper):
+            yield
+
     @parameterized.expand(
         [
             # (name, redis_exists, helper_state, expected_result)
