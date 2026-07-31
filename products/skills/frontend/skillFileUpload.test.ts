@@ -10,6 +10,16 @@ function fileEntry(name: string, fullPath: string): FileSystemFileEntry {
     } as unknown as FileSystemFileEntry
 }
 
+function unreadableFileEntry(name: string, fullPath: string): FileSystemFileEntry {
+    return {
+        isFile: true,
+        isDirectory: false,
+        name,
+        fullPath,
+        file: (_resolve: (file: File) => void, reject: (error: Error) => void) => reject(new Error('not readable')),
+    } as unknown as FileSystemFileEntry
+}
+
 function directoryEntry(name: string, fullPath: string, children: FileSystemEntry[]): FileSystemDirectoryEntry {
     return {
         isFile: false,
@@ -39,11 +49,12 @@ function dropOf(entries: (FileSystemEntry | null)[]): DataTransfer {
 }
 
 describe('collectFilesFromDrop', () => {
-    it('recurses dropped folders, draining batched directory listings and skipping hidden files', async () => {
+    it('recurses dropped folders, draining batched directory listings and skipping hidden or unreadable files', async () => {
         const scripts = directoryEntry('scripts', '/scripts', [
             fileEntry('setup.sh', '/scripts/setup.sh'),
             fileEntry('run.py', '/scripts/run.py'),
             fileEntry('.DS_Store', '/scripts/.DS_Store'),
+            unreadableFileEntry('locked.txt', '/scripts/locked.txt'),
             directoryEntry('nested', '/scripts/nested', [fileEntry('deep.txt', '/scripts/nested/deep.txt')]),
         ])
 

@@ -20,13 +20,26 @@ async function collectEntry(entry: FileSystemEntry, uploads: SkillFileUpload[]):
     if (entry.name.startsWith('.')) {
         return
     }
+    // An unreadable entry (permissions, file vanished mid-drop) is skipped rather than
+    // sinking everything collected so far.
     if (entry.isFile) {
-        const file = await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject))
-        uploads.push({ path: entry.fullPath.replace(/^\//, ''), file })
+        try {
+            const file = await new Promise<File>((resolve, reject) =>
+                (entry as FileSystemFileEntry).file(resolve, reject)
+            )
+            uploads.push({ path: entry.fullPath.replace(/^\//, ''), file })
+        } catch {
+            return
+        }
         return
     }
     if (entry.isDirectory) {
-        const children = await readAllDirectoryEntries((entry as FileSystemDirectoryEntry).createReader())
+        let children: FileSystemEntry[]
+        try {
+            children = await readAllDirectoryEntries((entry as FileSystemDirectoryEntry).createReader())
+        } catch {
+            return
+        }
         for (const child of children) {
             await collectEntry(child, uploads)
         }

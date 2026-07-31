@@ -666,7 +666,8 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         addUploadedFiles: async ({ files }) => {
             const uploaded: SkillFormFileValues[] = []
             for (const { path, file } of files) {
-                if (path === 'SKILL.md') {
+                // Case-insensitive to match the backend's reserved-path validation
+                if (path.toLowerCase() === 'skill.md') {
                     lemonToast.info(
                         "SKILL.md wasn't added as a bundled file. Its body belongs in the skill body field."
                     )

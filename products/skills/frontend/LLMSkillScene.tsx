@@ -25,6 +25,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdownWithMermaid'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -722,11 +723,15 @@ function SkillEditForm({
         e.preventDefault()
         dragDepthRef.current = 0
         setDropActive(false)
-        void collectFilesFromDrop(e.dataTransfer).then((files) => {
-            if (files.length > 0) {
-                addUploadedFiles(files)
-            }
-        })
+        void collectFilesFromDrop(e.dataTransfer)
+            .then((files) => {
+                if (files.length > 0) {
+                    addUploadedFiles(files)
+                }
+            })
+            .catch(() => {
+                lemonToast.error('Couldn\'t read the dropped files. Try the "Upload files" button instead.')
+            })
     }
 
     const addFile = (): void => {

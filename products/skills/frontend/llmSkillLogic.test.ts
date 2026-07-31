@@ -59,7 +59,7 @@ describe('llmSkillLogic file uploads', () => {
             asUpload('\u0000binary', 'nul.txt'),
             { path: 'invalid-utf8.txt', file: new File([new Uint8Array([0xc3, 0x28])], 'invalid-utf8.txt') },
             asUpload('has a \ufffd char', 'replacement.txt'),
-            asUpload('# My skill', 'SKILL.md'),
+            asUpload('# My skill', 'Skill.md'),
             asUpload('ok', 'ok.txt'),
         ])
 
