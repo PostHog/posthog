@@ -35115,6 +35115,7 @@
                 "metrics_sql_query_run",
                 "metrics_query_saved",
                 "metrics_first_ingested",
+                "metrics_scrape_agent_snippet_copied",
                 "taxonomic filter empty state",
                 "create_experiment_from_funnel_button",
                 "web_analytics_insight",
