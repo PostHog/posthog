@@ -338,7 +338,9 @@ export interface logsViewerLogicActions {
     loadLogs: () => {
         value: true
     }
-    loadMoreGroupedLogs: () => any
+    loadMoreGroupedLogs: () => {
+        value: true
+    }
     loadMoreGroupedLogsFailure: (
         error: string,
         errorObject?: any
@@ -348,12 +350,18 @@ export interface logsViewerLogicActions {
     }
     loadMoreGroupedLogsSuccess: (
         groupedLogs: GroupedLogEntry[],
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         groupedLogs: GroupedLogEntry[]
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
-    loadMoreUngroupedLogs: () => any
+    loadMoreUngroupedLogs: () => {
+        value: true
+    }
     loadMoreUngroupedLogsFailure: (
         error: string,
         errorObject?: any
@@ -363,10 +371,14 @@ export interface logsViewerLogicActions {
     }
     loadMoreUngroupedLogsSuccess: (
         unGroupedLogs: LogEntry[],
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         unGroupedLogs: LogEntry[]
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadNewerLogs: () => {
         value: true
@@ -475,6 +487,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         clearLogs: true,
         loadGroupedLogs: true,
         loadUngroupedLogs: true,
+        loadMoreGroupedLogs: true,
+        loadMoreUngroupedLogs: true,
         setIsGrouped: (isGrouped: boolean) => ({ isGrouped }),
     }),
     reducers(({ props }) => ({
