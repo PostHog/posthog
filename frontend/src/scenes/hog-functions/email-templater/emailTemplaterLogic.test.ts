@@ -216,8 +216,6 @@ describe('emailTemplaterLogic', () => {
             expect(loadDesign).toHaveBeenCalledWith(DESIGN_STORED)
 
             jest.useFakeTimers()
-            // Step past the post-load cooldown so the event counts as a user edit.
-            jest.advanceTimersByTime(1500)
             editorDesign = DESIGN_EDITED
             editorListeners['design:updated']?.()
             await jest.advanceTimersByTimeAsync(500)
@@ -232,17 +230,23 @@ describe('emailTemplaterLogic', () => {
             })
         })
 
-        it('ignores the design:updated echo fired by the initial programmatic load', async () => {
-            // loadDesign fires design:updated with the normalized export before any user edit.
-            expect(editorListeners['design:updated']).toBeTruthy()
-            editorListeners['design:updated']()
+        it('propagates an edit made immediately after a design load', async () => {
+            // The load rebaselines via design:loaded...
+            expect(editorListeners['design:loaded']).toBeTruthy()
+            editorListeners['design:loaded']()
+            await expectLogic(logic).toFinishAllListeners()
 
+            // ...and an edit fired straight after must still reach the parent, not be
+            // discarded as a load echo.
             jest.useFakeTimers()
-            await jest.advanceTimersByTimeAsync(1000)
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']?.()
+            await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(onChange).not.toHaveBeenCalled()
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
         })
 
         it('rebaselines on design:loaded so the normalized export does not count as an edit', async () => {
@@ -251,7 +255,6 @@ describe('emailTemplaterLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             jest.useFakeTimers()
-            jest.advanceTimersByTime(1500)
             // The editor re-exports the normalized design unchanged - not a user edit.
             editorListeners['design:updated']?.()
             await jest.advanceTimersByTimeAsync(500)

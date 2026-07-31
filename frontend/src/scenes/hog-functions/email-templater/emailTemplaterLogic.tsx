@@ -515,14 +515,15 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     listeners(({ props, values, actions, cache }) => ({
         onEmailEditorReady: () => {
-            if (props.value?.design) {
-                cache.lastEditorDesign = props.value.design
-                cache.designLoadedAt = Date.now()
-                values.emailEditorRef?.editor?.loadDesign(props.value.design)
-            }
+            // Listeners must attach before loadDesign so the initial design:loaded is heard and
+            // rebaselines - otherwise the load echo is indistinguishable from a user edit.
             if (props.layout === 'inline') {
                 values.emailEditorRef?.editor?.addEventListener('design:updated', () => actions.designUpdated())
                 values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
+            }
+            if (props.value?.design) {
+                cache.lastEditorDesign = props.value.design
+                values.emailEditorRef?.editor?.loadDesign(props.value.design)
             }
         },
 
@@ -540,11 +541,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         designUpdated: async (_, breakpoint) => {
-            // A programmatic loadDesign fires design:updated too; give designLoaded a beat to set
-            // the normalized baseline before treating events as user edits.
-            if (cache.designLoadedAt && Date.now() - cache.designLoadedAt < 1000) {
-                return
-            }
+            // A programmatic loadDesign fires design:updated too; the debounce lets designLoaded
+            // rebaseline first, and the equality check below then filters the echo. A genuine user
+            // edit differs from the baseline, so it always propagates - even right after a load.
             await breakpoint(500)
 
             const editor = values.emailEditorRef?.editor
@@ -614,7 +613,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // Load the design into the editor if it's ready and has a design
             if (values.isEmailEditorReady && emailTemplateContent.design) {
                 cache.lastEditorDesign = emailTemplateContent.design
-                cache.designLoadedAt = Date.now()
                 values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
             }
         },
