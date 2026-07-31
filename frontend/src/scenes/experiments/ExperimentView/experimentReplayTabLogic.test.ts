@@ -3,10 +3,17 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    Experiment,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    SessionRecordingSidebarTab,
+} from '~/types'
 
 import { experimentsSessionContextsCreate } from 'products/experiments/frontend/generated/api'
 
@@ -506,5 +513,21 @@ describe('experimentReplayTabLogic', () => {
             'metric-saved',
         ])
         withSaved.unmount()
+    })
+
+    it('lands the player sidebar on Overview, and hands it back when the tab goes away', () => {
+        // Held mounted across the unmount below, standing in for a player that outlives this tab —
+        // the only case in which the reset has anything to do.
+        const sidebar = playerSidebarLogic()
+        sidebar.mount()
+
+        // Recordings are opened from here to see what the experiment did to a session, which is what
+        // the Overview tab shows. Landing on Inspector instead hides it behind a click.
+        expect(sidebar.values.defaultTab).toBe(SessionRecordingSidebarTab.OVERVIEW)
+
+        logic.unmount()
+        expect(sidebar.values.defaultTab).toBe(SessionRecordingSidebarTab.INSPECTOR)
+
+        sidebar.unmount()
     })
 })
