@@ -1599,6 +1599,40 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         lock_queries = [q for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
         self.assertEqual(len(lock_queries), 1, lock_queries)
 
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_destroy_locks_and_deletes_a_shared_reference_once_per_object(self, mock_flag):
+        """A folder cascade can sweep up several rows referencing the same object - that's the
+        "last reference" case this whole mechanism exists for. Locking and counting
+        independently per row, rather than once per distinct (team, type, ref), would re-issue
+        the identical locking query for every row beyond the first. Worse: if every row in a
+        fully-consumed group were marked as reaching the backing object, each would call
+        delete_file_system_object independently, running its hooks and activity logging once
+        per row instead of once for the object - only one row in a group is allowed to."""
+        dashboard = Dashboard.objects.create(team=self.team, name="Shared twice", created_by=self.other_user)
+        FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dashboard.pk)).delete()
+        FileSystem.objects.create(
+            team=self.team, path="Shared/A", depth=2, type="dashboard", ref=str(dashboard.pk), created_by=self.user
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Shared/B", depth=2, type="dashboard", ref=str(dashboard.pk), created_by=self.user
+        )
+        folder = FileSystem.objects.create(team=self.team, path="Shared", depth=1, type="folder", created_by=self.user)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        dashboard.refresh_from_db()
+        self.assertTrue(dashboard.deleted)
+
+        deleted = response.json()["deleted"]
+        dashboard_deletions = [
+            item for item in deleted if item["type"] == "dashboard" and item["ref"] == str(dashboard.pk)
+        ]
+        self.assertEqual(len(dashboard_deletions), 1, deleted)
+
+        lock_queries = [q for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
+        self.assertEqual(len(lock_queries), 1, lock_queries)
+
     def test_undo_delete_function_refuses_to_restore_a_live_object(self):
         """undo_delete's own soft-delete check - not the view's earlier _ensure_can_restore - is
         what stops it from reviving an object whose state changed between the two, e.g. a

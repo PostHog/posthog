@@ -4,7 +4,7 @@ import shlex
 import logging
 import builtins
 from functools import cached_property
-from typing import Any, cast
+from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -612,10 +612,26 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return {}
 
         ids_to_remove = {entry.id for entry in entries_to_check}
+
+        # Several leaf rows can share one (team, type, ref) - that's the "last reference" case
+        # this whole check exists for - and a folder cascade can span several distinct objects.
+        # Group first so each distinct object is locked and counted exactly once, however many
+        # rows in this batch reference it.
+        entries_by_group: dict[tuple[int, str, Optional[str]], list[FileSystem]] = {}
+        for current in entries_to_check:
+            entries_by_group.setdefault((current.team_id, current.type, current.ref), []).append(current)
+
         objects_to_delete: builtins.list[tuple[str, str, int]] = []
         reaches_backing_object: dict[UUID, bool] = {}
 
-        for current in entries_to_check:
+        # Sorted so concurrent requests whose cascades overlap on more than one object always
+        # acquire the per-object locks in the same order - locking in traversal order (DFS over
+        # an unordered queryset) could have two such requests lock the same two objects in
+        # opposite order and deadlock, same failure mode `.order_by("id")` below prevents within
+        # one object's sibling set.
+        for (team_id, file_type, ref), group in sorted(
+            entries_by_group.items(), key=lambda kv: (*kv[0][:2], kv[0][2] or "")
+        ):
             # Lock every row referencing this object (not just the ones outside ids_to_remove) so
             # a concurrent request deleting a sibling row locks the same row set in the same
             # order and blocks on it, rather than each request locking a different subset and
@@ -623,24 +639,28 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             sibling_ids = {
                 row.id
                 for row in FileSystem.objects.select_for_update()
-                .filter(team=current.team, type=current.type, ref=current.ref, shortcut=False)
+                .filter(team_id=team_id, type=file_type, ref=ref, shortcut=False)
                 .order_by("id")
             }
             remaining = len(sibling_ids - ids_to_remove)
-            reaches_backing_object[current.id] = remaining == 0
+            # When several rows in this batch reference the same object, only one of them may
+            # actually carry the deletion through - otherwise every row in the group would call
+            # delete_file_system_object independently, running its hooks and activity logging
+            # once per row instead of once for the object.
+            for current in group:
+                reaches_backing_object[current.id] = False
+            reaches_backing_object[group[0].id] = remaining == 0
 
-            if not is_file_system_type_registered(current.type):
+            if not is_file_system_type_registered(file_type):
                 continue
 
-            if remaining == 0 and not current.ref and not self._allow_delete_without_ref(current):
-                raise serializers.ValidationError(
-                    {"detail": f"Cannot delete type '{current.type}' without a reference."}
-                )
+            if remaining == 0 and not ref and not self._allow_delete_without_ref(group[0]):
+                raise serializers.ValidationError({"detail": f"Cannot delete type '{file_type}' without a reference."})
 
             # Only the last row referencing an object carries the deletion through to the object
             # itself; removing one of several rows leaves it untouched.
-            if remaining == 0 and current.ref:
-                objects_to_delete.append((current.type, current.ref, current.team_id))
+            if remaining == 0 and ref:
+                objects_to_delete.append((file_type, ref, team_id))
 
         self._ensure_can_delete_objects(objects_to_delete)
 
