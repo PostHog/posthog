@@ -43,9 +43,9 @@ All five changes are merged. Still verify the current deployment and live attrib
 3. [PostHog/charts #13358: route Signals sandbox stages in development](https://github.com/PostHog/charts/pull/13358) activates the client and Django support for four workloads in development.
 4. [PostHog/charts #13361: route Signals sandbox stages in production](https://github.com/PostHog/charts/pull/13361) is the production follow-up and remains an open draft. The rollout is paused pending auth and attribution support. Do not describe this sequence as a completed production migration until the blocker closes, the change merges, and the live route is verified.
 
-### ✅ StampHog: migrated caller
+### 🚧 StampHog: split rollout
 
-- [PostHog/posthog #68329: route the PR-approval agent through the AI gateway](https://github.com/PostHog/posthog/pull/68329) and [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) show the migration in both repositories. The implementation validates paired settings, strips `/v1` before the SDK restores its messages path, sets both Anthropic auth variables, avoids duplicate capture by bypassing the traced wrapper in gateway mode, and keeps direct-provider fallback.
+- [PostHog/posthog #68329: route the PR-approval agent through the AI gateway](https://github.com/PostHog/posthog/pull/68329) and [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) show Go-capable standalone PR-review paths. The implementation validates paired settings, strips `/v1` before the SDK restores its messages path, sets both Anthropic auth variables, avoids duplicate capture by bypassing the traced wrapper in gateway mode, and keeps direct-provider fallback. Do not treat these PRs as a complete StampHog migration: the hosted Temporal worker is still deployed with the Python `/stamphog/v1` product route.
 
 ### ✅ Deployment-only example
 
