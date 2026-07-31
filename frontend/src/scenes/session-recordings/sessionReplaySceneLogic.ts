@@ -1,10 +1,11 @@
-import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -38,6 +39,7 @@ export interface sessionReplaySceneLogicActions {
     hideNewBadge: () => {
         value: true
     }
+    loadCurrentTeam: () => any // teamLogic
     setTab: (tab?: ReplayTabs) => {
         tab: ReplayTabs
     }
@@ -60,6 +62,9 @@ export type sessionReplaySceneLogicType = MakeLogicType<
 
 export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
+    connect(() => ({
+        actions: [teamLogic, ['loadCurrentTeam']],
+    })),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
         hideNewBadge: true,
@@ -143,5 +148,11 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
                 }
             },
         }
+    }),
+
+    afterMount(({ actions }) => {
+        // currentTeam is seeded once at app boot, so a tab left open across a
+        // session_recording_opt_in change would otherwise show a stale "not enabled" banner
+        actions.loadCurrentTeam()
     }),
 ])
