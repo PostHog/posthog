@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -5,6 +7,7 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { OnboardingStepKey } from '~/types'
@@ -484,6 +487,44 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toNotHaveDispatchedActions(['recordProductIntentOnboardingComplete', 'setIsCompleting'])
+        })
+
+        it('releases the guard when the completion PATCH fails, so Finish still works on retry', async () => {
+            // The guard used to be cleared only by a `updateCurrentTeamFailure` listener that never
+            // fired, latching Finish into a permanent no-op for the rest of the page's life.
+            const patches: unknown[] = []
+            useMocks({
+                patch: {
+                    '/api/environments/:id': async ({ request }) => {
+                        patches.push(await request.json())
+                        return [500, {}]
+                    },
+                },
+            })
+            logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions([{ type: logic.actionTypes.setIsCompleting, payload: { isCompleting: false } }])
+            expect(logic.values.isCompleting).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions(['recordProductIntentOnboardingComplete'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(patches).toHaveLength(2)
+        })
+
+        it('redirects out of onboarding once the completion PATCH settles', async () => {
+            // The redirect used to hang off the `updateCurrentTeamSuccess` actionToUrl, so a PATCH
+            // cancelled by teamLogic's breakpoint left the user sitting on the last step.
+            useMocks({ patch: { '/api/environments/:id': () => [200, MOCK_DEFAULT_TEAM] } })
+            logic.actions.setProductKey(ProductKey.SESSION_REPLAY)
+
+            await expectLogic(logic, () => {
+                logic.actions.completeOnboarding()
+            }).toDispatchActions([{ type: logic.actionTypes.setIsCompleting, payload: { isCompleting: false } }])
+            expect(router.values.location.pathname).toMatch(/replay/)
         })
     })
 

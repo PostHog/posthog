@@ -46,6 +46,7 @@ export interface inviteLogicValues {
     isInviteConfirmed: boolean
     isInviteModalShown: boolean
     isInviting: boolean
+    lastInviteFailed: boolean
     message: string
     projectAccessControls: Record<
         number,
@@ -341,6 +342,17 @@ export const inviteLogic = kea<inviteLogicType>([
             false,
             {
                 setIsInviteConfirmed: (_, { inviteConfirmed }) => inviteConfirmed,
+            },
+        ],
+        // kea-loaders swallows the rejection, so awaiting `inviteTeamMembers` tells the caller
+        // nothing about the outcome. Callers that gate on the invite succeeding — onboarding's
+        // Finish button — read this once the await resolves.
+        lastInviteFailed: [
+            false,
+            {
+                inviteTeamMembers: () => false,
+                inviteTeamMembersSuccess: () => false,
+                inviteTeamMembersFailure: () => true,
             },
         ],
     })),

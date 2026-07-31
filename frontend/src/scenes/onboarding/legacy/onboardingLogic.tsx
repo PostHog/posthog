@@ -114,13 +114,6 @@ export interface onboardingLogicActions {
         product_type: ProductKey
     } // teamLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
-    updateCurrentTeamSuccess: (
-        currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType> | undefined
-    ) => {
-        currentTeam: TeamPublicType | TeamType
-        payload?: Partial<TeamType>
-    } // teamLogic
     clearProductKey: () => {
         value: true
     }
@@ -252,7 +245,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             billingLogic,
             ['loadBillingSuccess'],
             teamLogic,
-            ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
+            ['updateCurrentTeam', 'recordProductIntentOnboardingComplete'],
             sidePanelStateLogic,
             ['openSidePanel'],
             globalSetupLogic,
@@ -795,8 +788,19 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (setup && tickedTaskIds.size > 0) {
                     setup.actions.markTaskAsCompleted(Array.from(tickedTaskIds))
                 }
+                const redirectUrl = values.onCompleteOnboardingRedirectUrl
+                // Reset the override after consuming it so a subsequent onboarding session
+                // in the same tab doesn't reuse a stale redirect target.
+                if (values.onCompleteOnboardingRedirectUrlOverride) {
+                    actions.setOnCompleteOnboardingRedirectUrl(null)
+                }
+                router.actions.push(redirectUrl)
             } catch {
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
+            } finally {
+                // Always release the guard, including when the PATCH fails or is cancelled by
+                // teamLogic's breakpoint. Leaving it set makes Finish a permanent no-op.
+                actions.setIsCompleting(false)
             }
         },
         completeContextOnboarding: async () => {
@@ -852,25 +856,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // dialog mounted in GlobalModals for invitees (delegates and ordinary members),
             // creating two competing "what to do next" surfaces.
             router.actions.push(values.onCompleteOnboardingRedirectUrl)
-        },
-        updateCurrentTeamSuccess: (val) => {
-            const isCompletionPatch =
-                values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]
-            if (!isCompletionPatch) {
-                return
-            }
-            actions.setIsCompleting(false)
-        },
-        updateCurrentTeamFailure: (val) => {
-            // Same scoping as the success listener: only react to the completion PATCH,
-            // not to unrelated team updates that happen to fail while the user is on
-            // the last step.
-            const isCompletionPatch =
-                values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]
-            if (!isCompletionPatch) {
-                return
-            }
-            actions.setIsCompleting(false)
         },
         setStepId: ({ stepId }, _, __, previousState) => {
             // kea listeners receive (payload, breakpoint, action, previousState). We need
@@ -967,7 +952,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
     })),
-    actionToUrl(({ values, actions }) => ({
+    actionToUrl(({ values }) => ({
         setStepId: ({ stepId }) => {
             // `success`/`upgraded` are billing-callback signals consumed once; keeping them in
             // the URL re-fires the `subscribed during onboarding` event on every step nav.
@@ -1018,17 +1003,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // step — otherwise pressing browser Back after onboarding requires N presses to
             // escape, where N is the number of steps the user advanced.
             return [url, searchParams, undefined, { replace: true }]
-        },
-        updateCurrentTeamSuccess(val) {
-            if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
-                const redirectUrl = values.onCompleteOnboardingRedirectUrl
-                // Reset the override after consuming it so a subsequent onboarding session
-                // in the same tab doesn't reuse a stale redirect target.
-                if (values.onCompleteOnboardingRedirectUrlOverride) {
-                    actions.setOnCompleteOnboardingRedirectUrl(null)
-                }
-                return [redirectUrl]
-            }
         },
     })),
     urlToAction(({ actions, values }) => ({

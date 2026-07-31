@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useAsyncActions, useValues } from 'kea'
 
 import { LemonDivider } from '@posthog/lemon-ui'
 
@@ -16,7 +16,7 @@ import { OnboardingStep } from './OnboardingStep'
 export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     const { preflight } = useValues(preflightLogic)
     const { productKey } = useValues(onboardingLogic)
-    const { inviteTeamMembers } = useActions(inviteLogic)
+    const { inviteTeamMembers } = useAsyncActions(inviteLogic)
     const { invitesToSend, canSubmit: canSubmitInvites, inviteContainsOwnerLevel, invites } = useValues(inviteLogic)
 
     const hasFilledEmail = invitesToSend.some(({ target_email }) => !!target_email)
@@ -75,10 +75,14 @@ export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
             title="Invite teammates"
             stepKey={OnboardingStepKey.INVITE_TEAMMATES}
             continueDisabledReason={continueDisabledReason}
-            onContinue={() => {
-                if (emailServiceAvailable && hasFilledEmail && canSubmitInvites) {
-                    inviteTeamMembers()
+            onContinue={async () => {
+                if (!emailServiceAvailable || !hasFilledEmail || !canSubmitInvites) {
+                    return true
                 }
+                await inviteTeamMembers()
+                // Stay on the step when the invite was rejected (a duplicate email, say) so the
+                // user can fix it — read the freshly committed value, not the render snapshot.
+                return !inviteLogic.findMounted()?.values.lastInviteFailed
             }}
         >
             <div className="mb-6 mt-6">

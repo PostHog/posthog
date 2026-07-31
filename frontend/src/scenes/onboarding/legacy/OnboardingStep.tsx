@@ -39,7 +39,8 @@ export const OnboardingStep = ({
     showSkip?: boolean
     showHelpButton?: boolean
     onSkip?: () => void
-    onContinue?: () => void
+    /** Resolving to `false` keeps the user on the step (e.g. a failed invite request). */
+    onContinue?: () => void | boolean | Promise<void | boolean>
     continueText?: string
     continueDisabledReason?: string
     hideHeader?: boolean
@@ -77,10 +78,23 @@ export const OnboardingStep = ({
         advance()
     }
 
-    const next = (): void => {
+    const next = async (): Promise<void> => {
         setPendingAdvance('continue')
+        // Await the step's own work before advancing so a failed request (e.g. an invite that
+        // the server rejects) leaves the user on the step with the error, instead of racing
+        // the completion PATCH. Reporting after the veto also stops a blocked click from
+        // inflating `onboarding step completed`.
+        let proceed: void | boolean
+        try {
+            proceed = await onContinue?.()
+        } catch {
+            proceed = false
+        }
+        if (proceed === false) {
+            setPendingAdvance(null)
+            return
+        }
         reportOnboardingStepCompleted(stepKey, currentStepProductKey ?? undefined)
-        onContinue?.()
         advance()
     }
 
@@ -131,7 +145,7 @@ export const OnboardingStep = ({
                             type="primary"
                             status="alt"
                             data-attr="onboarding-continue"
-                            onClick={next}
+                            onClick={() => void next()}
                             loading={pendingAdvance === 'continue'}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={pendingAdvance === 'skip' ? 'Completing…' : continueDisabledReason}
