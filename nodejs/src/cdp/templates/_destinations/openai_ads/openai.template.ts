@@ -69,7 +69,7 @@ const build_inputs = (defaults: { eventType?: string; actionSource?: string } = 
             type: 'string',
             label: 'Custom event name',
             description:
-                'The event name sent when the event type is "Custom". Must be 1-64 characters of lowercase letters, numbers, underscores, or dashes, and must match the custom event configured in OpenAI Ads Manager.',
+                'The event name sent when the event type is "Custom". Spaces are replaced with dashes and uppercase letters are lowercased. The result must be 1-64 characters of lowercase letters, numbers, underscores, or dashes, and must match the custom event configured in OpenAI Ads Manager.',
             default: '{event.event}',
             secret: false,
             required: false,
@@ -126,8 +126,8 @@ const build_inputs = (defaults: { eventType?: string; actionSource?: string } = 
             type: 'string',
             label: 'OpenAI click identifier (oppref)',
             description:
-                'The privacy-preserving identifier (oppref) OpenAI appends to ad click-through URLs. It gives the most accurate attribution, but conversions can also match on the obref cookie, hashed email, or hashed external ID when it is not available.',
-            default: '{person.properties.oppref ?? person.properties.$initial_oppref}',
+                'The privacy-preserving identifier (oppref) OpenAI appends to ad click-through URLs. PostHog does not capture it automatically, so send it as an event or person property yourself. It gives the most accurate attribution, but conversions can also match on the obref cookie, hashed email, or hashed external ID when it is not available.',
+            default: '{event.properties.oppref ?? person.properties.oppref ?? person.properties.$initial_oppref}',
             secret: false,
             required: false,
         },
@@ -136,7 +136,7 @@ const build_inputs = (defaults: { eventType?: string; actionSource?: string } = 
             type: 'string',
             label: 'OpenAI browser identifier (obref)',
             description:
-                'The value of the __obref first-party cookie set by the OpenAI pixel, sent unhashed. Only send it for users who have consented to measurement.',
+                'The value of the __obref first-party cookie set by the OpenAI pixel, sent unhashed. PostHog does not read the cookie automatically, so send it as a person property yourself. Only send it for users who have consented to measurement.',
             default: '{person.properties.$obref}',
             secret: false,
             required: false,
@@ -208,7 +208,7 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-openai-ads',
     name: 'OpenAI Ads Conversions',
-    description: 'Send conversion events to the OpenAI Ads Conversions API',
+    description: 'Send conversion events to the OpenAI Ads Conversions API to measure ads shown in ChatGPT',
     icon_url: '/static/services/openai_ads.svg',
     category: ['Advertisement'],
     code_language: 'hog',
@@ -246,7 +246,13 @@ if (inputs.eventType == 'custom') {
     if (empty(inputs.customEventName)) {
         throw Error('\`customEventName\` is required when the event type is \`custom\`')
     }
-    conversion.custom_event_name := inputs.customEventName
+    // OpenAI only accepts [a-z0-9_-]{1,64}; normalize the common offenders (spaces, capitals)
+    // so the {event.event} default works for typical PostHog event names
+    let customEventName := lower(replaceAll(trim(inputs.customEventName), ' ', '-'))
+    if (not match(customEventName, '^[a-z0-9_-]{1,64}$')) {
+        throw Error(f'\`customEventName\` \`{customEventName}\` is invalid: it must be 1-64 characters of lowercase letters, numbers, underscores, or dashes')
+    }
+    conversion.custom_event_name := customEventName
 }
 if ((inputs.eventType == 'app_installed' or inputs.eventType == 'app_opened') and inputs.actionSource != 'mobile_app') {
     throw Error(f'\`actionSource\` must be \`mobile_app\` when the event type is \`{inputs.eventType}\`')

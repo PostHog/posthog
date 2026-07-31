@@ -88,7 +88,8 @@ describe('openai template', () => {
         expect(response.error).toBeUndefined()
         const conversion = getBody(response).events[0]
         expect(conversion.type).toEqual('custom')
-        expect(conversion.custom_event_name).toEqual('Order Completed')
+        // 'Order Completed' normalized to OpenAI's [a-z0-9_-] custom event name format
+        expect(conversion.custom_event_name).toEqual('order-completed')
         expect(conversion.data).toEqual({ type: 'custom' })
     })
     // Each default mapping must send its OpenAI standard event type with the matching data shape
@@ -200,6 +201,11 @@ describe('openai template', () => {
             'the custom event name is missing',
             { customEventName: '' },
             '`customEventName` is required when the event type is `custom`',
+        ],
+        [
+            'the custom event name is invalid after normalization',
+            { customEventName: 'checkout: complete!' },
+            '`customEventName` `checkout:-complete!` is invalid',
         ],
         [
             'the source URL is missing for a web event',
