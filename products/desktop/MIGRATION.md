@@ -231,9 +231,12 @@ ports from source using these rules.
   age-compliant versions (protobufjs 7.6.5, axios 1.18.1, hono 4.12.28, @xmldom/xmldom
   0.8.13, node-forge 1.4.0, simple-git 3.36.0, drizzle-orm 0.45.2, fast-uri 3.1.4,
   @hono/node-server 1.19.13, lodash 4.18.0, serialize-javascript 7.0.5, undici 8.5.0/7.28.0,
-  rollup 4.59.0, brace-expansion 1.1.16/2.1.2, ws 7.5.11/8.21.0), plus direct floors
+  rollup 4.59.0, brace-expansion 1.1.16/2.1.2, ws 7.5.11/8.21.0, path-to-regexp@8 8.4.2,
+  qs 6.15.3, smol-toml 1.6.1), plus direct floors
   `simple-git ^3.36.0` and `tar ^7.5.19`; the lockfile is regenerated to match. This mirrors
-  PostHog/code hardening PR #4030. To regenerate under the 7-day `minimumReleaseAge`,
+  PostHog/code hardening PR #4030. `path-to-regexp` is range-scoped to `@8` because a 6.3.0
+  line is also in the tree and a blanket override would force it across a major. To
+  regenerate under the 7-day `minimumReleaseAge`,
   temporarily add `@expo-google-fonts/material-symbols` to `minimumReleaseAgeExclude` (an
   already-committed too-new transitive that blocks re-resolution), run
   `pnpm install --lockfile-only`, then revert that one exclude. simple-git 3.36 (RCE fix)
