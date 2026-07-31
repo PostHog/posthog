@@ -102,7 +102,7 @@ Five eval experiments, each with their own metrics:
 | `mock.py`                   | `EmbeddingStore` (in-memory vector store) and `ReportStore` (in-memory report DB) |
 | `capture.py`                | `capture_evaluation()` helper — formats and sends `$ai_evaluation` events         |
 | `data_spec.py`              | `EvalSignalSpec` / `EvalGroupSpec` — signal and group specifications              |
-| `fixtures/grouping_data.py` | Ground-truth dataset: 48 groups, 111 signals across Zendesk/GitHub/Linear/error tracking |
+| `fixtures/grouping_data.py` | Ground-truth: 48 groups, 111 signals across Zendesk/GitHub/Linear/error tracking  |
 | `cache/embeddings.json`     | Disk cache for OpenAI embeddings (auto-generated, avoids redundant API calls)     |
 
 ## Clearing eval data
