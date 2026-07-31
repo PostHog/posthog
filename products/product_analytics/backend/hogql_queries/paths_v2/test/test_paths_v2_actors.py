@@ -304,9 +304,7 @@ class TestPathsV2ActorsValidation(APIBaseTest):
         paths_filter = PathsV2Filter(stepSources=_sources("a", "b"))
         if anchored:
             paths_filter.anchor = PathsV2Anchor(type=PathsV2AnchorType.START, item=_item("a"))
-        return PathsV2QueryRunner(
-            query=PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=paths_filter), team=self.team
-        )
+        return PathsV2QueryRunner(query=PathsV2Query(dateRange=DATE_RANGE, pathsV2Filter=paths_filter), team=self.team)
 
     @parameterized.expand(
         [

@@ -741,9 +741,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         """Position-free unique-actor counts for the displayed named edges, over whole journeys:
         the modal's "went source → target at any step" number, which the edge contract promises
         equals the converted two-step funnel's count."""
-        pair_exprs = [
-            ast.Tuple(exprs=[self._item_expr(source), self._item_expr(target)]) for source, target in pairs
-        ]
+        pair_exprs = [ast.Tuple(exprs=[self._item_expr(source), self._item_expr(target)]) for source, target in pairs]
         return parse_select(
             """
             SELECT pair.1 AS source_item, pair.2 AS target_item, uniqExact(actor_id) AS actor_count
