@@ -462,7 +462,7 @@ describe('updateFeatureFlagArchived', () => {
     })
 })
 
-describe('displayedFlags stability while a filter change is loading', () => {
+describe('displayedFlags stability while a load is in flight', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
 
     beforeEach(() => {
@@ -511,5 +511,51 @@ describe('displayedFlags stability while a filter change is loading', () => {
         // filter, now stamped with the new search, can empty the list. Asserted outside the expectLogic
         // chain because a failing toMatchValues there times the test out instead of reporting a diff.
         expect(logic.values.displayedFlags).toEqual([])
+    })
+
+    // Regression guard: the loader reads `values` live, so reading the filters after its await stamped the
+    // response with whatever had been typed since. displayedFlags then filtered a page against filters it
+    // was never requested under, emptying the list and flashing skeletons over data that had just landed.
+    it('stamps the response with the filters it was requested under, not ones typed while it was in flight', async () => {
+        logic.actions.loadFeatureFlags()
+        // The refetch is debounced 300ms, so this only mutates `filters` while the first request is open.
+        logic.actions.setFeatureFlagsFilters({ search: 'typed-while-loading' })
+
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+
+        expect(logic.values.featureFlags.filters?.search).toBeUndefined()
+        expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['alpha', 'beta'])
+    })
+
+    // Regression guard: the 300ms debounce spaces out dispatches, not requests, so two loads can be open
+    // at once. Without a breakpoint the slower, older response resolved last and replaced the newer page.
+    it('discards a superseded response that resolves after a newer one', async () => {
+        let releaseStaleResponse = (): void => {}
+        const staleResponseReleased = new Promise<void>((resolve) => {
+            releaseStaleResponse = resolve
+        })
+        let requestCount = 0
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': async () => {
+                    requestCount += 1
+                    if (requestCount === 1) {
+                        await staleResponseReleased
+                        return [200, { results: [{ id: 1, key: 'stale', active: true }], count: 1 }]
+                    }
+                    return [200, { results: [{ id: 2, key: 'fresh', active: true }], count: 1 }]
+                },
+            },
+        })
+
+        logic.actions.loadFeatureFlags()
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['fresh'])
+
+        releaseStaleResponse()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['fresh'])
     })
 })

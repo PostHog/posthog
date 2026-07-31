@@ -424,15 +424,23 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         featureFlags: [
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as FeatureFlagsResult,
             {
-                loadFeatureFlags: async () => {
+                loadFeatureFlags: async (_, breakpoint) => {
+                    // Read the filters up front: `values` is live, so reading them after the await would
+                    // stamp the response with whatever the user has typed since, and displayedFlags would
+                    // then filter this page against filters it was never requested under.
+                    const params = values.paramsFromFilters
+                    const filters = values.filters
                     const response = await api.get(
-                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(values.paramsFromFilters)}`
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams(params)}`
                     )
+                    // Drop a response that a newer request has already superseded, so slow-then-fast
+                    // responses can't land out of order.
+                    breakpoint()
 
                     return {
                         ...response,
-                        offset: values.paramsFromFilters.offset,
-                        filters: values.filters,
+                        offset: params.offset,
+                        filters,
                     }
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
