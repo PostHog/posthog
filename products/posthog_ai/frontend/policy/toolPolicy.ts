@@ -37,6 +37,9 @@ const POSTHOG_DESTRUCTIVE_SUB_TOOLS = new Set([
     // never a runtime tool, so the destructive `-execute` variant is what must be gated.
     'change-requests-approve-execute',
     'change-requests-reject-execute',
+    'cdp-functions-discard-draft',
+    'cdp-functions-publish',
+    'cdp-functions-restore-revision',
     'error-tracking-bypass-rules-create',
     'error-tracking-issues-merge-create',
     'error-tracking-issues-split-create',
