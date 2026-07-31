@@ -26,7 +26,7 @@ describe('openai template', () => {
     })
     it('sends a full standard conversion event', async () => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            'Order created',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: {
@@ -38,7 +38,6 @@ describe('openai template', () => {
                 },
             }),
             {
-                eventType: 'order_created',
                 amount: '{event.properties.value}',
                 currency: '{event.properties.currency}',
             }
@@ -80,7 +79,7 @@ describe('openai template', () => {
     })
     it('sends a custom event named after the PostHog event by default', async () => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            'Custom',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },
@@ -92,14 +91,34 @@ describe('openai template', () => {
         expect(conversion.custom_event_name).toEqual('Order Completed')
         expect(conversion.data).toEqual({ type: 'custom' })
     })
-    // Each standard event type must be sent with the data shape OpenAI requires for it
+    // Each default mapping must send its OpenAI standard event type with the matching data shape
     it.each([
-        ['checkout_started', 'contents'],
+        ['Page viewed', 'page_viewed', 'contents'],
+        ['Checkout started', 'checkout_started', 'contents'],
+        ['Items added', 'items_added', 'contents'],
+        ['Contents viewed', 'contents_viewed', 'contents'],
+        ['Registration completed', 'registration_completed', 'customer_action'],
+    ])('the %s mapping sends %s by default', async (mappingName, eventType, dataType) => {
+        const response = await tester.invokeMapping(
+            mappingName,
+            { pixelId: 'pixel-123', apiKey: 'api-key' },
+            createAdDestinationPayload({
+                event: { properties: { $current_url: 'https://posthog.com/checkout' } },
+            })
+        )
+        expect(response.error).toBeUndefined()
+        const conversion = getBody(response).events[0]
+        expect(conversion.type).toEqual(eventType)
+        expect(conversion.action_source).toEqual('web')
+        expect(conversion.data).toEqual({ type: dataType })
+    })
+    // Standard event types without a default mapping must still be usable via the choice input
+    it.each([
         ['lead_created', 'customer_action'],
         ['trial_started', 'plan_enrollment'],
     ])('sends the %s event with the %s data shape', async (eventType, dataType) => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            'Custom',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },
@@ -142,7 +161,7 @@ describe('openai template', () => {
         ],
     ])('sends the conversion when only %s is available', async (_, personProperties, assertIdentifiers) => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            'Custom',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },
@@ -154,7 +173,7 @@ describe('openai template', () => {
     })
     it('skips when only weak identifiers are available', async () => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            'Custom',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: {
@@ -194,7 +213,7 @@ describe('openai template', () => {
         ],
     ])('errors when %s', async (_, mappingOverrides, expectedError) => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            'Custom',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload(),
             mappingOverrides
@@ -202,23 +221,26 @@ describe('openai template', () => {
         expect(response.finished).toEqual(true)
         expect(response.error).toContain(expectedError)
     })
-    it('sends app events from a mobile app without a source URL', async () => {
+    // The app mappings must default to the mobile_app action source, or they would throw out of the box
+    it.each([
+        ['App installed', 'app_installed'],
+        ['App opened', 'app_opened'],
+    ])('the %s mapping sends %s from a mobile app without a source URL', async (mappingName, eventType) => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            mappingName,
             { pixelId: 'pixel-123', apiKey: 'api-key' },
-            createAdDestinationPayload(),
-            { eventType: 'app_installed', actionSource: 'mobile_app' }
+            createAdDestinationPayload()
         )
         expect(response.error).toBeUndefined()
         const conversion = getBody(response).events[0]
-        expect(conversion.type).toEqual('app_installed')
+        expect(conversion.type).toEqual(eventType)
         expect(conversion.action_source).toEqual('mobile_app')
         expect(conversion.source_url).toBeUndefined()
         expect(conversion.data).toEqual({ type: 'customer_action' })
     })
     it('omits the amount when no currency is set, as OpenAI rejects one without the other', async () => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            'Custom',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },
@@ -233,7 +255,7 @@ describe('openai template', () => {
     })
     it('handles error responses', async () => {
         const response = await tester.invokeMapping(
-            'Conversion',
+            'Custom',
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },

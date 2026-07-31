@@ -22,7 +22,36 @@ const EVENT_TYPES: { value: string; label: string; dataType: string }[] = [
 
 const DATA_TYPE_BY_EVENT_TYPE = EVENT_TYPES.map((e) => `'${e.value}': '${e.dataType}'`).join(', ')
 
-const build_inputs = (): HogFunctionInputSchemaType[] => {
+// PostHog events with a default mapping to an OpenAI standard event type. The other
+// standard types (lead_created, trial_started, ...) have no standard PostHog
+// counterpart, so users map those themselves via the event type choice.
+const DEFAULT_MAPPINGS: {
+    name: string
+    eventType: string
+    actionSource?: string
+    filterEvent: { id: string; name?: string }
+}[] = [
+    { name: 'Page viewed', eventType: 'page_viewed', filterEvent: { id: '$pageview', name: 'Pageview' } },
+    { name: 'Order created', eventType: 'order_created', filterEvent: { id: 'Order Completed' } },
+    { name: 'Checkout started', eventType: 'checkout_started', filterEvent: { id: 'Checkout Started' } },
+    { name: 'Items added', eventType: 'items_added', filterEvent: { id: 'Product Added' } },
+    { name: 'Contents viewed', eventType: 'contents_viewed', filterEvent: { id: 'Product Viewed' } },
+    { name: 'Registration completed', eventType: 'registration_completed', filterEvent: { id: 'Signed Up' } },
+    {
+        name: 'App installed',
+        eventType: 'app_installed',
+        actionSource: 'mobile_app',
+        filterEvent: { id: 'Application Installed' },
+    },
+    {
+        name: 'App opened',
+        eventType: 'app_opened',
+        actionSource: 'mobile_app',
+        filterEvent: { id: 'Application Opened' },
+    },
+]
+
+const build_inputs = (defaults: { eventType?: string; actionSource?: string } = {}): HogFunctionInputSchemaType[] => {
     return [
         {
             key: 'eventType',
@@ -30,7 +59,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             label: 'Event type',
             description:
                 'The OpenAI standard event type this conversion maps to. Pick "Custom" to send a custom conversion event.',
-            default: 'custom',
+            default: defaults.eventType ?? 'custom',
             choices: EVENT_TYPES.map(({ value, label }) => ({ value, label })),
             secret: false,
             required: true,
@@ -70,7 +99,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             label: 'Action source',
             description:
                 'Where the conversion happened. Must be "Mobile app" for the app installed and app opened event types.',
-            default: 'web',
+            default: defaults.actionSource ?? 'web',
             choices: [
                 { value: 'web', label: 'Web' },
                 { value: 'mobile_app', label: 'Mobile app' },
@@ -285,13 +314,21 @@ if (res.status >= 400) {
         },
     ],
     mapping_templates: [
-        {
-            name: 'Conversion',
+        ...DEFAULT_MAPPINGS.map(({ name, eventType, actionSource, filterEvent }) => ({
+            name,
             include_by_default: true,
+            filters: {
+                events: [{ ...filterEvent, type: 'events' as const }],
+            },
+            inputs_schema: build_inputs({ eventType, actionSource }),
+        })),
+        {
+            name: 'Custom',
+            include_by_default: false,
             filters: {
                 events: [],
             },
-            inputs_schema: [...build_inputs()],
+            inputs_schema: build_inputs(),
         },
     ],
 }
