@@ -47,13 +47,21 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
             }
         }
 
+        const warnings: PipelineWarning[] = []
+
         if (processPerson) {
-            preparedEvent.properties = await addGroupProperties(
+            const addGroupPropertiesResult = await addGroupProperties(
                 team.id,
                 team.project_id,
                 preparedEvent.properties,
                 groupTypeManager,
                 DateTime.fromISO(preparedEvent.timestamp)
+            )
+            preparedEvent.properties = addGroupPropertiesResult.properties
+            warnings.push(
+                ...addGroupPropertiesResult.droppedGroupTypes.map((groupType) =>
+                    groupTypeLimitReachedWarning(preparedEvent, groupType)
+                )
             )
 
             if (preparedEvent.event === '$groupidentify') {
@@ -61,7 +69,7 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
                 if (invalidGroupSetWarning) {
                     return drop('invalid_group_set', [], [invalidGroupSetWarning])
                 }
-                await upsertGroup(
+                const droppedGroupType = await upsertGroup(
                     groupTypeManager,
                     groupStoreForBatch,
                     team.id,
@@ -69,10 +77,13 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
                     preparedEvent.properties,
                     DateTime.fromISO(preparedEvent.timestamp)
                 )
+                if (droppedGroupType !== null) {
+                    warnings.push(groupTypeLimitReachedWarning(preparedEvent, droppedGroupType))
+                }
             }
         }
 
-        return ok(input)
+        return ok(input, [], warnings)
     }
 }
 
@@ -133,6 +144,7 @@ function validateGroupSet(preparedEvent: PreIngestionEvent): PipelineWarning | n
     }
 }
 
+/** Returns the dropped `$group_type` if the team's group type limit blocked the upsert, else null. */
 async function upsertGroup(
     groupTypeManager: GroupTypeManager,
     groupStore: GroupStoreForBatch,
@@ -140,21 +152,45 @@ async function upsertGroup(
     projectId: ProjectId,
     properties: Properties,
     timestamp: DateTime
-): Promise<void> {
+): Promise<string | null> {
     if (!properties['$group_type'] || !properties['$group_key']) {
-        return
+        return null
     }
 
     const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
     const groupTypeIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType, timestamp)
-    if (groupTypeIndex !== null) {
-        await groupStore.upsertGroup(
-            teamId,
-            projectId,
-            groupTypeIndex,
-            sanitizeString(groupKey.toString()),
-            groupPropertiesToSet || {},
-            timestamp
-        )
+    if (groupTypeIndex === null) {
+        return groupType
+    }
+
+    await groupStore.upsertGroup(
+        teamId,
+        projectId,
+        groupTypeIndex,
+        sanitizeString(groupKey.toString()),
+        groupPropertiesToSet || {},
+        timestamp
+    )
+    return null
+}
+
+/**
+ * `fetchGroupTypeIndex` returns null only once the project already has
+ * `MAX_GROUP_TYPES_PER_TEAM` group types registered (group-type-manager.ts) — an
+ * already-known group type resolves via the fast lookup path and never reaches
+ * that null branch. So a null result always means the team hit the cap, never
+ * some other failure.
+ */
+function groupTypeLimitReachedWarning(preparedEvent: PreIngestionEvent, groupType: string): PipelineWarning {
+    return {
+        type: 'group_type_limit_reached',
+        details: {
+            eventUuid: preparedEvent.eventUuid,
+            distinctId: preparedEvent.distinctId,
+            groupType: String(groupType),
+        },
+        // No `key`: same rationale as `invalid_group_set` above — a client-supplied
+        // key would let a sender bypass the per-team debounce and grow the
+        // limiter's bucket map without bound.
     }
 }

@@ -14,6 +14,10 @@ import { GroupType } from '~/types'
 
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
 
+// Mirrors MAX_GROUP_TYPES_PER_TEAM in nodejs/src/common/groups/group-type-manager.ts.
+// Ingestion enforces this ceiling; there's no API to fetch it, so it's duplicated here.
+const MAX_GROUP_TYPES_PER_PROJECT = 5
+
 export interface DeleteGroupTypeDialogProps {
     onConfirm: () => void
     groupTypeName: string
@@ -65,6 +69,9 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
     if (needsUpgradeForGroups) {
         return <GroupsIntroduction />
     }
+
+    const groupTypeCount = groupTypes.size
+    const atGroupTypeLimit = groupTypeCount >= MAX_GROUP_TYPES_PER_PROJECT
 
     const columns: LemonTableColumns<GroupType> = [
         {
@@ -146,7 +153,18 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                 </LemonBanner>
             )}
 
+            {atGroupTypeLimit && (
+                <LemonBanner type="warning" className="mb-4">
+                    You've reached the limit of {MAX_GROUP_TYPES_PER_PROJECT} group types for this project. Events sent
+                    with a new group type won't be recorded against that group. Delete a group type below to free up a
+                    slot, or contact support if you need more.
+                </LemonBanner>
+            )}
+
             <LemonTable columns={columns} dataSource={Array.from(groupTypes.values())} loading={groupTypesLoading} />
+            <div className="text-secondary mt-2">
+                {groupTypeCount} of {MAX_GROUP_TYPES_PER_PROJECT} group types used
+            </div>
 
             <div className="flex gap-2 mt-4">
                 <LemonButton

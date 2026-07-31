@@ -64,6 +64,10 @@ export const INGESTION_WARNING_TYPES = {
     skipping_event_invalid_distinct_id: { category: 'event', severity: 'error' },
     invalid_ai_token_property: { category: 'event', severity: 'warning' },
     invalid_group_set: { category: 'event', severity: 'error' },
+    // A team's project already registered the maximum number of group types
+    // (MAX_GROUP_TYPES_PER_TEAM in group-type-manager.ts) — the group association
+    // for this event is dropped, but the event itself is still ingested.
+    group_type_limit_reached: { category: 'event', severity: 'warning' },
     invalid_process_person_profile: { category: 'event', severity: 'warning' },
     invalid_event_when_process_person_profile_is_false: { category: 'event', severity: 'error' },
     event_dropped_too_old: { category: 'event', severity: 'info' },

@@ -60,12 +60,13 @@ describe('addGroupProperties', () => {
                 DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
             )
         ).toEqual({
-            foo: 'bar',
+            properties: { foo: 'bar' },
+            droppedGroupTypes: [],
         })
         expect(mgr.fetchGroupTypeIndex).not.toHaveBeenCalled()
     })
 
-    it('resolves group types via fetchGroupTypeIndex and sets $group_N', async () => {
+    it('resolves group types via fetchGroupTypeIndex and sets $group_N, reporting unresolved types as dropped', async () => {
         const mgr = mockGroupTypeManager({ organization: 0, project: 1, foobar: null })
 
         const properties = {
@@ -79,14 +80,19 @@ describe('addGroupProperties', () => {
         const eventTimestamp = DateTime.fromISO('2020-01-01T00:00:00.000Z', { zone: 'utc' })
 
         expect(await addGroupProperties(2, 2 as ProjectId, properties, mgr as any, eventTimestamp)).toEqual({
-            foo: 'bar',
-            $groups: {
-                organization: 'PostHog',
-                project: 'web',
-                foobar: 'afsafa',
+            properties: {
+                foo: 'bar',
+                $groups: {
+                    organization: 'PostHog',
+                    project: 'web',
+                    foobar: 'afsafa',
+                },
+                $group_0: 'PostHog',
+                $group_1: 'web',
             },
-            $group_0: 'PostHog',
-            $group_1: 'web',
+            // `foobar` couldn't be resolved (e.g. the project already hit its group type
+            // limit) — it must be reported so callers can warn instead of silently dropping it.
+            droppedGroupTypes: ['foobar'],
         })
 
         // The event timestamp is threaded through so newly-created mappings get created_at = event time.

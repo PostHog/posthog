@@ -214,7 +214,7 @@ describe('createProcessGroupsStep', () => {
         expect(mockGroupStore.upsertGroup).toHaveBeenCalledWith(1, 1, 0, 'org::5', {}, expect.any(DateTime))
     })
 
-    it('does not call upsertGroup when group type index is null', async () => {
+    it('does not call upsertGroup and warns when group type index is null', async () => {
         mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(null)
 
         const step = createStep()
@@ -233,6 +233,44 @@ describe('createProcessGroupsStep', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         expect(mockGroupStore.upsertGroup).not.toHaveBeenCalled()
+        // A team at its group type limit must surface a warning, not silently drop the group.
+        expect(result.warnings).toEqual([
+            expect.objectContaining({
+                type: 'group_type_limit_reached',
+                details: expect.objectContaining({
+                    eventUuid: 'test-uuid',
+                    distinctId: 'test-distinct-id',
+                    groupType: 'organization',
+                }),
+            }),
+        ])
+    })
+
+    it('warns when a $groups property references a group type past the limit', async () => {
+        mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValueOnce(0).mockResolvedValueOnce(null)
+
+        const step = createStep()
+        const result = await step(
+            createInput({
+                preparedEvent: createTestPreIngestionEvent({
+                    properties: { $groups: { org: 'posthog', unknown: 'value' } },
+                }),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent.properties).toEqual({
+                $groups: { org: 'posthog', unknown: 'value' },
+                $group_0: 'posthog',
+            })
+        }
+        expect(result.warnings).toEqual([
+            expect.objectContaining({
+                type: 'group_type_limit_reached',
+                details: expect.objectContaining({ groupType: 'unknown' }),
+            }),
+        ])
     })
 
     it('does not call upsertGroup for non-$groupidentify events', async () => {
