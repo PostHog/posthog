@@ -58,8 +58,8 @@ export function getManualCaptureExample({ surveyId = 'your-survey-id', followUpE
                   },
                   {
                       key: '$survey_completed',
-                      value: 'true',
-                      comment: 'or false if there is negative feedback followup',
+                      value: 'false',
+                      comment: 'a follow-up event completes this submission; use true when there is no follow-up',
                   },
               ]
             : []),
@@ -90,6 +90,7 @@ ${generateProps(thumbsProps)}
     if (followUpEnabled) {
         const followUpProps: Prop[] = [
             { key: '$survey_id', value: `'${surveyId}'` },
+            { key: '$survey_response', value: '1', comment: 're-send the thumbs response so it still shows' },
             { key: '$survey_response_1', value: "'the AI hallucinated hedgehogs everywhere'" },
             { key: '$ai_trace_id', value: 'traceId' },
             {
