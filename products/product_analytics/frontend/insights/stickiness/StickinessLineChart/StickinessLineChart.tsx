@@ -5,6 +5,7 @@ import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -31,11 +32,9 @@ import {
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
-    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessSeries,
     buildStickinessTooltipTitle,
-    stickinessPercentFormatter,
     STICKINESS_TOOLTIP_CONFIG,
 } from './stickinessChartTransforms'
 
@@ -85,8 +84,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
-    const bucketCount = currentPeriodResult?.labels?.length ?? 0
-    const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
+    const labels = currentPeriodResult?.labels ?? []
 
     const hasData =
         indexedResults &&
@@ -108,11 +106,18 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [indexedResults, display, getTrendsColor, getLabel, showMultipleYAxes]
     )
 
+    const valueLabelFormatter = useCallback(
+        (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
+        [trendsFilter, baseCurrency]
+    )
+
     const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
         () => ({
             ...buildStickinessLineTimeSeriesConfig({
+                trendsFilter,
+                baseCurrency,
                 yAxisScaleType,
-                valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
+                valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 showCrosshair: true,
                 tooltip: tooltipConfig,
             }),
@@ -120,7 +125,16 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
+        [
+            trendsFilter,
+            baseCurrency,
+            yAxisScaleType,
+            showValuesOnSeries,
+            valueLabelFormatter,
+            legendConfig,
+            tooltipConfig,
+            stickinessFilter?.chartStyle,
+        ]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -160,7 +174,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 interval: interval ?? undefined,
                 breakdownFilter: breakdownFilter ?? undefined,
                 trendsFilter,
-                showPercentView: true as const,
+                showPercentView: false as const,
                 isPercentStackView: false as const,
                 baseCurrency,
                 groupTypeLabel: resolvedGroupTypeLabel,

@@ -14,14 +14,15 @@ describe('buildStickinessBarTimeSeriesConfig', () => {
         expect(buildStickinessBarTimeSeriesConfig({ isGrouped }).barLayout).toBe(expected)
     })
 
-    it('omits the xAxis date config (labels are pre-formatted interval counts)', () => {
+    it('omits the xAxis date config, since labels come from the API per bucket', () => {
         expect(buildStickinessBarTimeSeriesConfig({ isGrouped: false }).xAxis).toBeUndefined()
     })
 
-    it('delegates the yAxis to the shared stickiness builder (percent + scale + grid)', () => {
+    it('delegates the yAxis to the shared stickiness builder (count format + scale + grid)', () => {
         const cfg = buildStickinessBarTimeSeriesConfig({ isGrouped: false, yAxisScaleType: 'log10' })
         expect(cfg.yAxis!.scale).toBe('log')
-        expect(cfg.yAxis!.tickFormatter!(50)).toBe('50.0%')
+        expect(cfg.yAxis!.showGrid).toBe(true)
+        expect(cfg.yAxis!.format).toBe('numeric')
     })
 
     it('passes through valueLabels and tooltip', () => {

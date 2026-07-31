@@ -1,5 +1,6 @@
 import type { TimeSeriesBarChartConfig, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
+import type { YFormatterFields } from '../../trends/shared/trendsChartDisplayOptions'
 import {
     buildStickinessSeries,
     buildStickinessYAxisConfig,
@@ -9,6 +10,8 @@ import {
 export { buildStickinessSeries as buildStickinessBarSeries }
 
 export interface BuildStickinessBarTimeSeriesConfigOpts {
+    trendsFilter?: YFormatterFields | null
+    baseCurrency?: string
     yAxisScaleType?: StickinessYAxisScaleType
     /** ActionsBar → stacked; ActionsUnstackedBar → grouped. */
     isGrouped: boolean
@@ -20,9 +23,14 @@ export interface BuildStickinessBarTimeSeriesConfigOpts {
 export function buildStickinessBarTimeSeriesConfig(
     opts: BuildStickinessBarTimeSeriesConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
-    // No xAxis date config — labels are pre-formatted interval counts (Day 0, Day 1, …).
+    // No xAxis date config: labels come from the API's own per-bucket labels (e.g. "1 day", "2 days").
     return {
-        yAxis: buildStickinessYAxisConfig({ yAxisScaleType: opts.yAxisScaleType, showGrid: opts.showGrid }),
+        yAxis: buildStickinessYAxisConfig({
+            trendsFilter: opts.trendsFilter,
+            baseCurrency: opts.baseCurrency,
+            yAxisScaleType: opts.yAxisScaleType,
+            showGrid: opts.showGrid,
+        }),
         valueLabels: opts.valueLabels,
         barLayout: opts.isGrouped ? 'grouped' : 'stacked',
         tooltip: opts.tooltip,

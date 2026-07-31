@@ -7,13 +7,10 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { ChartDisplayType } from '~/types'
 
 import {
-    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessMainSeries,
     buildStickinessSeries,
     buildStickinessTooltipTitle,
-    stickinessPercentFormatter,
-    toPercentData,
     type StickinessResultLike,
 } from './stickinessChartTransforms'
 
@@ -29,27 +26,9 @@ const makeResult = (overrides: Partial<StickinessResultLike> = {}): StickinessRe
 })
 
 describe('stickinessChartTransforms', () => {
-    describe('toPercentData', () => {
-        it.each<[string, number[], number, number[]]>([
-            ['typical share split', [50, 30, 15, 5], 100, [50, 30, 15, 5]],
-            ['fractional output', [1, 2, 3], 4, [25, 50, 75]],
-            ['count of 0 returns the raw values (avoids divide-by-zero)', [0, 0, 0], 0, [0, 0, 0]],
-            ['empty data stays empty', [], 10, []],
-        ])('%s', (_, data, count, expected) => {
-            expect(toPercentData(data, count)).toEqual(expected)
-        })
-
-        it('returns a copy when count is 0 (no aliasing of the input array)', () => {
-            const input = [1, 2, 3]
-            const out = toPercentData(input, 0)
-            expect(out).toEqual(input)
-            expect(out).not.toBe(input)
-        })
-    })
-
     describe('buildStickinessMainSeries', () => {
-        it('builds a single main series with data transformed to percentages', () => {
-            const series = buildStickinessMainSeries(makeResult(), 0, { getColor: () => RED })
+        it('builds a single main series with the raw data untouched, regardless of count', () => {
+            const series = buildStickinessMainSeries(makeResult({ count: 200 }), 0, { getColor: () => RED })
 
             expect(series).toMatchObject({
                 key: '0',
@@ -154,45 +133,14 @@ describe('stickinessChartTransforms', () => {
             expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', 'y2'])
         })
 
-        it('transforms each result independently using its own count', () => {
+        it("passes each result's raw data through unchanged regardless of its count", () => {
             const results = [
                 makeResult({ id: 'a', count: 200, data: [100, 50, 25, 25] }),
                 makeResult({ id: 'b', count: 50, data: [10, 20, 10, 10] }),
             ]
             const series = buildStickinessSeries(results, { getColor: () => RED })
-            expect(series[0].data).toEqual([50, 25, 12.5, 12.5])
-            expect(series[1].data).toEqual([20, 40, 20, 20])
-        })
-    })
-
-    describe('buildStickinessLabels', () => {
-        it.each([
-            ['day', 3, ['Day 0', 'Day 1', 'Day 2']],
-            ['week', 2, ['Week 0', 'Week 1']],
-            ['hour', 2, ['Hour 0', 'Hour 1']],
-            ['month', 2, ['Month 0', 'Month 1']],
-        ] as const)('emits "%s"-prefixed labels by index', (interval, count, expected) => {
-            expect(buildStickinessLabels(count, interval)).toEqual(expected)
-        })
-
-        it('defaults to "Day" when interval is null/undefined', () => {
-            expect(buildStickinessLabels(2, null)).toEqual(['Day 0', 'Day 1'])
-            expect(buildStickinessLabels(2, undefined)).toEqual(['Day 0', 'Day 1'])
-        })
-
-        it('returns empty array when count is 0', () => {
-            expect(buildStickinessLabels(0, 'day')).toEqual([])
-        })
-    })
-
-    describe('stickinessPercentFormatter', () => {
-        it.each([
-            [0, '0.0%'],
-            [50, '50.0%'],
-            [85.16, '85.2%'],
-            [100, '100.0%'],
-        ])('formats %s → %s', (value, expected) => {
-            expect(stickinessPercentFormatter(value)).toBe(expected)
+            expect(series[0].data).toEqual([100, 50, 25, 25])
+            expect(series[1].data).toEqual([10, 20, 10, 10])
         })
     })
 
@@ -221,14 +169,14 @@ describe('stickinessChartTransforms', () => {
     describe('buildStickinessLineTimeSeriesConfig', () => {
         const TOOLTIP: TooltipConfig = { pinnable: true, placement: 'top' }
 
-        it('returns yAxis with percent tick formatter and a linear scale by default', () => {
+        it('returns yAxis with a plain numeric (count) format and a linear scale by default', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
             const yAxis = config.yAxis as YAxisConfig
             expect(yAxis).not.toBeUndefined()
             expect(yAxis.scale).toBe('linear')
             expect(yAxis.showGrid).toBe(true)
-            expect(yAxis.tickFormatter).not.toBeUndefined()
-            expect(yAxis.tickFormatter!(50)).toBe('50.0%')
+            expect(yAxis.format).toBe('numeric')
+            expect(yAxis.tickFormatter).toBeUndefined()
         })
 
         it('switches the y-scale to log when yAxisScaleType is log10', () => {
@@ -238,7 +186,17 @@ describe('stickinessChartTransforms', () => {
             expect(yAxis.scale).toBe('log')
         })
 
-        it('omits an xAxis date config — labels are pre-formatted interval counts', () => {
+        it('threads trendsFilter/baseCurrency through to the y-axis format', () => {
+            const config = buildStickinessLineTimeSeriesConfig({
+                trendsFilter: { aggregationAxisFormat: 'currency' },
+                baseCurrency: 'USD',
+            })
+            const yAxis = config.yAxis as YAxisConfig
+            expect(yAxis.format).toBe('currency')
+            expect(yAxis.currency).toBe('USD')
+        })
+
+        it('omits an xAxis date config, since labels come from the API per bucket', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
             expect(config.xAxis).toBeUndefined()
         })
@@ -255,7 +213,7 @@ describe('stickinessChartTransforms', () => {
             expect(config.tooltip).toBe(TOOLTIP)
         })
 
-        it('does not enable percentStackView (stickiness already pre-percents data)', () => {
+        it('does not enable percentStackView', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
             expect(config.percentStackView).toBeUndefined()
         })
