@@ -64,16 +64,14 @@ class IdentityVerificationFailed(Exception):
 class IdentityVerificationNotConfigured(IdentityVerificationFailed):
     """Raised when the team has no secret API key to verify identity hashes against."""
 
-    # A signed request can't succeed until the project generates a key, and the site owner
-    # is the only one who sees this, so naming the cause beats an unexplained Forbidden.
-    public_error = (
-        "Identity verification is not configured. Generate a secret API key in your PostHog support settings."
-    )
+    # The widget API is AllowAny — reachable by anyone with the public widget token — so the
+    # response can't name the cause without leaking config state. Stays "Forbidden" (inherited);
+    # the specific reason is logged server-side for the team's own admins to see.
 
 
 def _verify_identity(data: dict, team: Team) -> str | None:
     """
-    Verify HMAC identity fields against team.secret_api_token.
+    Verify HMAC identity fields against the team's secret API token.
     Returns the verified distinct_id, or None if identity fields not present.
     Raises IdentityVerificationFailed if identity was attempted but failed.
     """
@@ -86,7 +84,13 @@ def _verify_identity(data: dict, team: Team) -> str | None:
         logger.warning("Identity verification attempted but team has no secret_api_token")
         raise IdentityVerificationNotConfigured("Team has no secret_api_token")
 
-    if not verify_identity_hash(distinct_id, hash_value, team.secret_api_token):
+    # Accept the backup token during rotation so in-flight verified sessions keep working,
+    # matching the external API's grace period (external.py checks both tokens too).
+    tokens = [team.secret_api_token]
+    if team.secret_api_token_backup:
+        tokens.append(team.secret_api_token_backup)
+
+    if not any(verify_identity_hash(distinct_id, hash_value, token) for token in tokens):
         raise IdentityVerificationFailed("Invalid identity hash")
 
     return distinct_id
