@@ -6190,6 +6190,10 @@ snapshots:
         hash: v1.k794b7964.296dae509cd0e88a9fef7adbba5235af5aef8b74c1077cb685bbd16b997c0dc6.pjqTvvIFWGFu-vDrjsSl9Fup4wniL2SMyMJNZFb3u8w
     scenes-app-inbox-detail--pull-request-checks-passing--light:
         hash: v1.k794b7964.8ba943a5363361d2601424e24d9289871bb4f42740c06dac27d8271def4a776d.R4C955XzaYHRnuIl4FBOZ9x7v3CiQ31wU6Hr5Br3xfY
+    scenes-app-inbox-detail--pull-request-inline-review--dark:
+        hash: v1.k794b7964.d89260b7e4099b17bebc621f5fab5f60a4ea1f530f4f6a994cf638007c080780.qIhljJsqUfvb5UPvvziAxf40gPoquL8TzLdLYm2yJbs
+    scenes-app-inbox-detail--pull-request-inline-review--light:
+        hash: v1.k794b7964.a0b8ef0276c5408dc8f4a446c5a5cdf9b38d3b352e49dc19395335ee6a8594a5.wjqDJQ8urXkDgA_OzMPYRbMjEi5G5Tt1lTr0rr__vPo
     scenes-app-inbox-detail--report--dark:
         hash: v1.k794b7964.b2bb8c879d3b8f8aea9692141c3e103aa28e2dee7c6bb0e0af0998303d3f7424.dNSsjRCetBaV1-kPWEMgmeS8vYUPKNkkrQiIvkCs2ss
     scenes-app-inbox-detail--report--light:
@@ -6478,6 +6482,10 @@ snapshots:
         hash: v1.k794b7964.2d8dc7d50a9b0bb18090a2e5c29368e12754c133f5029fba10515afca766c9a4.6cPWYhvNfeMHrXHSOz8R-IvwxmTOlpko0UXkl4g920I
     scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors--light:
         hash: v1.k794b7964.036b64dbb324cf0163342f393e403c3e3b7feb97bb5e3b88983f168c06f5b5fd.-rT11S5Rw9G17WjI2cK8efHwq2nmUsIMIA1hNd4F3BY
+    scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors-in-progress-bucket--dark:
+        hash: v1.k794b7964.c4311ba9e5d1feb336e3e96ca47bb48f400381487ea18793b537b59a8827b70c.wzmFcWI7LrsQOJ902hjl5cWWhJr1jktic0Faj5XskOs
+    scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors-in-progress-bucket--light:
+        hash: v1.k794b7964.4eb5cb46f0e65dca7bb7e668bf513dd2d84cf1003529bbcb62e356ffacd8d6be.9_PJaqE7DKZQaS7FtnPEBS7rW3FkBNs3GeU6n8fO3aI
     scenes-app-mcp-analytics-dashboard-cards--daily-tool-breakdown--dark:
         hash: v1.k794b7964.accfc0a38802ff4dd38b7d92143b5bd3ca3e7b746a05efcfa31980810a6fe1f1.krPWvAaNVmgG9TLam2-YDPGIJtCMCXtQO3kk4Y5qPM4
     scenes-app-mcp-analytics-dashboard-cards--daily-tool-breakdown--light:
