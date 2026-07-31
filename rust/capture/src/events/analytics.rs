@@ -25,8 +25,8 @@ use crate::{
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     ingestion_warnings::{
-        emit_distinct_id_truncated_warning, emit_processing_abort_warning,
-        emit_rate_limit_warning, legacy_request_context,
+        emit_distinct_id_truncated_warning, emit_processing_abort_warning, emit_rate_limit_warning,
+        legacy_request_context,
     },
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
@@ -383,24 +383,6 @@ async fn process_events_inner(
         events.push(redirect);
     }
 
-    // Tally truncated distinct_ids while the batch reflects what was
-    // submitted, before ops-imposed filters (token dropper, restrictions)
-    // remove events; the truncation happened to those events too and the
-    // customer fix is the same. The warning itself is emitted only after the
-    // sink accepts the batch, so a rejected request never reports its events
-    // as ingested-but-modified.
-    let mut truncated_count: u64 = 0;
-    let mut truncated_sample: Option<(String, usize, Uuid)> = None;
-    for e in &events {
-        if let Some(original_chars) = e.metadata.distinct_id_truncated_from {
-            truncated_count += 1;
-            if truncated_count == 1 {
-                truncated_sample =
-                    Some((e.event.distinct_id.clone(), original_chars, e.event.uuid));
-            }
-        }
-    }
-
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
 
     events.retain(|e| {
@@ -571,6 +553,25 @@ async fn process_events_inner(
         overflow_limiter.as_ref(),
         ai_events_overflow_limiter.as_ref(),
     );
+
+    // Tally truncated distinct_ids only now, after the membership filters
+    // (token dropper, restrictions): the warning means "ingested with a
+    // modified distinct_id", so an event those filters removed must not be
+    // counted or named as the sample. The stages above this point reroute or
+    // re-stamp events but never drop them. The warning itself is emitted only
+    // after the sink accepts the batch, so a rejected request never reports
+    // its events as ingested-but-modified either.
+    let mut truncated_count: u64 = 0;
+    let mut truncated_sample: Option<(String, usize, Uuid)> = None;
+    for e in &events {
+        if let Some(original_chars) = e.metadata.distinct_id_truncated_from {
+            truncated_count += 1;
+            if truncated_count == 1 {
+                truncated_sample =
+                    Some((e.event.distinct_id.clone(), original_chars, e.event.uuid));
+            }
+        }
+    }
 
     if events.is_empty() {
         return Ok(());
@@ -3427,6 +3428,22 @@ mod tests {
         Result<(), CaptureError>,
         Vec<common_ingestion_warnings::test_support::EmittedWarning>,
     ) {
+        run_batch_collecting_warnings_with_dropper(
+            events,
+            sink,
+            Arc::new(limiters::token_dropper::TokenDropper::default()),
+        )
+        .await
+    }
+
+    async fn run_batch_collecting_warnings_with_dropper(
+        events: Vec<RawEvent>,
+        sink: Arc<dyn sinks::Event + Send + Sync>,
+        dropper: Arc<limiters::token_dropper::TokenDropper>,
+    ) -> (
+        Result<(), CaptureError>,
+        Vec<common_ingestion_warnings::test_support::EmittedWarning>,
+    ) {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -3435,7 +3452,7 @@ mod tests {
 
         let result = process_events(
             sink,
-            Arc::new(limiters::token_dropper::TokenDropper::default()),
+            dropper,
             None,
             router::HistoricalConfig::new(false, 1),
             None,
@@ -3516,6 +3533,60 @@ mod tests {
         result.unwrap();
 
         assert!(emitted.is_empty());
+    }
+
+    #[tokio::test]
+    async fn truncation_warning_counts_only_events_that_survive_the_filters() {
+        // The warning means "ingested with a modified distinct_id", so a
+        // truncated event the token dropper (or a restriction) removes must
+        // not be counted or named as the sample.
+        let dropped_id = "x".repeat(250);
+        let surviving_id = "y".repeat(300);
+        // The dropper matches on the post-truncation id, since that is what
+        // the processed event carries.
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::new(&format!(
+            "test_token:{}",
+            &dropped_id[..200]
+        )));
+
+        // Only truncated event is dropped: nothing was ingested-but-modified,
+        // so no warning at all.
+        let sink = Arc::new(MockSink::new());
+        let (result, emitted) = run_batch_collecting_warnings_with_dropper(
+            vec![
+                event_with_distinct_id(&dropped_id),
+                event_with_distinct_id("normal_user"),
+            ],
+            sink.clone(),
+            dropper.clone(),
+        )
+        .await;
+        result.unwrap();
+        assert_eq!(sink.get_events().len(), 1);
+        assert!(emitted.is_empty());
+
+        // One truncated event dropped, another survives: count and sample
+        // must reflect only the survivor.
+        let sink = Arc::new(MockSink::new());
+        let (result, emitted) = run_batch_collecting_warnings_with_dropper(
+            vec![
+                event_with_distinct_id(&dropped_id),
+                event_with_distinct_id(&surviving_id),
+            ],
+            sink.clone(),
+            dropper,
+        )
+        .await;
+        result.unwrap();
+        let sent = sink.get_events();
+        assert_eq!(sent.len(), 1);
+
+        assert_eq!(emitted.len(), 1);
+        let w = &emitted[0];
+        assert_eq!(w.count, 1);
+        assert_eq!(w.extra_details["distinctId"], json!(surviving_id[..200]));
+        assert_eq!(w.extra_details["distinctIdLength"], json!(300));
+        assert_eq!(w.extra_details["eventUuid"], json!(sent[0].event.uuid));
     }
 
     #[tokio::test]
