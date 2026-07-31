@@ -2279,6 +2279,11 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         default=list, db_default=models.Value("[]"), help_text="Chronological artifact versions."
     )
     current_version = models.PositiveIntegerField(default=1, db_default=1)
+    # Slack delivery exchanges this for an anonymous image url that bypasses export access
+    # checks, so it's a dedicated column the API never accepts from callers — only the chart
+    # endpoint sets it, for an export it rendered itself. Plain id, not an FK: exports live in
+    # another product and expire on their own TTL; delivery treats a dangling id as no link.
+    export_asset_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

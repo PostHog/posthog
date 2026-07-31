@@ -36,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
-    run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     stage_chunk_for_person_property_sink,
@@ -57,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
@@ -311,12 +311,11 @@ class PipelineV3(Generic[ResumableData]):
             if is_fresh_sync:
                 self._pg_producer.is_first_ever_sync = True
 
-            # Defensive pre-write compaction. See `extract.run_pre_write_defensive_compact`
-            # for rationale; shared with the v2 pipeline so the threshold + error handling
-            # stay in lockstep.
+            # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
+            # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
             if not is_fresh_sync:
-                await run_pre_write_defensive_compact(
-                    self._delta_table_helper, self._schema, self._resource, self._logger
+                await DeltaMaintenance(self._delta_table_helper).run_scheduled(
+                    self._schema, partition_count_fallback=self._resource.partition_count
                 )
 
             async for item in async_iterate(self._resource.items()):

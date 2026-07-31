@@ -8944,6 +8944,7 @@ After component`,
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
         const shell = container.querySelector('.MarkdownNotebook__component-shell')
+        const actionsContainer = container.querySelector('.MarkdownNotebook__component-actions') as HTMLElement
         const modeButtons = Array.from(
             container.querySelectorAll('.MarkdownNotebook__component-mode-actions button')
         ) as HTMLButtonElement[]
@@ -8958,6 +8959,9 @@ After component`,
         expect(modeButtons[1].getAttribute('aria-label')).toEqual('Hide results')
         expect(toolbarLeftChildren[0].classList.contains('MarkdownNotebook__component-title')).toBe(true)
         expect(toolbarLeftChildren[1].classList.contains('MarkdownNotebook__component-mode-actions')).toBe(true)
+        // Edit mode folds via the eye/title; the collapse button is canvas-only
+        expect(container.querySelector('button[aria-label="Collapse"]')).toBeNull()
+        expect(actionsContainer.contains(deleteButton)).toBe(true)
         expect(deleteButton).toBeInstanceOf(HTMLButtonElement)
         const stackedPanels = Array.from(shell?.querySelectorAll('.MarkdownNotebook__component-panel') ?? [])
         expect(stackedPanels).toHaveLength(2)
@@ -9061,6 +9065,48 @@ After component`,
         expect(onChange).toHaveBeenLastCalledWith(
             `# \n\n<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
         )
+    })
+
+    it('toggles canvas filters locally without persisting hide props to the document', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                viewModeFilters: true,
+                ViewComponent: () => createElement('div', { 'data-testid': 'probe-results' }, 'Results'),
+                EditComponent: () => createElement('div', { 'data-testid': 'probe-filters' }, 'Filters'),
+            },
+        ])
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Probe />',
+                mode: 'view',
+                allowViewModeFilters: true,
+                registry,
+                onChange,
+            })
+        )
+
+        // Canvas default: results visible, filters closed behind the gear.
+        expect(container.querySelector('[data-testid="probe-results"]')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('[data-testid="probe-filters"]')).toBeNull()
+
+        const filtersButton = container.querySelector('button[aria-label="Show filters"]') as HTMLButtonElement
+        expect(filtersButton).toBeInstanceOf(HTMLButtonElement)
+
+        fireEvent.click(filtersButton)
+
+        expect(container.querySelector('[data-testid="probe-filters"]')).toBeInstanceOf(HTMLElement)
+        // Opening is encoded as the absence of hide* props: persisting from a canvas would
+        // round-trip the panel straight back to the closed fallback. It must stay local.
+        expect(onChange).not.toHaveBeenCalled()
+
+        fireEvent.click(container.querySelector('button[aria-label="Hide filters"]') as HTMLButtonElement)
+
+        expect(container.querySelector('[data-testid="probe-filters"]')).toBeNull()
+        expect(onChange).not.toHaveBeenCalled()
     })
 
     it('hides component mode actions when requested by the component definition', () => {

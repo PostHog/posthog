@@ -1957,7 +1957,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         upsertHogFunctionFailure: ({ errorObject }) => {
             const maybeValidationError = errorObject.data
 
-            if (maybeValidationError?.type === 'validation_error') {
+            if (maybeValidationError?.type === 'validation_error' && maybeValidationError.attr) {
+                // Errors on `type` (the feature gate and the enabled-function cap reject there)
+                // have no rendered form field, so a toast is the only way the user sees them.
+                if (maybeValidationError.attr === 'type') {
+                    lemonToast.error(maybeValidationError.detail)
+                }
                 setTimeout(() => {
                     // TRICKY: We want to run on the next tick otherwise the errors don't show (possibly because of the async wait in the submit)
                     if (maybeValidationError.attr.includes('inputs__')) {
@@ -1974,7 +1979,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }, 1)
             } else {
                 console.error(errorObject)
-                lemonToast.error('Error submitting configuration')
+                lemonToast.error(maybeValidationError?.detail ?? 'Error submitting configuration')
             }
         },
 
