@@ -6,7 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { JourneyGrid } from './JourneyGrid'
 import { journeysDataLogic } from './journeysDataLogic'
 
-export function Journeys(): JSX.Element {
+export function Journeys({ showPersonsModal = true }: { showPersonsModal?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { gridModel, isAnchored, theme, activeChainHighlight } = useValues(journeysDataLogic(insightProps))
     const { cardClicked, cardHovered, ribbonClicked, ribbonHovered, gridLeft } = useActions(
@@ -23,9 +23,11 @@ export function Journeys(): JSX.Element {
             isAnchored={isAnchored}
             nodeColor={theme?.['preset-1'] ?? '#000000'}
             chainHighlight={activeChainHighlight}
-            onCardClick={cardClicked}
+            // Shared and embedded views cannot open a persons modal, so the elements must not look
+            // clickable or take focus as buttons there.
+            onCardClick={showPersonsModal ? cardClicked : undefined}
             onCardHover={cardHovered}
-            onRibbonClick={ribbonClicked}
+            onRibbonClick={showPersonsModal ? ribbonClicked : undefined}
             onRibbonHover={ribbonHovered}
             onGridLeave={gridLeft}
         />

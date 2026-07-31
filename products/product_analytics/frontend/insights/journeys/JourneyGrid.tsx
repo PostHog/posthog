@@ -156,10 +156,34 @@ export function JourneyGrid({
                                 d={ribbonPath(fromX, fromY, thickness, toX, toY, thickness)}
                                 fill={nodeColor}
                                 opacity={ribbonOpacity(ribbon)}
-                                className="pointer-events-auto cursor-pointer hover:opacity-40 transition-opacity"
+                                className={`pointer-events-auto hover:opacity-40 transition-opacity ${
+                                    onRibbonClick ? 'cursor-pointer' : ''
+                                }`}
                                 data-attr="journey-grid-ribbon"
-                                onClick={() => onRibbonClick?.(ribbon)}
+                                role={onRibbonClick ? 'button' : undefined}
+                                tabIndex={onRibbonClick ? 0 : undefined}
+                                aria-label={
+                                    onRibbonClick
+                                        ? `${ribbon.sourceLabel} → ${ribbon.targetLabel}, ${pluralize(
+                                              ribbon.count,
+                                              'person',
+                                              'people'
+                                          )}`
+                                        : undefined
+                                }
+                                onClick={onRibbonClick ? () => onRibbonClick(ribbon) : undefined}
                                 onMouseEnter={() => onRibbonHover?.(ribbon)}
+                                onFocus={() => onRibbonHover?.(ribbon)}
+                                onKeyDown={
+                                    onRibbonClick
+                                        ? (event) => {
+                                              if (event.key === 'Enter' || event.key === ' ') {
+                                                  event.preventDefault()
+                                                  onRibbonClick(ribbon)
+                                              }
+                                          }
+                                        : undefined
+                                }
                             />
                         </Tooltip>
                     ))}
@@ -186,6 +210,9 @@ export function JourneyGrid({
                         nodeColor={nodeColor}
                         chainCount={
                             chainHighlight ? chainHighlight.countByCardKey[cardKey(stepIndex, row.key)] : undefined
+                        }
+                        chainFraction={
+                            chainHighlight ? chainHighlight.fractionByCardKey[cardKey(stepIndex, row.key)] : undefined
                         }
                         dimmed={
                             !!chainHighlight && chainHighlight.countByCardKey[cardKey(stepIndex, row.key)] === undefined
@@ -223,6 +250,7 @@ function JourneyCard({
     isAnchored,
     nodeColor,
     chainCount,
+    chainFraction,
     dimmed,
     onClick,
     onMouseEnter,
@@ -234,6 +262,8 @@ function JourneyCard({
     nodeColor: string
     /** The active chain's count for this card; set only while the card is on the hovered chain. */
     chainCount?: number
+    /** The chain count's share of the column total, so the bar describes the number shown above it. */
+    chainFraction?: number
     dimmed?: boolean
     onClick?: () => void
     onMouseEnter?: () => void
@@ -295,7 +325,7 @@ function JourneyCard({
             </div>
             {row.kind !== 'dropOff' && (
                 <LemonProgress
-                    percent={Math.max(2, row.fraction * 100)}
+                    percent={Math.max(2, (onChain ? (chainFraction ?? 0) : row.fraction) * 100)}
                     strokeColor={row.kind === 'other' ? 'var(--color-gray-400)' : nodeColor}
                     bgColor="var(--color-fill-secondary)"
                     smoothing={false}

@@ -28,6 +28,7 @@ from posthog.schema import (
     InsightVizNode,
     LifecycleQuery,
     PathsQuery,
+    PathsV2ActorsQuery,
     PathsV2Query,
     PathType,
     RetentionEntity,
@@ -102,6 +103,8 @@ class QueryEventsExtractor:
             events = self.extract_events(self._ensure_model_instance(query, FunnelCorrelationActorsQuery).source)
         elif kind == "StickinessActorsQuery":
             events = self.extract_events(self._ensure_model_instance(query, StickinessActorsQuery).source)
+        elif kind == "PathsV2ActorsQuery":
+            events = self.extract_events(self._ensure_model_instance(query, PathsV2ActorsQuery).source)
 
         elif kind == "TrendsQuery":
             events = self._extract_events_from_series(self._ensure_model_instance(query, TrendsQuery).series)
