@@ -36,6 +36,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         showAddOptOutModal,
         addOptOutLoading,
         removeOptOutLoading,
+        pendingRemoveIdentifier,
         newOptOutIdentifier,
     } = useValues(logic)
 
@@ -75,6 +76,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         {
             width: 0,
             render: function Render(_, optOutEntry: MessagePreferencesApi): JSX.Element {
+                const removingThisRow = removeOptOutLoading && pendingRemoveIdentifier === optOutEntry.identifier
                 return (
                     <More
                         overlay={
@@ -92,8 +94,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => removeOptOut(optOutEntry.identifier)}
-                                    loading={removeOptOutLoading}
-                                    disabledReason={removeOptOutLoading ? 'Removing…' : undefined}
+                                    loading={removingThisRow}
+                                    disabledReason={removingThisRow ? 'Removing…' : undefined}
                                     fullWidth
                                     icon={<IconRevert />}
                                 >

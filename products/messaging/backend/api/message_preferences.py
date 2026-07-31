@@ -1,5 +1,7 @@
 from typing import Any, Literal
 
+from django.db import transaction
+
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -18,7 +20,7 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
-from products.messaging.backend.services.customerio_sync_service import sync_preferences_to_customerio
+from products.messaging.backend.tasks import sync_preferences_to_customerio_task
 
 
 class OptOutsPagination(PageNumberPagination):
@@ -203,7 +205,9 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         preference.set_preference(category_id, PreferenceStatus.OPTED_OUT)
 
-        sync_preferences_to_customerio(self.team_id, identifier, preference.preferences)
+        # Customer.io round-trips can take tens of seconds, so sync off the request path
+        # once the preference write has committed.
+        transaction.on_commit(lambda: sync_preferences_to_customerio_task.delay(self.team_id, identifier))
 
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(MessagePreferencesSerializer(preference).data, status=response_status)
@@ -246,7 +250,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         preference.preferences = preferences
         preference.save(update_fields=["preferences", "updated_at"])
 
-        sync_preferences_to_customerio(self.team_id, identifier, preferences)
+        transaction.on_commit(lambda: sync_preferences_to_customerio_task.delay(self.team_id, identifier))
 
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(MessagePreferencesSerializer(preference).data, status=response_status)
@@ -258,6 +262,11 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         does nothing while `$all` stays opted out. Pin the team's other marketing categories to
         opted out first, so lifting `$all` resubscribes only the category the caller named
         instead of silently widening consent to everything.
+
+        The pinning overwrites even an explicit OPTED_IN on a sibling category (e.g. one a
+        Customer.io webhook recorded): while `$all` was opted out that opt-in was inert, so
+        preserving the recipient's effective state means opting the sibling out, not letting
+        the stale opt-in spring back to life.
         """
         if category.category_type != MessageCategoryType.MARKETING:
             return
@@ -272,7 +281,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             .values_list("id", flat=True)
         )
         for other_category_id in other_category_ids:
-            preferences.setdefault(str(other_category_id), PreferenceStatus.OPTED_OUT.value)
+            preferences[str(other_category_id)] = PreferenceStatus.OPTED_OUT.value
 
         preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_IN.value
 
@@ -296,14 +305,17 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"])
     def generate_link(self, request: Request, **kwargs: Any) -> Response:
         """Generate an unsubscribe link for the current user's email address"""
-        # The minted token lets whoever holds it rewrite that recipient's preferences, so this is
+        # The minted token lets whoever holds it rewrite that recipient's preferences, so this
+        # action is gated as a write despite being read-shaped.
         self._require_resource_access("editor", "You need hog_flow editor access to generate a preferences link.")
 
         user_email = getattr(request.user, "email", None)
         if not user_email:
             return Response({"error": "User email not found"}, status=400)
 
-        identifier = request.data.get("recipient", user_email)
+        serializer = GenerateLinkRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        identifier = serializer.validated_data.get("recipient", user_email)
 
         token = plugin_server_api.generate_messaging_preferences_token(self.team_id, identifier)
 

@@ -38,6 +38,7 @@ export interface optOutListLogicValues {
     newOptOutIdentifier: string
     optOutPersons: PaginatedMessagePreferencesApi
     optOutPersonsLoading: boolean
+    pendingRemoveIdentifier: string | null
     personsModalOpen: boolean
     removeOptOut: string | null
     removeOptOutLoading: boolean
@@ -244,6 +245,16 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 setShowAddOptOutModal: (state, { show }) => (show ? state : ''),
             },
         ],
+        pendingRemoveIdentifier: [
+            // Which row's removal is in flight: removeOptOutLoading alone is one boolean for the
+            // whole table, so every row's Remove button would show "Removing…" during any removal.
+            null as string | null,
+            {
+                removeOptOut: (_, identifier) => identifier,
+                removeOptOutSuccess: () => null,
+                removeOptOutFailure: () => null,
+            },
+        ],
     }),
     loaders(({ props, values, actions }) => {
         const fetchPage = async (page: number): Promise<PaginatedMessagePreferencesApi> => {
@@ -302,25 +313,28 @@ export const optOutListLogic = kea<optOutListLogicType>([
                 loadOptOutPersons: async (): Promise<PaginatedMessagePreferencesApi> => {
                     try {
                         return await fetchPage(1)
-                    } catch {
+                    } catch (e) {
                         lemonToast.error('Failed to load opt-out persons')
-                        return EMPTY_OPT_OUTS
+                        // Rethrow so kea-loaders emits a *Failure action: optOutPersons keeps its
+                        // previous value instead of rendering a failed fetch as "no opt-outs found",
+                        // and the currentPage reducer (which only moves on *Success) stays put.
+                        throw e
                     }
                 },
                 loadNextPage: async (): Promise<PaginatedMessagePreferencesApi> => {
                     try {
                         return await fetchPage(values.currentPage + 1)
-                    } catch {
+                    } catch (e) {
                         lemonToast.error('Failed to load next page')
-                        return values.optOutPersons
+                        throw e
                     }
                 },
                 loadPreviousPage: async (): Promise<PaginatedMessagePreferencesApi> => {
                     try {
                         return await fetchPage(Math.max(1, values.currentPage - 1))
-                    } catch {
+                    } catch (e) {
                         lemonToast.error('Failed to load previous page')
-                        return values.optOutPersons
+                        throw e
                     }
                 },
             },

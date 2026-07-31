@@ -737,14 +737,25 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             PreferenceStatus.OPTED_IN,
         )
 
-    def test_remove_opt_out_for_category_lifts_all_without_widening_consent(self):
-        # A globally unsubscribed recipient with no per-category preferences: opting them back in
-        # to one category has to clear $all (or the send is still blocked) without turning the
-        # other marketing categories back on.
+    @parameterized.expand(
+        [
+            ("sibling_without_stored_preference", None),
+            ("sibling_with_stale_opt_in", PreferenceStatus.OPTED_IN.value),
+        ]
+    )
+    def test_remove_opt_out_for_category_lifts_all_without_widening_consent(self, _name, sibling_status):
+        # A globally unsubscribed recipient: opting them back in to one category has to clear
+        # $all (or the send is still blocked) without turning the other marketing categories
+        # back on. That includes a sibling holding a stale explicit opt-in (e.g. recorded by a
+        # Customer.io webhook before the global unsubscribe): it was inert while $all was opted
+        # out, so it must be pinned to opted out rather than resurrected.
+        preferences = {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value}
+        if sibling_status is not None:
+            preferences[str(self.category2.id)] = sibling_status
         recipient = MessageRecipientPreference.objects.create(
             team=self.team,
             identifier="user@example.com",
-            preferences={ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value},
+            preferences=preferences,
         )
 
         response = self._remove_opt_out({"identifier": "user@example.com", "category_key": self.category.key})
@@ -789,13 +800,16 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             ("remove_opt_out", PreferenceStatus.OPTED_IN),
         ]
     )
-    @patch("products.messaging.backend.api.message_preferences.sync_preferences_to_customerio")
+    @patch("products.messaging.backend.tasks.sync_preferences_to_customerio")
     def test_opt_out_writes_are_synced_to_customerio(self, endpoint, expected_status, mock_sync):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_preferences/{endpoint}/",
-            {"identifier": "user@example.com"},
-            content_type="application/json",
-        )
+        # Exercises the whole dispatch chain: the view enqueues the task on commit, and the
+        # task (eager in tests) reads the row back and calls the sync service.
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/messaging_preferences/{endpoint}/",
+                {"identifier": "user@example.com"},
+                content_type="application/json",
+            )
 
         self.assertEqual(response.status_code, 201)
         mock_sync.assert_called_once_with(
@@ -803,6 +817,35 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             "user@example.com",
             {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: expected_status.value},
         )
+
+    @patch("posthog.plugins.plugin_server_api.generate_messaging_preferences_token", return_value="tok-123")
+    def test_generate_link_defaults_to_the_callers_email(self, mock_token):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/generate_link/",
+            {},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["preferences_url"].endswith("/messaging-preferences/tok-123/"))
+        mock_token.assert_called_once_with(self.team.id, self.user.email)
+
+    @parameterized.expand(
+        [
+            ("too_long", "a" * 513),
+            ("not_a_string", ["not", "a", "string"]),
+        ]
+    )
+    @patch("posthog.plugins.plugin_server_api.generate_messaging_preferences_token")
+    def test_generate_link_rejects_invalid_recipient(self, _name, recipient, mock_token):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/generate_link/",
+            {"recipient": recipient},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        mock_token.assert_not_called()
 
 
 class TestMessagePreferencesAPIKeyAccess(APIBaseTest):
