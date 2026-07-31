@@ -38,6 +38,7 @@ class Command(BaseCommand):
         organization_id = options["organization_id"]
         as_json = options["as_json"]
 
+        checked = False
         if team_id is not None:
             teams = [Team.objects.select_related("organization").get(id=team_id)]
         elif organization_id is not None:
@@ -48,9 +49,10 @@ class Command(BaseCommand):
             teams = list(Team.objects.select_related("organization").filter(organization=organization))
         else:
             teams = self._teams_with_limited_billable_exports()
+            checked = True
 
         for team in teams:
-            self._report_team(team, as_json)
+            self._report_team(team, as_json, checked)
 
         if not teams:
             self.stdout.write("No teams with active billable batch exports are over the billing limit.")
@@ -73,8 +75,11 @@ class Command(BaseCommand):
             .distinct()
         )
 
-    def _report_team(self, team: Team, as_json: bool) -> None:
-        is_over_limit = async_to_sync(check_is_over_limit)(team.id)
+    def _report_team(self, team: Team, as_json: bool, checked: bool) -> None:
+        if not checked:
+            is_over_limit = async_to_sync(check_is_over_limit)(team.id)
+        else:
+            is_over_limit = True
 
         zset_key = f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{QuotaResource.ROWS_EXPORTED.value}"
         score = get_client().zscore(zset_key, team.api_token)
