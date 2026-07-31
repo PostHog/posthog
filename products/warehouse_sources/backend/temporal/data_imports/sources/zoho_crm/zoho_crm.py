@@ -326,11 +326,14 @@ def validate_credentials(
         return False, str(e)
 
     try:
-        client.get(f"/crm/{api_version}/settings/modules")
+        # `/settings/modules` needs `ZohoCRM.settings.modules.READ`, a scope the setup caption
+        # never asks for. `/settings/fields` is covered by the advertised
+        # `ZohoCRM.settings.fields.READ` scope and is just as good a liveness probe.
+        client.get(f"/crm/{api_version}/settings/fields", params={"module": "Leads"})
     except ZohoCRMAuthError:
         return False, REFRESH_TOKEN_REJECTED_MESSAGE
-    except Exception:
-        return False, None
+    except Exception as e:
+        return False, str(e)
     return True, None
 
 

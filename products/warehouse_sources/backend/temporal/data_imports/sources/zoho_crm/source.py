@@ -157,7 +157,14 @@ In the [Zoho API console](https://api-console.zoho.com), create a **Self Client*
         if is_valid:
             return True, None
 
-        return False, error or "Invalid Zoho CRM credentials"
+        if not error:
+            return False, "Invalid Zoho CRM credentials"
+
+        for pattern, friendly_message in self.get_non_retryable_errors().items():
+            if pattern and friendly_message and pattern in error:
+                return False, friendly_message
+
+        return False, error
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ZohoCRMResumeConfig]:
         # Each module keeps its own cursor: page tokens are bound to the query that issued them.

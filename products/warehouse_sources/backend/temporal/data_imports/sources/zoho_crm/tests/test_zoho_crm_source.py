@@ -171,6 +171,14 @@ class TestZohoCRMSource:
         [
             ((False, REFRESH_TOKEN_REJECTED_MESSAGE), REFRESH_TOKEN_REJECTED_MESSAGE),
             ((False, None), "Invalid Zoho CRM credentials"),
+            # A raw HTTP error from the probe must map through get_non_retryable_errors to the
+            # scope-specific copy, not fall back to a generic "invalid credentials" string.
+            (
+                (False, "403 Client Error: Forbidden for url: https://www.zohoapis.com/crm/v8/settings/fields"),
+                "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL and ZohoCRM.settings.fields.READ scopes.",
+            ),
+            # An unrecognized error string is surfaced as-is rather than being swallowed.
+            ((False, "boom"), "boom"),
         ],
     )
     @mock.patch(f"{_SOURCE_MODULE}.validate_zoho_crm_credentials")

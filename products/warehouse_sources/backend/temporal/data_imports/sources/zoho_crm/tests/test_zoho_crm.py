@@ -422,8 +422,8 @@ class TestGetRows:
 
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_when_the_modules_probe_succeeds(self, make_session: mock.MagicMock) -> None:
-        make_session.return_value = _session([_response(200, {"modules": []})])
+    def test_valid_when_the_fields_probe_succeeds(self, make_session: mock.MagicMock) -> None:
+        make_session.return_value = _session([_response(200, {"fields": []})])
 
         assert validate_credentials("us", "cid", "secret", "refresh") == (True, None)
 
@@ -446,14 +446,17 @@ class TestValidateCredentials:
         assert "invalid_client" not in (error or "")
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_http_failure_is_not_valid(self, make_session: mock.MagicMock) -> None:
+    def test_http_failure_surfaces_the_underlying_error(self, make_session: mock.MagicMock) -> None:
         forbidden = _response(403)
         forbidden.raise_for_status.side_effect = requests.HTTPError(
             "403 Client Error: Forbidden for url", response=mock.MagicMock()
         )
         make_session.return_value = _session([forbidden])
 
-        assert validate_credentials("us", "cid", "secret", "refresh") == (False, None)
+        is_valid, error = validate_credentials("us", "cid", "secret", "refresh")
+
+        assert is_valid is False
+        assert error == "403 Client Error: Forbidden for url"
 
 
 class TestZohoCRMSourceResponse:
